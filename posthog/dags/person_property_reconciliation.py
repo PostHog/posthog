@@ -559,6 +559,12 @@ def merge_raw_person_property_updates(
                 existing.unset_updates[key] = new_pv
 
 
+# Max number of person_ids per batch when querying person state.
+# Prevents "Query size exceeded" errors when IN clause becomes too large.
+# 10K UUIDs × ~40 chars ≈ 400KB query text, under typical max_query_size limits.
+PERSON_STATE_BATCH_SIZE = 10000
+
+
 def compare_raw_updates_with_person_state(
     team_id: int,
     raw_updates: list[RawPersonPropertyUpdates],
@@ -584,6 +590,11 @@ def compare_raw_updates_with_person_state(
         preferable for reconciliation as it avoids unnecessary updates when
         values are semantically equivalent.
 
+    Note on batching:
+        For high-volume teams with many affected persons, we batch the person
+        state queries to avoid "Query size exceeded" errors from overly large
+        IN clauses. Each batch queries up to PERSON_STATE_BATCH_SIZE persons.
+
     Args:
         team_id: Team ID
         raw_updates: Merged raw updates from all time windows
@@ -594,37 +605,41 @@ def compare_raw_updates_with_person_state(
     if not raw_updates:
         return []
 
+    # Extract person_ids for batching
     person_ids = [u.person_id for u in raw_updates]
 
-    # Query person properties and versions
-    query = """
-    SELECT
-        id,
-        argMax(properties, version) as properties,
-        argMax(version, version) as person_version
-    FROM person
-    WHERE team_id = %(team_id)s
-      AND id IN %(person_ids)s
-    GROUP BY id
-    HAVING argMax(is_deleted, version) = 0
-    """
-
-    params = {
-        "team_id": team_id,
-        "person_ids": tuple(person_ids),
-    }
-
-    rows = sync_execute(query, params)
-
-    # Build person lookup
+    # Query person properties and versions in batches to avoid "Query size exceeded"
     person_data: dict[str, tuple[dict, int]] = {}
-    for row in rows:
-        person_id, properties_str, version = row
-        if properties_str:
-            properties = json.loads(properties_str) if isinstance(properties_str, str) else properties_str
-        else:
-            properties = {}
-        person_data[str(person_id)] = (properties, int(version))
+
+    for batch_start in range(0, len(person_ids), PERSON_STATE_BATCH_SIZE):
+        batch_person_ids = person_ids[batch_start : batch_start + PERSON_STATE_BATCH_SIZE]
+
+        query = """
+        SELECT
+            id,
+            argMax(properties, version) as properties,
+            argMax(version, version) as person_version
+        FROM person
+        WHERE team_id = %(team_id)s
+          AND id IN %(person_ids)s
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
+        """
+
+        params = {
+            "team_id": team_id,
+            "person_ids": tuple(batch_person_ids),
+        }
+
+        rows = sync_execute(query, params)
+
+        for row in rows:
+            person_id, properties_str, version = row
+            if properties_str:
+                properties = json.loads(properties_str) if isinstance(properties_str, str) else properties_str
+            else:
+                properties = {}
+            person_data[str(person_id)] = (properties, int(version))
 
     results: list[PersonPropertyDiffs] = []
 
@@ -688,6 +703,7 @@ def get_person_property_updates_windowed(
     team_id: int,
     bug_window_start: str,
     window_seconds: int,
+    logger: Any = None,
 ) -> list[PersonPropertyDiffs]:
     """
     Fetch person property updates, optionally in time windows.
@@ -703,17 +719,25 @@ def get_person_property_updates_windowed(
         team_id: Team ID to query
         bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
         window_seconds: Size of each query window in seconds. If <= 0, single query is used.
+        logger: Optional logger for progress tracking
 
     Returns:
         List of PersonPropertyDiffs with merged results across all windows
     """
     if window_seconds <= 0:
+        if logger:
+            logger.info(f"Using single-query mode for team_id={team_id}")
         return get_person_property_updates_from_clickhouse(team_id, bug_window_start)
 
     # Step 1 & 2: Query raw updates per window and merge
     accumulated: dict[str, RawPersonPropertyUpdates] = {}
     current_start = parse_ch_timestamp(bug_window_start)
     now = datetime.now(UTC)
+    window_count = 0
+    total_windows = int((now - current_start).total_seconds() / window_seconds) + 1
+
+    if logger:
+        logger.info(f"Starting windowed query: team_id={team_id}, ~{total_windows} windows of {window_seconds}s each")
 
     while current_start < now:
         current_end = min(current_start + timedelta(seconds=window_seconds), now)
@@ -723,9 +747,25 @@ def get_person_property_updates_windowed(
             format_ch_timestamp(current_end),
         )
         merge_raw_person_property_updates(accumulated, window_updates)
+        window_count += 1
+
+        if logger and window_count % 10 == 0:
+            logger.info(
+                f"Processed window {window_count}/{total_windows} for team_id={team_id}, "
+                f"accumulated {len(accumulated)} unique persons"
+            )
+
         current_start = current_end
 
+    if logger:
+        logger.info(
+            f"Completed all {window_count} windows for team_id={team_id}, total unique persons: {len(accumulated)}"
+        )
+
     # Step 3: Compare merged raw updates against person state
+    if logger:
+        logger.info(f"Comparing {len(accumulated)} persons against current state for team_id={team_id}")
+
     return compare_raw_updates_with_person_state(team_id, list(accumulated.values()))
 
 
@@ -1521,11 +1561,17 @@ def reconcile_single_team(
     This function does not catch exceptions - the caller is responsible for error handling.
     """
     # Query ClickHouse for all persons with property updates in this team
+    logger.info(
+        f"Querying ClickHouse for property updates: team_id={team_id}, "
+        f"bug_window_start={bug_window_start}, window_seconds={team_ch_props_fetch_window_seconds}"
+    )
     person_property_diffs = get_person_property_updates_windowed(
         team_id=team_id,
         bug_window_start=bug_window_start,
         window_seconds=team_ch_props_fetch_window_seconds,
+        logger=logger,
     )
+    logger.info(f"Found {len(person_property_diffs)} persons with property diffs for team_id={team_id}")
 
     # Filter conflicting set/unset operations
     person_property_diffs = filter_event_person_properties(person_property_diffs)
@@ -2013,14 +2059,12 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
                 team_ids=chunk_team_ids,
             )
 
-            run_key = f"reconcile_team_ids_{next_team_index}_{chunk_end_index - 1}"
             context.log.info(
                 f"Scheduling run for team_ids[{next_team_index}:{chunk_end_index}] ({len(chunk_team_ids)} teams)"
             )
 
             run_requests.append(
                 dagster.RunRequest(
-                    run_key=run_key,
                     run_config=run_config,
                     tags={
                         "reconciliation_team_ids_range": f"{next_team_index}-{chunk_end_index - 1}",
@@ -2055,12 +2099,10 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
                 max_team_id=chunk_end,
             )
 
-            run_key = f"reconcile_teams_{current_start}_{chunk_end}"
             context.log.info(f"Scheduling run for teams {current_start}-{chunk_end}")
 
             run_requests.append(
                 dagster.RunRequest(
-                    run_key=run_key,
                     run_config=run_config,
                     tags={
                         "reconciliation_range": f"{current_start}-{chunk_end}",

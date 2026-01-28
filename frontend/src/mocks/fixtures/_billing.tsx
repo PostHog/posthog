@@ -2969,14 +2969,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'tagging',
-                            name: 'Dashboard tags',
-                            description: 'Organize dashboards with tags.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'social_sso',
                             name: 'SSO via Google, Github, or Gitlab',
                             description: 'Log in to PostHog with your Google, Github, or Gitlab account.',
@@ -3310,14 +3302,6 @@ export const billingJson: BillingType = {
                                     note: null,
                                 },
                                 {
-                                    key: 'tagging',
-                                    name: 'Dashboard tags',
-                                    description: 'Organize dashboards with tags.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
                                     key: 'support_response_time',
                                     name: 'Support response time',
                                     description: 'Get help from our team!',
@@ -3447,14 +3431,6 @@ export const billingJson: BillingType = {
                             name: 'Ingestion taxonomy',
                             description:
                                 'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'tagging',
-                            name: 'Dashboard tags',
-                            description: 'Organize dashboards with tags.',
                             images: null,
                             icon_key: null,
                             type: null,
@@ -3749,14 +3725,6 @@ export const billingJson: BillingType = {
                     name: 'Ingestion taxonomy',
                     description:
                         'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'tagging',
-                    name: 'Dashboard tags',
-                    description: 'Organize dashboards with tags.',
                     images: null,
                     icon_key: null,
                     type: null,

@@ -1,13 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getReactSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    snippets: any
-): StepDefinition[] => {
+export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -51,8 +48,8 @@ export const getReactSteps = (
             content: (
                 <>
                     <Markdown>
-                        Add your PostHog API key and host to your environment variables. For Vite-based React apps, use the
-                        `VITE_PUBLIC_` prefix:
+                        Add your PostHog API key and host to your environment variables. For Vite-based React apps, use
+                        the `VITE_PUBLIC_` prefix:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -109,7 +106,8 @@ export const getReactSteps = (
                     <CalloutBox type="fyi" title="defaults option">
                         <Markdown>
                             The `defaults` option automatically configures PostHog with recommended settings for new
-                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for details.
+                            projects. See [SDK defaults](https://posthog.com/docs/libraries/js#sdk-defaults) for
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -145,9 +143,7 @@ export const getReactSteps = (
                             },
                         ]}
                     />
-                    <Markdown>
-                        You can also import `posthog` directly for non-React code or utility functions:
-                    </Markdown>
+                    <Markdown>You can also import `posthog` directly for non-React code or utility functions:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -174,17 +170,4 @@ export const getReactSteps = (
     ]
 }
 
-export const ReactInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets } = useMDXComponents()
-    const steps = getReactSteps(CodeBlock, Markdown, CalloutBox, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const ReactInstallation = createInstallation(getReactSteps)

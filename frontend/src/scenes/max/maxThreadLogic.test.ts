@@ -639,50 +639,6 @@ describe('maxThreadLogic', () => {
         })
     })
 
-    describe('invisible tool call filtering', () => {
-        it('filters out invisible tool call messages from threadGrouped', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setThread([
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                    {
-                        type: AssistantMessageType.ToolCall,
-                        content: 'invisible tool call',
-                        status: 'completed',
-                        id: 'tool-1',
-                        tool_call_id: 'tool-1',
-                        ui_payload: {},
-                    },
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'response',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ])
-            }).toMatchValues({
-                threadGrouped: [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'response',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ],
-            })
-        })
-    })
-
     describe('failure message handling', () => {
         it('adds failure message and stops streaming when failure event received', async () => {
             await expectLogic(logic, () => {

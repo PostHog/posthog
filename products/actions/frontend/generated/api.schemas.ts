@@ -14,7 +14,6 @@
  */
 export type UrlMatchingEnumApi = (typeof UrlMatchingEnumApi)[keyof typeof UrlMatchingEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UrlMatchingEnumApi = {
     contains: 'contains',
     regex: 'regex',
@@ -23,7 +22,6 @@ export const UrlMatchingEnumApi = {
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
@@ -41,13 +39,13 @@ export interface ActionStepJSONApi {
     tag_name?: string | null
     /** @nullable */
     text?: string | null
-    text_matching?: UrlMatchingEnumApi | NullEnumApi
+    text_matching?: UrlMatchingEnumApi | NullEnumApi | null
     /** @nullable */
     href?: string | null
-    href_matching?: UrlMatchingEnumApi | NullEnumApi
+    href_matching?: UrlMatchingEnumApi | NullEnumApi | null
     /** @nullable */
     url?: string | null
-    url_matching?: UrlMatchingEnumApi | NullEnumApi
+    url_matching?: UrlMatchingEnumApi | NullEnumApi | null
 }
 
 /**
@@ -62,7 +60,6 @@ export interface ActionStepJSONApi {
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -76,7 +73,6 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
@@ -104,11 +100,11 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface ActionApi {
     readonly id: number
@@ -153,7 +149,7 @@ export interface PaginatedActionListApi {
 }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedActionApi {
     readonly id?: number
@@ -202,7 +198,6 @@ export type ActionsListParams = {
 
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ActionsListFormat = {
     csv: 'csv',
     json: 'json',
@@ -214,7 +209,6 @@ export type ActionsCreateParams = {
 
 export type ActionsCreateFormat = (typeof ActionsCreateFormat)[keyof typeof ActionsCreateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ActionsCreateFormat = {
     csv: 'csv',
     json: 'json',
@@ -226,7 +220,6 @@ export type ActionsRetrieveParams = {
 
 export type ActionsRetrieveFormat = (typeof ActionsRetrieveFormat)[keyof typeof ActionsRetrieveFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ActionsRetrieveFormat = {
     csv: 'csv',
     json: 'json',
@@ -238,7 +231,6 @@ export type ActionsUpdateParams = {
 
 export type ActionsUpdateFormat = (typeof ActionsUpdateFormat)[keyof typeof ActionsUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ActionsUpdateFormat = {
     csv: 'csv',
     json: 'json',
@@ -250,7 +242,6 @@ export type ActionsPartialUpdateParams = {
 
 export type ActionsPartialUpdateFormat = (typeof ActionsPartialUpdateFormat)[keyof typeof ActionsPartialUpdateFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ActionsPartialUpdateFormat = {
     csv: 'csv',
     json: 'json',
@@ -262,7 +253,6 @@ export type ActionsDestroyParams = {
 
 export type ActionsDestroyFormat = (typeof ActionsDestroyFormat)[keyof typeof ActionsDestroyFormat]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ActionsDestroyFormat = {
     csv: 'csv',
     json: 'json',

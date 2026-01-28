@@ -270,7 +270,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                 </>
             }
         >
-            <div className="flex gap-4">
+            <div className="flex gap-4" data-attr="endpoint-playground">
                 <div className="flex-1 flex flex-col gap-2">
                     <LemonField.Pure
                         label="Request payload"

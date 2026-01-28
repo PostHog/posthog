@@ -229,7 +229,7 @@ const Component = ({
         pythonExecution?.traceback?.length,
         pythonExecution?.variables?.length,
         updateAttributes,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!expanded) {
         return null
