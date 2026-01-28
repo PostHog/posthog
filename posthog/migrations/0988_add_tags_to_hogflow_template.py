@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="hogflowtemplate",
             name="tags",
-            field=ArrayField(base_field=models.CharField(max_length=255), blank=True, default=list, size=None),
+            field=ArrayField(base_field=models.CharField(max_length=255), blank=True, null=True, size=None),
         ),
     ]
