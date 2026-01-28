@@ -292,8 +292,9 @@ async function main() {
         const page = await browser.newPage()
         await page.setViewport({ width, height })
         const recordStarted = Date.now()
-        // Configure screen recorder
-        const customFps = 30 * playbackSpeed // TODO: Decide if it's not too much
+        // Videos could be recorded up to 240fps if necessary to avoid losing data when slowing down to 30 fps later
+        // The complication is mostly with CSS animations, as they aren't sped up by rrweb player when running at 8x
+        const customFps = Math.min(30 * playbackSpeed, 240)
         const recorderConfig = {
             followNewTab: false, // Always a single tab is recorded
             // Adjust FPS based on the playback speed, so we can speed up seamlessly later
