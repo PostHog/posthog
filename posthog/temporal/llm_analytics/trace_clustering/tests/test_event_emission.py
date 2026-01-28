@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.llm_analytics.trace_clustering.event_emission import _build_cluster_data, emit_cluster_events
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterLabel
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusterData,
+    ClusterItem,
+    ClusterLabel,
+    TraceClusterMetadata,
+)
 
 
 @pytest.fixture
@@ -28,7 +33,12 @@ def mock_team(db):
 class TestBuildClusterData:
     def test_builds_regular_clusters(self):
         labels = [0, 0, 1, 1]
-        trace_ids = ["trace_0", "trace_1", "trace_2", "trace_3"]
+        items = [
+            ClusterItem(trace_id="trace_0", generation_id=None),
+            ClusterItem(trace_id="trace_1", generation_id=None),
+            ClusterItem(trace_id="trace_2", generation_id=None),
+            ClusterItem(trace_id="trace_3", generation_id=None),
+        ]
         distances_matrix = np.array(
             [
                 [0.1, 0.9],  # trace_0 close to cluster 0
@@ -44,7 +54,7 @@ class TestBuildClusterData:
         }
         coords_2d = np.array([[-1.0, 0.5], [-0.5, 0.6], [1.0, -0.3], [0.8, -0.4]])
         centroid_coords_2d = np.array([[-0.75, 0.55], [0.9, -0.35]])
-        trace_timestamps = {
+        item_timestamps = {
             "trace_0": "2025-01-05T10:00:00",
             "trace_1": "2025-01-05T11:00:00",
             "trace_2": "2025-01-05T12:00:00",
@@ -54,13 +64,13 @@ class TestBuildClusterData:
         clusters = _build_cluster_data(
             num_clusters=2,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
         assert len(clusters) == 2
@@ -72,34 +82,42 @@ class TestBuildClusterData:
 
     def test_assigns_ranks_by_distance(self):
         labels = [0, 0, 0]
-        trace_ids = ["trace_far", "trace_close", "trace_mid"]
+        items = [
+            ClusterItem(trace_id="trace_far", generation_id=None),
+            ClusterItem(trace_id="trace_close", generation_id=None),
+            ClusterItem(trace_id="trace_mid", generation_id=None),
+        ]
         distances_matrix = np.array([[0.9], [0.1], [0.5]])  # trace_close is nearest
         centroids = [[0.0, 0.0]]
         cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[1.0, 0.0], [0.0, 0.0], [0.5, 0.0]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps: dict[str, str] = {}
+        item_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=1,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
         # Rank 0 should be trace_close (lowest distance)
-        assert clusters[0].traces["trace_close"]["rank"] == 0
-        assert clusters[0].traces["trace_mid"]["rank"] == 1
-        assert clusters[0].traces["trace_far"]["rank"] == 2
+        assert clusters[0].traces["trace_close"].rank == 0
+        assert clusters[0].traces["trace_mid"].rank == 1
+        assert clusters[0].traces["trace_far"].rank == 2
 
     def test_handles_noise_cluster(self):
         labels = [0, -1, -1]  # One regular cluster, two noise points
-        trace_ids = ["trace_0", "trace_noise_1", "trace_noise_2"]
+        items = [
+            ClusterItem(trace_id="trace_0", generation_id=None),
+            ClusterItem(trace_id="trace_noise_1", generation_id=None),
+            ClusterItem(trace_id="trace_noise_2", generation_id=None),
+        ]
         distances_matrix = np.array([[0.1], [0.8], [0.9]])  # Noise points far from centroid
         centroids = [[0.0, 0.0]]
         cluster_labels = {
@@ -107,18 +125,18 @@ class TestBuildClusterData:
         }
         coords_2d = np.array([[0.0, 0.0], [5.0, 5.0], [6.0, 6.0]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps: dict[str, str] = {}
+        item_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=1,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
         assert len(clusters) == 2
@@ -131,52 +149,59 @@ class TestBuildClusterData:
 
     def test_noise_cluster_ranks_by_highest_distance_first(self):
         labels = [-1, -1, -1]
-        trace_ids = ["trace_close", "trace_far", "trace_mid"]
+        items = [
+            ClusterItem(trace_id="trace_close", generation_id=None),
+            ClusterItem(trace_id="trace_far", generation_id=None),
+            ClusterItem(trace_id="trace_mid", generation_id=None),
+        ]
         distances_matrix = np.array([[0.2], [0.9], [0.5]])
         centroids = [[0.0, 0.0]]
         cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[0.5, 0.5], [3.0, 3.0], [1.5, 1.5]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps: dict[str, str] = {}
+        item_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=1,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
         noise_cluster = clusters[0]  # Only noise cluster since all points are noise
         # For noise, rank 0 should be the most anomalous (highest min distance)
-        assert noise_cluster.traces["trace_far"]["rank"] == 0
-        assert noise_cluster.traces["trace_mid"]["rank"] == 1
-        assert noise_cluster.traces["trace_close"]["rank"] == 2
+        assert noise_cluster.traces["trace_far"].rank == 0
+        assert noise_cluster.traces["trace_mid"].rank == 1
+        assert noise_cluster.traces["trace_close"].rank == 2
 
     def test_uses_default_labels_when_not_provided(self):
         labels = [0, 1]
-        trace_ids = ["trace_0", "trace_1"]
+        items = [
+            ClusterItem(trace_id="trace_0", generation_id=None),
+            ClusterItem(trace_id="trace_1", generation_id=None),
+        ]
         distances_matrix = np.array([[0.1, 0.9], [0.9, 0.1]])
         centroids = [[1.0, 0.0], [0.0, 1.0]]
         cluster_labels: dict[int, ClusterLabel] = {}  # No labels provided
         coords_2d = np.array([[0.0, 0.0], [1.0, 1.0]])
         centroid_coords_2d = np.array([[0.0, 0.0], [1.0, 1.0]])
-        trace_timestamps: dict[str, str] = {}
+        item_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=2,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
         assert clusters[0].title == "Cluster 0"
@@ -184,48 +209,51 @@ class TestBuildClusterData:
 
     def test_includes_trace_timestamps(self):
         labels = [0]
-        trace_ids = ["trace_0"]
+        items = [ClusterItem(trace_id="trace_0", generation_id=None)]
         distances_matrix = np.array([[0.1]])
         centroids = [[0.0]]
         cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[0.0, 0.0]])
         centroid_coords_2d = np.array([[0.0, 0.0]])
-        trace_timestamps = {"trace_0": "2025-01-05T10:30:00"}
+        item_timestamps = {"trace_0": "2025-01-05T10:30:00"}
 
         clusters = _build_cluster_data(
             num_clusters=1,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
-        assert clusters[0].traces["trace_0"]["timestamp"] == "2025-01-05T10:30:00"
+        assert clusters[0].traces["trace_0"].timestamp == "2025-01-05T10:30:00"
 
     def test_handles_empty_cluster(self):
         labels = [0, 0]  # All in cluster 0, none in cluster 1
-        trace_ids = ["trace_0", "trace_1"]
+        items = [
+            ClusterItem(trace_id="trace_0", generation_id=None),
+            ClusterItem(trace_id="trace_1", generation_id=None),
+        ]
         distances_matrix = np.array([[0.1, 0.9], [0.2, 0.8]])
         centroids = [[1.0, 0.0], [0.0, 1.0]]
         cluster_labels: dict[int, ClusterLabel] = {}
         coords_2d = np.array([[0.0, 0.0], [0.1, 0.1]])
         centroid_coords_2d = np.array([[0.0, 0.0], [1.0, 1.0]])
-        trace_timestamps: dict[str, str] = {}
+        item_timestamps: dict[str, str] = {}
 
         clusters = _build_cluster_data(
             num_clusters=2,
             labels=labels,
-            trace_ids=trace_ids,
+            items=items,
             distances_matrix=distances_matrix,
             centroids=centroids,
             cluster_labels=cluster_labels,
             coords_2d=coords_2d,
             centroid_coords_2d=centroid_coords_2d,
-            trace_timestamps=trace_timestamps,
+            item_timestamps=item_timestamps,
         )
 
         # Only cluster 0 should be in results since cluster 1 is empty
@@ -235,12 +263,17 @@ class TestBuildClusterData:
 
 class TestEmitClusterEvents:
     @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.create_event")
-    @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.fetch_trace_summaries")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.fetch_item_summaries")
     def test_emits_event_with_correct_properties(self, mock_fetch_summaries, mock_create_event, mock_team):
         mock_fetch_summaries.return_value = {
             "trace_0": {"trace_timestamp": "2025-01-05T10:00:00"},
             "trace_1": {"trace_timestamp": "2025-01-05T11:00:00"},
         }
+
+        items = [
+            ClusterItem(trace_id="trace_0", generation_id=None),
+            ClusterItem(trace_id="trace_1", generation_id=None),
+        ]
 
         emit_cluster_events(
             team_id=mock_team.id,
@@ -249,7 +282,7 @@ class TestEmitClusterEvents:
             window_end="2025-01-08T00:00:00Z",
             labels=[0, 0],
             centroids=[[1.0, 2.0]],
-            trace_ids=["trace_0", "trace_1"],
+            items=items,
             distances_matrix=np.array([[0.1], [0.2]]),
             cluster_labels={0: ClusterLabel(title="Test Cluster", description="Test desc")},
             coords_2d=np.array([[0.0, 0.0], [0.1, 0.1]]),
@@ -264,9 +297,14 @@ class TestEmitClusterEvents:
         assert call_kwargs["properties"]["$ai_clustering_run_id"] == "test_run_123"
 
     @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.create_event")
-    @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.fetch_trace_summaries")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.event_emission.fetch_item_summaries")
     def test_returns_cluster_data_list(self, mock_fetch_summaries, mock_create_event, mock_team):
         mock_fetch_summaries.return_value = {}
+
+        items = [
+            ClusterItem(trace_id="trace_0", generation_id=None),
+            ClusterItem(trace_id="trace_1", generation_id=None),
+        ]
 
         clusters = emit_cluster_events(
             team_id=mock_team.id,
@@ -275,7 +313,7 @@ class TestEmitClusterEvents:
             window_end="2025-01-08T00:00:00Z",
             labels=[0, 1],
             centroids=[[1.0], [2.0]],
-            trace_ids=["trace_0", "trace_1"],
+            items=items,
             distances_matrix=np.array([[0.1, 0.9], [0.9, 0.1]]),
             cluster_labels={},
             coords_2d=np.array([[0.0, 0.0], [1.0, 1.0]]),
@@ -294,7 +332,7 @@ class TestEmitClusterEvents:
                 window_end="2025-01-08T00:00:00Z",
                 labels=[],
                 centroids=[],
-                trace_ids=[],
+                items=[],
                 distances_matrix=np.array([[]]),
                 cluster_labels={},
                 coords_2d=np.array([[]]),
@@ -321,7 +359,11 @@ class TestClusterDataStructure:
             size=10,
             title="Test Cluster",
             description="Test description",
-            traces={"trace_1": {"rank": 0, "distance_to_centroid": 0.1, "x": 0.0, "y": 0.0, "timestamp": ""}},
+            traces={
+                "trace_1": TraceClusterMetadata(
+                    rank=0, distance_to_centroid=0.1, x=0.0, y=0.0, timestamp="", trace_id="trace_1"
+                )
+            },
             centroid=[1.0, 2.0],
             centroid_x=0.5,
             centroid_y=0.5,

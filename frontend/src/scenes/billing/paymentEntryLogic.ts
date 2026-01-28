@@ -8,7 +8,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type } from '~/types'
 
-import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
@@ -87,25 +86,58 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
     },
 
     listeners: ({ actions, values }) => ({
-        startPaymentEntryFlow: ({ product, redirectPath }) => {
+        startPaymentEntryFlow: async ({ product, redirectPath }) => {
             const { billing } = billingLogic.values
 
-            // TODO(@zach): we should also check that they have a valid default payment method
             if (billing?.customer_id) {
-                // If customer_id exists, redirect to the upgrade product link
-                // because they already have an active stripe customer
+                // Returning customer — call POST API to activate subscription
                 if (product) {
                     const { setBillingProductLoading } = billingProductLogic({ product }).actions
                     setBillingProductLoading(product.type)
                 }
-                window.location.href = getUpgradeProductLink({
-                    product: product || undefined,
-                    redirectPath: redirectPath || undefined,
-                })
+                actions.setLoading(true)
+                try {
+                    const body: Record<string, string> = { products: 'all_products:' }
+                    if (product?.type) {
+                        body.intent_product = product.type
+                    }
+                    const response = await api.create('api/billing/activate', body)
+
+                    if (response.success) {
+                        await billingLogic.asyncActions.loadBilling()
+                        if (redirectPath) {
+                            window.location.pathname = redirectPath
+                        } else {
+                            router.actions.push(router.values.location.pathname, {
+                                ...router.values.searchParams,
+                                upgraded: 'true',
+                            })
+                            actions.loadCurrentOrganization()
+                            actions.loadUser()
+                        }
+                    } else if (response.must_setup_payment) {
+                        // Card invalid or missing — show modal (same as new customer flow)
+                        actions.setRedirectPath(redirectPath || null)
+                        actions.showPaymentEntryModal()
+                    } else {
+                        actions.setApiError(response.error || 'Failed to activate subscription')
+                    }
+                } catch (error) {
+                    posthog.captureException(
+                        new Error('payment entry api error - activate subscription error', { cause: error })
+                    )
+                    actions.setApiError('Failed to activate subscription. Please try again.')
+                } finally {
+                    actions.setLoading(false)
+                    if (product) {
+                        const { setBillingProductLoading } = billingProductLogic({ product }).actions
+                        setBillingProductLoading(null)
+                    }
+                }
                 return
             }
 
-            // Otherwise, proceed with showing the modal
+            // New customer — show the payment modal
             actions.setRedirectPath(redirectPath || null)
             actions.showPaymentEntryModal()
         },

@@ -1,27 +1,27 @@
-"""LLM-based translation using OpenAI."""
+"""LLM-based translation using the LLM gateway."""
 
-from django.conf import settings
-
-import openai
 import structlog
+
+from posthog.llm.gateway_client import get_llm_client
 
 from .constants import SUPPORTED_LANGUAGES, TRANSLATION_MODEL
 
 logger = structlog.get_logger(__name__)
 
 
-def translate_text(text: str, target_language: str) -> str:
+def translate_text(text: str, target_language: str, user_distinct_id: str | None = None) -> str:
     """
-    Translate text to target language using OpenAI's GPT model.
+    Translate text to target language using the LLM gateway.
 
     Args:
         text: The text to translate
         target_language: Target language code (e.g., 'en', 'es', 'fr')
+        user_distinct_id: The user's distinct_id for analytics attribution
 
     Returns:
         Translated text
     """
-    client = openai.OpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
+    client = get_llm_client("llma_translation")
 
     target_name = SUPPORTED_LANGUAGES.get(target_language, target_language)
 
@@ -35,7 +35,8 @@ def translate_text(text: str, target_language: str) -> str:
             },
             {"role": "user", "content": text},
         ],
-        user="llma-translation",
+        timeout=30.0,
+        user=user_distinct_id or "llma-translation",
     )
 
     content = response.choices[0].message.content

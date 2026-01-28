@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconArrowLeft } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -21,19 +23,22 @@ export function BackToSource(): JSX.Element | null {
         return null
     }
 
-    const summary = summarizeInsightQuery(backToSourceQuery.source, {
+    const insightSummary = summarizeInsightQuery(backToSourceQuery.source, {
         aggregationLabel,
         cohortsById,
         mathDefinitions,
     })
+    const summary = `Viewing actors query based on insight: ${insightSummary}`
 
     return (
         <LemonButton
             tooltip={summary}
-            type="secondary"
+            type="primary"
             onClick={() => router.actions.push(urls.insightNew({ query: backToSourceQuery }))}
+            size="small"
+            className="mr-2"
         >
-            &laquo; Back to {backToSourceQuery.source.kind?.replace('Query', '') ?? 'Insight'}
+            <IconArrowLeft aria-hidden="true" className="size-3 text-tertiary mr-1" /> View source insight
         </LemonButton>
     )
 }

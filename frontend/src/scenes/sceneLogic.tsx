@@ -1098,6 +1098,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
+                        !teamLogic.values.currentTeam?.ingested_event &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )
