@@ -1509,7 +1509,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Event,
                     operator: PropertyOperator.Exact,
                     key: params.eventProperty,
-                    // Store as-is in UI state; normalization happens in convertUniversalFiltersToRecordingsQuery
                     value: params.eventPropertyValue,
                 }
             }
@@ -1519,7 +1518,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     type: PropertyFilterType.Person,
                     operator: PropertyOperator.Exact,
                     key: params.personProperty,
-                    // Store as-is in UI state; normalization happens in convertUniversalFiltersToRecordingsQuery
                     value: params.personPropertyValue,
                 }
             }
