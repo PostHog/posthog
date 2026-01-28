@@ -146,12 +146,12 @@ class ExecutionTimeRecorder:
 
         attributes = dict(self.histogram_attributes)
 
-        if self._status_override is not None:
-            attributes["status"] = self._status_override
-            attributes["exception"] = ""
-        elif exc_value is not None:
+        if exc_value is not None:
             attributes["status"] = "FAILED"
             attributes["exception"] = str(exc_value)
+        elif self._status_override is not None:
+            attributes["status"] = self._status_override
+            attributes["exception"] = ""
         else:
             attributes["status"] = "COMPLETED"
             attributes["exception"] = ""

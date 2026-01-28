@@ -399,6 +399,9 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except Exception:
+        increment_errors("unknown_error")
+        raise
 
     # Parse structured output
     result = response.parsed
