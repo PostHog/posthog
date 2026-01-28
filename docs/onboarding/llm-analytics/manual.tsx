@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -24,8 +25,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        If you're using a different server-side SDK or prefer to use the API, you can manually capture the data
-                        by calling the `capture` method or using the [capture API](https://posthog.com/docs/api/capture).
+                        If you're using a different server-side SDK or prefer to use the API, you can manually capture
+                        the data by calling the `capture` method or using the [capture
+                        API](https://posthog.com/docs/api/capture).
                     </Markdown>
 
                     <Tab.Group tabs={languages.map((l) => l.label)}>
@@ -129,7 +131,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'Go' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="go get github.com/posthog/posthog-go" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="go get github.com/posthog/posthog-go"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
@@ -215,7 +220,10 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         {l.key === 'PHP' && (
                                             <>
                                                 <Markdown>### 1. Install</Markdown>
-                                                <CodeBlock language="bash" code="composer require posthog/posthog-php" />
+                                                <CodeBlock
+                                                    language="bash"
+                                                    code="composer require posthog/posthog-php"
+                                                />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>
                                                 <CodeBlock
