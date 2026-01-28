@@ -14,6 +14,7 @@ import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { parseJSON } from '../utils/json-parse'
 import {
     LogsIngestionConsumer,
+    logMessageDlqCounter,
     logMessageDroppedCounter,
     logsBytesAllowedCounter,
     logsBytesDroppedCounter,
@@ -363,6 +364,46 @@ describe('LogsIngestionConsumer', () => {
             consumer['kafkaProducer']!.produce = jest.fn().mockRejectedValue(new Error('Producer error'))
 
             await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow('Producer error')
+
+            // Restore original method
+            consumer['kafkaProducer']!.produce = originalProduce
+        })
+
+        it('should send failed messages to DLQ', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            const logMessageDlqCounterSpy = jest.spyOn(logMessageDlqCounter, 'inc')
+
+            // Mock processLogMessageBuffer to throw an error
+            jest.mock('./log-record-avro', () => ({
+                ...jest.requireActual('./log-record-avro'),
+                processLogMessageBuffer: jest.fn().mockRejectedValue(new Error('AVRO processing error')),
+            }))
+
+            // Mock the produce method to track calls
+            const originalProduce = consumer['kafkaProducer']!.produce
+            const produceSpy = jest.fn().mockImplementation(originalProduce)
+            consumer['kafkaProducer']!.produce = produceSpy
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            // Check that DLQ counter was incremented
+            expect(logMessageDlqCounterSpy).toHaveBeenCalled()
+
+            // Check that a message was produced to the DLQ topic
+            const dlqMessages = produceSpy.mock.calls.filter((call) => call[0].topic === 'logs_ingestion_dlq_test')
+            expect(dlqMessages.length).toBeGreaterThan(0)
+
+            // Verify DLQ message has error metadata in headers
+            if (dlqMessages.length > 0) {
+                const dlqMessage = dlqMessages[0][0]
+                expect(dlqMessage.headers).toHaveProperty('error_message')
+                expect(dlqMessage.headers).toHaveProperty('error_name')
+                expect(dlqMessage.headers).toHaveProperty('failed_at')
+            }
 
             // Restore original method
             consumer['kafkaProducer']!.produce = originalProduce
