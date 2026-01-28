@@ -129,7 +129,17 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
     scope_object = "project"
     scope_object_write_actions = ["create", "complete", "approve"]
-    scope_object_read_actions = ["retrieve", "snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots"]
+
+    @extend_schema(responses={200: RunSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> Response:
+        """List all runs for the team."""
+        runs = api.list_runs(self.team_id)
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = RunSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(RunSerializer(instance=runs, many=True).data)
 
     @extend_schema(request=CreateRunInputSerializer, responses={201: CreateRunResultSerializer})
     def create(self, request: Request, **kwargs) -> Response:
@@ -159,6 +169,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             snapshots = api.get_run_snapshots(UUID(pk))
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        page = self.paginate_queryset(snapshots)
+        if page is not None:
+            serializer = SnapshotSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
 
     @extend_schema(responses={200: RunSerializer})
@@ -184,11 +198,34 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run_id=UUID(pk),
             user_id=request.user.id,
             snapshots=data["snapshots"],  # Already a list of ApproveSnapshotInput
+            commit_to_github=data.get("commit_to_github", True),
         )
 
         try:
             run = api.approve_run(input_dto)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.ArtifactNotFoundError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except api.GitHubIntegrationNotFoundError:
+            return Response(
+                {"detail": "No GitHub integration configured. Please install the GitHub App for this team."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except api.PRSHAMismatchError as e:
+            return Response(
+                {"detail": str(e), "code": "sha_mismatch"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except api.GitHubCommitError as e:
+            return Response(
+                {"detail": f"GitHub commit failed: {e}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except api.BaselineFilePathNotConfiguredError as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(RunSerializer(instance=run).data)

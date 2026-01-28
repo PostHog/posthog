@@ -27,6 +27,30 @@ class ArtifactNotFoundError(Exception):
     pass
 
 
+class GitHubIntegrationNotFoundError(Exception):
+    """Team does not have a GitHub integration configured."""
+
+    pass
+
+
+class GitHubCommitError(Exception):
+    """Failed to commit to GitHub."""
+
+    pass
+
+
+class PRSHAMismatchError(Exception):
+    """PR has new commits since this run was created."""
+
+    pass
+
+
+class BaselineFilePathNotConfiguredError(Exception):
+    """Project does not have a baseline file path configured for this run type."""
+
+    pass
+
+
 # --- Project Operations ---
 
 
@@ -124,6 +148,11 @@ def write_artifact_bytes(
 
 
 # --- Run Operations ---
+
+
+def list_runs_for_team(team_id: int) -> list[Run]:
+    """List all runs for projects belonging to a team, ordered by creation date (newest first)."""
+    return list(Run.objects.filter(project__team_id=team_id).select_related("project").order_by("-created_at"))
 
 
 def get_run(run_id: UUID) -> Run:
@@ -243,27 +272,197 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
+def get_github_integration_for_project(project: Project):
+    """Get GitHub integration for the project's team."""
+    from posthog.models.integration import GitHubIntegration, Integration
+
+    integration = Integration.objects.filter(team_id=project.team_id, kind="github").first()
+
+    if not integration:
+        raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {project.team_id}")
+
+    return GitHubIntegration(integration)
+
+
+def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
+    """
+    Fetch PR info from GitHub.
+
+    Returns dict with head_ref (branch) and head_sha.
+    """
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+
+    response = requests.get(
+        f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+
+    if response.status_code != 200:
+        raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
+
+    pr_data = response.json()
+    return {
+        "head_ref": pr_data["head"]["ref"],
+        "head_sha": pr_data["head"]["sha"],
+    }
+
+
+def _fetch_baseline_file(github, repo_full_name: str, file_path: str, branch: str) -> tuple[dict[str, str], str | None]:
+    """
+    Fetch current baseline file content from GitHub.
+
+    Returns (snapshots dict, file SHA for update). If file doesn't exist, returns ({}, None).
+    """
+    import base64
+
+    import yaml
+    import requests
+
+    access_token = github.integration.sensitive_config["access_token"]
+
+    response = requests.get(
+        f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
+        params={"ref": branch},
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {access_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+
+    if response.status_code == 404:
+        return {}, None
+
+    if response.status_code != 200:
+        raise GitHubCommitError(f"Failed to fetch baseline file: {response.status_code} {response.text}")
+
+    data = response.json()
+    content = base64.b64decode(data["content"]).decode("utf-8")
+    file_sha = data["sha"]
+
+    parsed = yaml.safe_load(content)
+    if not parsed or parsed.get("version") != 1:
+        return {}, file_sha
+
+    return parsed.get("snapshots", {}), file_sha
+
+
+def _build_snapshots_yaml(current_baselines: dict[str, str], updates: list[dict]) -> str:
+    """Build updated snapshots.yml content."""
+    import yaml
+
+    merged = dict(current_baselines)
+    for update in updates:
+        merged[update["identifier"]] = update["new_hash"]
+
+    sorted_snapshots = dict(sorted(merged.items()))
+
+    data = {
+        "version": 1,
+        "snapshots": sorted_snapshots,
+    }
+
+    return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+
+def _commit_baseline_to_github(run: Run, project: Project, approved_snapshots: list[dict]) -> dict:
+    """
+    Commit updated baseline file to GitHub.
+
+    Raises:
+        GitHubIntegrationNotFoundError: No GitHub integration for team
+        PRSHAMismatchError: PR has newer commits than this run
+        BaselineFilePathNotConfiguredError: No baseline path for run type
+        GitHubCommitError: GitHub API error
+    """
+    baseline_paths = project.baseline_file_paths or {}
+    baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
+
+    if not baseline_path:
+        raise BaselineFilePathNotConfiguredError(f"No baseline file path configured for run type {run.run_type}")
+
+    github = get_github_integration_for_project(project)
+
+    if github.access_token_expired():
+        github.refresh_access_token()
+
+    pr_info = _get_pr_info(github, project.repo_full_name, run.pr_number)
+
+    if pr_info["head_sha"] != run.commit_sha:
+        raise PRSHAMismatchError(
+            f"PR has newer commits. Expected {run.commit_sha}, got {pr_info['head_sha']}. "
+            "Please re-run visual tests on the latest commit."
+        )
+
+    current_baselines, file_sha = _fetch_baseline_file(
+        github, project.repo_full_name, baseline_path, pr_info["head_ref"]
+    )
+
+    updates = [{"identifier": s["identifier"], "new_hash": s["new_hash"]} for s in approved_snapshots]
+    new_content = _build_snapshots_yaml(current_baselines, updates)
+
+    # Use GitHubIntegration.update_file() - it expects just the repo name, not full path
+    # The org comes from github.organization()
+    repo_name = project.repo_full_name.split("/")[-1] if "/" in project.repo_full_name else project.repo_full_name
+
+    result = github.update_file(
+        repository=repo_name,
+        file_path=baseline_path,
+        content=new_content,
+        commit_message="chore(visual): update visual baselines",
+        branch=pr_info["head_ref"],
+        sha=file_sha,
+    )
+
+    if not result.get("success"):
+        raise GitHubCommitError(f"Failed to commit baseline: {result.get('error')}")
+
+    return result
+
+
 @transaction.atomic
-def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict]) -> Run:
+def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], commit_to_github: bool = True) -> Run:
     """
     Approve visual changes for a run.
 
-    Updates baseline hashes for approved snapshots.
+    If commit_to_github is True and run has a PR:
+    1. Validates PR SHA matches run's commit_sha
+    2. Commits updated baseline to GitHub
+    3. Updates baseline hashes for approved snapshots in DB
     """
     run = get_run(run_id)
+    project = run.project
 
     # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
 
-    # Update snapshots
+    # Validate all artifacts exist before making any changes
+    for identifier, new_hash in approvals.items():
+        artifact = get_artifact(project.id, new_hash)
+        if not artifact:
+            raise ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
+
+    # Commit to GitHub first (if enabled and PR exists)
+    # Do this before DB changes so we can fail cleanly
+    if commit_to_github and run.pr_number and project.repo_full_name:
+        _commit_baseline_to_github(run, project, approved_snapshots)
+
+    # Update snapshots in DB
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         new_hash = approvals[snapshot.identifier]
-        new_artifact = get_artifact(run.project_id, new_hash)
+        new_artifact = get_artifact(project.id, new_hash)
 
         if new_artifact:
             snapshot.baseline_artifact = new_artifact
+            snapshot.baseline_hash = new_hash
             snapshot.result = SnapshotResult.UNCHANGED
-            snapshot.save(update_fields=["baseline_artifact", "result"])
+            snapshot.save(update_fields=["baseline_artifact", "baseline_hash", "result"])
 
     # Mark run approved
     run.approved = True

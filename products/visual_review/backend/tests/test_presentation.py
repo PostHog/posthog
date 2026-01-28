@@ -151,8 +151,9 @@ class TestRunViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(len(data), 2)
-        identifiers = {s["identifier"] for s in data}
+        results = data["results"]
+        self.assertEqual(len(results), 2)
+        identifiers = {s["identifier"] for s in results}
         self.assertEqual(identifiers, {"Button", "Card"})
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")

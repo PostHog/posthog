@@ -80,6 +80,7 @@ class ApproveRunInputSerializer(serializers.Serializer):
     """Input for approving a run."""
 
     snapshots = ApproveSnapshotInputSerializer(many=True)
+    commit_to_github = serializers.BooleanField(default=True, required=False)
 
 
 # --- Convenience Serializers ---

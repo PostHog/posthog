@@ -35,6 +35,10 @@ from .dtos import (
 ProjectNotFoundError = logic.ProjectNotFoundError
 RunNotFoundError = logic.RunNotFoundError
 ArtifactNotFoundError = logic.ArtifactNotFoundError
+GitHubIntegrationNotFoundError = logic.GitHubIntegrationNotFoundError
+GitHubCommitError = logic.GitHubCommitError
+PRSHAMismatchError = logic.PRSHAMismatchError
+BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 
 
 # --- Converters (model -> DTO) ---
@@ -143,6 +147,12 @@ def register_artifact(input: RegisterArtifactInput) -> Artifact:
 # --- Run API ---
 
 
+def list_runs(team_id: int) -> list[Run]:
+    """List all runs for a team across all projects."""
+    runs = logic.list_runs_for_team(team_id)
+    return [_to_run(r) for r in runs]
+
+
 def create_run(input: CreateRunInput) -> CreateRunResult:
     snapshots = [{"identifier": s.identifier, "content_hash": s.content_hash} for s in input.snapshots]
 
@@ -190,5 +200,6 @@ def approve_run(input: ApproveRunInput) -> Run:
         run_id=input.run_id,
         user_id=input.user_id,
         approved_snapshots=approved_snapshots,
+        commit_to_github=input.commit_to_github,
     )
     return _to_run(run)

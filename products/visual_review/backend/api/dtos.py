@@ -62,6 +62,7 @@ class ApproveRunInput:
     run_id: UUID
     user_id: int
     snapshots: list[ApproveSnapshotInput]
+    commit_to_github: bool = True
 
 
 # --- Output DTOs ---

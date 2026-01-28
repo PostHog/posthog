@@ -21,6 +21,13 @@ class Project(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
 
+    # GitHub repository (e.g., "posthog/posthog")
+    repo_full_name = models.CharField(max_length=255, blank=True)
+
+    # Baseline file paths per run type
+    # e.g., {"storybook": ".storybook/snapshots.yml", "playwright": "playwright/snapshots.yml"}
+    baseline_file_paths = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
