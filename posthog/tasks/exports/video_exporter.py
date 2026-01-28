@@ -126,6 +126,7 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 capture_output=True,
                 text=True,
                 check=False,  # Don't raise on non-zero exit, we'll check the JSON output
+                timeout=60 * 60 * 3,  # 3 hours timeout in case of script hanging, as it has own timeouts
             )
             # Log stderr (Node.js logs go there)
             if result.stderr:
