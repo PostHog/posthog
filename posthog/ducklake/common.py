@@ -52,9 +52,9 @@ def get_team_config(team_id: int) -> dict[str, str]:
 def is_dev_mode() -> bool:
     """Check if running in development mode."""
     try:
-        from django.conf import settings
+        from posthog.settings import USE_LOCAL_SETUP
 
-        return settings.USE_LOCAL_SETUP
+        return USE_LOCAL_SETUP
     except ImportError:
         return True
 
