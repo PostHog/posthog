@@ -26,7 +26,6 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
-    enforced_event_schemas: [],
     ...overrides,
 })
 

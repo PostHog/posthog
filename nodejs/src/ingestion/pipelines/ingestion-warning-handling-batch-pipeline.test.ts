@@ -43,7 +43,6 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
         available_features: [],
         drop_events_older_than_seconds: null,
         project_id: 1 as any,
-        enforced_event_schemas: [],
         ...overrides,
     }
 }

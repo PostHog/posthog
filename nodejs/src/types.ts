@@ -657,8 +657,6 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
-    // Event schemas with enforcement_mode='reject' - validated at ingestion
-    enforced_event_schemas: EventSchemaEnforcement[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

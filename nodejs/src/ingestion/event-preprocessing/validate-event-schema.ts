@@ -1,4 +1,5 @@
 import { EventSchemaEnforcement, IncomingEventWithTeam } from '../../types'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { isValidClickHouseDateTime } from './clickhouse-datetime-parser'
@@ -6,6 +7,7 @@ import { isValidClickHouseDateTime } from './clickhouse-datetime-parser'
 /**
  * Checks if a value can be coerced to the given PostHog property type.
  * This matches PostHog's query-time type coercion behavior.
+ * See: posthog/hogql/transforms/property_types.py
  */
 function canCoerceToType(value: unknown, propertyType: string): boolean {
     if (value === null || value === undefined) {
@@ -46,7 +48,8 @@ function canCoerceToType(value: unknown, propertyType: string): boolean {
             return isValidClickHouseDateTime(value)
 
         case 'Object':
-            // Accepts: objects and arrays
+            // Accepts: plain objects and arrays (null is already handled above).
+            // Event properties come from JSON so we won't see Promises/Dates here.
             return typeof value === 'object'
 
         default:
@@ -130,23 +133,24 @@ export function findEnforcedSchema(
 /**
  * Creates a processing step that validates events against enforced schemas.
  * Events that fail validation are dropped and an ingestion warning is emitted.
+ *
+ * @param schemaManager - Manager for fetching enforced schemas (uses caching internally)
  */
-export function createValidateEventSchemaStep<T extends { eventWithTeam: IncomingEventWithTeam }>(): ProcessingStep<
-    T,
-    T
-> {
+export function createValidateEventSchemaStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
+    schemaManager: EventSchemaEnforcementManager
+): ProcessingStep<T, T> {
     return async function validateEventSchemaStep(input) {
         const { eventWithTeam } = input
         const { event, team } = eventWithTeam
 
-        const enforcedSchemas = team.enforced_event_schemas
-        if (!enforcedSchemas || enforcedSchemas.length === 0) {
-            return Promise.resolve(ok(input))
+        const enforcedSchemas = await schemaManager.getSchemas(team.id)
+        if (enforcedSchemas.length === 0) {
+            return ok(input)
         }
 
         const schema = findEnforcedSchema(event.event, enforcedSchemas)
         if (!schema) {
-            return Promise.resolve(ok(input))
+            return ok(input)
         }
 
         const validationResult = validateEventAgainstSchema(event.properties, schema)
@@ -179,6 +183,6 @@ export function createValidateEventSchemaStep<T extends { eventWithTeam: Incomin
             )
         }
 
-        return Promise.resolve(ok(input))
+        return ok(input)
     }
 }

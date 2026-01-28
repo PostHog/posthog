@@ -1,5 +1,6 @@
 import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import {
     createApplyPersonProcessingRestrictionsStep,
     createValidateEventMetadataStep,
@@ -17,18 +18,19 @@ export interface PostTeamPreprocessingSubpipelineInput {
 
 export interface PostTeamPreprocessingSubpipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
 }
 
 export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PostTeamPreprocessingSubpipelineConfig
 ): PipelineBuilder<TInput, TInput, TContext> {
-    const { eventIngestionRestrictionManager } = config
+    const { eventIngestionRestrictionManager, eventSchemaEnforcementManager } = config
 
     return builder
         .pipe(createValidateEventMetadataStep())
         .pipe(createValidateEventPropertiesStep())
-        .pipe(createValidateEventSchemaStep())
+        .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
         .pipe(createValidateEventUuidStep())
 }

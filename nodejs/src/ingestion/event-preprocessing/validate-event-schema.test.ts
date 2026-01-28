@@ -1,6 +1,15 @@
 import { EventSchemaEnforcement, IncomingEventWithTeam, Team } from '../../types'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
 import { createValidateEventSchemaStep, findEnforcedSchema, validateEventAgainstSchema } from './validate-event-schema'
+
+/** Creates a mock EventSchemaEnforcementManager that returns the provided schemas for any team */
+function createMockSchemaManager(schemas: EventSchemaEnforcement[]): EventSchemaEnforcementManager {
+    return {
+        getSchemas: jest.fn().mockResolvedValue(schemas),
+        getSchemasForTeams: jest.fn().mockResolvedValue({}),
+    } as unknown as EventSchemaEnforcementManager
+}
 
 describe('validateEventAgainstSchema', () => {
     // Note: The schema only includes required_properties since optional properties
@@ -301,13 +310,7 @@ describe('findEnforcedSchema', () => {
 })
 
 describe('createValidateEventSchemaStep', () => {
-    const step = createValidateEventSchemaStep()
-
-    const createInput = (
-        eventName: string,
-        properties: Record<string, unknown> | undefined,
-        enforcedSchemas: EventSchemaEnforcement[]
-    ) => ({
+    const createInput = (eventName: string, properties: Record<string, unknown> | undefined) => ({
         eventWithTeam: {
             event: {
                 event: eventName,
@@ -322,7 +325,6 @@ describe('createValidateEventSchemaStep', () => {
             team: {
                 id: 1,
                 name: 'Test Team',
-                enforced_event_schemas: enforcedSchemas,
             } as unknown as Team,
             message: {} as any,
             headers: {} as any,
@@ -330,15 +332,9 @@ describe('createValidateEventSchemaStep', () => {
     })
 
     it('should pass events when team has no enforced schemas', async () => {
-        const input = createInput('test_event', { prop: 'value' }, [])
-
-        const result = await step(input)
-
-        expect(result).toEqual(ok(input))
-    })
-
-    it('should pass events when team enforced_event_schemas is undefined', async () => {
-        const input = createInput('test_event', { prop: 'value' }, undefined as any)
+        const mockManager = createMockSchemaManager([])
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', { prop: 'value' })
 
         const result = await step(input)
 
@@ -352,7 +348,9 @@ describe('createValidateEventSchemaStep', () => {
                 required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
             },
         ]
-        const input = createInput('test_event', {}, schemas)
+        const mockManager = createMockSchemaManager(schemas)
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', {})
 
         const result = await step(input)
 
@@ -366,7 +364,9 @@ describe('createValidateEventSchemaStep', () => {
                 required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
             },
         ]
-        const input = createInput('test_event', { required_prop: 'hello' }, schemas)
+        const mockManager = createMockSchemaManager(schemas)
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', { required_prop: 'hello' })
 
         const result = await step(input)
 
@@ -380,7 +380,9 @@ describe('createValidateEventSchemaStep', () => {
                 required_properties: [{ name: 'required_prop', property_types: ['String'], is_required: true }],
             },
         ]
-        const input = createInput('test_event', {}, schemas)
+        const mockManager = createMockSchemaManager(schemas)
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', {})
 
         const result = await step(input)
 
@@ -417,7 +419,9 @@ describe('createValidateEventSchemaStep', () => {
                 required_properties: [{ name: 'numeric_prop', property_types: ['Numeric'], is_required: true }],
             },
         ]
-        const input = createInput('test_event', { numeric_prop: 'not-a-number' }, schemas)
+        const mockManager = createMockSchemaManager(schemas)
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', { numeric_prop: 'not-a-number' })
 
         const result = await step(input)
 
@@ -457,7 +461,9 @@ describe('createValidateEventSchemaStep', () => {
                 ],
             },
         ]
-        const input = createInput('test_event', { field2: 'not-numeric' }, schemas)
+        const mockManager = createMockSchemaManager(schemas)
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', { field2: 'not-numeric' })
 
         const result = await step(input)
 
@@ -474,7 +480,9 @@ describe('createValidateEventSchemaStep', () => {
                 required_properties: [{ name: 'prop', property_types: ['Boolean'], is_required: true }],
             },
         ]
-        const input = createInput('test_event', { prop: { nested: 'object' } }, schemas)
+        const mockManager = createMockSchemaManager(schemas)
+        const step = createValidateEventSchemaStep(mockManager)
+        const input = createInput('test_event', { prop: { nested: 'object' } })
 
         const result = await step(input)
 

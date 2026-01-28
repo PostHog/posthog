@@ -54,7 +54,6 @@ describe('TeamManager()', () => {
                   ],
                   "cookieless_server_hash_mode": 2,
                   "drop_events_older_than_seconds": null,
-                  "enforced_event_schemas": [],
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,

@@ -1,13 +1,12 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { EventSchemaEnforcement, OrganizationAvailableFeature, ProjectId, Team } from '../types'
+import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'available_features' | 'enforced_event_schemas'> & {
+type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
-    enforced_event_schemas: EventSchemaEnforcement[]
 }
 
 export class TeamManager {
@@ -128,40 +127,7 @@ export class TeamManager {
                 t.cookieless_server_hash_mode,
                 t.timezone,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
-                o.available_product_features,
-                -- Fetch enforced event schemas for schema validation at ingestion time.
-                -- Only required properties are fetched since optional properties are not validated.
-                (
-                    SELECT COALESCE(json_agg(
-                        json_build_object(
-                            'event_name', ed.name,
-                            'required_properties', (
-                                SELECT COALESCE(json_agg(
-                                    json_build_object(
-                                        'name', prop.name,
-                                        'property_types', prop.property_types,
-                                        'is_required', prop.is_required
-                                    )
-                                ), '[]'::json)
-                                FROM (
-                                    SELECT
-                                        p.name,
-                                        array_agg(DISTINCT p.property_type) as property_types,
-                                        bool_or(p.is_required) as is_required
-                                    FROM posthog_eventschema es
-                                    JOIN posthog_schemapropertygroup pg ON pg.id = es.property_group_id
-                                    JOIN posthog_schemapropertygroupproperty p ON p.property_group_id = pg.id
-                                    WHERE es.event_definition_id = ed.id
-                                    GROUP BY p.name
-                                    HAVING bool_or(p.is_required) = true
-                                ) prop
-                            )
-                        )
-                    ), '[]'::json)
-                    FROM posthog_eventdefinition ed
-                    WHERE ed.team_id = t.id
-                      AND ed.schema_enforcement_mode = 'reject'
-                ) as enforced_event_schemas
+                o.available_product_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             WHERE t.id = ANY($1) OR t.api_token = ANY($2)
@@ -178,7 +144,7 @@ export class TeamManager {
 
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
-            const { available_product_features, enforced_event_schemas, ...teamPartial } = row
+            const { available_product_features, ...teamPartial } = row
             const team: Team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
@@ -189,7 +155,6 @@ export class TeamManager {
                         ? Number(teamPartial.drop_events_older_than_seconds)
                         : null,
                 available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
-                enforced_event_schemas: enforced_event_schemas || [],
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team
