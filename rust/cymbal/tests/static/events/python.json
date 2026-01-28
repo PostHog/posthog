@@ -1,0 +1,31 @@
+{
+  "$exception_list": [
+    {
+      "type": "CustomError",
+      "value": "Custom error message",
+      "stacktrace": {
+        "type": "raw",
+        "frames": [
+          {
+            "filename": "main.py",
+            "module": "testing",
+            "function": "create_database",
+            "in_app": false,
+            "lineno": 14,
+            "synthetic": false,
+            "platform": "python"
+          },
+          {
+            "filename": "main.py",
+            "module": "testing",
+            "function": "migrate_database",
+            "in_app": false,
+            "lineno": 14,
+            "synthetic": false,
+            "platform": "python"
+          }
+        ]
+      }
+    }
+  ]
+}

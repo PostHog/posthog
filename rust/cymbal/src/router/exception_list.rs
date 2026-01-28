@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use axum::{
-    debug_handler,
     extract::{Json, Path, State},
     response::IntoResponse,
 };
@@ -69,7 +68,6 @@ impl IntoResponse for ProcessExceptionListError {
     }
 }
 
-#[debug_handler]
 pub async fn process_exception_list(
     Path(team_id): Path<i32>,
     State(ctx): State<Arc<AppContext>>,

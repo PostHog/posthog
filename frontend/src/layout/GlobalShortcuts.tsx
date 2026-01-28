@@ -9,16 +9,12 @@ import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/Debug
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from './navigation-3000/navigationLogic'
 
 export function GlobalShortcuts(): null {
-    const { activeTabId } = useValues(sceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
 
@@ -29,26 +25,13 @@ export function GlobalShortcuts(): null {
     const { toggleAccountMenu } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
 
-    const isNewSearchUx = useFeatureFlag('NEW_SEARCH_UX')
-
     useAppShortcut({
         name: 'Search',
         keybind: [keyBinds.search],
         intent: 'Search',
         interaction: 'function',
         callback: () => {
-            if (isNewSearchUx) {
-                toggleCommand()
-            } else {
-                if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
-                    const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
-                    if (mountedLogic) {
-                        setTimeout(() => mountedLogic.actions.triggerSearchPulse(), 100)
-                    }
-                } else {
-                    router.actions.push(urls.newTab())
-                }
-            }
+            toggleCommand()
         },
         priority: 10,
     })

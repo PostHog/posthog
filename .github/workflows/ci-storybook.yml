@@ -35,6 +35,7 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
+                        - 'rust/**'
                         - 'products/!(mcp)/**/*.ts'
                         - 'products/!(mcp)/**/*.tsx'
                         - 'products/!(mcp)/**/frontend/**'

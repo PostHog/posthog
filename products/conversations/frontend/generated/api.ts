@@ -259,3 +259,23 @@ export const conversationsTicketsDestroy = async (
         method: 'DELETE',
     })
 }
+
+/**
+ * Get total unread ticket count for the team.
+
+Returns the sum of unread_team_count for all non-resolved tickets.
+Cached in Redis for 30 seconds, invalidated on changes.
+ */
+export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/unread_count/`
+}
+
+export const conversationsTicketsUnreadCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TicketApi> => {
+    return apiMutator<TicketApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}

@@ -91,7 +91,7 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
-    "orjson==3.10.15",
+    "orjson==3.11.5",
     "pandas~=2.2.2",
     "paramiko==3.4.0",
     "phonenumberslite==8.13.6",
@@ -223,7 +223,7 @@ dev = [
     "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.10.15",
+    "orjson==3.11.5",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",

@@ -636,6 +636,13 @@ export interface RawOrganization {
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
 /** Usable Team model. */
+export interface LogsSettings {
+    capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
+}
+
 export interface Team {
     id: number
     project_id: ProjectId
@@ -658,6 +665,7 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    logs_settings?: LogsSettings | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
