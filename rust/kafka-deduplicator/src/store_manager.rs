@@ -1991,17 +1991,30 @@ mod tests {
         let active_store = manager.get("test-topic", 0).unwrap();
         let active_path = active_store.get_db_path().clone();
 
-        // Verify active store exists
+        // Verify active store exists and extract its timestamp for comparison
         assert!(active_path.exists(), "Active store path should exist");
+        let active_timestamp = active_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         // Create an OLD timestamp subdir under the same partition (simulating a previous import)
+        // Use a timestamp that is LEXICOGRAPHICALLY SMALLER than the active one to simulate
+        // a genuinely old failed import attempt
         let partition_dir = temp_dir.path().join("test-topic_0");
-        let old_timestamp_subdir = partition_dir.join("9999999999"); // Old timestamp
+        let old_timestamp_subdir = partition_dir.join("0000000001"); // Old timestamp (before active)
         std::fs::create_dir_all(&old_timestamp_subdir).unwrap();
         std::fs::write(old_timestamp_subdir.join("dummy.sst"), b"old data").unwrap();
         assert!(
             old_timestamp_subdir.exists(),
             "Old timestamp dir should exist"
+        );
+
+        // Sanity check: verify the old timestamp is indeed before the active one
+        assert!(
+            "0000000001" < active_timestamp.as_str(),
+            "Test setup error: old timestamp should be before active timestamp"
         );
 
         // Orphan cleanup should remove the OLD timestamp dir but NOT the active one
@@ -2087,10 +2100,11 @@ mod tests {
         let active_path = active_store.get_db_path().clone();
 
         // Create multiple OLD timestamp subdirs (simulating multiple failed imports)
+        // Use timestamps that are BEFORE the active one (small numbers)
         let partition_dir = temp_dir.path().join("test-topic_0");
         let old_dirs: Vec<_> = (1..=3)
             .map(|i| {
-                let old_dir = partition_dir.join(format!("100000000{}", i));
+                let old_dir = partition_dir.join(format!("000000000{}", i));
                 std::fs::create_dir_all(&old_dir).unwrap();
                 std::fs::write(old_dir.join("dummy.sst"), b"old data").unwrap();
                 old_dir
@@ -2121,5 +2135,152 @@ mod tests {
         // Active store should still exist
         assert!(active_path.exists(), "Active store should NOT be removed");
         assert_eq!(manager.get_active_store_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_orphan_cleanup_mixed_assigned_and_unassigned_partitions() {
+        // Test that orphan cleanup correctly handles a mix of:
+        // - Assigned partitions (clean old timestamps, keep active)
+        // - Unassigned partitions (clean all timestamps)
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+
+        // Create stores for partitions 0 and 1 (assigned)
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        manager.get_or_create("test-topic", 1).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 2);
+
+        let active_store_0 = manager.get("test-topic", 0).unwrap();
+        let active_path_0 = active_store_0.get_db_path().clone();
+        let active_store_1 = manager.get("test-topic", 1).unwrap();
+        let active_path_1 = active_store_1.get_db_path().clone();
+
+        // Create old timestamp under assigned partition 0
+        let partition_0_dir = temp_dir.path().join("test-topic_0");
+        let old_ts_under_assigned = partition_0_dir.join("0000000001");
+        std::fs::create_dir_all(&old_ts_under_assigned).unwrap();
+        std::fs::write(old_ts_under_assigned.join("dummy.sst"), b"old").unwrap();
+
+        // Create an unassigned partition (partition 99) with timestamp dirs
+        let unassigned_dir = temp_dir.path().join("test-topic_99");
+        let unassigned_ts_1 = unassigned_dir.join("0000000001");
+        let unassigned_ts_2 = unassigned_dir.join("0000000002");
+        std::fs::create_dir_all(&unassigned_ts_1).unwrap();
+        std::fs::create_dir_all(&unassigned_ts_2).unwrap();
+        std::fs::write(unassigned_ts_1.join("dummy.sst"), b"orphan1").unwrap();
+        std::fs::write(unassigned_ts_2.join("dummy.sst"), b"orphan2").unwrap();
+
+        // Verify setup
+        assert!(old_ts_under_assigned.exists());
+        assert!(unassigned_ts_1.exists());
+        assert!(unassigned_ts_2.exists());
+
+        // Run orphan cleanup
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+
+        assert!(freed > 0, "Should have freed bytes from orphans");
+
+        // Verify: active stores for assigned partitions are untouched
+        assert!(
+            active_path_0.exists(),
+            "Active store for partition 0 should exist"
+        );
+        assert!(
+            active_path_1.exists(),
+            "Active store for partition 1 should exist"
+        );
+
+        // Verify: old timestamp under assigned partition is cleaned
+        assert!(
+            !old_ts_under_assigned.exists(),
+            "Old timestamp under assigned partition should be cleaned"
+        );
+
+        // Verify: all timestamps under unassigned partition are cleaned
+        assert!(
+            !unassigned_ts_1.exists(),
+            "Unassigned partition timestamp 1 should be cleaned"
+        );
+        assert!(
+            !unassigned_ts_2.exists(),
+            "Unassigned partition timestamp 2 should be cleaned"
+        );
+
+        // Stores still registered
+        assert_eq!(manager.get_active_store_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_revoke_then_orphan_cleanup_flow() {
+        // Test the full flow: assign → create store → revoke → orphan cleanup cleans files
+        // This verifies that revoked partition files ARE eventually cleaned by the orphan cleaner.
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+
+        // Create stores for partitions 0 and 1
+        // We need at least one store to remain so the cleanup doesn't skip due to empty stores
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        manager.get_or_create("test-topic", 1).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 2);
+
+        let store_0 = manager.get("test-topic", 0).unwrap();
+        let store_path_0 = store_0.get_db_path().clone();
+        let partition_dir_0 = temp_dir.path().join("test-topic_0");
+
+        // Verify store 0 exists on disk
+        assert!(store_path_0.exists(), "Store 0 path should exist");
+        assert!(partition_dir_0.exists(), "Partition 0 dir should exist");
+
+        // Drop the store reference before unregistering
+        drop(store_0);
+
+        // Simulate revoke of partition 0: unregister store (but don't delete files)
+        manager.unregister_store("test-topic", 0);
+        assert_eq!(
+            manager.get_active_store_count(),
+            1,
+            "Only partition 1 store should remain"
+        );
+
+        // Files for partition 0 should still exist after unregister
+        assert!(
+            partition_dir_0.exists(),
+            "Partition 0 dir should still exist after unregister"
+        );
+        assert!(
+            store_path_0.exists(),
+            "Store 0 path should still exist after unregister"
+        );
+
+        // Now run orphan cleanup - should clean partition 0 files since it's no longer assigned
+        // (Partition 1 is still assigned so cleanup won't skip due to empty stores)
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+
+        assert!(freed > 0, "Should have freed bytes from orphaned files");
+        assert!(
+            !store_path_0.exists(),
+            "Store 0 path should be cleaned by orphan cleaner"
+        );
+
+        // Partition 1 store should still exist
+        let store_1 = manager.get("test-topic", 1).unwrap();
+        assert!(
+            store_1.get_db_path().exists(),
+            "Store 1 should still exist (still assigned)"
+        );
     }
 }

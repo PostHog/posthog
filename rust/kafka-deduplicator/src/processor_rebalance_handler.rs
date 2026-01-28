@@ -73,14 +73,17 @@ where
         }
     }
 
-    /// Spawn a task to set up a single partition (checkpoint import + store creation).
+    /// Spawn a task to attempt checkpoint import for a single partition.
     ///
     /// Uses PER-PARTITION cancellation token to stop S3 downloads on revoke.
     /// Also checks is_partition_owned() as defense-in-depth.
     ///
-    /// Defensive cleanup of partial files is handled by:
+    /// This task only attempts checkpoint import - fallback empty store creation
+    /// is handled centrally in async_setup_assigned_partitions after all tasks complete.
+    ///
+    /// Cleanup of partial/orphaned files is handled by:
     /// 1. Checkpoint importer deletes existing dir at import start (handles prior attempts)
-    /// 2. This task cleans up on cancellation/revoke (checkpoint 2)
+    /// 2. Orphan directory cleaner (periodic, handles cancelled downloads)
     fn spawn_partition_setup_task(
         &self,
         partition: Partition,
@@ -115,11 +118,9 @@ where
                 return;
             }
 
-            // Track if checkpoint import was attempted and failed (for fallback metric)
-            let mut checkpoint_failure_reason: Option<&str> = None;
-
             // Try checkpoint import WITH per-partition cancellation token
             // Importer does defensive cleanup of any prior partial downloads at this path
+            // Fallback empty store creation is handled centrally at resume time.
             if let Some(ref importer) = importer {
                 match importer
                     .import_checkpoint_for_topic_partition_cancellable(
@@ -140,7 +141,6 @@ where
                             )
                             .increment(1);
                             // Downloaded files will be cleaned up by the orphan directory cleaner.
-                            // No immediate cleanup needed here.
                             return;
                         }
 
@@ -162,7 +162,6 @@ where
                                     path = %path.display(),
                                     "Imported checkpoint for partition"
                                 );
-                                return; // Success!
                             }
                             Err(e) => {
                                 metrics::counter!(
@@ -175,10 +174,9 @@ where
                                     topic = partition.topic(),
                                     partition = partition.partition_number(),
                                     error = %e,
-                                    "Failed to restore checkpoint - will create empty store",
+                                    "Failed to restore checkpoint"
                                 );
-                                checkpoint_failure_reason = Some("restore");
-                                // Fall through to create empty store
+                                // Fallback store will be created at resume time
                             }
                         }
                     }
@@ -195,11 +193,10 @@ where
                                 topic = partition.topic(),
                                 partition = partition.partition_number(),
                                 error = %e,
-                                "Failed to import checkpoint - will create empty store"
+                                "Failed to import checkpoint"
                             );
-                            checkpoint_failure_reason = Some("import");
+                            // Fallback store will be created at resume time
                         }
-                        // Fall through to create empty store
                     }
                 }
             } else {
@@ -209,56 +206,7 @@ where
                     "reason" => "disabled",
                 )
                 .increment(1);
-            }
-
-            // === CHECKPOINT 3: Before fallback store creation ===
-            if cancel_token.is_cancelled() || !coordinator.is_partition_owned(&partition) {
-                metrics::counter!(
-                    PARTITION_STORE_SETUP_SKIPPED,
-                    "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
-                )
-                .increment(1);
-                return;
-            }
-
-            // Skip if store was created by another task (rapid revoke→assign race)
-            if store_manager
-                .get(partition.topic(), partition.partition_number())
-                .is_some()
-            {
-                return;
-            }
-
-            // Create empty store as fallback (only when checkpoint import failed)
-            match store_manager
-                .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
-                .await
-            {
-                Ok(_) => {
-                    // Track if this is a fallback to empty store after checkpoint failure
-                    if let Some(reason) = checkpoint_failure_reason {
-                        metrics::counter!(
-                            PARTITION_STORE_FALLBACK_EMPTY,
-                            "checkpoint_failure_reason" => reason,
-                        )
-                        .increment(1);
-                        warn!(
-                            topic = partition.topic(),
-                            partition = partition.partition_number(),
-                            checkpoint_failure_reason = reason,
-                            "Created empty store after checkpoint failure - deduplication quality degraded"
-                        );
-                    }
-                }
-                Err(e) => {
-                    error!(
-                        topic = partition.topic(),
-                        partition = partition.partition_number(),
-                        error = %e,
-                        "Failed to create store - processor will retry on first message"
-                    );
-                    // Don't fail - the processor will retry on first message
-                }
+                // Fallback store will be created at resume time
             }
         })
     }
@@ -393,6 +341,42 @@ where
             if let Some(handle) = self.rebalance_coordinator.get_setup_task(partition) {
                 let _ = handle.await; // Ignore panic result - task handles its own errors
                 self.rebalance_coordinator.complete_setup_task(partition);
+            }
+        }
+
+        // Create fallback stores for any owned partitions that don't have a registered store.
+        // This handles cases where checkpoint import failed, was cancelled, or was disabled.
+        // Centralizing this here ensures consistent logging/metrics and catches edge cases.
+        let current_owned = self.rebalance_coordinator.get_owned_partitions();
+        for partition in &current_owned {
+            if self
+                .store_manager
+                .get(partition.topic(), partition.partition_number())
+                .is_none()
+            {
+                match self
+                    .store_manager
+                    .get_or_create_for_rebalance(partition.topic(), partition.partition_number())
+                    .await
+                {
+                    Ok(_) => {
+                        metrics::counter!(PARTITION_STORE_FALLBACK_EMPTY, "reason" => "missing_at_resume")
+                            .increment(1);
+                        warn!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            "Created fallback empty store - deduplication quality may be degraded"
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            error = %e,
+                            "Failed to create fallback store - processor will retry on first message"
+                        );
+                    }
+                }
             }
         }
 
