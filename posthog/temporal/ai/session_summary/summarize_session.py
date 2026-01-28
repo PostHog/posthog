@@ -385,21 +385,19 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
-        start_time = time.time()
+        start_time = temporalio.workflow.now()
         success = False
         try:
-            # Get summary data from the DB (caches in Redis for both LLM and video-based flows)
             await temporalio.workflow.execute_activity(
                 fetch_session_data_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            # Generate session summary
             await ensure_llm_single_session_summary(inputs)
             success = True
         finally:
-            duration_seconds = time.time() - start_time
+            duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
             team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
             capture_session_summary_timing(
                 distinct_id=inputs.user_distinct_id_to_log,
