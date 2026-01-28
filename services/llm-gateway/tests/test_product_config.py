@@ -49,6 +49,10 @@ class TestCheckProductAccess:
             ("django", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("django", "personal_api_key", None, "claude-3-opus", True, None),
             ("django", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
+            # llma_translation allows API keys but only gpt-4.1-mini
+            ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
+            ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
+            ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
