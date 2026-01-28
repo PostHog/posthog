@@ -228,6 +228,7 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_existing_user_new_org(self, mock_report):
+        """Test: External user (no Vercel mapping) installs - added to org but no mapping until SSO."""
         existing_user = User.objects.create_user(
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
         )
@@ -241,15 +242,16 @@ class TestVercelIntegration(TestCase):
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.created_by == existing_user
 
-        # User mapping is created for existing user - Vercel has verified their identity
-        assert "user_mappings" in new_installation.config
-        assert new_installation.config["user_mappings"].get("existing_user_789") == existing_user.pk
+        # User mapping is NOT created - user must prove ownership via SSO login first
+        assert "user_mappings" not in new_installation.config or "existing_user_789" not in new_installation.config.get(
+            "user_mappings", {}
+        )
 
         # Check all other config fields match
         for key, value in self.payload.items():
             assert new_installation.config[key] == value
 
-        # Existing user is added to the organization - they are installing so they should be a member
+        # Existing user IS added to the organization - they are installing so they should be a member
         new_org = new_installation.organization
         membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
@@ -257,8 +259,9 @@ class TestVercelIntegration(TestCase):
         mock_report.assert_not_called()
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_works_for_existing_user_after_installation(self, mock_report):
-        """Test that SSO works for existing users who install via Vercel - Vercel has verified their identity."""
+    def test_sso_requires_login_for_external_user(self, mock_report):
+        """Security test: External users (no Vercel mapping) must prove ownership via login."""
+        from ee.vercel.integration import RequiresExistingUserLogin
 
         # Create an existing PostHog user (not through Vercel)
         existing_user = User.objects.create_user(
@@ -282,21 +285,22 @@ class TestVercelIntegration(TestCase):
 
         installation = OrganizationIntegration.objects.get(integration_id=installation_id)
 
-        # User mapping IS created - Vercel has verified the user's identity via JWT
-        assert "user_mappings" in installation.config
-        assert installation.config["user_mappings"].get("vercel_external_user") == existing_user.pk
+        # User mapping is NOT created - they need to prove ownership via SSO login
+        assert "user_mappings" not in installation.config or "vercel_external_user" not in installation.config.get(
+            "user_mappings", {}
+        )
 
         # User IS added to org - they are installing so they should be a member
         membership = OrganizationMembership.objects.get(user=existing_user, organization=installation.organization)
         assert membership.level == OrganizationMembership.Level.OWNER
 
-        # SSO should work without requiring separate login
+        # SSO should require login for external user (no mapping yet)
         sso_claims = self._create_user_claims("vercel_external_user")
         sso_claims.installation_id = installation_id
         sso_claims.user_email = "external@example.com"
 
-        sso_user = VercelIntegration._find_sso_user(sso_claims)
-        assert sso_user.pk == existing_user.pk
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(sso_claims)
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
