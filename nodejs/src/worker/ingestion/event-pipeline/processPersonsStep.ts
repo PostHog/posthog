@@ -6,6 +6,7 @@ import { Person, Team } from '~/types'
 
 import { PipelineResult, isOkResult, ok } from '../../../ingestion/pipelines/results'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { GroupTypeManager } from '../group-type-manager'
 import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
@@ -22,7 +23,8 @@ export async function processPersonsStep(
     team: Team,
     timestamp: DateTime,
     processPerson: boolean,
-    personsStore: PersonsStore
+    personsStore: PersonsStore,
+    groupTypeManager: GroupTypeManager
 ): Promise<PipelineResult<[PluginEvent, Person, Promise<void>]>> {
     const context = new PersonContext(
         event,
@@ -34,7 +36,8 @@ export async function processPersonsStep(
         personsStore,
         measurePersonJsonbSize,
         mergeMode,
-        personPropertiesUpdateAll
+        personPropertiesUpdateAll,
+        groupTypeManager
     )
 
     const processor = new PersonEventProcessor(

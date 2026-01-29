@@ -74,6 +74,7 @@ class StepErrorNoRetry extends Error {
 export class EventPipelineRunner {
     eventsProcessor: EventsProcessor
     mergeMode: MergeMode
+    private groupTypeManager: GroupTypeManager
 
     constructor(
         private options: EventPipelineRunnerOptions,
@@ -86,6 +87,7 @@ export class EventPipelineRunner {
         private groupStoreForBatch: GroupStoreForBatch,
         private headers?: EventHeaders
     ) {
+        this.groupTypeManager = groupTypeManager
         this.eventsProcessor = new EventsProcessor(
             teamManager,
             groupTypeManager,
@@ -349,6 +351,7 @@ export class EventPipelineRunner {
                     timestamp,
                     true,
                     this.personsStore,
+                    this.groupTypeManager,
                 ],
                 teamId,
                 true,

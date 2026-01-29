@@ -14,6 +14,7 @@ import { TopicMessage } from '../../../src/kafka/producer'
 import {
     ClickHousePerson,
     ClickHousePersonDistinctId2,
+    DEFAULT_PERSON_GROUP_KEYS,
     Hub,
     InternalPerson,
     PropertiesLastOperation,
@@ -1050,6 +1051,7 @@ describe('PersonState.processEvent()', () => {
                 uuid: uuidFromDistinctId(teamId, 'deleted-user'),
                 properties_last_updated_at: {},
                 properties_last_operation: null,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
             await createPerson(
                 hub,
@@ -4364,6 +4366,7 @@ describe('PersonState.processEvent()', () => {
                             is_user_id: null,
                             properties_last_updated_at: {},
                             properties_last_operation: {},
+                            ...DEFAULT_PERSON_GROUP_KEYS,
                         }
                         jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                             success: true,
