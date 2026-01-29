@@ -1,5 +1,5 @@
-from .attio.source import AttioSource
 from .ashby.source import AshbySource
+from .attio.source import AttioSource
 from .bigquery.source import BigQuerySource
 from .bing_ads.source import BingAdsSource
 from .braze.source import BrazeSource
