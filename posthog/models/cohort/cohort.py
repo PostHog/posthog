@@ -718,18 +718,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Get person by UUID
             person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
 
-            # Check if person is in the cohort
+            # Check if person is in the cohort (PostgreSQL)
             cohort_person = CohortPeople.objects.filter(
                 cohort_id=self.id,
                 person_id=person.id,
             ).first()
 
-            if not cohort_person:
-                return False
-
-            # Remove from both PostgreSQL and ClickHouse
-            cohort_person.delete()
+            # Always try to remove from ClickHouse, even if not in PostgreSQL
+            # This handles sync issues where data exists in CH but not PG
             remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
+
+            # Remove from PostgreSQL if present
+            if cohort_person:
+                cohort_person.delete()
 
             # Update count - use write database to avoid replication lag after delete
             try:
