@@ -4,13 +4,14 @@ import { type Unzipped, strFromU8, unzipSync } from 'fflate'
 import type { Context } from '@/tools/types'
 
 import { loadContextMillManifest } from './manifest-loader'
-import type { ResourceManifest, ContextMillManifest } from './manifest-types'
+import type { ContextMillManifest, ResourceManifest } from './manifest-types'
 
 /**
  * URL to the context-mill resources ZIP (latest release)
  * Contains manifest.json + individual resource ZIPs
  */
-export const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
+export const CONTEXT_MILL_URL =
+    'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 // Cache for context-mill resources ZIP contents
 let cachedResources: Unzipped | null = null
@@ -64,7 +65,7 @@ function loadManifestFromArchive(archive: Unzipped): ContextMillManifest {
  * Get prompts from the manifest
  * Currently returns empty - prompts will be migrated to context-mill resources
  */
-export async function getPromptsFromManifest(_context: Context): Promise<ResourceManifest['resources']['prompts']> {
+export async function getPromptsFromManifest(): Promise<ResourceManifest['resources']['prompts']> {
     return []
 }
 
@@ -88,7 +89,7 @@ async function registerContextMillResources(server: McpServer, context: Context)
                 }
             }
 
-            console.log(`Registering resource: ${entry.id}`)
+            console.info(`Registering resource: ${entry.id}`)
 
             server.registerResource(
                 entry.name,
@@ -109,7 +110,7 @@ async function registerContextMillResources(server: McpServer, context: Context)
             )
         }
 
-        console.log(`Registered ${manifest.resources.length} resources from context-mill`)
+        console.info(`Registered ${manifest.resources.length} resources from context-mill`)
     } catch (error) {
         console.error('Failed to register context-mill resources:', error)
     }

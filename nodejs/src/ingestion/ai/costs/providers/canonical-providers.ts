@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-01-23 20:02:00 UTC
+// Generated at: 2026-01-28 20:07:10 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -10,6 +10,7 @@ export type CanonicalProvider =
     | 'alibaba-opensource'
     | 'amazon-bedrock'
     | 'anthropic'
+    | 'arcee-ai'
     | 'arcee-ai-bf16'
     | 'atlas-cloud-bf16'
     | 'atlas-cloud-fp16'
@@ -45,7 +46,6 @@ export type CanonicalProvider =
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'gmicloud-int4'
     | 'google-ai-studio'
@@ -63,6 +63,7 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'liquid'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mancer-int4'
     | 'minimax'
@@ -77,12 +78,16 @@ export type CanonicalProvider =
     | 'moonshotai-int4'
     | 'moonshotai-turbo'
     | 'morph'
+    | 'ncompass'
+    | 'ncompass-bf16'
+    | 'ncompass-fp8'
     | 'nebius'
     | 'nebius-base'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nextbit-bf16'
+    | 'nextbit-fp4'
     | 'nextbit-fp8'
     | 'nextbit-int4'
     | 'novita'
@@ -118,6 +123,8 @@ export type CanonicalProvider =
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'
+    | 'upstage'
+    | 'venice'
     | 'venice-beta'
     | 'venice-fp16'
     | 'venice-fp4'

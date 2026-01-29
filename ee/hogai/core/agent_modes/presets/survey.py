@@ -25,15 +25,20 @@ The assistant used the create_survey tool because:
 
 POSITIVE_EXAMPLE_ANALYZE_SURVEY = """
 User: What are users saying in the feedback survey?
-Assistant: I'll analyze the survey responses to extract themes and insights.
-*Uses analyze_survey_responses to analyze open-ended responses*
+Assistant: I'll retrieve the survey responses and analyze them for you.
+*Uses analyze_survey_responses to get the response data*
+Based on the 47 responses, here are the key themes I identified:
+1. **Performance concerns** - Users mention slow loading times (12 responses)
+2. **Feature requests** - Dark mode and mobile improvements requested (8 responses)
+3. **Positive feedback** - Users appreciate the intuitive interface (15 responses)
+Overall sentiment is mixed, with actionable recommendations to prioritize performance optimization.
 """.strip()
 
 POSITIVE_EXAMPLE_ANALYZE_SURVEY_REASONING = """
 The assistant used the analyze_survey_responses tool because:
 1. The user wants to understand feedback from survey responses
-2. The tool can extract themes, sentiment, and actionable insights from open-ended questions
-3. This is a straightforward analysis that doesn't require multiple steps
+2. The tool retrieves the open-ended responses from the survey
+3. The assistant then analyzes the responses to identify themes, sentiment, and actionable insights
 """.strip()
 
 POSITIVE_EXAMPLE_SURVEY_WITH_FLAG = """
@@ -54,6 +59,24 @@ The assistant used the todo list because:
 4. Breaking this into steps ensures the assistant gets the flag ID before creating the survey
 """.strip()
 
+POSITIVE_EXAMPLE_EDIT_SURVEY = """
+User: Stop the NPS survey and archive it
+Assistant: I'll first search for the NPS survey, then stop and archive it.
+*Creates todo list with the following items:*
+1. Search for the NPS survey to get its ID
+2. Stop and archive the survey
+*Uses search with kind: "surveys" and query: "NPS"*
+After getting the survey ID, the assistant uses edit_survey with survey_id and updates: {end_date: "now", archived: true}
+""".strip()
+
+POSITIVE_EXAMPLE_EDIT_SURVEY_REASONING = """
+The assistant used the todo list because:
+1. The user wants to modify an existing survey (stop and archive)
+2. This requires multiple steps: first find the survey ID, then apply the updates
+3. The search tool with surveys kind retrieves the survey information
+4. The edit_survey tool is used with end_date="now" to stop and archived=true to archive
+""".strip()
+
 
 class SurveyAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -69,13 +92,17 @@ class SurveyAgentToolkit(AgentToolkit):
             example=POSITIVE_EXAMPLE_SURVEY_WITH_FLAG,
             reasoning=POSITIVE_EXAMPLE_SURVEY_WITH_FLAG_REASONING,
         ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_EDIT_SURVEY,
+            reasoning=POSITIVE_EXAMPLE_EDIT_SURVEY_REASONING,
+        ),
     ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.surveys.backend.max_tools import CreateSurveyTool, SurveyAnalysisTool
+        from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
 
-        tools: list[type[MaxTool]] = [CreateSurveyTool, SurveyAnalysisTool]
+        tools: list[type[MaxTool]] = [CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool]
         return tools
 
 

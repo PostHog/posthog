@@ -129,7 +129,7 @@ where
                             let partition_count = partitions.count();
                             info!(
                                 partition_count = partition_count,
-                                "Received resume command for partitions after checkpoint import"
+                                "Received resume command for partitions after store setup"
                             );
                             if let Err(e) = consumer.resume(&partitions) {
                                 error!(

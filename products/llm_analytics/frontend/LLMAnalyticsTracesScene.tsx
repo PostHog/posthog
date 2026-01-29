@@ -15,36 +15,40 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsLogic)
-    const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
+        useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
 
     return (
-        <DataTable
-            query={{
-                ...tracesQuery,
-                showSavedFilters: true,
-            }}
-            setQuery={(query) => {
-                if (!isTracesQuery(query.source)) {
-                    throw new Error('Invalid query')
-                }
-                setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
+        <div data-attr="llm-trace-table">
+            <DataTable
+                query={{
+                    ...tracesQuery,
+                    showSavedFilters: true,
+                }}
+                setQuery={(query) => {
+                    if (!isTracesQuery(query.source)) {
+                        throw new Error('Invalid query')
+                    }
+                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
+                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                    setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
-            }}
-            context={useTracesQueryContext()}
-            uniqueKey="llm-analytics-traces"
-        />
+                    const newPropertyFilters = query.source.properties || []
+                    if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                        setPropertyFilters(newPropertyFilters)
+                    }
+                }}
+                context={useTracesQueryContext()}
+                uniqueKey="llm-analytics-traces"
+            />
+        </div>
     )
 }
 

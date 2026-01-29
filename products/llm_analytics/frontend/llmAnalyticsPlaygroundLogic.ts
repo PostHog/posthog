@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, RateLimitError } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -342,6 +343,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     actions.addFinalizedContent(separator + toolCallsText)
                 }
             }
+
             actions.clearToolCalls()
         },
         submitPrompt: async (_, breakpoint) => {
@@ -463,6 +465,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         actions.finalizeAssistantMessage()
                     },
                 })
+
+                // Once we've finished streaming - successfuly - mark the task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAIPlayground)
+
                 actions.finalizeAssistantMessage()
             } catch (error) {
                 if (error instanceof RateLimitError) {

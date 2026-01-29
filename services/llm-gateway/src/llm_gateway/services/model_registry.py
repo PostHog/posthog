@@ -46,9 +46,8 @@ def _is_chat_model(cost_data: ModelCost) -> bool:
 
 
 def _model_matches_allowlist(model_id: str, allowed_models: frozenset[str]) -> bool:
-    """Check if model matches allowlist using prefix matching (consistent with check_product_access)."""
-    model_lower = model_id.lower()
-    return any(model_lower.startswith(allowed) for allowed in allowed_models)
+    """Check if model matches allowlist using exact matching for /models endpoint listing."""
+    return model_id.lower() in allowed_models
 
 
 class ModelRegistryService:

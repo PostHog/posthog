@@ -44,11 +44,12 @@ describe('Context-Mill Manifest Integration', () => {
         for (const entry of validatedManifest.resources) {
             expect(entry.id).toBeTruthy()
             expect(entry.name).toBeTruthy()
-            expect(entry.file).toBeTruthy()
             expect(entry.resource).toBeTruthy()
             expect(entry.resource.mimeType).toBeTruthy()
             expect(entry.resource.text).toBeTruthy()
-            expect(archive[entry.file]).toBeTruthy()
+            if (entry.file) {
+                expect(archive[entry.file]).toBeTruthy()
+            }
         }
     }, 30000) // 30 second timeout for network request
 })

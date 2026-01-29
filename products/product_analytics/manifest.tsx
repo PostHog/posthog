@@ -41,12 +41,12 @@ export const manifest: ProductManifest = {
         } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
-                return urls.sqlEditor(query.query)
+                return urls.sqlEditor({ query: query.query })
             }
 
             // Redirect DataNode and DataViz queries with HogQL source to SQL editor
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor(query.source.query)
+                return urls.sqlEditor({ query: query.source.query })
             }
 
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -91,6 +91,7 @@ export const manifest: ProductManifest = {
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
         alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
         alerts: (): string => `/insights?tab=alerts`,
+        insightOptions: (): string => '/insights/options',
     },
     fileSystemTypes: {
         insight: {

@@ -62,7 +62,7 @@
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
         "markdownlint-cli2": "^0.18.1",
-        "orval": "8.0.0-rc.5",
+        "orval": "8.0.3",
         "oxlint": "^1.8.0",
         "playwright": "1.45.0",
         "prettier": "^3.6.2",
@@ -78,7 +78,7 @@
     },
     "pnpm": {
         "overrides": {
-            "typescript": "5.2.2",
+            "typescript": "5.4.5",
             "node-forge": "1.3.2",
             "pbkdf2": ">=3.1.3",
             "cipher-base": ">=1.0.5",
@@ -115,7 +115,7 @@
     "lint-staged": {
         "*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
-        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
+        "{playwright,frontend,products,common,ee,services}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
         "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
