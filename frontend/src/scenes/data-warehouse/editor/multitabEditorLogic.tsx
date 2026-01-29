@@ -1237,7 +1237,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
                     // reset current tab
-                    actions.updateTab({ ...values.activeTab!, insight: undefined })
+                    if (values.activeTab) {
+                        actions.updateTab({ ...values.activeTab, insight: undefined })
+                    }
                     actions._setSuggestionPayload(null)
                     actions.setQueryInput(null)
 
