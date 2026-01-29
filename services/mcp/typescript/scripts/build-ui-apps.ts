@@ -8,11 +8,10 @@
  *   pnpm run build:ui-apps         # Build all apps
  *   pnpm run build:ui-apps:watch   # Watch mode for all apps
  */
-
-import { execSync, spawn, type ChildProcess } from 'child_process'
-import { readdirSync, statSync, existsSync } from 'fs'
-import { resolve, join } from 'path'
+import { execSync } from 'child_process'
 import { config as dotenvConfig } from 'dotenv'
+import { existsSync, readdirSync, statSync } from 'fs'
+import { join, resolve } from 'path'
 
 const ROOT_DIR = resolve(__dirname, '..')
 const APPS_DIR = resolve(ROOT_DIR, 'src/ui-apps/apps')
@@ -22,7 +21,7 @@ const devVarsPath = resolve(ROOT_DIR, '.dev.vars')
 if (existsSync(devVarsPath)) {
     const output = dotenvConfig({ path: devVarsPath })
     const loadedKeys = Object.keys(output.parsed || {})
-    console.log('📝 Loaded environment from .dev.vars', loadedKeys)
+    console.info('📝 Loaded environment from .dev.vars', loadedKeys)
 }
 
 function discoverApps(): string[] {
@@ -42,7 +41,7 @@ function discoverApps(): string[] {
 }
 
 function buildApp(appName: string): void {
-    console.log(`\n📦 Building ${appName}...`)
+    console.info(`\n📦 Building ${appName}...`)
     execSync(`UI_APP=${appName} vite build --config vite.ui-apps.config.ts`, {
         cwd: ROOT_DIR,
         stdio: 'inherit',
@@ -62,29 +61,29 @@ function buildAllApps(apps: string[]): void {
 }
 
 function watchApps(apps: string[]): void {
-    console.log(`\n👀 Starting watch mode for ${apps.length} apps: ${apps.join(', ')}`)
+    console.info(`\n👀 Starting watch mode for ${apps.length} apps: ${apps.join(', ')}`)
 
     // Do initial build of all apps sequentially
     buildAllApps(apps)
-    console.log('\n✅ Initial build complete. Watching for changes...')
+    console.info('\n✅ Initial build complete. Watching for changes...')
 
     // Use a single chokidar watcher for all source files
     import('chokidar').then(({ default: chokidar }) => {
         let isBuilding = false
         let pendingBuild = false
 
-        const rebuildAll = () => {
+        const rebuildAll = (): void => {
             if (isBuilding) {
                 pendingBuild = true
                 return
             }
 
             isBuilding = true
-            console.log('\n🔄 Rebuilding all apps...')
+            console.info('\n🔄 Rebuilding all apps...')
 
             try {
                 buildAllApps(apps)
-                console.log('✅ Rebuild complete.')
+                console.info('✅ Rebuild complete.')
             } catch (e) {
                 console.error('❌ Build failed:', e)
             }
@@ -107,18 +106,18 @@ function watchApps(apps: string[]): void {
         })
 
         watcher.on('change', (path) => {
-            console.log(`\n📝 File changed: ${path}`)
+            console.info(`\n📝 File changed: ${path}`)
             rebuildAll()
         })
 
         watcher.on('add', (path) => {
-            console.log(`\n➕ File added: ${path}`)
+            console.info(`\n➕ File added: ${path}`)
             rebuildAll()
         })
 
         // Handle cleanup on exit
-        const cleanup = () => {
-            console.log('\n🛑 Stopping watcher...')
+        const cleanup = (): void => {
+            console.info('\n🛑 Stopping watcher...')
             watcher.close()
             process.exit(0)
         }
@@ -137,7 +136,7 @@ function main(): void {
         process.exit(1)
     }
 
-    console.log(`🔍 Discovered ${apps.length} UI app(s): ${apps.join(', ')}`)
+    console.info(`🔍 Discovered ${apps.length} UI app(s): ${apps.join(', ')}`)
 
     if (isWatch) {
         watchApps(apps)
@@ -146,7 +145,7 @@ function main(): void {
         for (const app of apps) {
             buildApp(app)
         }
-        console.log('\n✅ All UI apps built successfully!')
+        console.info('\n✅ All UI apps built successfully!')
     }
 }
 

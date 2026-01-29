@@ -29,28 +29,28 @@
  * }
  * ```
  */
-
-import { useState, useCallback, useEffect, useRef } from 'react'
 import {
+    type App,
+    McpUiHostContextChangedNotificationSchema,
+    McpUiToolCancelledNotificationSchema,
+    McpUiToolInputNotificationSchema,
+    McpUiToolResultNotificationSchema,
     useApp,
     useHostStyleVariables,
-    McpUiToolResultNotificationSchema,
-    McpUiToolInputNotificationSchema,
-    McpUiToolCancelledNotificationSchema,
-    McpUiHostContextChangedNotificationSchema,
-    type App,
 } from '@modelcontextprotocol/ext-apps/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+
 import {
-    initPostHog,
-    identifyUser,
     capture,
     captureAppConnected,
     captureAppConnectionError,
-    captureToolInput,
-    captureToolResult,
-    captureToolCancelled,
     captureHostContextChanged,
     captureLinkOpened,
+    captureToolCancelled,
+    captureToolInput,
+    captureToolResult,
+    identifyUser,
+    initPostHog,
 } from '../analytics/posthog'
 import { extractAnalytics } from '../types'
 
@@ -79,17 +79,12 @@ export interface UseToolResultReturn<T> {
 /**
  * Parse tool result content, preferring structuredContent over text parsing.
  */
-function parseToolResultContent<T>(structuredContent: unknown, _content: unknown): T | null {
-    console.log('[PostHog MCP App UI] Parsing tool result...')
-    console.log('[PostHog MCP App UI] structuredContent:', structuredContent)
-
+function parseToolResultContent<T>(structuredContent: unknown): T | null {
     // Always use structuredContent, never attempt to use text content
     if (structuredContent !== undefined && structuredContent !== null) {
-        console.log('[PostHog MCP App UI] Found structuredContent')
         return structuredContent as T
     }
 
-    console.log('[PostHog MCP App UI] No parseable content found')
     return null
 }
 
@@ -109,13 +104,14 @@ export function useToolResult<T = unknown>({
 
     // Initialize PostHog on first render
     useEffect(() => {
-        console.log('[PostHog MCP App UI] Initializing PostHog...')
         initPostHog(appName, appVersion)
     }, [appName, appVersion])
 
-    console.log(`[PostHog MCP App UI] Hook called for "${appName}" v${appVersion}`)
-
-    const { app, isConnected, error: connectionError } = useApp({
+    const {
+        app,
+        isConnected,
+        error: connectionError,
+    } = useApp({
         appInfo: { name: appName, version: appVersion },
         capabilities: {},
         onAppCreated: (appInstance) => {
@@ -156,15 +152,11 @@ export function useToolResult<T = unknown>({
             // Register tool result handler
             appInstance.setNotificationHandler(McpUiToolResultNotificationSchema, (notification) => {
                 try {
-                    const parsed = parseToolResultContent<T>(
-                        notification.params.structuredContent,
-                        notification.params.content
-                    )
+                    const parsed = parseToolResultContent<T>(notification.params.structuredContent)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
                     if (analytics) {
-                        console.log('[PostHog MCP App UI] Analytics metadata:', analytics)
                         identifyUser(analytics.distinctId, analytics.toolName)
                     }
 
@@ -174,7 +166,6 @@ export function useToolResult<T = unknown>({
                     })
 
                     if (parsed !== null) {
-                        console.log('[PostHog MCP App UI] Received data:', parsed)
                         setData(parsed)
                         setParseError(null)
                     } else {
@@ -188,8 +179,6 @@ export function useToolResult<T = unknown>({
                     setParseError(err)
                 }
             })
-
-            console.log('[PostHog MCP App UI] All handlers registered')
         },
     })
 
@@ -223,7 +212,6 @@ export function useToolResult<T = unknown>({
     // Callback to open links via the host
     const openLink = useCallback(
         (url: string) => {
-            console.log('[PostHog MCP App UI] Opening link:', url)
             captureLinkOpened(url)
             if (app) {
                 app.openLink({ url })
