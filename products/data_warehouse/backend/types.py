@@ -50,6 +50,7 @@ class ExternalDataSourceType(models.TextChoices):
     VITALLY = "Vitally", "Vitally"
     BIGQUERY = "BigQuery", "BigQuery"
     CHARGEBEE = "Chargebee", "Chargebee"
+    CLERK = "Clerk", "Clerk"
     GOOGLEADS = "GoogleAds", "GoogleAds"
     TEMPORALIO = "TemporalIO", "TemporalIO"
     DOIT = "DoIt", "DoIt"
