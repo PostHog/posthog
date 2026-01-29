@@ -60,6 +60,7 @@ export function LLMPromptScene(): JSX.Element {
                                 onClick={() => router.actions.push(urls.llmAnalyticsPrompts())}
                                 disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                 size="small"
+                                data-attr="prompt-cancel-button"
                             >
                                 Cancel
                             </LemonButton>
@@ -71,6 +72,7 @@ export function LLMPromptScene(): JSX.Element {
                                     icon={<IconTrash />}
                                     onClick={() => openDeletePromptDialog(deletePrompt)}
                                     size="small"
+                                    data-attr="prompt-delete-button"
                                 >
                                     Delete
                                 </LemonButton>
@@ -81,6 +83,7 @@ export function LLMPromptScene(): JSX.Element {
                                 onClick={submitPromptForm}
                                 loading={isPromptFormSubmitting}
                                 size="small"
+                                data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
                             >
                                 {isNewPrompt ? 'Create prompt' : 'Save'}
                             </LemonButton>
