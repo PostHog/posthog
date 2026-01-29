@@ -214,7 +214,7 @@ impl EventRestrictionService {
     pub async fn get_restrictions(
         &self,
         token: &str,
-        event: &EventContext,
+        event: &EventContext<'_>,
     ) -> HashSet<RestrictionType> {
         if self.is_stale_at(event.now_ts) {
             gauge!(
@@ -342,8 +342,8 @@ mod tests {
 
         // Should match when both distinct_id and event_name match
         let event_match = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_match);
@@ -351,8 +351,8 @@ mod tests {
 
         // Should NOT match when event_name doesn't match (AND logic)
         let event_wrong_name = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$identify".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$identify"),
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_wrong_name);
@@ -360,8 +360,8 @@ mod tests {
 
         // Should NOT match when distinct_id doesn't match
         let event_wrong_user = EventContext {
-            distinct_id: Some("user3".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user3"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_wrong_user);
@@ -495,7 +495,7 @@ mod tests {
     // EventRestrictionService tests
     // ========================================================================
 
-    fn event_ctx_now() -> EventContext {
+    fn event_ctx_now() -> EventContext<'static> {
         EventContext {
             now_ts: chrono::Utc::now().timestamp(),
             ..Default::default()

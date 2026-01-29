@@ -161,11 +161,12 @@ pub async fn process_events<'a>(
         let now_ts = context.now.timestamp();
 
         for e in events {
+            let uuid_str = e.event.uuid.to_string();
             let event_ctx = RestrictionEventContext {
-                distinct_id: Some(e.event.distinct_id.clone()),
-                session_id: e.event.session_id.clone(),
-                event_name: Some(e.event.event.clone()),
-                event_uuid: Some(e.event.uuid.to_string()),
+                distinct_id: Some(&e.event.distinct_id),
+                session_id: e.event.session_id.as_deref(),
+                event_name: Some(&e.event.event),
+                event_uuid: Some(&uuid_str),
                 now_ts,
             };
 

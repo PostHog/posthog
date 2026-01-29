@@ -108,10 +108,10 @@ impl RestrictionFilters {
     /// AND logic between filter types, OR logic within each type.
     /// Empty filter = matches all for that field.
     pub fn matches(&self, event: &EventContext) -> bool {
-        self.matches_field(&self.distinct_ids, event.distinct_id.as_deref())
-            && self.matches_field(&self.session_ids, event.session_id.as_deref())
-            && self.matches_field(&self.event_names, event.event_name.as_deref())
-            && self.matches_field(&self.event_uuids, event.event_uuid.as_deref())
+        self.matches_field(&self.distinct_ids, event.distinct_id)
+            && self.matches_field(&self.session_ids, event.session_id)
+            && self.matches_field(&self.event_names, event.event_name)
+            && self.matches_field(&self.event_uuids, event.event_uuid)
     }
 
     fn matches_field(&self, filter: &HashSet<String>, value: Option<&str>) -> bool {
@@ -126,12 +126,13 @@ impl RestrictionFilters {
 }
 
 /// Event data for matching against restrictions.
-#[derive(Debug, Clone, Default)]
-pub struct EventContext {
-    pub distinct_id: Option<String>,
-    pub session_id: Option<String>,
-    pub event_name: Option<String>,
-    pub event_uuid: Option<String>,
+/// Uses references to avoid cloning strings for every event.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EventContext<'a> {
+    pub distinct_id: Option<&'a str>,
+    pub session_id: Option<&'a str>,
+    pub event_name: Option<&'a str>,
+    pub event_uuid: Option<&'a str>,
     /// Pre-computed timestamp to avoid syscalls per event. Use `chrono::Utc::now().timestamp()`.
     pub now_ts: i64,
 }
@@ -217,8 +218,8 @@ mod tests {
     fn test_restriction_filters_empty_matches_all() {
         let filters = RestrictionFilters::default();
         let event = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         assert!(filters.matches(&event));
@@ -231,13 +232,13 @@ mod tests {
         filters.distinct_ids.insert("user2".to_string());
 
         let event_match = EventContext {
-            distinct_id: Some("user1".to_string()),
+            distinct_id: Some("user1"),
             ..Default::default()
         };
         assert!(filters.matches(&event_match));
 
         let event_no_match = EventContext {
-            distinct_id: Some("user3".to_string()),
+            distinct_id: Some("user3"),
             ..Default::default()
         };
         assert!(!filters.matches(&event_no_match));
@@ -251,24 +252,24 @@ mod tests {
 
         // both match
         let event_both = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         assert!(filters.matches(&event_both));
 
         // only distinct_id matches
         let event_wrong_event = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$identify".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$identify"),
             ..Default::default()
         };
         assert!(!filters.matches(&event_wrong_event));
 
         // only event_name matches
         let event_wrong_user = EventContext {
-            distinct_id: Some("user2".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user2"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         assert!(!filters.matches(&event_wrong_user));

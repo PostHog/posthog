@@ -210,11 +210,12 @@ pub async fn ai_handler(
 
     // Step 2: Check event restrictions early - before parsing remaining parts
     let applied_restrictions = if let Some(ref service) = state.event_restriction_service {
+        let uuid_str = event_metadata.event_uuid();
         let event_ctx = RestrictionEventContext {
-            distinct_id: Some(event_metadata.distinct_id.clone()),
+            distinct_id: Some(&event_metadata.distinct_id),
             session_id: None,
-            event_name: Some(event_metadata.event_name.clone()),
-            event_uuid: event_metadata.event_uuid(),
+            event_name: Some(&event_metadata.event_name),
+            event_uuid: uuid_str.as_deref(),
             now_ts: state.timesource.current_time().timestamp(),
         };
 

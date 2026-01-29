@@ -223,11 +223,12 @@ pub async fn process_replay_events<'a>(
 
     // Apply event restrictions
     let applied = if let Some(ref service) = restriction_service {
+        let uuid_str = uuid.to_string();
         let event_ctx = RestrictionEventContext {
-            distinct_id: Some(distinct_id.clone()),
-            session_id: Some(session_id_str.to_string()),
-            event_name: Some("$snapshot_items".to_string()),
-            event_uuid: Some(uuid.to_string()),
+            distinct_id: Some(&distinct_id),
+            session_id: Some(session_id_str),
+            event_name: Some("$snapshot_items"),
+            event_uuid: Some(&uuid_str),
             now_ts: context.now.timestamp(),
         };
 
