@@ -7,7 +7,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
 
 
 def get_resource(name: str) -> EndpointResource:
@@ -17,7 +17,7 @@ def get_resource(name: str) -> EndpointResource:
         "limit": config.page_size,
     }
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
     }
