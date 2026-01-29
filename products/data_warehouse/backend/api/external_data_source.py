@@ -582,19 +582,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             instance.soft_delete()
 
         # Best-effort external cleanup — soft-deletes are already committed
-        try:
-            latest_running_job = (
-                ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
-                .order_by("-created_at")
-                .first()
-            )
-            if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
-                cancel_external_data_workflow(latest_running_job.workflow_id)
+        latest_running_job = (
+            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+            cancel_external_data_workflow(latest_running_job.workflow_id)
 
-            for schema in schemas:
+        for schema in schemas:
+            try:
                 delete_external_data_schedule(str(schema.id))
                 schema.delete_table()
+            except Exception as e:
+                capture_exception(e)
 
+        try:
             delete_external_data_schedule(str(instance.id))
         except Exception as e:
             capture_exception(e)

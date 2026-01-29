@@ -607,7 +607,7 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 204
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
-        assert mock_capture_exception.call_count == 1
+        assert mock_capture_exception.call_count == 2  # one for source, one for schema
 
     # TODO: update this test
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
