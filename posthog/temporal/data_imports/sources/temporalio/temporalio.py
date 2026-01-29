@@ -138,18 +138,23 @@ async def _get_workflows(
         logger.debug(f"TemporalIO: resuming from next_page_token")
 
     client = await _get_temporal_client(config)
-    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
+    # Set page_size to 100 so we can save state after each page
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
-    count = 0
+    page_count = 0
+    total_count = 0
     async for item in workflows:
         yield _sanitize(item.__dict__)
-        count += 1
+        total_count += 1
 
-        # Save state periodically (every 100 items) to allow resuming
-        if count % 100 == 0 and workflows.next_page_token:
-            token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
-            resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
-            logger.debug(f"TemporalIO: saved resume state after {count} workflows")
+        # Check if we've moved to a new page (next_page_token has changed)
+        # Save state after completing each page to allow resuming
+        if workflows.current_page_index == 0 and total_count > 1:
+            page_count += 1
+            if workflows.next_page_token:
+                token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
+                resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
+                logger.debug(f"TemporalIO: saved resume state after page {page_count} ({total_count} total workflows)")
 
 
 async def _get_workflow_histories(
@@ -175,9 +180,11 @@ async def _get_workflow_histories(
         logger.debug(f"TemporalIO: resuming workflow histories from next_page_token")
 
     client = await _get_temporal_client(config)
-    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
+    # Set page_size to 100 so we can save state after each page
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token, page_size=100)
 
-    count = 0
+    page_count = 0
+    workflow_count = 0
     async for item in workflows:
         try:
             history = await client.get_workflow_handle(item.id, run_id=item.run_id).fetch_history()
@@ -200,12 +207,17 @@ async def _get_workflow_histories(
                 continue
             raise
 
-        count += 1
-        # Save state periodically (every 100 workflows) to allow resuming
-        if count % 100 == 0 and workflows.next_page_token:
-            token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
-            resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
-            logger.debug(f"TemporalIO: saved resume state after {count} workflow histories")
+        workflow_count += 1
+        # Check if we've moved to a new page (current_page_index reset to 0)
+        # Save state after completing each page to allow resuming
+        if workflows.current_page_index == 0 and workflow_count > 1:
+            page_count += 1
+            if workflows.next_page_token:
+                token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
+                resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
+                logger.debug(
+                    f"TemporalIO: saved resume state after page {page_count} ({workflow_count} total workflow histories)"
+                )
 
 
 def temporalio_source(
