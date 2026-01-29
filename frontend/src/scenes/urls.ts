@@ -42,10 +42,10 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
-    destinations: (): string => '/destinations',
+    destinations: (): string => '/data-management/destinations',
     models: (): string => '/models',
-    sources: (): string => '/sources',
-    transformations: (): string => '/transformations',
+    sources: (): string => '/data-management/sources',
+    transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
