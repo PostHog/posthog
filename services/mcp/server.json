@@ -1,0 +1,54 @@
+{
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.PostHog/mcp",
+    "title": "PostHog MCP Server",
+    "description": "Official PostHog MCP Server for product analytics, feature flags, experiments, and more.",
+    "repository": {
+        "url": "https://github.com/PostHog/posthog",
+        "source": "github",
+        "subfolder": "services/mcp"
+    },
+    "version": "0.2.5",
+    "remotes": [
+        {
+            "type": "streamable-http",
+            "url": "https://mcp.posthog.com/mcp",
+            "headers": [
+                {
+                    "name": "Authorization",
+                    "description": "Bearer token with your PostHog personal API key. Create one at https://us.posthog.com/settings/user-api-keys with the 'MCP Server' preset.",
+                    "isRequired": true,
+                    "isSecret": true,
+                    "value": "Bearer {api_key}",
+                    "variables": {
+                        "api_key": {
+                            "description": "Your PostHog personal API key",
+                            "isRequired": true,
+                            "isSecret": true
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "sse",
+            "url": "https://mcp.posthog.com/sse",
+            "headers": [
+                {
+                    "name": "Authorization",
+                    "description": "Bearer token with your PostHog personal API key. Create one at https://us.posthog.com/settings/user-api-keys with the 'MCP Server' preset.",
+                    "isRequired": true,
+                    "isSecret": true,
+                    "value": "Bearer {api_key}",
+                    "variables": {
+                        "api_key": {
+                            "description": "Your PostHog personal API key",
+                            "isRequired": true,
+                            "isSecret": true
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}
