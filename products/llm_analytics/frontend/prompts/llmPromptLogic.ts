@@ -17,14 +17,21 @@ import { router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, LLMPrompt } from '~/types'
+import { Breadcrumb, LLMPrompt, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
 
+export enum PromptMode {
+    View = 'view',
+    Edit = 'edit',
+}
+
 export interface PromptLogicProps {
     promptId: string | 'new'
+    mode?: PromptMode
 }
 
 export interface PromptFormValues {
@@ -49,9 +56,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     actions({
         setPrompt: (prompt: LLMPrompt | PromptFormValues) => ({ prompt }),
         deletePrompt: true,
+        setMode: (mode: PromptMode) => ({ mode }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         prompt: [
             null as LLMPrompt | PromptFormValues | null,
             {
@@ -59,7 +67,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setPrompt: (_, { prompt }) => prompt,
             },
         ],
-    }),
+        mode: [
+            props.mode ?? PromptMode.View,
+            {
+                setMode: (_, { mode }) => mode,
+            },
+        ],
+    })),
 
     loaders(({ props }) => ({
         prompt: {
@@ -183,6 +197,74 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     iconType: 'llm_analytics',
                 },
             ],
+        ],
+
+        isViewMode: [
+            (s) => [s.mode, (_, props) => props],
+            (mode, props) => props.promptId !== 'new' && mode === PromptMode.View,
+        ],
+
+        isEditMode: [
+            (s) => [s.mode, (_, props) => props],
+            (mode, props) => props.promptId === 'new' || mode === PromptMode.Edit,
+        ],
+
+        relatedTracesQuery: [
+            (s) => [s.prompt],
+            (prompt): DataTableNode | null => {
+                if (!isPrompt(prompt)) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.TracesQuery,
+                        dateRange: {
+                            date_from: '-7d',
+                            date_to: undefined,
+                        },
+                        filterTestAccounts: false,
+                        filterSupportTraces: true,
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$ai_prompt_name',
+                                value: prompt.name,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                    columns: ['id', 'traceName', 'person', 'errors', 'totalLatency', 'usage', 'totalCost', 'timestamp'],
+                    showDateRange: true,
+                    showReload: true,
+                    showSearch: false,
+                    showTestAccountFilters: true,
+                    showExport: false,
+                    showOpenEditorButton: false,
+                    showColumnConfigurator: false,
+                }
+            },
+        ],
+
+        viewAllTracesUrl: [
+            (s) => [s.prompt],
+            (prompt): string => {
+                if (!isPrompt(prompt)) {
+                    return urls.llmAnalyticsTraces()
+                }
+
+                const filters = [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$ai_prompt_name',
+                        value: prompt.name,
+                        operator: PropertyOperator.Exact,
+                    },
+                ]
+
+                return `${urls.llmAnalyticsTraces()}?filters=${encodeURIComponent(JSON.stringify(filters))}`
+            },
         ],
     }),
 
