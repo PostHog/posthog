@@ -91,6 +91,11 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class ClerkSourceConfig(config.Config):
+    secret_key: str
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 
@@ -293,6 +298,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CLERK: ClerkSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
