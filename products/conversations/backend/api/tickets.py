@@ -98,12 +98,22 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.select_related("assignment", "assignment__user", "assignment__role")
 
         status_param = self.request.query_params.get("status")
-        if status_param and status_param in [s.value for s in Status]:
-            queryset = queryset.filter(status=status_param)
+        if status_param:
+            valid_statuses = [s.value for s in Status]
+            statuses = [s.strip() for s in status_param.split(",") if s.strip() in valid_statuses]
+            if len(statuses) == 1:
+                queryset = queryset.filter(status=statuses[0])
+            elif len(statuses) > 1:
+                queryset = queryset.filter(status__in=statuses)
 
-        priority = self.request.query_params.get("priority")
-        if priority and priority in [p.value for p in Priority]:
-            queryset = queryset.filter(priority=priority)
+        priority_param = self.request.query_params.get("priority")
+        if priority_param:
+            valid_priorities = [p.value for p in Priority]
+            priorities = [p.strip() for p in priority_param.split(",") if p.strip() in valid_priorities]
+            if len(priorities) == 1:
+                queryset = queryset.filter(priority=priorities[0])
+            elif len(priorities) > 1:
+                queryset = queryset.filter(priority__in=priorities)
 
         channel_source = self.request.query_params.get("channel_source")
         if channel_source and channel_source in [c.value for c in Channel]:
