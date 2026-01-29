@@ -81,6 +81,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                     logger.warn('⚠️', 'Person not found for hog flow invocation', {
                         hogFlowId: hogFlow.id,
                         distinctId: hogFlowInvocationState.event.distinct_id,
+                        invocationId: item.id,
                     })
                 }
 
