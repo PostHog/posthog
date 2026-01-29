@@ -5,6 +5,7 @@ import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -147,7 +148,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
+        const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+        const shouldOpenInDocsPanel =
+            !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to) && !isRemovingSidePanelFlag
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
