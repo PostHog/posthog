@@ -4,10 +4,10 @@ import collections.abc
 from dataclasses import dataclass
 
 import structlog
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 
 from posthog.settings import integrations
 from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 from products.data_warehouse.backend.types import IncrementalFieldType

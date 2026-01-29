@@ -2,11 +2,10 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+import pendulum
 import requests
 
-import pendulum
 from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
-
 
 
 class SalesforceAuth(BearerTokenAuth):

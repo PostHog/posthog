@@ -1,17 +1,16 @@
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Any, Optional
+from typing import Optional
 
 from django.db import transaction
 from django.db.models import Prefetch
 
 from clickhouse_driver.errors import ServerException
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema

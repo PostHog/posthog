@@ -6,7 +6,6 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.v19.common import types as ga_common
 from google.ads.googleads.v19.enums import types as ga_enums
@@ -17,6 +16,7 @@ from google.protobuf.json_format import MessageToJson
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.sql import Column, Table

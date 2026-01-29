@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 import certifi
 from bson import ObjectId
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from structlog.types import FilteringBoundLogger
@@ -17,6 +16,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig

@@ -6,9 +6,9 @@ from django.conf import settings
 
 import gspread
 from cachetools import Cache, TTLCache, cached
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from google.oauth2 import service_account
 
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig

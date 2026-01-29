@@ -72,9 +72,7 @@ def _convert_type_for_delta(arrow_type: pa.DataType) -> pa.DataType:
         return pa.struct(new_fields)
 
     if pa.types.is_map(arrow_type):
-        return pa.map_(
-            _convert_type_for_delta(arrow_type.key_type), _convert_type_for_delta(arrow_type.item_type)
-        )
+        return pa.map_(_convert_type_for_delta(arrow_type.key_type), _convert_type_for_delta(arrow_type.item_type))
 
     # Return type as-is if no conversion needed
     return arrow_type

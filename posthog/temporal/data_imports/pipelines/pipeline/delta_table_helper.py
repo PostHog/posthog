@@ -9,12 +9,12 @@ import deltalake as deltalake
 import pyarrow.compute as pc
 import deltalake.exceptions
 from conditional_cache import lru_cache
-from posthog.temporal.data_imports.pipelines.pipeline.delta_utils import ensure_delta_compatible_arrow_schema
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.delta_utils import ensure_delta_compatible_arrow_schema
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 
 from products.data_warehouse.backend.models import ExternalDataJob

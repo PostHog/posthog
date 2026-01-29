@@ -5,9 +5,9 @@ from typing import Any, Optional
 import pyarrow as pa
 import requests
 from dateutil import parser
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig

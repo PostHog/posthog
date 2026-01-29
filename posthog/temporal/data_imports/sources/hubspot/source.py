@@ -108,4 +108,4 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             logger=inputs.logger,
         )
         # hubspot returns a list with a single resource for the requested endpoint
-        return list(resources)[0]
+        return next(iter(resources))

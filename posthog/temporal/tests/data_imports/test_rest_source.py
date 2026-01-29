@@ -7,20 +7,16 @@ implementation, we maintain the same external API and behavior.
 
 import json
 from typing import Any, Optional
-from unittest import mock
 
-import pytest
 import responses
 from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.pagination import (
     BasePaginator,
-    JSONResponsePaginator,
     OffsetPaginator,
     PageNumberPaginator,
 )
-from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
 class TestPagination:

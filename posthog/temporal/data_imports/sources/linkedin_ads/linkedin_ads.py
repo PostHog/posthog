@@ -3,10 +3,9 @@ import datetime as dt
 import collections.abc
 from dataclasses import dataclass
 
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
-
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 

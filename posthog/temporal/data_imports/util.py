@@ -4,11 +4,11 @@ from typing import Literal, Optional
 
 from django.conf import settings
 
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.s3 import get_s3_client

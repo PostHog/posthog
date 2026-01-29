@@ -4,7 +4,7 @@ import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -14,13 +14,15 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 from dateutil import parser
-# TDataType removed - simplified to Any
-from posthog.temporal.data_imports.pipelines.pipeline.delta_utils import ensure_delta_compatible_arrow_schema
-from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
+
 # DltResource removed - using Iterator[dict[str, Any]]
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+
+# TDataType removed - simplified to Any
+from posthog.temporal.data_imports.pipelines.pipeline.delta_utils import ensure_delta_compatible_arrow_schema
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:

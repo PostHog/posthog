@@ -27,11 +27,12 @@ import urllib.parse
 from collections.abc import Iterator, Sequence
 from typing import Any, Literal
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+
 from .helpers import _get_property_names, fetch_data, fetch_property_history
-from .settings import CRM_OBJECT_ENDPOINTS, DEFAULT_PROPS, OBJECT_TYPE_PLURAL, OBJECT_TYPE_SINGULAR
+from .settings import CRM_OBJECT_ENDPOINTS, DEFAULT_PROPS, OBJECT_TYPE_SINGULAR
 
 THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 
@@ -150,9 +151,8 @@ def crm_objects(
         # Get history separately, as requesting both all properties and history together
         # is likely to hit hubspot's URL length limit
         # Note: History data is yielded directly; table naming is handled by the consumer
-        for history_entries in fetch_property_history(
+        yield from fetch_property_history(
             CRM_OBJECT_ENDPOINTS[object_type],
             api_key,
             props_str,
-        ):
-            yield history_entries
+        )

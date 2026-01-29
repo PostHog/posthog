@@ -3,16 +3,15 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-import structlog
-from dateutil import parser
-
 # TSecretStrValue removed - using str
 import requests
-from posthog.temporal.data_imports.sources.common.rest_source.auth import AuthBase as AuthConfigBase
-from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
+import structlog
+from dateutil import parser
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import AuthBase as AuthConfigBase
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
@@ -402,7 +401,6 @@ class TikTokAdsPaginator(BasePaginator):
         if request.params is None:
             request.params = {}
         request.params["page"] = self.current_page
-
 
 
 class TikTokAdsAuth(AuthConfigBase):
