@@ -6689,7 +6689,7 @@ export interface ApprovalPolicy {
 }
 
 export interface WebAnalyticsFiltersConfig {
-    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
     dateFrom?: string | null
     dateTo?: string | null
     interval?: IntervalType
