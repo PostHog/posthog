@@ -305,12 +305,12 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_when_recent(self):
-        """Test that no warning is returned when data is fresh (within 30 minute threshold)"""
+        """Test that no warning is returned when data is fresh (within 1 minute threshold)"""
         data_service = ExperimentSummaryDataService(self.team)
 
-        # 15 minutes difference - well within the 30 minute threshold
-        frontend_refresh = "2020-01-10T11:30:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 45, 0, tzinfo=ZoneInfo("UTC"))
+        # 30 seconds difference - well within the 1 minute threshold
+        frontend_refresh = "2020-01-10T11:59:00Z"
+        backend_refresh = datetime(2020, 1, 10, 11, 59, 30, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         self.assertIsNone(warning)
@@ -329,12 +329,12 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_warning_at_threshold_boundary(self):
-        """Test that warning is returned when data difference is just over 30 minute threshold"""
+        """Test that warning is returned when data difference is just over 1 minute threshold"""
         data_service = ExperimentSummaryDataService(self.team)
 
-        # 31 minutes difference - just over the 30 minute threshold
-        frontend_refresh = "2020-01-10T11:00:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 31, 0, tzinfo=ZoneInfo("UTC"))
+        # 61 seconds difference - just over the 1 minute (60 second) threshold
+        frontend_refresh = "2020-01-10T11:58:00Z"
+        backend_refresh = datetime(2020, 1, 10, 11, 59, 1, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         assert warning is not None
@@ -342,12 +342,12 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
-        """Test that no warning is returned when data difference is exactly at 30 minute threshold"""
+        """Test that no warning is returned when data difference is exactly at 1 minute threshold"""
         data_service = ExperimentSummaryDataService(self.team)
 
-        # Exactly 30 minutes - at the threshold (not over), should NOT trigger warning
-        frontend_refresh = "2020-01-10T11:00:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 30, 0, tzinfo=ZoneInfo("UTC"))
+        # Exactly 60 seconds - at the threshold (not over), should NOT trigger warning
+        frontend_refresh = "2020-01-10T11:58:00Z"
+        backend_refresh = datetime(2020, 1, 10, 11, 59, 0, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         self.assertIsNone(warning)

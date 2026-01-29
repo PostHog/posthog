@@ -33,7 +33,12 @@ from posthog.models import Experiment
 from posthog.sync import database_sync_to_async
 
 MAX_METRICS_TO_SUMMARIZE = 20
-FRESHNESS_THRESHOLD_MINUTES = 30
+
+# This threshold is just to avoid minor discrepancies in timestamps.
+# The check itself compares the frontend timestamp with the last
+# backend refresh timestamp. So leaving the browser open while not
+# having any new data on the backend will not trigger a warning.
+FRESHNESS_THRESHOLD_SECONDS = 60
 
 ExperimentMetricType = Union[
     ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric
@@ -289,7 +294,7 @@ class ExperimentSummaryDataService:
                 backend_last_refresh = backend_last_refresh.replace(tzinfo=ZoneInfo("UTC"))
 
             time_diff = abs((backend_last_refresh - frontend_time).total_seconds())
-            if time_diff > FRESHNESS_THRESHOLD_MINUTES * 60:
+            if time_diff > FRESHNESS_THRESHOLD_SECONDS:
                 return (
                     f"**Note:** The experiment data has been updated since you loaded this page "
                     f"(approximately {int(time_diff / 60)} minutes ago). "

@@ -173,12 +173,15 @@ class ExperimentSummaryOutput(BaseModel):
     """Structured output for experiment summary"""
 
     key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=20)
+    freshness_warning: str | None = Field(default=None, description="Warning if data has been updated since page load")
 
 
 EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = """
 Use this tool to analyze experiment results and generate an executive summary with key insights and recommendations.
 The tool processes experiment data including metrics, statistical significance, and variant performance to provide actionable insights.
 It works with both Bayesian and Frequentist statistical methods and automatically adapts to the experiment's configuration.
+
+**Important:** When presenting results to the user, include any data freshness notices from the tool output. These notices inform the user if the data has been updated since they loaded the page.
 
 # Examples of when to use the experiment_results_summary tool
 
@@ -347,6 +350,13 @@ class ExperimentSummaryTool(MaxTool):
     def _format_summary_for_user(self, summary: ExperimentSummaryOutput, experiment_name: str) -> str:
         """Format the structured summary into a user-friendly message."""
         lines = []
+
+        if summary.freshness_warning:
+            lines.append("[IMPORTANT: Include this data freshness notice when presenting results to the user]")
+            lines.append(summary.freshness_warning)
+            lines.append("[End of notice]")
+            lines.append("")
+
         lines.append(f"✅ **Experiment Summary: '{experiment_name}'**")
 
         if summary.key_metrics:
@@ -387,18 +397,20 @@ class ExperimentSummaryTool(MaxTool):
 
             # Analyze the experiment
             summary_result = await self._analyze_experiment(context)
-            user_message = self._format_summary_for_user(summary_result, context.experiment_name)
 
-            # Prepend freshness warning if applicable
+            # Add freshness warning if applicable
             freshness_warning = self._data_service().check_data_freshness(frontend_last_refresh, backend_last_refresh)
             if freshness_warning:
-                user_message = f"{freshness_warning}\n\n{user_message}"
+                summary_result.freshness_warning = freshness_warning
+
+            user_message = self._format_summary_for_user(summary_result, context.experiment_name)
 
             return user_message, {
                 "experiment_id": context.experiment_id,
                 "experiment_name": context.experiment_name,
                 "summary": summary_result.model_dump(),
                 "data_refreshed_at": backend_last_refresh.isoformat() if backend_last_refresh else None,
+                "freshness_warning": freshness_warning,
             }
 
         except Exception as e:
