@@ -80,8 +80,16 @@ impl S3Uploader {
             config.max_concurrent_checkpoint_file_uploads,
         ));
 
-        // Validate bucket access by listing (head not available in object_store)
-        let _ = store.list(Some(&ObjectPath::from(""))).next().await;
+        // Validate bucket access by attempting to list - fail fast if misconfigured
+        if let Some(Err(e)) = store.list(Some(&ObjectPath::from(""))).next().await {
+            return Err(anyhow::anyhow!(e)).with_context(|| {
+                format!(
+                    "S3 bucket validation failed for '{}' in region '{}' - check bucket exists, credentials, and network connectivity",
+                    config.s3_bucket,
+                    config.aws_region.as_deref().unwrap_or("default")
+                )
+            });
+        }
 
         info!(
             "S3 bucket '{}' validated successfully with max {} concurrent uploads",

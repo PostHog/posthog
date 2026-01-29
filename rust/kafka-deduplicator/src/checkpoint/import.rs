@@ -1,6 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use super::{CheckpointDownloader, CheckpointMetadata};
+use crate::metrics_const::{
+    CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, CHECKPOINT_IMPORT_DURATION_HISTOGRAM,
+};
 
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;
@@ -13,6 +17,8 @@ pub struct CheckpointImporter {
     store_base_path: PathBuf,
     // Number of historical checkpoint attempts to import as fallbacks
     import_attempt_depth: usize,
+    // Maximum time allowed for a complete checkpoint import operation
+    import_timeout: Duration,
 }
 
 impl CheckpointImporter {
@@ -20,11 +26,13 @@ impl CheckpointImporter {
         downloader: Box<dyn CheckpointDownloader>,
         store_base_path: PathBuf,
         import_attempt_depth: usize,
+        import_timeout: Duration,
     ) -> Self {
         Self {
             downloader,
             store_base_path,
             import_attempt_depth,
+            import_timeout,
         }
     }
 
@@ -47,15 +55,60 @@ impl CheckpointImporter {
 
     /// Import checkpoint files with optional cancellation support.
     /// If cancel_token is provided and cancelled during download, returns an error early.
+    /// The import is wrapped with a timeout to prevent exceeding Kafka max poll interval.
     pub async fn import_checkpoint_for_topic_partition_cancellable(
         &self,
         topic: &str,
         partition_number: i32,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<PathBuf> {
-        let mut checkpoint_metadata = self
+        let start_time = Instant::now();
+
+        // Wrap the entire import with a timeout to prevent exceeding Kafka max poll interval
+        match tokio::time::timeout(
+            self.import_timeout,
+            self.import_checkpoint_inner(topic, partition_number, cancel_token, start_time),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                error!(
+                    topic = topic,
+                    partition = partition_number,
+                    timeout_secs = self.import_timeout.as_secs(),
+                    elapsed_secs = start_time.elapsed().as_secs_f64(),
+                    "Checkpoint import timed out"
+                );
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "timeout")
+                    .record(start_time.elapsed().as_secs_f64());
+                Err(anyhow::anyhow!(
+                    "Checkpoint import timed out after {}s for topic:{topic} partition:{partition_number}",
+                    self.import_timeout.as_secs()
+                ))
+            }
+        }
+    }
+
+    /// Inner implementation of checkpoint import, called with a timeout wrapper.
+    async fn import_checkpoint_inner(
+        &self,
+        topic: &str,
+        partition_number: i32,
+        cancel_token: Option<&CancellationToken>,
+        start_time: Instant,
+    ) -> Result<PathBuf> {
+        let mut checkpoint_metadata = match self
             .fetch_checkpoint_metadata(topic, partition_number)
-            .await?;
+            .await
+        {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(start_time.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
 
         info!(
             "Found {} checkpoint attempts for topic:{} partition:{}",
@@ -80,10 +133,13 @@ impl CheckpointImporter {
                         partition = partition_number,
                         "Checkpoint import cancelled before attempt"
                     );
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "cancelled")
+                        .record(start_time.elapsed().as_secs_f64());
                     return Err(anyhow::anyhow!("Checkpoint import cancelled"));
                 }
             }
 
+            let attempt_start = Instant::now();
             let local_attempt_path = attempt.get_store_path(&self.store_base_path);
             let local_path_tag = local_attempt_path.to_string_lossy().to_string();
             let attempt_tag = attempt.get_attempt_path();
@@ -100,41 +156,60 @@ impl CheckpointImporter {
                 ),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => {
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(attempt_start.elapsed().as_secs_f64());
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(start_time.elapsed().as_secs_f64());
                     return Err(e).with_context(|| {
                         format!(
                             "Failed to remove existing directory before import: {}",
                             local_path_tag
                         )
-                    })
+                    });
                 }
             }
 
             // Create the directory for this import attempt
-            tokio::fs::create_dir_all(&local_attempt_path)
-                .await
-                .with_context(|| {
+            if let Err(e) = tokio::fs::create_dir_all(&local_attempt_path).await {
+                metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(attempt_start.elapsed().as_secs_f64());
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(start_time.elapsed().as_secs_f64());
+                return Err(e).with_context(|| {
                     format!(
                         "Failed to create local directory for import: {}",
                         local_path_tag
                     )
-                })?;
+                });
+            }
 
             match self
                 .fetch_checkpoint_files_cancellable(&attempt, &local_attempt_path, cancel_token)
                 .await
             {
                 Ok(_) => {
+                    let attempt_duration = attempt_start.elapsed().as_secs_f64();
                     info!(
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
+                        attempt_duration_secs = attempt_duration,
+                        total_duration_secs = start_time.elapsed().as_secs_f64(),
                         "Successfully imported checkpoint to local directory"
                     );
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "success")
+                        .record(attempt_duration);
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "success")
+                        .record(start_time.elapsed().as_secs_f64());
                     return Ok(local_attempt_path);
                 }
                 Err(e) => {
+                    let attempt_duration = attempt_start.elapsed().as_secs_f64();
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(attempt_duration);
                     error!(
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
+                        attempt_duration_secs = attempt_duration,
                         error = e.to_string(),
                         "Failed to import checkpoint files"
                     );
@@ -165,6 +240,8 @@ impl CheckpointImporter {
             "No usable checkpoints identified in recovery window for topic:{topic} partition:{partition_number}"
         );
         error!(err_msg);
+        metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+            .record(start_time.elapsed().as_secs_f64());
         Err(anyhow::anyhow!(err_msg))
     }
 
@@ -495,8 +572,12 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let metadata = create_test_metadata("test-topic", 0, 12);
         let downloader = CancellationTestDownloader::new(vec![metadata]);
-        let importer =
-            CheckpointImporter::new(Box::new(downloader), tmp_dir.path().to_path_buf(), 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60), // 60s timeout for tests
+        );
 
         // Create a pre-cancelled token
         let token = CancellationToken::new();
@@ -526,8 +607,12 @@ mod tests {
             .with_fail_count(1) // First attempt fails
             .with_download_delay(Duration::from_millis(50)); // Delay before failure
 
-        let importer =
-            CheckpointImporter::new(Box::new(downloader), tmp_dir.path().to_path_buf(), 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60), // 60s timeout for tests
+        );
 
         let token = CancellationToken::new();
 
@@ -621,7 +706,12 @@ mod tests {
 
         // Create importer with mock downloader
         let downloader = MockDownloader::new(metadata);
-        let importer = CheckpointImporter::new(Box::new(downloader), store_base_path, 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            store_base_path,
+            3,
+            Duration::from_secs(60), // 60s timeout for tests
+        );
 
         // Run import - should succeed after cleaning up the corrupted directory
         let result = importer

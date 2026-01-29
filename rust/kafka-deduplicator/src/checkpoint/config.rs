@@ -73,6 +73,11 @@ pub struct CheckpointConfig {
     /// Less critical than downloads since uploads are already bounded by max_concurrent_checkpoints,
     /// but provides additional defense in depth.
     pub max_concurrent_checkpoint_file_uploads: usize,
+
+    /// Maximum time allowed for a complete checkpoint import for a single partition.
+    /// This includes listing checkpoints, downloading metadata, and downloading all files.
+    /// Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
+    pub checkpoint_partition_import_timeout: Duration,
 }
 
 impl Default for CheckpointConfig {
@@ -99,6 +104,7 @@ impl Default for CheckpointConfig {
             checkpoint_import_attempt_depth: 10,
             max_concurrent_checkpoint_file_downloads: 50,
             max_concurrent_checkpoint_file_uploads: 25,
+            checkpoint_partition_import_timeout: Duration::from_secs(240),
         }
     }
 }

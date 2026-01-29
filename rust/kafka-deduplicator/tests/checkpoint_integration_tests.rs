@@ -209,6 +209,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         Box::new(downloader),
         tmp_import_dir.path().to_path_buf(),
         config.checkpoint_import_attempt_depth,
+        config.checkpoint_partition_import_timeout,
     );
     assert!(
         importer.is_available().await,

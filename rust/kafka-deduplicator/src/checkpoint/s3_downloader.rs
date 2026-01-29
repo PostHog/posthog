@@ -111,8 +111,16 @@ impl S3Downloader {
         // The semaphore permit is held for the entire stream duration
         let store = LimitStore::new(base_store, config.max_concurrent_checkpoint_file_downloads);
 
-        // Validate bucket access by attempting to list (same as S3Uploader pattern)
-        let _ = store.list(Some(&ObjectPath::from(""))).next().await;
+        // Validate bucket access by attempting to list - fail fast if misconfigured
+        if let Some(Err(e)) = store.list(Some(&ObjectPath::from(""))).next().await {
+            return Err(anyhow::anyhow!(e)).with_context(|| {
+                format!(
+                    "S3 bucket validation failed for '{}' in region '{}' - check bucket exists, credentials, and network connectivity",
+                    config.s3_bucket,
+                    config.aws_region.as_deref().unwrap_or("default")
+                )
+            });
+        }
 
         info!(
             "S3 bucket '{}' validated successfully with max {} concurrent downloads",
@@ -161,7 +169,7 @@ impl CheckpointDownloader for S3Downloader {
         })?;
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs_f64());
         Ok(body.to_vec())
     }
 
@@ -251,7 +259,7 @@ impl CheckpointDownloader for S3Downloader {
 
         metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success").increment(1);
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
 
         info!("Downloaded remote file {remote_key} to {local_filepath:?}");
         Ok(())
@@ -304,8 +312,7 @@ impl CheckpointDownloader for S3Downloader {
 
         let file_count = results.len();
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM)
-            .record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
         info!("Successfully downloaded checkpoint with {file_count} files to local path: {local_base_path:?}");
 
         Ok(())
@@ -353,7 +360,7 @@ impl CheckpointDownloader for S3Downloader {
         keys_found.reverse();
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs_f64());
         info!(
             "Found {} metadata.json files of {} total keys scanned at or after: {}",
             keys_found.len(),

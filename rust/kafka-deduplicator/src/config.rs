@@ -233,6 +233,12 @@ pub struct Config {
     #[envconfig(default = "25")]
     pub max_concurrent_checkpoint_file_uploads: usize,
 
+    // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
+    // This includes listing checkpoints, downloading metadata, and downloading all files.
+    // Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
+    #[envconfig(default = "240")]
+    pub checkpoint_partition_import_timeout_secs: u64,
+
     //// End checkpoint configuration ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
@@ -415,6 +421,11 @@ impl Config {
     /// Get S3 per-attempt timeout as Duration
     pub fn s3_attempt_timeout(&self) -> Duration {
         Duration::from_secs(self.s3_attempt_timeout_secs)
+    }
+
+    /// Get checkpoint partition import timeout as Duration
+    pub fn checkpoint_partition_import_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
     }
 
     /// Build Kafka producer configuration
