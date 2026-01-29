@@ -305,11 +305,12 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_no_warning_when_recent(self):
-        """Test that no warning is returned when data is fresh"""
+        """Test that no warning is returned when data is fresh (within 30 minute threshold)"""
         data_service = ExperimentSummaryDataService(self.team)
 
-        frontend_refresh = "2020-01-10T11:50:00Z"
-        backend_refresh = datetime(2020, 1, 10, 11, 55, tzinfo=ZoneInfo("UTC"))
+        # 15 minutes difference - well within the 30 minute threshold
+        frontend_refresh = "2020-01-10T11:30:00Z"
+        backend_refresh = datetime(2020, 1, 10, 11, 45, 0, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         self.assertIsNone(warning)
@@ -325,6 +326,31 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
         assert warning is not None
         self.assertIn("data has been updated", warning)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_check_data_freshness_warning_at_threshold_boundary(self):
+        """Test that warning is returned when data difference is just over 30 minute threshold"""
+        data_service = ExperimentSummaryDataService(self.team)
+
+        # 31 minutes difference - just over the 30 minute threshold
+        frontend_refresh = "2020-01-10T11:00:00Z"
+        backend_refresh = datetime(2020, 1, 10, 11, 31, 0, tzinfo=ZoneInfo("UTC"))
+
+        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
+        assert warning is not None
+        self.assertIn("data has been updated", warning)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_check_data_freshness_no_warning_at_threshold_boundary(self):
+        """Test that no warning is returned when data difference is exactly at 30 minute threshold"""
+        data_service = ExperimentSummaryDataService(self.team)
+
+        # Exactly 30 minutes - at the threshold (not over), should NOT trigger warning
+        frontend_refresh = "2020-01-10T11:00:00Z"
+        backend_refresh = datetime(2020, 1, 10, 11, 30, 0, tzinfo=ZoneInfo("UTC"))
+
+        warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
+        self.assertIsNone(warning)
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_check_data_freshness_handles_none_values(self):
@@ -439,6 +465,130 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("My Experiment", formatted)
         self.assertIn("10% improvement", formatted)
         self.assertIn("statistically significant", formatted)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_freshness_warning_appears_in_tool_output(self):
+        """Test that freshness warning is prepended to user message when data is stale"""
+        experiment = await self.acreate_experiment(name="freshness-test", with_metrics=True)
+
+        # Create tool with context containing an old frontend_last_refresh
+        tool = await ExperimentSummaryTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+        )
+
+        # Create mock results with recent backend refresh time
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = [
+            ExperimentVariantResultBayesian(
+                key="control",
+                method="bayesian",
+                chance_to_win=0.15,
+                credible_interval=[-0.05, 0.05],
+                significant=False,
+                number_of_samples=100,
+                sum=50,
+                sum_squares=2500,
+            ),
+            ExperimentVariantResultBayesian(
+                key="test",
+                method="bayesian",
+                chance_to_win=0.85,
+                credible_interval=[0.05, 0.15],
+                significant=True,
+                number_of_samples=100,
+                sum=60,
+                sum_squares=3600,
+            ),
+        ]
+        # Backend refresh is 1 hour after frontend (way over threshold)
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_summary = ExperimentSummaryOutput(key_metrics=["Test variant shows improvement"])
+
+        # Mock context with old frontend refresh time (2 hours ago)
+        mock_context = {"experiment_results_summary": {"frontend_last_refresh": "2020-01-10T10:00:00Z"}}
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+            patch.object(tool, "_analyze_experiment", return_value=mock_summary),
+            patch.object(tool._context_manager, "get_contextual_tools", return_value=mock_context),
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            result, artifact = await tool._arun_impl(experiment_id=experiment.id)
+
+        # The freshness warning should be prepended to the result
+        self.assertIn("**Note:** The experiment data has been updated", result)
+        self.assertIn("60 minutes ago", result)
+        # The actual summary should still be present
+        self.assertIn("Experiment Summary", result)
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    async def test_no_freshness_warning_when_frontend_timestamp_missing(self):
+        """Test that no warning appears when frontend_last_refresh is not provided"""
+        experiment = await self.acreate_experiment(name="no-timestamp-test", with_metrics=True)
+
+        tool = await ExperimentSummaryTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+        )
+
+        mock_query_result = MagicMock()
+        mock_query_result.variant_results = [
+            ExperimentVariantResultBayesian(
+                key="test",
+                method="bayesian",
+                chance_to_win=0.85,
+                credible_interval=[0.05, 0.15],
+                significant=True,
+                number_of_samples=100,
+                sum=60,
+                sum_squares=3600,
+            ),
+        ]
+        mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_exposure_result = MagicMock()
+        mock_exposure_result.total_exposures = {"control": 500, "test": 500}
+        mock_exposure_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+
+        mock_summary = ExperimentSummaryOutput(key_metrics=["Test variant shows improvement"])
+
+        # Mock context with no frontend_last_refresh
+        mock_context = {"experiment_results_summary": {}}
+
+        with (
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentQueryRunner"
+            ) as mock_query_runner_class,
+            patch(
+                "products.experiments.backend.experiment_summary_data_service.ExperimentExposuresQueryRunner"
+            ) as mock_exposure_runner_class,
+            patch.object(tool, "_analyze_experiment", return_value=mock_summary),
+            patch.object(tool._context_manager, "get_contextual_tools", return_value=mock_context),
+        ):
+            mock_query_runner_class.return_value.run.return_value = mock_query_result
+            mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
+
+            result, artifact = await tool._arun_impl(experiment_id=experiment.id)
+
+        # No freshness warning should be present
+        self.assertNotIn("**Note:**", result)
+        # The actual summary should still be present
+        self.assertIn("Experiment Summary", result)
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_with_mocked_query_runners(self):
