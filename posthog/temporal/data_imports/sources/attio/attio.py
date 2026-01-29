@@ -90,6 +90,12 @@ class AttioOffsetPaginator(BasePaginator):
         self._next_offset: Optional[int] = 0
         self._has_next_page = False
 
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["offset"] = self._current_offset
+        request.params["limit"] = self._limit
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
             response_data = response.json()
