@@ -6,17 +6,9 @@ import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
 import { EditorFilterProps, FunnelConversionWindowTimeUnit } from '~/types'
-
-export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
-    [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
-    [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
-    [FunnelConversionWindowTimeUnit.Hour]: [1, 24],
-    [FunnelConversionWindowTimeUnit.Day]: [1, 365],
-    [FunnelConversionWindowTimeUnit.Week]: [1, 53],
-    [FunnelConversionWindowTimeUnit.Month]: [1, 12],
-}
 
 export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
     const { aggregationTargetLabel, querySource, conversionWindow, conversionWindowInterval, conversionWindowUnit } =

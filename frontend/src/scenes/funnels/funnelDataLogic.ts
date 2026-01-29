@@ -36,6 +36,7 @@ import {
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import {
+    TIME_INTERVAL_BOUNDS,
     aggregateBreakdownResult,
     aggregationLabelForHogQL,
     flattenedStepsByBreakdown,
@@ -581,12 +582,19 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         },
         commitConversionWindow: () => {
             const { conversionWindowInterval, conversionWindowUnit, conversionWindow } = values
-            const interval = conversionWindowInterval
             const unit = conversionWindowUnit ?? conversionWindow.funnelWindowIntervalUnit
+            const rawInterval = conversionWindowInterval ?? conversionWindow.funnelWindowInterval
 
-            if (!interval) {
+            if (!rawInterval) {
                 actions.setConversionWindowInterval(conversionWindow.funnelWindowInterval)
                 return
+            }
+
+            const [min, max] = TIME_INTERVAL_BOUNDS[unit]
+            const interval = Math.min(Math.max(rawInterval, min), max)
+
+            if (interval !== rawInterval) {
+                actions.setConversionWindowInterval(interval)
             }
 
             if (
