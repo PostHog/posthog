@@ -9,6 +9,7 @@ import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 interface IconWithBadgeProps {
     content: LemonBadgeProps['content']
     status?: LemonBadgeProps['status']
+    size?: LemonBadgeProps['size']
     className?: string
 }
 
@@ -63,11 +64,12 @@ export function IconWithBadge({
     children,
     status = 'primary',
     className,
+    size = 'small',
 }: PropsWithChildren<IconWithBadgeProps>): JSX.Element {
     return (
         <span className={clsx('relative inline-flex', className)}>
             {children}
-            <LemonBadge visible={!!content} content={content} size="small" position="top-right" status={status} />
+            <LemonBadge visible={!!content} content={content} size={size} position="top-right" status={status} />
         </span>
     )
 }

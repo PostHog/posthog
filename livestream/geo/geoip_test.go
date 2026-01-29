@@ -1,46 +1,50 @@
-package geo
+package geo_test
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/mocks"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMaxMindLocator_Lookup_Success(t *testing.T) {
 	mockLocator := mocks.NewGeoLocator(t)
-	mockLocator.EXPECT().Lookup("192.0.2.1").Return(40.7128, -74.0060, nil)
+	mockLocator.EXPECT().Lookup("192.0.2.1").Return(geo.GeoLookupResult{Latitude: 40.7128, Longitude: -74.0060, CountryCode: "US"}, nil)
 
-	latitude, longitude, err := mockLocator.Lookup("192.0.2.1")
+	result, err := mockLocator.Lookup("192.0.2.1")
 
 	assert.NoError(t, err)
-	assert.Equal(t, 40.7128, latitude)
-	assert.Equal(t, -74.0060, longitude)
+	assert.Equal(t, 40.7128, result.Latitude)
+	assert.Equal(t, -74.0060, result.Longitude)
+	assert.Equal(t, "US", result.CountryCode)
 }
 
 func TestMaxMindLocator_Lookup_InvalidIP(t *testing.T) {
 	mockLocator := mocks.NewGeoLocator(t)
-	mockLocator.EXPECT().Lookup("invalid_ip").Return(0.0, 0.0, errors.New("invalid IP address"))
+	mockLocator.EXPECT().Lookup("invalid_ip").Return(geo.GeoLookupResult{}, errors.New("invalid IP address"))
 
-	latitude, longitude, err := mockLocator.Lookup("invalid_ip")
+	result, err := mockLocator.Lookup("invalid_ip")
 
 	assert.Error(t, err)
 	assert.Equal(t, "invalid IP address", err.Error())
-	assert.Equal(t, 0.0, latitude)
-	assert.Equal(t, 0.0, longitude)
+	assert.Equal(t, 0.0, result.Latitude)
+	assert.Equal(t, 0.0, result.Longitude)
+	assert.Equal(t, "", result.CountryCode)
 }
 
 func TestMaxMindLocator_Lookup_DatabaseError(t *testing.T) {
 	mockLocator := mocks.NewGeoLocator(t)
-	mockLocator.EXPECT().Lookup("192.0.2.1").Return(0.0, 0.0, errors.New("database error"))
+	mockLocator.EXPECT().Lookup("192.0.2.1").Return(geo.GeoLookupResult{}, errors.New("database error"))
 
-	latitude, longitude, err := mockLocator.Lookup("192.0.2.1")
+	result, err := mockLocator.Lookup("192.0.2.1")
 
 	assert.Error(t, err)
 	assert.Equal(t, "database error", err.Error())
-	assert.Equal(t, 0.0, latitude)
-	assert.Equal(t, 0.0, longitude)
+	assert.Equal(t, 0.0, result.Latitude)
+	assert.Equal(t, 0.0, result.Longitude)
+	assert.Equal(t, "", result.CountryCode)
 }
 
 func TestNewMaxMindGeoLocator_Success(t *testing.T) {

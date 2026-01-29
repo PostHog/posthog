@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
@@ -207,6 +208,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             actions.setPayloadJson(initialPayload)
             actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
             actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
+        },
+        loadEndpointResultSuccess: () => {
+            // Mark test endpoint task as completed when user runs an endpoint in the playground
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TestEndpoint)
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({

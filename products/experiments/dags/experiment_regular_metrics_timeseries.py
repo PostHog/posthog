@@ -40,6 +40,9 @@ experiment_regular_metrics_partitions_def = dagster.DynamicPartitionsDefinition(
     name=EXPERIMENT_REGULAR_METRICS_PARTITIONS_NAME
 )
 
+JOB_TIMEOUT_SECONDS = 3 * 60  # 3 minutes
+MAX_EXPERIMENT_QUERY_EXECUTION_TIME = 2 * 60  # 2 minutes
+
 # =============================================================================
 # Asset
 # =============================================================================
@@ -111,7 +114,10 @@ def experiment_regular_metrics_timeseries(context: dagster.AssetExecutionContext
 
         with tags_context(dagster=dagster_tags(context)):
             query_runner = ExperimentQueryRunner(
-                query=experiment_query, team=experiment.team, workload=Workload.OFFLINE
+                query=experiment_query,
+                team=experiment.team,
+                workload=Workload.OFFLINE,
+                max_execution_time=MAX_EXPERIMENT_QUERY_EXECUTION_TIME,
             )
             result = query_runner._calculate()
 
@@ -285,7 +291,10 @@ def _get_experiment_regular_metrics_timeseries(
 experiment_regular_metrics_timeseries_job = dagster.define_asset_job(
     name="experiment_regular_metrics_timeseries_job",
     selection=[experiment_regular_metrics_timeseries],
-    tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
+    tags={
+        "owner": JobOwners.TEAM_EXPERIMENTS.value,
+        "dagster/max_runtime": str(JOB_TIMEOUT_SECONDS),
+    },
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 4}),
 )
 

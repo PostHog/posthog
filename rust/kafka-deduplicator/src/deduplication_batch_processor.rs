@@ -22,10 +22,10 @@ use crate::{
     metrics_const::{
         DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
         DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
-        PARTITION_BATCH_PROCESSING_DURATION_MS, ROCKSDB_MULTI_GET_DURATION_MS,
-        ROCKSDB_PUT_BATCH_DURATION_MS, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
-        TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
-        TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+        MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
+        ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
+        TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
+        TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
         TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
         UNIQUE_EVENTS_TOTAL_COUNTER,
     },
@@ -36,7 +36,7 @@ use crate::{
     store::keys::TimestampKey,
     store::metadata::TimestampMetadata,
     store::DeduplicationStoreConfig,
-    store_manager::StoreManager,
+    store_manager::{StoreError, StoreManager},
     utils::timestamp,
 };
 
@@ -365,8 +365,37 @@ impl BatchDeduplicationProcessor {
         partition: i32,
         events: Vec<&RawEvent>,
     ) -> Result<Vec<DeduplicationResult>> {
-        // Get the store for this partition
-        let store = self.store_manager.get_or_create(topic, partition).await?;
+        // Get the store for this partition - must already exist (created during rebalance)
+        // If store doesn't exist, partition was likely revoked and messages should be dropped
+        let store = match self.store_manager.get_store(topic, partition) {
+            Ok(store) => store,
+            Err(StoreError::NotFound {
+                topic: t,
+                partition: p,
+            }) => {
+                let message_count = events.len();
+
+                // Log at warn level - this is expected during rebalance due to rdkafka buffering
+                warn!(
+                    topic = %t,
+                    partition = p,
+                    message_count = message_count,
+                    "No store for partition - dropping messages (expected during rebalance)"
+                );
+
+                // Record metric with tags for observability
+                metrics::counter!(
+                    MESSAGES_DROPPED_NO_STORE,
+                    "topic" => t.clone(),
+                    "partition" => p.to_string(),
+                )
+                .increment(message_count as u64);
+
+                // Return empty results - messages gracefully dropped, not an error
+                return Ok(vec![]);
+            }
+            Err(StoreError::Other(e)) => return Err(e),
+        };
 
         // Create metrics helper for this partition
         let metrics = MetricsHelper::with_partition(topic, partition)
@@ -777,6 +806,7 @@ impl BatchDeduplicationProcessor {
 mod tests {
     use super::*;
     use crate::store::DeduplicationStoreConfig;
+    use crate::test_utils::create_test_tracker;
     use serde_json::json;
     use std::collections::HashMap;
     use tempfile::TempDir;
@@ -828,7 +858,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_all_new_events() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -875,7 +915,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_with_timestamp_duplicates() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -920,7 +970,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_mixed_batch() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -967,7 +1027,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_events_without_uuid() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1008,7 +1078,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_large_batch() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1068,7 +1148,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_only_uuid_different() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1121,7 +1211,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_batch_deduplication_within_same_batch() {
         let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // Pre-create store (as would happen during rebalance)
+        store_manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
         let processor = BatchDeduplicationProcessor {
             config,
             producer: None,
@@ -1148,5 +1248,51 @@ mod tests {
         assert!(matches!(results[0], DeduplicationResult::New));
         // Second should be duplicate
         assert!(results[1].is_duplicate());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_deduplicate_batch_gracefully_drops_when_store_missing() {
+        // Test that deduplicate_batch returns Ok(vec![]) when the store doesn't exist.
+        // This simulates the scenario where a partition was revoked and messages
+        // arrive for it due to rdkafka buffering. Messages should be gracefully dropped.
+        let (config, _temp_dir) = create_test_config();
+        let store_manager = Arc::new(StoreManager::new(
+            config.store_config.clone(),
+            create_test_tracker(),
+        ));
+
+        // NOTE: We intentionally do NOT pre-create a store here
+
+        let processor = BatchDeduplicationProcessor {
+            config,
+            producer: None,
+            duplicate_producer: None,
+            store_manager,
+            offset_tracker: None,
+        };
+
+        // Create a batch of events
+        let events = [create_test_raw_event(
+            Some(Uuid::new_v4()),
+            "event1",
+            "user1",
+            "2024-01-01T00:00:00Z",
+        )];
+
+        let event_refs: Vec<&RawEvent> = events.iter().collect();
+
+        // deduplicate_batch should return Ok(vec![]) - graceful drop, not an error
+        let result = processor
+            .deduplicate_batch("test-topic", 0, event_refs)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "deduplicate_batch should return Ok when store doesn't exist (graceful drop)"
+        );
+        assert!(
+            result.unwrap().is_empty(),
+            "deduplicate_batch should return empty results when store doesn't exist"
+        );
     }
 }

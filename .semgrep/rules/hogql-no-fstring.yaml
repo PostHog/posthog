@@ -108,3 +108,42 @@ rules:
               - '**/test/**'
               - '**/tests/**'
               - '**/.semgrep/**'
+
+    # Rule 3: Taint tracking for user input interpolated into ClickHouse queries
+    # Only flags when user data is INSIDE an f-string that flows to sync_execute/async_execute.
+    - id: clickhouse-injection-taint
+      mode: taint
+      languages: [python]
+      severity: WARNING
+      message: |
+          User-controlled data interpolated into ClickHouse query.
+          Use escape_clickhouse_identifier() for identifiers or %(name)s placeholders for values.
+      options:
+          taint_assume_safe_numbers: true
+          taint_assume_safe_booleans: true
+      pattern-sources:
+          # self.* fields in f-strings (user-controlled query parameters and instance attributes)
+          - patterns:
+                - pattern-either:
+                      - pattern: self.query.$FIELD
+                      - pattern: self.$FIELD
+                - pattern-inside: f"..."
+      pattern-sinks:
+          - pattern: sync_execute(...)
+          - pattern: async_execute(...)
+      pattern-sanitizers:
+          - pattern: escape_clickhouse_identifier(...)
+          - pattern: escape_hogql_identifier(...)
+          - pattern: int(...)
+      metadata:
+          category: security
+          subcategory:
+              - vuln
+          cwe: 'CWE-89: SQL Injection'
+          owasp: 'A03:2021 - Injection'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'

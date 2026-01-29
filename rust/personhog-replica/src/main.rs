@@ -13,6 +13,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+use health::readiness_handler;
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -46,12 +47,27 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 statement_timeout_ms: config.statement_timeout(),
             };
 
-            let pool = get_pool_with_config(&config.database_url, pool_config)
-                .await
-                .expect("Failed to create database pool");
+            // Create primary pool
+            let primary_pool =
+                get_pool_with_config(&config.primary_database_url, pool_config.clone())
+                    .await
+                    .expect("Failed to create primary database pool");
+            tracing::info!("Created primary database pool");
 
-            tracing::info!("Created Postgres storage backend");
-            Arc::new(PostgresStorage::new(pool))
+            // Create replica pool (uses primary URL if replica URL not configured)
+            let replica_url = config.replica_database_url();
+            let replica_pool = if replica_url == config.primary_database_url {
+                tracing::info!("Replica URL not configured, using primary pool for both");
+                primary_pool.clone()
+            } else {
+                let pool = get_pool_with_config(replica_url, pool_config)
+                    .await
+                    .expect("Failed to create replica database pool");
+                tracing::info!("Created separate replica database pool");
+                pool
+            };
+
+            Arc::new(PostgresStorage::new(primary_pool, replica_pool))
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
@@ -86,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start HTTP server for metrics and health checks
     let metrics_port = config.metrics_port;
     let health_router = Router::new()
-        .route("/_readiness", get(|| async { "ok" }))
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(|| async { "ok" }));
     let metrics_router = setup_metrics_routes(health_router);
 

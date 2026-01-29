@@ -163,8 +163,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
-            const isRemovingSidePanelMax = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL_MAX]
-            if (isRemovingSidePanelMax) {
+            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+            if (isRemovingSidePanelFlag) {
                 newInternalTab(urls.ai(undefined, prompt))
                 return
             }
@@ -179,8 +179,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             window.setTimeout(() => logic!.actions.askMax(prompt), 100)
         },
         openSidePanelMax: ({ conversationId }) => {
-            const isRemovingSidePanelMax = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL_MAX]
-            if (isRemovingSidePanelMax) {
+            const isRemovingSidePanelFlag = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+            if (isRemovingSidePanelFlag) {
                 newInternalTab(urls.ai(conversationId))
                 return
             }
