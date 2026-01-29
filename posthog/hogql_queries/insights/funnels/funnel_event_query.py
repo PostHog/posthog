@@ -125,8 +125,6 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                     table_configurations_to_steps[table_key] = TableConfigWithSteps(
                         table_name="events",
                         table_config_index=0,
-                        base_table_name="events",
-                        config_index=0,
                         steps=[],
                     )
 
