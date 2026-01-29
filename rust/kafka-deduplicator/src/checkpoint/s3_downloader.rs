@@ -18,7 +18,7 @@ use futures::{StreamExt, TryStreamExt};
 use object_store::aws::AmazonS3Builder;
 use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
-use object_store::{ObjectStore, ObjectStoreExt};
+use object_store::{ClientOptions, ObjectStore, ObjectStoreExt};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -57,11 +57,17 @@ pub struct S3Downloader {
 
 impl S3Downloader {
     pub async fn new(config: &CheckpointConfig) -> Result<Self> {
+        // Per-request timeout (analogous to operation_attempt_timeout in aws_sdk_s3)
+        let client_options = ClientOptions::new().with_timeout(config.s3_attempt_timeout);
+
         // Build the base S3 store using the same pattern as S3Uploader
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(&config.s3_bucket)
+            .with_client_options(client_options)
             .with_retry(object_store::RetryConfig {
                 max_retries: 3,
+                // Total retry budget (analogous to operation_timeout in aws_sdk_s3)
+                retry_timeout: config.s3_operation_timeout,
                 ..Default::default()
             });
 
