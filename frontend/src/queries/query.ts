@@ -30,6 +30,35 @@ const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
+/**
+ * Parse error message that may be in ErrorDetail string format.
+ * Backend sometimes serializes ValidationError.detail as a string like:
+ * "[ErrorDetail(string='Message', code='code')]"
+ *
+ * This function safely extracts the message and code, falling back to the
+ * original string if parsing fails.
+ */
+function parseErrorMessage(errorMessage: string | undefined): { message: string; code: string | null } {
+    if (!errorMessage || typeof errorMessage !== 'string') {
+        return { message: errorMessage || '', code: null }
+    }
+
+    // Try to match list format: [ErrorDetail(string='...', code='...')]
+    const listMatch = errorMessage.match(/\[ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)\]/)
+    if (listMatch) {
+        return { message: listMatch[1], code: listMatch[2] }
+    }
+
+    // Try to match single format: ErrorDetail(string='...', code='...')
+    const singleMatch = errorMessage.match(/ErrorDetail\(string='([^']*)',\s*code='([^']*)'\)/)
+    if (singleMatch) {
+        return { message: singleMatch[1], code: singleMatch[2] }
+    }
+
+    // Fallback: return original string unchanged
+    return { message: errorMessage, code: null }
+}
+
 //get export context for a given query
 export function queryExportContext<N extends DataNode>(
     query: N,
@@ -69,7 +98,14 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
-            e.detail = e.data?.query_status?.error_message
+            // Parse error message to extract clean message and code if present
+            const parsed = parseErrorMessage(e.data?.query_status?.error_message)
+            e.detail = parsed.message
+
+            if (parsed.code) {
+                e.code = parsed.code
+            }
+
             throw e
         }
     }
