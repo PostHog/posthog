@@ -164,6 +164,25 @@ impl StoreManager {
         let partition_key = Partition::new(topic.to_string(), partition);
 
         self.stores.get(&partition_key).map(|entry| entry.clone()).ok_or_else(|| {
+            // #region agent log
+            let is_owned = self.rebalance_coordinator.is_partition_owned(&partition_key);
+            let is_rebalancing = self.rebalance_coordinator.is_rebalancing();
+            let all_stores: Vec<String> = self.stores.iter().map(|e| format!("{}:{}", e.key().topic(), e.key().partition_number())).collect();
+            let all_owned: Vec<String> = self.rebalance_coordinator.get_owned_partitions().iter().map(|p| format!("{}:{}", p.topic(), p.partition_number())).collect();
+            info!(
+                tag = "[DEBUG_PARTITION_TRACKING]",
+                location = "get_store:not_found",
+                topic = topic,
+                partition = partition,
+                is_partition_owned = is_owned,
+                is_rebalancing = is_rebalancing,
+                active_stores = ?all_stores,
+                owned_partitions = ?all_owned,
+                store_count = all_stores.len(),
+                owned_count = all_owned.len(),
+                "GET_STORE FAILED - no store registered"
+            );
+            // #endregion
             warn!(
                 topic = topic,
                 partition = partition,
