@@ -43847,6 +43847,8 @@ snapshots:
 
   ws@8.19.0: {}
 
+  ws@8.9.0: {}
+
   xdg-basedir@4.0.0: {}
 
   xml-js@1.6.11:
