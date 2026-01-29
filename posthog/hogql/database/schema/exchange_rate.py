@@ -50,7 +50,12 @@ def currency_expression_for_events(team: Team, event_config: RevenueAnalyticsEve
     if event_config.revenueCurrencyProperty.property:
         return ast.Call(
             name="upper",
-            args=[ast.Field(chain=["events", "properties", event_config.revenueCurrencyProperty.property])],
+            args=[
+                ast.Call(
+                    name="toString",
+                    args=[ast.Field(chain=["events", "properties", event_config.revenueCurrencyProperty.property])],
+                ),
+            ],
         )
 
     if event_config.revenueCurrencyProperty.static:
