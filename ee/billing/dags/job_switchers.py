@@ -1,5 +1,3 @@
-import json
-import hashlib
 from typing import Any
 
 import polars as pl
@@ -11,10 +9,24 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.dags.common.utils import compute_dataframe_hashes
 from posthog.models import Team
 
 # PostHog Cloud US team where JobSwitchers_v3 saved query exists
 JOB_SWITCHERS_TEAM_ID = 2
+
+# Array fields to progressively truncate when a record exceeds Clay's batch
+# size limit, ordered by priority (least important truncated first).
+TRUNCATABLE_FIELDS = [
+    "bounce_reasons",
+    "subjects",
+    "removal_timestamps",
+    "removal_types",
+    "source_type",
+    "organization_names",
+    "organization_ids",
+    "emails",
+]
 
 # Column definitions matching JobSwitchers_v3 schema
 COLUMNS = [
@@ -39,18 +51,6 @@ def clickhouse_to_dataframe(results: list[tuple]) -> pl.DataFrame:
         return pl.DataFrame(schema=dict.fromkeys(COLUMNS, pl.Object))
 
     return pl.DataFrame(results, schema=COLUMNS, orient="row")
-
-
-def compute_dataframe_hashes(df: pl.DataFrame) -> pl.DataFrame:
-    """Add data_hash column for change detection."""
-
-    def row_hash(row: dict) -> str:
-        serialized = json.dumps(row, sort_keys=True, default=str)
-        return hashlib.sha256(serialized.encode()).hexdigest()[:16]
-
-    # Convert each row to dict and compute hash
-    hashes = [row_hash(row) for row in df.to_dicts()]
-    return df.with_columns(pl.Series("data_hash", hashes))
 
 
 def filter_changed_domains(df: pl.DataFrame, prior_hashes: dict[str, str]) -> pl.DataFrame:
@@ -114,7 +114,7 @@ def get_prior_hashes_from_metadata(
 )
 def job_switchers_to_clay(
     context: dagster.AssetExecutionContext,
-    clay_webhook: dagster.ResourceParam[ClayWebhookResource],
+    clay_webhook_job_switchers: dagster.ResourceParam[ClayWebhookResource],
 ) -> None:
     """
     Incrementally sync job switchers to Clay webhook.
@@ -188,11 +188,13 @@ def job_switchers_to_clay(
 
     # Convert to payload and create batches
     payload = dataframe_to_clay_payload(changed_df)
-    batch_result = clay_webhook.create_batches(payload, logger=context.log)
+    batch_result = clay_webhook_job_switchers.create_batches(
+        payload, logger=context.log, truncatable_fields=TRUNCATABLE_FIELDS
+    )
 
     # Send batches sequentially
     for i, batch in enumerate(batch_result.batches):
-        clay_webhook.send(batch)
+        clay_webhook_job_switchers.send(batch)
         context.log.info("Sent batch %d/%d with %d records", i + 1, len(batch_result.batches), len(batch))
 
     context.log.info("Sent %d batches to Clay webhook", len(batch_result.batches))
