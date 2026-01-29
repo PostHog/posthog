@@ -54,6 +54,9 @@ jest.mock('posthog-js/dist/element-inference', () => ({
 
 // Mock posthog-js to avoid issues in tests
 jest.mock('posthog-js', () => {
+    // Get the actual module to preserve type exports (enums, etc.)
+    const actual = jest.requireActual('posthog-js')
+
     const mock: Record<string, any> = {
         capture: jest.fn(),
         captureException: jest.fn(),
@@ -79,7 +82,9 @@ jest.mock('posthog-js', () => {
         featureFlags: { override: jest.fn() },
     }
     mock.init = jest.fn(() => mock)
-    return { __esModule: true, default: mock, posthog: mock }
+
+    // Return mock functions but preserve actual type exports
+    return { ...actual, __esModule: true, default: mock, posthog: mock }
 })
 
 jest.mock('@tiptap/extension-code-block-lowlight', () => {
