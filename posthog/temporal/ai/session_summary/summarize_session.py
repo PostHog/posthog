@@ -410,6 +410,7 @@ def calculate_video_segment_specs(
             VideoSegmentSpec(
                 segment_index=i,
                 # Start either after the rendering delay, or at the next chunk boundary
+                # NOTE: Because of this, the first segment may be smaller than next ones
                 start_time=max(rendering_delay, i * chunk_duration),
                 # The final segment extends to the end to avoid tiny leftover segments (1m 7s chunk is preferable to a 7s one)
                 end_time=(min((i + 1) * chunk_duration, video_duration) if i < num_segments - 1 else video_duration),
