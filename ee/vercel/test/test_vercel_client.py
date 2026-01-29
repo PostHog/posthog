@@ -125,6 +125,30 @@ class TestVercelAPIClient:
             ExperimentationResult(success=True, item_id=test_ids["item_id"]),
         )
 
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_update_resource_secrets(self, mock_request, client, test_ids):
+        secrets = [{"name": "POSTHOG_PROJECT_API_KEY", "value": "test_key"}]
+        self.assert_successful_request(
+            mock_request,
+            "PUT",
+            f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/secrets",
+            client.update_resource_secrets,
+            (test_ids["integration_config_id"], test_ids["resource_id"], secrets),
+            ExperimentationResult(success=True),
+            json={"secrets": secrets},
+        )
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_update_resource_secrets_handles_errors(self, mock_request, client, test_ids):
+        mock_request.return_value = self.ErrorFactory.http(400, "Bad Request")
+
+        secrets = [{"name": "POSTHOG_PROJECT_API_KEY", "value": "test_key"}]
+        result = client.update_resource_secrets(test_ids["integration_config_id"], test_ids["resource_id"], secrets)
+
+        assert not result.success
+        assert result.error == "HTTP error"
+        assert result.status_code == 400
+
     @pytest.mark.parametrize(
         "method_name,args_func,error_setup,expected_error,expected_status",
         [
