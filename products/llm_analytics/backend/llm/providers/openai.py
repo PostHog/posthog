@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-4.1",
@@ -85,9 +86,14 @@ class OpenAIAdapter:
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
                 base_url=settings.OPENAI_BASE_URL,
+                timeout=OpenAIConfig.TIMEOUT,
             )
         else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+            client = openai.OpenAI(
+                api_key=effective_api_key,
+                base_url=settings.OPENAI_BASE_URL,
+                timeout=OpenAIConfig.TIMEOUT,
+            )
 
         messages: Any = self._build_messages(request)
 
@@ -210,9 +216,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
                 base_url=settings.OPENAI_BASE_URL,
+                timeout=OpenAIConfig.TIMEOUT,
             )
         else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+            client = openai.OpenAI(
+                api_key=effective_api_key,
+                base_url=settings.OPENAI_BASE_URL,
+                timeout=OpenAIConfig.TIMEOUT,
+            )
 
         supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
         reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
@@ -302,7 +313,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         if not api_key.startswith(("sk-", "sk-proj-")):
             return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-' or 'sk-proj-')")
         try:
-            client = openai.OpenAI(api_key=api_key)
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             client.models.list()
             return (LLMProviderKey.State.OK, None)
         except openai.AuthenticationError:
@@ -320,7 +331,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         """List available OpenAI models."""
         if api_key:
             try:
-                client = openai.OpenAI(api_key=api_key)
+                client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
                 all_models = [m.id for m in client.models.list()]
                 return [
                     m

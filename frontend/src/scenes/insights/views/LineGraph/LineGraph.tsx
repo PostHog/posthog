@@ -467,8 +467,8 @@ export function LineGraph_({
                 },
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: 0,
-            hitRadius: 0,
+            pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
+            hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
@@ -954,10 +954,14 @@ export function LineGraph_({
                 if (hideXAxis || hideYAxis) {
                     options.layout = { padding: 20 }
                 }
+                const allDatasetsHaveSingleDataPoint =
+                    processedDatasets.length > 0 &&
+                    processedDatasets.every((d) => Array.isArray(d.data) && d.data.length === 1)
                 options.scales = {
                     x: {
                         display: !hideXAxis,
                         beginAtZero: true,
+                        offset: allDatasetsHaveSingleDataPoint,
                         ticks: tickOptions,
                         grid: {
                             ...gridOptions,

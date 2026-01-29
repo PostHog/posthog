@@ -1,21 +1,24 @@
 import { useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { resourceTypeToString } from 'lib/utils/accessControlUtils'
-import { cn } from 'lib/utils/css-classes'
 
 import { AccessControlResourceType } from '~/types'
 
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import { AccessControlObject } from './AccessControlObject'
 
-export const SidePanelAccessControl = ({ isScenePanel }: { isScenePanel?: boolean }): JSX.Element => {
+export const SidePanelAccessControl = (): JSX.Element => {
     const { sceneSidePanelContext } = useValues(sidePanelContextLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
         <div className="flex flex-col overflow-hidden">
-            {isScenePanel ? null : <SidePanelPaneHeader title="Access control" />}
-            <div className={cn('flex-1 overflow-y-auto', isScenePanel ? 'px-1' : 'p-4')}>
+            {!isRemovingSidePanelFlag ? <SidePanelPaneHeader title="Access control" /> : null}
+            <SidePanelContentContainer flagOffClassName="flex-1 p-4 overflow-y-auto">
+                {isRemovingSidePanelFlag ? <SidePanelPaneHeader title="Access control" /> : null}
                 {sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id ? (
                     <AccessControlObject
                         resource={sceneSidePanelContext.access_control_resource}
@@ -26,7 +29,7 @@ export const SidePanelAccessControl = ({ isScenePanel }: { isScenePanel?: boolea
                 ) : (
                     <p>Not supported</p>
                 )}
-            </div>
+            </SidePanelContentContainer>
         </div>
     )
 }
