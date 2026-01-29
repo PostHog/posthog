@@ -167,7 +167,6 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "conditions",
             "approver_config",
             "allow_self_approve",
-            "bypass_roles",
             "expires_after",
             "enabled",
             "created_by",

@@ -154,7 +154,6 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     approver_config = models.JSONField()
 
     allow_self_approve = models.BooleanField(default=False)
-    bypass_roles = models.JSONField(default=list)
 
     expires_after = models.DurationField(
         default=timedelta(days=14),
