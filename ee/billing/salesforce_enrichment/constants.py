@@ -1,5 +1,6 @@
 REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
 SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
+SALESFORCE_ORG_MAPPINGS_CACHE_KEY: str = "salesforce-enrichment:global:org_mappings"
 HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
 YC_INVESTOR_NAME: str = "y combinator"
 HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
@@ -110,6 +111,39 @@ SALESFORCE_ACCOUNTS_QUERY = """
 """
 
 METRIC_PERIODS = {"90d": 90, "180d": 180}
+
+# PostHog usage enrichment constants
+POSTHOG_ORG_ID_FIELD = "Posthog_Org_ID__c"
+POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE = 100
+
+# Salesforce field mappings for PostHog usage signals
+# Format: internal_field_name -> salesforce_custom_field_name
+POSTHOG_USAGE_FIELD_MAPPINGS = {
+    # Current period values (7-day)
+    "active_users_7d": "posthog_active_users_7d__c",
+    "sessions_7d": "posthog_sessions_7d__c",
+    "events_per_session_7d": "posthog_events_per_session_7d__c",
+    "insights_per_user_7d": "posthog_insights_per_user_7d__c",
+    "dashboards_per_user_7d": "posthog_dashboards_per_user_7d__c",
+    "products_activated_7d": "posthog_products_7d__c",
+    # Current period values (30-day)
+    "active_users_30d": "posthog_active_users_30d__c",
+    "sessions_30d": "posthog_sessions_30d__c",
+    "events_per_session_30d": "posthog_events_per_session_30d__c",
+    "insights_per_user_30d": "posthog_insights_per_user_30d__c",
+    "dashboards_per_user_30d": "posthog_dashboards_per_user_30d__c",
+    "products_activated_30d": "posthog_products_30d__c",
+    # Login recency
+    "days_since_last_login": "posthog_last_login_days__c",
+    # Momentum fields (7-day)
+    "active_users_7d_momentum": "posthog_active_users_7d_momentum__c",
+    "sessions_7d_momentum": "posthog_sessions_7d_momentum__c",
+    "events_per_session_7d_momentum": "posthog_eps_7d_momentum__c",
+    # Momentum fields (30-day)
+    "active_users_30d_momentum": "posthog_active_users_30d_momentum__c",
+    "sessions_30d_momentum": "posthog_sessions_30d_momentum__c",
+    "events_per_session_30d_momentum": "posthog_eps_30d_momentum__c",
+}
 
 PERSONAL_EMAIL_DOMAINS = {
     "gmail.com",
