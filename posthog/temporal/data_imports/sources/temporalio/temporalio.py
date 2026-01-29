@@ -1,3 +1,4 @@
+import base64
 import asyncio
 import datetime
 import threading
@@ -6,11 +7,13 @@ from enum import StrEnum
 from queue import Queue
 from typing import Any, Optional
 
+from structlog.types import FilteringBoundLogger
 from temporalio.client import Client
 from temporalio.service import RPCError
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
@@ -42,6 +45,11 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
 }
+
+
+@dataclasses.dataclass
+class TemporalIOResumeConfig:
+    next_page_token: str  # Base64-encoded bytes for JSON serialization
 
 
 def _async_iter_to_sync(async_iter):
@@ -108,7 +116,11 @@ async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
 
 
 async def _get_workflows(
-    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], should_use_incremental_field: bool
+    config: TemporalIOSourceConfig,
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool,
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -119,14 +131,33 @@ async def _get_workflows(
 
         query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    next_page_token: bytes | None = None
+    if resume_config is not None:
+        next_page_token = base64.b64decode(resume_config.next_page_token)
+        logger.debug(f"TemporalIO: resuming from next_page_token")
+
     client = await _get_temporal_client(config)
-    workflows = client.list_workflows(query=query)
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
+
+    count = 0
     async for item in workflows:
         yield _sanitize(item.__dict__)
+        count += 1
+
+        # Save state periodically (every 100 items) to allow resuming
+        if count % 100 == 0 and workflows.next_page_token:
+            token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
+            resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
+            logger.debug(f"TemporalIO: saved resume state after {count} workflows")
 
 
 async def _get_workflow_histories(
-    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], should_use_incremental_field: bool
+    config: TemporalIOSourceConfig,
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool,
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
 ):
     query: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -137,8 +168,16 @@ async def _get_workflow_histories(
 
         query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    next_page_token: bytes | None = None
+    if resume_config is not None:
+        next_page_token = base64.b64decode(resume_config.next_page_token)
+        logger.debug(f"TemporalIO: resuming workflow histories from next_page_token")
+
     client = await _get_temporal_client(config)
-    workflows = client.list_workflows(query=query)
+    workflows = client.list_workflows(query=query, next_page_token=next_page_token)
+
+    count = 0
     async for item in workflows:
         try:
             history = await client.get_workflow_handle(item.id, run_id=item.run_id).fetch_history()
@@ -161,17 +200,28 @@ async def _get_workflow_histories(
                 continue
             raise
 
+        count += 1
+        # Save state periodically (every 100 workflows) to allow resuming
+        if count % 100 == 0 and workflows.next_page_token:
+            token_b64 = base64.b64encode(workflows.next_page_token).decode("utf-8")
+            resumable_source_manager.save_state(TemporalIOResumeConfig(next_page_token=token_b64))
+            logger.debug(f"TemporalIO: saved resume state after {count} workflow histories")
+
 
 def temporalio_source(
     config: TemporalIOSourceConfig,
     resource: TemporalIOResource,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     if resource == TemporalIOResource.Workflows:
 
         async def get_workflows_iterator():
-            return _get_workflows(config, db_incremental_field_last_value, should_use_incremental_field)
+            return _get_workflows(
+                config, db_incremental_field_last_value, should_use_incremental_field, resumable_source_manager, logger
+            )
 
         workflows = _async_iter_to_sync(asyncio.run(get_workflows_iterator()))
 
@@ -189,7 +239,9 @@ def temporalio_source(
     elif resource == TemporalIOResource.WorkflowHistories:
 
         async def get_histories_iterator():
-            return _get_workflow_histories(config, db_incremental_field_last_value, should_use_incremental_field)
+            return _get_workflow_histories(
+                config, db_incremental_field_last_value, should_use_incremental_field, resumable_source_manager, logger
+            )
 
         workflows = _async_iter_to_sync(asyncio.run(get_histories_iterator()))
 
