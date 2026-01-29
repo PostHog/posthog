@@ -323,15 +323,7 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
 docker:
-    docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services
-        services:
-            - docker
-            - postgresql
-            - clickhouse
-            - redis
-            - kafka
+    # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
