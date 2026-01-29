@@ -145,8 +145,8 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
 
     return (
         <div className="border rounded-lg bg-bg-light">
-            <button
-                className="w-full flex items-center justify-between p-3 hover:bg-border-light transition-colors cursor-pointer"
+            <LemonButton
+                fullWidth
                 onClick={() => {
                     posthog.capture('llma evaluation summary toggled', {
                         expanded: !summaryExpanded,
@@ -155,15 +155,19 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
                     toggleSummaryExpanded()
                 }}
                 data-attr="llma-evaluation-summary-toggle"
+                sideIcon={
+                    <IconChevronDown
+                        className={`text-muted transition-transform ${summaryExpanded ? '' : '-rotate-90'}`}
+                    />
+                }
             >
-                <div className="text-left">
+                <div className="flex items-center gap-2">
                     <span className="font-semibold text-sm">AI Summary</span>
-                    <span className="text-xs text-muted ml-2">
+                    <span className="text-xs text-muted">
                         {evaluationSummary.statistics.total_analyzed} runs analyzed
                     </span>
                 </div>
-                <IconChevronDown className={`text-muted transition-transform ${summaryExpanded ? '' : '-rotate-90'}`} />
-            </button>
+            </LemonButton>
 
             {summaryExpanded && (
                 <div className="p-4 pt-0 space-y-4">
