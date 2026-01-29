@@ -400,9 +400,6 @@ def calculate_video_segment_specs(
     rendering_delay: float,
     inactivity_periods: list[ReplayInactivityPeriod] | None = None,
 ) -> list[VideoSegmentSpec]:
-    """
-    Calculate video segment specifications for analysis.
-    """
     # If no inactivity data - splits the entire video uniformly into chunks of the same duration
     if not inactivity_periods:
         # Should analyze at least 1 segment even if it's shorter than the chunk duration
