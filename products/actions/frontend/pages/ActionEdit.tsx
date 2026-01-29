@@ -93,8 +93,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     const cancelButton = (): JSX.Element => (
         <LemonButton
             data-attr="cancel-action-bottom"
+            type="tertiary"
             status="danger"
-            type="secondary"
             onClick={() => {
                 router.actions.push(urls.actions())
             }}

@@ -1,36 +1,46 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const SentryInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
+import { StepDefinition } from '../steps'
 
-    return (
-        <Steps>
-            <Step title="Install the packages" badge="required">
-                <Markdown>
-                    Sentry is an error tracking platform. The PostHog-Sentry integration links error data to your
-                    analytics, allowing you to see which users experienced errors.
-                </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'bash',
-                            file: 'Terminal',
-                            code: dedent`
+export const getSentrySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+
+    return [
+        {
+            title: 'Install the packages',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Sentry is an error tracking platform. The PostHog-Sentry integration links error data to your
+                        analytics, allowing you to see which users experienced errors.
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'Terminal',
+                                code: dedent`
                                 npm install --save posthog-js @sentry/browser
                             `,
-                        },
-                    ]}
-                />
-            </Step>
-
-            <Step title="Configure the integration" badge="required">
-                <Markdown>Add the Sentry integration when initializing PostHog:</Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'javascript',
-                            file: 'JavaScript',
-                            code: dedent`
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Configure the integration',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>Add the Sentry integration when initializing PostHog:</Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'javascript',
+                                file: 'JavaScript',
+                                code: dedent`
                                 import posthog from 'posthog-js'
                                 import * as Sentry from '@sentry/browser'
 
@@ -48,16 +58,19 @@ export const SentryInstallation = (): JSX.Element => {
                                 // Set PostHog session ID on Sentry scope
                                 Sentry.getCurrentScope().setTag('posthog_session_id', posthog.get_session_id())
                             `,
-                        },
-                    ]}
-                />
-                <CalloutBox type="fyi" title="Full setup guide">
-                    <Markdown>
-                        This allows you to link Sentry errors to PostHog sessions. See the [Sentry integration
-                        docs](https://posthog.com/docs/libraries/sentry) for the full setup guide.
-                    </Markdown>
-                </CalloutBox>
-            </Step>
-        </Steps>
-    )
+                            },
+                        ]}
+                    />
+                    <CalloutBox type="fyi" title="Full setup guide">
+                        <Markdown>
+                            This allows you to link Sentry errors to PostHog sessions. See the [Sentry integration
+                            docs](https://posthog.com/docs/libraries/sentry) for the full setup guide.
+                        </Markdown>
+                    </CalloutBox>
+                </>
+            ),
+        },
+    ]
 }
+
+export const SentryInstallation = createInstallation(getSentrySteps)

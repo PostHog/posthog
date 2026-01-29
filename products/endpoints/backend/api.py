@@ -34,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.api.documentation import extend_schema
@@ -193,6 +194,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     }
                 )
 
+    def _validate_hogql_query(self, query_string: str) -> None:
+        """Validate that a HogQL query string is syntactically valid."""
+        try:
+            parse_select(query_string)
+        except ExposedHogQLError as e:
+            raise ValidationError({"query": f"Invalid HogQL query: {e}"})
+        except ResolutionError as e:
+            capture_exception(e)
+            raise ValidationError({"query": "Invalid HogQL query: unable to resolve table or field references."})
+
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
@@ -208,6 +219,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "Endpoint name must start with a letter, contain only alphanumeric characters, hyphens, or underscores, "
                 "and be between 1 and 128 characters long."
             )
+
+        if query and isinstance(query, HogQLQuery) and query.query:
+            self._validate_hogql_query(query.query)
 
         self._validate_cache_age_seconds(data.cache_age_seconds)
 
@@ -315,6 +329,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if data.is_materialized is False and data.sync_frequency is not None:
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
+
+        if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
+            self._validate_hogql_query(data.query.query)
 
     @extend_schema(
         request=EndpointRequest,
@@ -671,6 +688,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         request: Request,
         version: EndpointVersion | None = None,
         debug: bool = False,
+        limit: int | None = None,
     ) -> Response:
         """Execute against a materialized table in S3."""
         try:
@@ -690,6 +708,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     select_query.where = property_expr
                 except Exception:
                     raise ValidationError("Failed to apply property filters.")
+
+            if limit is not None:
+                select_query.limit = ast.Constant(value=limit)
 
             materialized_hogql_query = HogQLQuery(
                 query=select_query.to_hogql(),
@@ -743,6 +764,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise
 
+    def _apply_limit_to_query(self, query: dict, limit: int) -> dict:
+        """Apply limit to HogQL query by modifying the SQL string."""
+        query_kind = query.get("kind")
+
+        if query_kind == "HogQLQuery":
+            query_string = query.get("query", "")
+            parsed = parse_select(query_string)
+
+            if isinstance(parsed, ast.SelectQuery):
+                existing_limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
+                effective_limit = min(limit, existing_limit) if existing_limit is not None else limit
+                parsed.limit = ast.Constant(value=effective_limit)
+
+            query = query.copy()
+            query["query"] = parsed.to_hogql()
+        elif query_kind:
+            raise ValidationError(f"Limit parameter is only supported for HogQLQuery, not {query_kind}")
+
+        return query
+
     def _parse_variables(
         self, query: dict[str, dict], variables: dict[str, str]
     ) -> builtins.list[HogQLVariable] | None:
@@ -778,12 +819,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query: dict,
         version: EndpointVersion | None = None,
         debug: bool = False,
+        limit: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
             insight_query_override = data.query_override or {}
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
+
+            if limit is not None:
+                query = self._apply_limit_to_query(query, limit)
 
             refresh_type = _endpoint_refresh_mode_to_refresh_type(data.refresh)
 
@@ -843,6 +888,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
+        limit = data.limit
+        if limit is None:
+            limit_param = request.query_params.get("limit")
+            if limit_param is not None:
+                try:
+                    limit = int(limit_param)
+                    if limit <= 0:
+                        raise ValueError()
+                except (ValueError, TypeError):
+                    return Response(
+                        {"error": f"Invalid limit parameter: {limit_param}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+        elif limit <= 0:  # Add validation for body limit
+            return Response(
+                {"error": f"Invalid limit parameter: {limit}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         version_obj = None
         try:
             version_obj = endpoint.get_version(version_number)
@@ -865,7 +929,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         try:
             if use_materialized:
-                result = self._execute_materialized_endpoint(endpoint, data, request, version=version_obj, debug=debug)
+                result = self._execute_materialized_endpoint(
+                    endpoint, data, request, version=version_obj, debug=debug, limit=limit
+                )
             else:
                 # Use version's query
                 if not version_obj:
@@ -875,7 +941,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
                 query_to_use = version_obj.query.copy()
                 result = self._execute_inline_endpoint(
-                    endpoint, data, request, query_to_use, version=version_obj, debug=debug
+                    endpoint, data, request, query_to_use, version=version_obj, debug=debug, limit=limit
                 )
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))

@@ -228,6 +228,7 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_existing_user_new_org(self, mock_report):
+        """Test: External user (no Vercel mapping) installs - added to org but no mapping until SSO."""
         existing_user = User.objects.create_user(
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
         )
@@ -241,7 +242,7 @@ class TestVercelIntegration(TestCase):
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.created_by == existing_user
 
-        # User mapping was not created for existing user (happens during SSO)
+        # User mapping is NOT created - user must prove ownership via SSO login first
         assert "user_mappings" not in new_installation.config or "existing_user_789" not in new_installation.config.get(
             "user_mappings", {}
         )
@@ -250,23 +251,24 @@ class TestVercelIntegration(TestCase):
         for key, value in self.payload.items():
             assert new_installation.config[key] == value
 
-        # Existing user was not automatically added to the organization (also happens during SSO)
+        # Existing user IS added to the organization - they are installing so they should be a member
         new_org = new_installation.organization
-        assert not OrganizationMembership.objects.filter(user=existing_user, organization=new_org).exists()
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
+        assert membership.level == OrganizationMembership.Level.OWNER
 
         mock_report.assert_not_called()
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_requires_login_for_external_existing_user(self, mock_report):
-        """Security test: External users (not created by Vercel) must prove ownership via login."""
+    def test_sso_requires_login_for_external_user(self, mock_report):
+        """Security test: External users (no Vercel mapping) must prove ownership via login."""
         from ee.vercel.integration import RequiresExistingUserLogin
 
-        # Create an external user (not through Vercel)
-        external_user = User.objects.create_user(
+        # Create an existing PostHog user (not through Vercel)
+        existing_user = User.objects.create_user(
             email="external@example.com", password="external", first_name="External"
         )
 
-        # Now try to install Vercel integration with that email
+        # Now install Vercel integration with that email
         installation_id = self.NEW_INSTALLATION_ID
         payload = {
             **self.payload,
@@ -283,17 +285,16 @@ class TestVercelIntegration(TestCase):
 
         installation = OrganizationIntegration.objects.get(integration_id=installation_id)
 
-        # External user should NOT have mapping created (security measure)
+        # User mapping is NOT created - they need to prove ownership via SSO login
         assert "user_mappings" not in installation.config or "vercel_external_user" not in installation.config.get(
             "user_mappings", {}
         )
 
-        # External user should NOT be added to org automatically
-        assert not OrganizationMembership.objects.filter(
-            user=external_user, organization=installation.organization
-        ).exists()
+        # User IS added to org - they are installing so they should be a member
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=installation.organization)
+        assert membership.level == OrganizationMembership.Level.OWNER
 
-        # SSO should require login for external user
+        # SSO should require login for external user (no mapping yet)
         sso_claims = self._create_user_claims("vercel_external_user")
         sso_claims.installation_id = installation_id
         sso_claims.user_email = "external@example.com"

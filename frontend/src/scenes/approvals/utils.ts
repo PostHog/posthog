@@ -2,6 +2,7 @@
 export const ApprovalActionKey = {
     FEATURE_FLAG_ENABLE: 'feature_flag.enable',
     FEATURE_FLAG_DISABLE: 'feature_flag.disable',
+    FEATURE_FLAG_UPDATE: 'feature_flag.update',
 } as const
 
 export type ApprovalActionKeyType = (typeof ApprovalActionKey)[keyof typeof ApprovalActionKey]
@@ -11,6 +12,10 @@ export const APPROVAL_ACTIONS: Record<string, { label: string; description: stri
     [ApprovalActionKey.FEATURE_FLAG_DISABLE]: {
         label: 'Disable feature flag',
         description: 'disable this feature flag',
+    },
+    [ApprovalActionKey.FEATURE_FLAG_UPDATE]: {
+        label: 'Update feature flag',
+        description: 'update feature flag fields',
     },
 }
 

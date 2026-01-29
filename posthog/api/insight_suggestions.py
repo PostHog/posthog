@@ -234,7 +234,11 @@ def get_insight_analysis(
             {"role": "user", "content": prompt},
         ]
 
-        content, _, _ = hit_openai(messages, f"team/{team.id}/analysis")
+        content, _, _ = hit_openai(
+            messages,
+            f"team/{team.id}/analysis",
+            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-analysis"},
+        )
         return content
 
     except Exception:
@@ -279,7 +283,11 @@ def get_ai_suggestions(
             {"role": "user", "content": prompt},
         ]
 
-        content, _, _ = hit_openai(messages, f"team/{team.id}/suggestions")
+        content, _, _ = hit_openai(
+            messages,
+            f"team/{team.id}/suggestions",
+            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-suggestions"},
+        )
 
         # Parse JSON from content
         cleaned_content = content.strip()
