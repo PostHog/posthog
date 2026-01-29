@@ -93,6 +93,8 @@ Table | Description
 `sessions` | Session data captured by the SDK
 Data warehouse tables | Connected external data sources and custom views
 
+Retrieve the `posthog://schema/data-warehouse` resource for the full schema of the tables above.
+
 **Key concepts:**
 
 - **Events**: Standardized events/properties start with `$` (e.g., `$pageview`). Custom ones start with any other character.

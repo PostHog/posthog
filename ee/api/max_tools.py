@@ -91,6 +91,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # Import here to ensure external tools are registered
         import ee.hogai.tools.execute_sql.external  # noqa: F401
         import ee.hogai.tools.read_taxonomy_external  # noqa: F401
+        import ee.hogai.tools.read_data_warehouse_schema_external  # noqa: F401
 
         tool = get_external_tool(tool_name)
         if tool is None:
