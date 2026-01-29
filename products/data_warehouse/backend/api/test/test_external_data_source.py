@@ -591,6 +591,20 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
 
+    @patch(
+        "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
+        side_effect=Exception("External delete failed"),
+    )
+    def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(self, _mock_delete_schedule):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
+        assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+
     # TODO: update this test
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):

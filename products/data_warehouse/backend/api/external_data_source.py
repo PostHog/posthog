@@ -2,6 +2,7 @@ import uuid
 import dataclasses
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Prefetch, Q
 
 import structlog
@@ -566,33 +567,37 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        latest_running_job = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
-            .order_by("-created_at")
-            .first()
-        )
-        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
-            cancel_external_data_workflow(latest_running_job.workflow_id)
-
-        for schema in (
+        schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .filter(team_id=self.team_id, source_id=instance.id)
             .select_related("table")
             .all()
-        ):
-            # Delete temporal schedule
-            delete_external_data_schedule(str(schema.id))
+        )
 
-            # Delete data from S3 if it exists
-            schema.delete_table()
-            # Soft delete postgres models
-            schema.soft_delete()
+        # Soft-delete source + schemas atomically first so DB state is consistent
+        # even if the external cleanup below fails
+        with transaction.atomic():
+            for schema in schemas:
+                schema.soft_delete()
+            instance.soft_delete()
 
-        # Delete the old source schedule if it still exists
-        delete_external_data_schedule(str(instance.id))
+        # Best-effort external cleanup — soft-deletes are already committed
+        try:
+            latest_running_job = (
+                ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)
+                .order_by("-created_at")
+                .first()
+            )
+            if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+                cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        # Soft delete the source model
-        instance.soft_delete()
+            for schema in schemas:
+                delete_external_data_schedule(str(schema.id))
+                schema.delete_table()
+
+            delete_external_data_schedule(str(instance.id))
+        except Exception as e:
+            capture_exception(e)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
