@@ -31,6 +31,7 @@ export interface SourceFormProps {
 
 const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Postgres: 5432,
+    Redshift: 5439,
 }
 
 const sourceFieldToElement = (
