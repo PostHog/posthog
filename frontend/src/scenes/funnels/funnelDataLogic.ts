@@ -584,7 +584,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             const interval = conversionWindowInterval
             const unit = conversionWindowUnit ?? conversionWindow.funnelWindowIntervalUnit
 
-            if (!interval) {
+            if (!interval && conversionWindowUnit === null) {
                 actions.setConversionWindowInterval(conversionWindow.funnelWindowInterval)
                 return
             }
