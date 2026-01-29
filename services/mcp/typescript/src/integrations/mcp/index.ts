@@ -82,10 +82,7 @@ type RequestProperties = {
 
 // Define our MCP agent with tools
 export class MyMCP extends McpAgent<Env> {
-    server = new McpServer(
-        { name: 'PostHog', version: '1.0.0' },
-        { instructions: INSTRUCTIONS }
-    )
+    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS })
 
     initialState: State = {
         projectId: undefined,
