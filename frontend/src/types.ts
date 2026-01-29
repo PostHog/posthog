@@ -202,6 +202,7 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
+    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
@@ -3353,7 +3354,13 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {
-    behavior: 'sticky' | 'static'
+    /**
+     * sticky: injected at top of body, fixed pos, stays visible on scroll
+     * static: injected at top of body, fixed pos, scrolls away with page
+     * custom: injected into a container from user-supplied css selector
+     */
+    behavior: 'sticky' | 'static' | 'custom'
+    selector?: string
     action?: {
         type: 'none' | 'link' | 'trigger_tour'
         link?: string
@@ -5776,6 +5783,7 @@ export enum SidePanelTab {
     AccessControl = 'access-control',
     SdkDoctor = 'sdk-doctor',
     Health = 'health',
+    Info = 'info',
 }
 
 export interface ProductPricingTierSubrows {
@@ -6679,6 +6687,7 @@ export interface ApprovalPolicy {
     conditions: Record<string, any>
     approver_config: Record<string, any>
     allow_self_approve: boolean
+    bypass_org_membership_levels: string[]
     bypass_roles: string[]
     expires_after: string
     enabled: boolean

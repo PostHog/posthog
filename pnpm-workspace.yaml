@@ -8,6 +8,7 @@ packages:
     - frontend
     - playwright
     - nodejs
+    - nodejs/src/scripts
     - products/*
     - docs/onboarding
     - services/mcp/typescript

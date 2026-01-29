@@ -50,7 +50,7 @@ export const endpointsCreate = async (
 }
 
 /**
- * Retrieve an endpoint.
+ * Retrieve an endpoint, or a specific endpoint version.
  */
 export const getEndpointsRetrieve2Url = (projectId: string, name: string) => {
     return `/api/environments/${projectId}/endpoints/${name}/`
@@ -64,7 +64,7 @@ export const endpointsRetrieve2 = async (projectId: string, name: string, option
 }
 
 /**
- * Update an existing endpoint. Parameters are optional. Use ?version=N to update a specific version's is_active status.
+ * Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.
  */
 export const getEndpointsUpdateUrl = (projectId: string, name: string) => {
     return `/api/environments/${projectId}/endpoints/${name}/`
@@ -199,25 +199,6 @@ export const endpointsVersionsRetrieve = async (
 }
 
 /**
- * Get details of a specific endpoint version.
- */
-export const getEndpointsVersionsRetrieve2Url = (projectId: string, name: string, versionNumber: string) => {
-    return `/api/environments/${projectId}/endpoints/${name}/versions/${versionNumber}/`
-}
-
-export const endpointsVersionsRetrieve2 = async (
-    projectId: string,
-    name: string,
-    versionNumber: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsVersionsRetrieve2Url(projectId, name, versionNumber), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
  * Get the last execution times in the past 6 months for multiple endpoints.
  */
 export const getEndpointsLastExecutionTimesCreateUrl = (projectId: string) => {
@@ -272,7 +253,7 @@ export const endpointsCreate2 = async (
 }
 
 /**
- * Retrieve an endpoint.
+ * Retrieve an endpoint, or a specific endpoint version.
  */
 export const getEndpointsRetrieve4Url = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/`
@@ -286,7 +267,7 @@ export const endpointsRetrieve4 = async (projectId: string, name: string, option
 }
 
 /**
- * Update an existing endpoint. Parameters are optional. Use ?version=N to update a specific version's is_active status.
+ * Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.
  */
 export const getEndpointsUpdate2Url = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/`
@@ -409,35 +390,16 @@ export const endpointsRunCreate2 = async (
 /**
  * List all versions for an endpoint.
  */
-export const getEndpointsVersionsRetrieve3Url = (projectId: string, name: string) => {
+export const getEndpointsVersionsRetrieve2Url = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/versions/`
 }
 
-export const endpointsVersionsRetrieve3 = async (
+export const endpointsVersionsRetrieve2 = async (
     projectId: string,
     name: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEndpointsVersionsRetrieve3Url(projectId, name), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Get details of a specific endpoint version.
- */
-export const getEndpointsVersionsRetrieve4Url = (projectId: string, name: string, versionNumber: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/versions/${versionNumber}/`
-}
-
-export const endpointsVersionsRetrieve4 = async (
-    projectId: string,
-    name: string,
-    versionNumber: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsVersionsRetrieve4Url(projectId, name, versionNumber), {
+    return apiMutator<void>(getEndpointsVersionsRetrieve2Url(projectId, name), {
         ...options,
         method: 'GET',
     })

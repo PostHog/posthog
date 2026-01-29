@@ -356,6 +356,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
+        // Stable thinking message that doesn't change during streaming
+        currentThinkingMessage: [
+            null as string | null,
+            {
+                askMax: () => getRandomThinkingMessage(),
+                reconnectToStream: () => getRandomThinkingMessage(),
+                streamConversation: () => getRandomThinkingMessage(),
+                addMessage: () => getRandomThinkingMessage(),
+                completeThreadGeneration: () => null,
+            },
+        ],
+
         retryCount: [
             0,
             {
@@ -996,13 +1008,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.toolCallUpdateMap,
                 s.pendingApprovalsData,
                 s.resolvedApprovalStatuses,
+                s.currentThinkingMessage,
             ],
             (
                 thread,
                 threadLoading,
                 toolCallUpdateMap,
                 pendingApprovalsData,
-                resolvedApprovalStatuses
+                resolvedApprovalStatuses,
+                currentThinkingMessage
             ): ThreadMessage[] => {
                 // Filter out messages that shouldn't be displayed
                 let processedThread: ThreadMessage[] = []
@@ -1046,7 +1060,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             thinking: [
                                 {
                                     type: 'thinking',
-                                    thinking: getRandomThinkingMessage(),
+                                    thinking: currentThinkingMessage ?? getRandomThinkingMessage(),
                                 },
                             ],
                         },
