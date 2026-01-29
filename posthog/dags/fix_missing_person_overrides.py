@@ -235,7 +235,7 @@ def fix_missing_person_overrides_op(
 
     if config.dry_run:
         for distinct_id, person_id, _version in missing_overrides:
-            context.log.info(f"  [DRY RUN] Would insert -> distinct_id={distinct_id}, person_id={person_id[:8]}...")
+            context.log.info(f"  [DRY RUN] Would insert -> distinct_id={distinct_id}, person_id={person_id}...")
         context.log.info(f"[DRY RUN] Would have inserted {len(pending_overrides)} overrides")
     else:
         # Step 3: Batch insert all missing overrides (1 query)
