@@ -440,7 +440,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     mode="overwrite",
                     schema_mode="overwrite",
                     storage_options=storage_options,
-                    engine="rust",
                 )
             else:
                 await logger.adebug(
@@ -453,7 +452,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     mode="append",
                     schema_mode="merge",
                     storage_options=storage_options,
-                    engine="rust",
                 )
             if index == 0:
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
