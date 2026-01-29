@@ -8,6 +8,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
