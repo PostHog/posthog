@@ -1343,7 +1343,7 @@
             },
             "deepinfra-fp4": {
                 "prompt_token": 2.6e-7,
-                "completion_token": 3.9e-7,
+                "completion_token": 3.8e-7,
                 "cache_read_token": 1.3e-7
             },
             "deepseek": {
@@ -1476,19 +1476,6 @@
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7,
                 "internal_reasoning": 4e-7
-            }
-        }
-    },
-    {
-        "model": "google/gemini-2.0-flash-exp:free",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "google-vertex": {
-                "prompt_token": 0,
-                "completion_token": 0
             }
         }
     },
@@ -3642,7 +3629,12 @@
         "cost": {
             "default": {
                 "prompt_token": 5e-7,
-                "completion_token": 0.0000025
+                "completion_token": 0.0000028
+            },
+            "atlas-cloud-int4": {
+                "prompt_token": 5.6e-7,
+                "completion_token": 0.0000028,
+                "cache_read_token": 2.8e-7
             },
             "chutes": {
                 "prompt_token": 6e-7,
@@ -3668,8 +3660,12 @@
                 "cache_read_token": 9.5e-8
             },
             "parasail-bf16": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000032
+            },
+            "together": {
                 "prompt_token": 5e-7,
-                "completion_token": 0.0000025
+                "completion_token": 0.0000028
             }
         }
     },
