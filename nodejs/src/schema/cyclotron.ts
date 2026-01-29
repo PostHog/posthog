@@ -20,6 +20,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'integration_field',
         'email',
         'native_email',
+        'push_subscription',
     ]),
     key: z.string(),
     label: z.string(),
@@ -42,6 +43,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
     integration_field: z.string().optional(),
     requires_field: z.string().optional(),
     requiredScopes: z.string().optional(),
+    platform: z.enum(['android', 'ios']).optional(),
 })
 
 export const CyclotronInputMappingSchema = z.object({
@@ -65,6 +67,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
     headers: z.record(z.string()).optional(),
+    timeoutMs: z.number().optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({

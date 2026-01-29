@@ -159,7 +159,21 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
-        it('should loads inputs with integration inputs', async () => {
+        it('should load integration inputs and replace access tokens with placeholders', async () => {
+            hogFunction = createHogFunction({
+                ...hogFunction,
+                inputs: {
+                    hog_templated: hogFunction.inputs!.hog_templated,
+                    liquid_templated: hogFunction.inputs!.liquid_templated,
+                    oauth: { value: 1 },
+                    auth: { value: 2 },
+                },
+                inputs_schema: [
+                    { key: 'hog_templated', type: 'string', required: true },
+                    { key: 'oauth', type: 'integration', required: true },
+                    { key: 'auth', type: 'integration', required: true },
+                ],
+            })
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.oauth).toMatchInlineSnapshot(`
@@ -170,35 +184,6 @@ describe('Hog Inputs', () => {
                   "team": "foobar",
                 }
             `)
-        })
-
-        it('access token should be replaced with placeholder', async () => {
-            hogFunction = createHogFunction({
-                id: 'hog-function-1',
-                team_id: team.id,
-                name: 'Hog Function 1',
-                enabled: true,
-                type: 'destination',
-                inputs: {
-                    hog_templated: {
-                        value: 'event: "{event.event}"',
-                        templating: 'hog',
-                        bytecode: await compileHog('return f\'event: "{event.event}"\''),
-                    },
-                    liquid_templated: {
-                        value: 'event: "{{ event.event }}"',
-                        templating: 'liquid',
-                    },
-                    auth: { value: 2 },
-                },
-                inputs_schema: [
-                    { key: 'hog_templated', type: 'string', required: true },
-                    { key: 'auth', type: 'integration', required: true },
-                ],
-            })
-
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
-
             expect(inputs.auth).toMatchInlineSnapshot(`
                 {
                   "access_token": "$$_access_token_placeholder_2",
@@ -234,6 +219,30 @@ describe('Hog Inputs', () => {
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             expect(inputs.email.html).toEqual(
                 `<div>Unsubscribe here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a></div>`
+            )
+        })
+
+        it('throws when push subscription input exists but firebase_account integration is missing', async () => {
+            const hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {
+                    push_subscription: { value: 'user-123' },
+                },
+                inputs_schema: [
+                    {
+                        key: 'push_subscription',
+                        type: 'push_subscription',
+                        platform: 'android',
+                    },
+                ],
+            })
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                /firebase_account integration is required for push subscription inputs but was not found/
             )
         })
     })

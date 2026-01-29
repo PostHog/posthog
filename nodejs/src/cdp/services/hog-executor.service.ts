@@ -28,12 +28,12 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
+import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
 import { EmailService, EmailServiceHub } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -55,6 +55,12 @@ const cdpHttpRequestTiming = new Histogram({
     name: 'cdp_http_request_timing_ms',
     help: 'Timing of HTTP requests',
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
+const pushNotificationSentCounter = new Counter({
+    name: 'push_notification_sent_total',
+    help: 'Total number of push notifications successfully sent',
+    labelNames: ['platform'],
 })
 
 export async function cdpTrackedFetch({
@@ -114,6 +120,7 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
+export const MAX_FETCH_TIMEOUT_MS = 20000
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -141,11 +148,13 @@ export class HogExecutorService {
     private hogInputsService: HogInputsService
     private emailService: EmailService
     private recipientTokensService: RecipientTokensService
+    private pushSubscriptionsManager: PushSubscriptionsManagerService
 
     constructor(private hub: HogExecutorServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
+        this.pushSubscriptionsManager = new PushSubscriptionsManagerService(hub.postgres, hub.encryptedFields)
     }
 
     async buildInputsWithGlobals(
@@ -153,6 +162,7 @@ export class HogExecutorService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        logger.info('[HogExecutorService]', 'Building inputs with globals')
         return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
     }
 
@@ -250,19 +260,18 @@ export class HogExecutorService {
                     return
                 }
 
-                await Promise.all(
+                const mappingInvocations = await Promise.all(
                     hogFunction.mappings.map(async (mapping) => {
                         if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
-                            return
+                            return null
                         }
 
                         const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {})
-                        if (!invocation) {
-                            return
-                        }
-
-                        invocations.push(invocation)
+                        return invocation
                     })
+                )
+                invocations.push(
+                    ...mappingInvocations.filter((inv): inv is CyclotronJobInvocationHogFunction => inv !== null)
                 )
             })
         )
@@ -527,12 +536,18 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
+                            const timeoutMs =
+                                fetchOptions?.timeoutMs !== undefined
+                                    ? Math.min(fetchOptions.timeoutMs, MAX_FETCH_TIMEOUT_MS)
+                                    : undefined
+
                             const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers: pickBy(headers, (v) => typeof v == 'string'),
+                                ...(timeoutMs !== undefined ? { timeoutMs } : {}),
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters
@@ -646,6 +661,10 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
+        if (params.timeoutMs !== undefined) {
+            fetchParams.timeoutMs = Math.min(params.timeoutMs, MAX_FETCH_TIMEOUT_MS)
+        }
+
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
             url: params.url,
             fetchParams,
@@ -685,7 +704,12 @@ export class HogExecutorService {
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
-                result.invocation.queueParameters = params
+                // Filter out undefined timeoutMs to avoid snapshot issues
+                const { timeoutMs, ...restParams } = params
+                result.invocation.queueParameters = {
+                    ...restParams,
+                    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+                }
                 result.invocation.queuePriority = invocation.queuePriority + 1
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
@@ -714,6 +738,10 @@ export class HogExecutorService {
             body = undefined
         }
 
+        if (params.url.includes('fcm.googleapis.com/v1/projects/') && params.url.includes('/messages:send')) {
+            await this.updateFcmTokenLifecycle(fetchResponse?.status, body, invocation, addLog)
+        }
+
         const hogVmResponse: {
             status: number
             body: unknown
@@ -735,6 +763,85 @@ export class HogExecutorService {
         })
 
         return result
+    }
+
+    private async updateFcmTokenLifecycle(
+        status: number | undefined,
+        responseBody: unknown,
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => void
+    ): Promise<void> {
+        let fcmToken: string | null = null
+        if (invocation.state.globals?.inputs) {
+            const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
+                (schema) => schema.type === 'push_subscription'
+            )?.key
+            if (pushSubscriptionKey && invocation.state.globals.inputs[pushSubscriptionKey]) {
+                fcmToken = invocation.state.globals.inputs[pushSubscriptionKey] || null
+            }
+        }
+
+        if (!fcmToken) {
+            addLog('warn', 'FCM token not found in inputs, skipping FCM response handling')
+            return
+        }
+
+        const teamId = invocation.teamId
+        // Handle success (200-299)
+        if (status && status >= 200 && status < 300) {
+            if (fcmToken) {
+                try {
+                    await this.pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken(teamId, fcmToken)
+                } catch (error) {
+                    addLog('warn', `Failed to update last_successfully_used_at for FCM token: ${error}`)
+                }
+            }
+            // FCM is used for Android push notifications
+            pushNotificationSentCounter.labels({ platform: 'android' }).inc()
+            return
+        }
+
+        // Handle 404 - unregistered token
+        if (status === 404) {
+            try {
+                await this.pushSubscriptionsManager.deactivateToken(teamId, fcmToken, 'unregistered token')
+                addLog('info', `Deactivated push subscription token due to 404 (unregistered token)`)
+            } catch (error) {
+                addLog('warn', `Failed to deactivate push subscription token: ${error}`)
+            }
+            return
+        }
+
+        // Handle 400 with INVALID_ARGUMENT error
+        if (status === 400) {
+            try {
+                let shouldDeactivate = false
+                if (responseBody && typeof responseBody === 'object') {
+                    const errorBody = responseBody as any
+                    const error = errorBody?.error
+                    if (error?.code === 400) {
+                        // Check for INVALID_ARGUMENT in details
+                        const details = error?.details || []
+                        for (const detail of details) {
+                            if (
+                                detail['@type'] === 'type.googleapis.com/google.firebase.fcm.v1.FcmError' &&
+                                detail.errorCode === 'INVALID_ARGUMENT'
+                            ) {
+                                shouldDeactivate = true
+                                break
+                            }
+                        }
+                    }
+                }
+
+                if (shouldDeactivate) {
+                    await this.pushSubscriptionsManager.deactivateToken(teamId, fcmToken, 'invalid token')
+                    addLog('info', `Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)`)
+                }
+            } catch (error) {
+                addLog('warn', `Failed to deactivate push subscription token: ${error}`)
+            }
+        }
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
