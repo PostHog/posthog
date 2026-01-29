@@ -2,9 +2,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::Region;
-use aws_sdk_s3::Client as AwsS3Client;
 use chrono::Utc;
 
 use kafka_deduplicator::checkpoint::{
@@ -15,17 +12,18 @@ use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{
     DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
 };
-
-use common_types::RawEvent;
+use kafka_deduplicator::test_utils::test_helpers::{create_test_dedup_store, TestRawEventBuilder};
 
 use anyhow::Result;
 use tempfile::TempDir;
 use tracing::info;
 
-// MinIO configuration matching docker-compose.dev.yml
-const MINIO_ENDPOINT: &str = "http://localhost:19000";
-const MINIO_ACCESS_KEY: &str = "object_storage_root_user";
-const MINIO_SECRET_KEY: &str = "object_storage_root_password";
+mod common;
+use common::{
+    cleanup_bucket, create_minio_client, ensure_bucket_exists, MINIO_ACCESS_KEY, MINIO_ENDPOINT,
+    MINIO_SECRET_KEY,
+};
+
 const TEST_BUCKET: &str = "test-kafka-deduplicator-checkpoints";
 
 fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConfig {
@@ -45,82 +43,6 @@ fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConf
     }
 }
 
-fn create_test_dedup_store(tmp_dir: &TempDir, topic: &str, partition: i32) -> DeduplicationStore {
-    let config = DeduplicationStoreConfig {
-        path: tmp_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    };
-
-    DeduplicationStore::new(config, topic.to_string(), partition).unwrap()
-}
-
-fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
-    RawEvent {
-        uuid: None,
-        event: event_name.to_string(),
-        distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
-        token: Some(token.to_string()),
-        properties: std::collections::HashMap::new(),
-        timestamp: Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .to_string(),
-        ),
-        ..Default::default()
-    }
-}
-
-async fn create_minio_client() -> AwsS3Client {
-    let config = aws_config::defaults(BehaviorVersion::latest())
-        .endpoint_url(MINIO_ENDPOINT)
-        .region(Region::new("us-east-1"))
-        .credentials_provider(aws_sdk_s3::config::Credentials::new(
-            MINIO_ACCESS_KEY,
-            MINIO_SECRET_KEY,
-            None,
-            None,
-            "test",
-        ))
-        .load()
-        .await;
-
-    let s3_config = aws_sdk_s3::config::Builder::from(&config)
-        .force_path_style(true)
-        .build();
-
-    AwsS3Client::from_conf(s3_config)
-}
-
-async fn ensure_bucket_exists(client: &AwsS3Client) {
-    // Try to create bucket, ignore if it already exists
-    let _ = client.create_bucket().bucket(TEST_BUCKET).send().await;
-}
-
-async fn cleanup_bucket(client: &AwsS3Client, prefix: &str) {
-    // List and delete all objects with the given prefix
-    let list_result = client
-        .list_objects_v2()
-        .bucket(TEST_BUCKET)
-        .prefix(prefix)
-        .send()
-        .await;
-
-    if let Ok(response) = list_result {
-        for object in response.contents() {
-            if let Some(key) = object.key() {
-                let _ = client
-                    .delete_object()
-                    .bucket(TEST_BUCKET)
-                    .key(key)
-                    .send()
-                    .await;
-            }
-        }
-    }
-}
-
 /// Integration test for checkpoint export and import via MinIO
 #[tokio::test]
 async fn test_checkpoint_export_import_via_minio() -> Result<()> {
@@ -129,11 +51,11 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
 
     // Create MinIO client and ensure bucket exists
     let minio_client = create_minio_client().await;
-    ensure_bucket_exists(&minio_client).await;
+    ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
 
     // Clean up any previous test data
     let test_prefix = format!("checkpoints/{test_topic}/{test_partition}");
-    cleanup_bucket(&minio_client, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     // Create temp directories
     let tmp_store_dir = TempDir::new()?;
@@ -141,11 +63,26 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     let tmp_import_dir = TempDir::new()?;
 
     // Create dedup store and populate with test data
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
-        create_test_raw_event("user3", "token1", "event3"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user3")
+            .token("token1")
+            .event("event3")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -383,7 +320,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
 
     // Cleanup S3 bucket
-    cleanup_bucket(&minio_client, &test_prefix).await;
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     Ok(())
 }
