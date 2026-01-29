@@ -393,7 +393,7 @@ export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE
+    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE && flag !== FEATURE_FLAGS.UX_REMOVE_SIDEPANEL
 )
 
 export const INSIGHT_VISUAL_ORDER = {
