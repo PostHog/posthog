@@ -187,7 +187,12 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                 <SceneContent>
                     {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && <FeatureFlagTemplates />}
+                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={() => {}} />}
+
+                    {/* Section heading to clarify templates are optional */}
+                    {isNewFeatureFlag && (
+                        <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>
+                    )}
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
