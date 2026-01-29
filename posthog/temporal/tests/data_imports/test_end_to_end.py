@@ -2370,8 +2370,9 @@ async def test_append_only_table(team, mock_stripe_client):
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM stripe_balancetransaction", team)
 
-    # Append mode with primary keys deduplicates, so we should have 1 row
-    assert len(res.results) == 1
+    # We should now have 2 rows with the same `id`
+    assert len(res.results) == 2
+    assert res.results[0][0] == res.results[1][0]
 
 
 @pytest.mark.django_db(transaction=True)

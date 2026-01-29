@@ -141,15 +141,10 @@ class DeltaTableHelper:
             use_partitioning = True
             self._logger.debug(f"Using partitioning on {PARTITION_KEY}")
 
-        has_primary_keys = primary_keys and len(primary_keys) > 0
-        can_merge = delta_table is not None and not self._is_first_sync
+        if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
+            if not primary_keys or len(primary_keys) == 0:
+                raise Exception("Primary key required for incremental syncs")
 
-        # Incremental requires primary keys
-        if write_type == "incremental" and can_merge and not has_primary_keys:
-            raise Exception("Primary key required for incremental syncs")
-
-        # MERGE path for incremental and append with primary keys (deduplication)
-        if write_type in ("incremental", "append") and can_merge and has_primary_keys:
             self._logger.debug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
