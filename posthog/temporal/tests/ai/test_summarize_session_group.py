@@ -978,10 +978,7 @@ class TestSummarizeSessionGroupWorkflow:
                 new=AsyncMock(side_effect=call_llm_side_effects),
             ),
             # Mock DB calls
-            patch(
-                "posthog.temporal.ai.session_summary.summarize_session_group.Team.objects.aget",
-                new=AsyncMock(return_value=team),
-            ),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=team)),
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session_group.SessionReplayEvents.get_group_metadata",
                 return_value=MockMetadataDict(),
@@ -2152,10 +2149,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch(
-                "posthog.temporal.ai.session_summary.summarize_session_group.Team.objects.aget",
-                new=AsyncMock(return_value=ateam),
-            ),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
@@ -2199,10 +2193,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch(
-                "posthog.temporal.ai.session_summary.summarize_session_group.Team.objects.aget",
-                new=AsyncMock(return_value=ateam),
-            ),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
@@ -2248,10 +2239,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch(
-                "posthog.temporal.ai.session_summary.summarize_session_group.Team.objects.aget",
-                new=AsyncMock(return_value=ateam),
-            ),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
@@ -2293,10 +2281,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch(
-                "posthog.temporal.ai.session_summary.summarize_session_group.Team.objects.aget",
-                new=AsyncMock(return_value=ateam),
-            ),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
