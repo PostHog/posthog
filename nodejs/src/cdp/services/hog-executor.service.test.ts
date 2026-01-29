@@ -569,20 +569,17 @@ describe('Hog Executor', () => {
             })
 
             const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            // First mapping has input overrides that should be applied
-            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
+            expect(result.invocations).toHaveLength(2)
+
+            const byUrl = Object.fromEntries(
+                result.invocations.map((inv) => [inv.state.globals.inputs.url as string, inv])
+            )
+            expect(byUrl['https://example.com?q=$pageview'].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com?q=$pageview"`
-            )
-            // Second mapping has no input overrides
-            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
+            expect(byUrl['https://example.com/posthog-webhook'].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com/posthog-webhook"`
-            )
         })
     })
 
