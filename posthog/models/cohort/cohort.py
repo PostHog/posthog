@@ -11,8 +11,8 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
@@ -470,19 +470,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         # Check feature flag once for the entire import process
         # Note: ClickHouse optimization currently only supports lowercase 'email' property
-        use_clickhouse = (
-            email_property_key in (None, "email")
-            and posthoganalytics.feature_enabled(
-                "cohort-email-lookup-clickhouse",
-                str(team_id),
-                groups={"project": str(team_id)},
-                group_properties={
-                    "project": {
-                        "id": str(team_id),
-                    }
-                },
-                send_feature_flag_events=False,
-            )
+        use_clickhouse = email_property_key in (None, "email") and posthoganalytics.feature_enabled(
+            "cohort-email-lookup-clickhouse",
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={
+                "project": {
+                    "id": str(team_id),
+                }
+            },
+            send_feature_flag_events=False,
         )
 
         # Process emails in batches to avoid memory issues
