@@ -611,7 +611,35 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["where"] = visitAsJSONOrNull(ctx->whereClause());
     json["prewhere"] = visitAsJSONOrNull(ctx->prewhereClause());
     json["having"] = visitAsJSONOrNull(ctx->havingClause());
-    json["group_by"] = visitAsJSONOrNull(ctx->groupByClause());
+    
+    // Process GROUP BY - it can be:
+    // - null (no GROUP BY)
+    // - An array of exprs (plain GROUP BY)
+    // - An array ["CUBE"/"ROLLUP", exprs] or ["GROUPING_SETS", sets]
+    Json group_by_result = visitAsJSONOrNull(ctx->groupByClause());
+    if (group_by_result.isArray() && group_by_result.getArray().size() == 2 && 
+        group_by_result.getArray()[0].isString()) {
+      // It's a modifier tuple
+      std::string modifier_str = group_by_result.getArray()[0].getString();
+      Json data = group_by_result.getArray()[1];
+      
+      if (modifier_str == "GROUPING_SETS") {
+        json["group_by"] = nullptr;
+        json["group_by_modifier"] = nullptr;
+        json["grouping_sets"] = data;
+      } else {
+        // CUBE or ROLLUP
+        json["group_by"] = data;
+        json["group_by_modifier"] = modifier_str;
+        json["grouping_sets"] = nullptr;
+      }
+    } else {
+      // Plain GROUP BY or null
+      json["group_by"] = group_by_result;
+      json["group_by_modifier"] = nullptr;
+      json["grouping_sets"] = nullptr;
+    }
+    
     json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
 
     // Handle window clause
@@ -712,7 +740,49 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(WhereClause) { return visit(ctx->columnExpr()); }
 
-  VISIT(GroupByClause) { return visit(ctx->columnExprList()); }
+  VISIT(GroupByClause) {
+    // Check for GROUPING SETS
+    if (ctx->GROUPING() && ctx->SETS()) {
+      auto grouping_sets_list = ctx->groupingSetsList();
+      if (!grouping_sets_list) {
+        throw ParsingError("GROUPING SETS requires a groupingSetsList");
+      }
+      
+      Json sets = Json::array();
+      for (auto grouping_set : grouping_sets_list->groupingSet()) {
+        if (grouping_set->columnExprList()) {
+          sets.push_back(visitAsJSON(grouping_set->columnExprList()));
+        } else {
+          // Empty grouping set ()
+          sets.push_back(Json::array());
+        }
+      }
+      
+      Json result = Json::array();
+      result.push_back("GROUPING_SETS");
+      result.push_back(sets);
+      return result;
+    }
+    
+    // Check for CUBE
+    if (ctx->CUBE()) {
+      Json result = Json::array();
+      result.push_back("CUBE");
+      result.push_back(visitAsJSON(ctx->columnExprList()));
+      return result;
+    }
+    
+    // Check for ROLLUP
+    if (ctx->ROLLUP()) {
+      Json result = Json::array();
+      result.push_back("ROLLUP");
+      result.push_back(visitAsJSON(ctx->columnExprList()));
+      return result;
+    }
+    
+    // Plain GROUP BY - return just the expression list
+    return visit(ctx->columnExprList());
+  }
 
   VISIT(HavingClause) { return visit(ctx->columnExpr()); }
 
