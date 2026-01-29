@@ -92,6 +92,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                     compareValue={isPrevious ? formatCompareLabel(item) : undefined}
                                     hideIcon
                                     showSingleName
+                                    seriesStatus={item.status}
                                 />
                                 {parseAliasToReadable(formattedBreakdownValue)}
                             </div>
@@ -107,6 +108,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                                 pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
                                 hideIcon
                                 showSingleName
+                                seriesStatus={item.status}
                             />
                         )
                     }
