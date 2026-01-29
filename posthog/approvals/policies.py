@@ -279,8 +279,6 @@ class PolicyEngine:
 
     def _has_bypass(self, actor, policy, bypass_role_ids: list[str], context: dict) -> bool:
         """Check if user can bypass this policy based on org membership level or RBAC role."""
-        from ee.models.rbac.role import RoleMembership
-
         org = context.get("organization")
         if not org:
             return False
@@ -293,15 +291,20 @@ class PolicyEngine:
 
         # Check bypass_roles (RBAC roles)
         if bypass_role_ids:
-            user_role_ids = {
-                str(rid)
-                for rid in RoleMembership.objects.filter(
-                    user=actor,
-                    role__organization=org,
-                ).values_list("role_id", flat=True)
-            }
-            if user_role_ids & set(bypass_role_ids):
-                return True
+            try:
+                from ee.models.rbac.role import RoleMembership
+            except ImportError:
+                pass
+            else:
+                user_role_ids = {
+                    str(rid)
+                    for rid in RoleMembership.objects.filter(
+                        user=actor,
+                        role__organization=org,
+                    ).values_list("role_id", flat=True)
+                }
+                if user_role_ids & set(bypass_role_ids):
+                    return True
 
         return False
 

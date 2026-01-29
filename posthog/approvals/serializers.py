@@ -3,11 +3,6 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.approvals.models import Approval, ApprovalPolicy, ChangeRequest
 
-try:
-    from ee.models.rbac.role import Role
-except ImportError:
-    Role = None  # type: ignore
-
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -193,6 +188,11 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
     def validate_bypass_roles(self, value):
         if not value:
             return value
+
+        try:
+            from ee.models.rbac.role import Role
+        except ImportError:
+            raise serializers.ValidationError("RBAC roles are not available")
 
         if self.instance:
             # Update: get organization from existing policy

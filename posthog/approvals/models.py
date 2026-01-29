@@ -5,12 +5,6 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-try:
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    Role = None  # type: ignore
-    RoleMembership = None  # type: ignore
-
 if TYPE_CHECKING:
     from posthog.approvals.actions.base import BaseAction
     from posthog.approvals.models import ApprovalPolicy as ApprovalPolicyType
@@ -160,7 +154,9 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     approver_config = models.JSONField()
 
     allow_self_approve = models.BooleanField(default=False)
+
     bypass_org_membership_levels = models.JSONField(default=list)
+
     bypass_roles = models.ManyToManyField(
         "ee.Role",
         blank=True,
@@ -196,13 +192,18 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.bypass_roles.clear()
             return
 
-        roles = Role.objects.filter(id__in=role_ids)
-        invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
-        if invalid_roles:
-            invalid_names = [r.name for r in invalid_roles]
-            raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
+        try:
+            from ee.models.rbac.role import Role
+        except ImportError:
+            pass
+        else:
+            roles = Role.objects.filter(id__in=role_ids)
+            invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
+            if invalid_roles:
+                invalid_names = [r.name for r in invalid_roles]
+                raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
 
-        self.bypass_roles.set(roles)
+            self.bypass_roles.set(roles)
 
     def get_approver_user_ids(self) -> list[int]:
         """Get list of user IDs who can approve based on this policy's approver_config."""
@@ -213,10 +214,15 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
         approver_roles = self.approver_config.get("roles")
         if approver_roles:
-            role_user_ids = RoleMembership.objects.filter(
-                role_id__in=approver_roles,
-                role__organization=self.organization,
-            ).values_list("user_id", flat=True)
-            user_ids.update(role_user_ids)
+            try:
+                from ee.models.rbac.role import RoleMembership
+
+                role_user_ids = RoleMembership.objects.filter(
+                    role_id__in=approver_roles,
+                    role__organization=self.organization,
+                ).values_list("user_id", flat=True)
+                user_ids.update(role_user_ids)
+            except ImportError:
+                pass
 
         return list(user_ids)
