@@ -81,7 +81,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         toggleListening,
     } = useVoiceInput({
         onTranscript: (transcript) => {
-            setQuestion(question ? `${question} ${transcript}` : transcript)
+            setQuestion((prev) => (prev ? `${prev} ${transcript}` : transcript))
         },
     })
 
