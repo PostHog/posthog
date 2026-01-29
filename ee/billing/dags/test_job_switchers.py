@@ -9,10 +9,10 @@ import requests
 from parameterized import parameterized
 
 from posthog.dags.common.resources import ClayWebhookResource
+from posthog.dags.common.utils import compute_dataframe_hashes
 
 from ee.billing.dags.job_switchers import (
     clickhouse_to_dataframe,
-    compute_dataframe_hashes,
     dataframe_to_clay_payload,
     filter_changed_domains,
     get_prior_hashes_from_metadata,
@@ -463,7 +463,7 @@ class TestClayWebhookResourceCreateBatches:
         original_size = len(json.dumps([oversized_record]).encode("utf-8"))
         assert original_size > 500  # Verify it's actually oversized
 
-        result = resource.create_batches([oversized_record])
+        result = resource.create_batches([oversized_record], truncatable_fields=["emails"])
 
         assert len(result.batches) == 1
         assert len(result.batches[0]) == 1
