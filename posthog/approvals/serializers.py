@@ -194,6 +194,15 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             organization_id = self.context["view"].organization.id
 
         roles = Role.objects.filter(id__in=value)
+
+        # Check all submitted IDs exist
+        found_ids = {str(r.id) for r in roles}
+        submitted_ids = {str(v) for v in value}
+        missing_ids = submitted_ids - found_ids
+        if missing_ids:
+            raise serializers.ValidationError(f"Roles do not exist: {', '.join(missing_ids)}")
+
+        # Check all roles belong to the correct organization
         invalid_roles = [r for r in roles if r.organization_id != organization_id]
         if invalid_roles:
             invalid_names = [r.name for r in invalid_roles]

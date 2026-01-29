@@ -294,3 +294,21 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == str(enabled.id)
+
+    def test_create_policy_with_nonexistent_bypass_role_returns_error(self):
+        import uuid
+
+        fake_role_id = str(uuid.uuid4())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 1, "users": [self.user.id]},
+                "bypass_roles": [fake_role_id],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "do not exist" in str(response.json())
