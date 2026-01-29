@@ -46,6 +46,7 @@ message GetGroupRequest {
   int64 team_id = 1;
   int32 group_type_index = 2;
   string group_key = 3;
+  ReadOptions read_options = 4;
 }
 
 message GetGroupResponse {
@@ -55,6 +56,7 @@ message GetGroupResponse {
 message GetGroupsRequest {
   int64 team_id = 1;
   repeated GroupIdentifier group_identifiers = 2;
+  ReadOptions read_options = 3;
 }
 
 message GroupsResponse {
@@ -64,6 +66,7 @@ message GroupsResponse {
 
 message GetGroupsBatchRequest {
   repeated GroupKey keys = 1;
+  ReadOptions read_options = 2;
 }
 
 message GetGroupsBatchResponse {
@@ -72,18 +75,22 @@ message GetGroupsBatchResponse {
 
 message GetGroupTypeMappingsByTeamIdRequest {
   int64 team_id = 1;
+  ReadOptions read_options = 2;
 }
 
 message GetGroupTypeMappingsByTeamIdsRequest {
   repeated int64 team_ids = 1;
+  ReadOptions read_options = 2;
 }
 
 message GetGroupTypeMappingsByProjectIdRequest {
   int64 project_id = 1;
+  ReadOptions read_options = 2;
 }
 
 message GetGroupTypeMappingsByProjectIdsRequest {
   repeated int64 project_ids = 1;
+  ReadOptions read_options = 2;
 }
 
 message GroupTypeMappingsResponse {
