@@ -486,8 +486,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 else:
                     check_was_materialized = was_materialized
 
-                should_enable = data.is_materialized or (data.is_materialized is None and check_was_materialized)
-                should_disable = not data.is_materialized
+                should_enable = data.is_materialized is True or (
+                    data.is_materialized is None and check_was_materialized
+                )
+                should_disable = data.is_materialized is False
 
                 if should_enable:
                     sync_frequency = data.sync_frequency or old_sync_frequency or DataWarehouseSyncInterval.FIELD_24HOUR
