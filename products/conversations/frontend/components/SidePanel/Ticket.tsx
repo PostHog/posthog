@@ -33,7 +33,10 @@ export function Ticket(): JSX.Element {
                 isCustomerView
             />
             <div className="border-t pt-3">
-                <MessageInput onSendMessage={sendMessage} messageSending={messageSending} />
+                <MessageInput
+                    onSendMessage={(content, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
+                    messageSending={messageSending}
+                />
             </div>
         </div>
     )

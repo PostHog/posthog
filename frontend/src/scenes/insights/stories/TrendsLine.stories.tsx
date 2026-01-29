@@ -50,6 +50,17 @@ TrendsLine.parameters = {
     },
 }
 
+export const TrendsLineSingleDataPoint: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineSingleDataPoint.json')
+)
+TrendsLineSingleDataPoint.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+
 // FLAP!
 // export const TrendsLineEdit: Story = createInsightStory(
 //     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
@@ -121,6 +132,17 @@ export const TrendsBar: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json')
 )
 TrendsBar.parameters = {
+    ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
+}
+
+export const TrendsBarSingleDataPoint: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsBarSingleDataPoint.json')
+)
+TrendsBarSingleDataPoint.parameters = {
     ...meta.parameters,
     testOptions: {
         ...meta.parameters?.testOptions,

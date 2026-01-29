@@ -2690,7 +2690,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_input_cost_usd": 0.01,
                 "$ai_output_cost_usd": 0.01,
                 "$ai_total_cost_usd": 0.02,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
             timestamp=now() - relativedelta(days=2),
             team=self.org_1_team_1,
@@ -2750,7 +2750,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2765,7 +2765,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2810,7 +2810,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2825,7 +2825,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_free",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2866,7 +2866,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2881,7 +2881,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_summarize",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2923,7 +2923,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2937,7 +2937,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_mixed_excluded",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2979,7 +2979,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -2993,7 +2993,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_mixed_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3039,7 +3039,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3054,7 +3054,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable_search",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3117,7 +3117,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         },
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3133,7 +3133,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_multi_turn",
                 "$ai_total_cost_usd": 1.5,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3168,7 +3168,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "$ai_trace_id": "trace_billable",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3183,7 +3183,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3198,7 +3198,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": False,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3213,7 +3213,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": 0.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3228,7 +3228,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_billable",
                 "$ai_total_cost_usd": -1.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3270,7 +3270,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                         }
                     ]
                 },
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3285,7 +3285,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_no_tools",
                 "$ai_total_cost_usd": 0.5,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3327,7 +3327,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "$ai_trace_id": "trace_us",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3340,7 +3340,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "$ai_trace_id": "trace_eu_in_us",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
-                "region": "EU",
+                "$group_1": "https://eu.posthog.com",
             },
         )
 
@@ -3355,7 +3355,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_us",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3370,7 +3370,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_eu_in_us",
                 "$ai_total_cost_usd": 5.0,
                 "$ai_billable": True,
-                "region": "EU",
+                "$group_1": "https://eu.posthog.com",
             },
         )
 
@@ -3412,7 +3412,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "$ai_trace_id": "trace_eu",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
-                "region": "EU",
+                "$group_1": "https://eu.posthog.com",
             },
         )
 
@@ -3425,7 +3425,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "$ai_trace_id": "trace_us_in_eu",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 
@@ -3440,7 +3440,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_eu",
                 "$ai_total_cost_usd": 2.0,
                 "$ai_billable": True,
-                "region": "EU",
+                "$group_1": "https://eu.posthog.com",
             },
         )
 
@@ -3455,7 +3455,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_trace_id": "trace_us_in_eu",
                 "$ai_total_cost_usd": 3.0,
                 "$ai_billable": True,
-                "region": "US",
+                "$group_1": "https://us.posthog.com",
             },
         )
 

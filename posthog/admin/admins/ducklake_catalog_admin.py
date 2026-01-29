@@ -5,60 +5,49 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "team_id",
-        "s3_bucket",
-        "rds_host",
+        "db_host",
+        "db_database",
+        "bucket",
+        "bucket_region",
+        "cross_account_role_arn",
         "created_at",
         "updated_at",
     )
-    list_filter = ("s3_region",)
-    search_fields = ("team_id", "s3_bucket", "rds_host")
-    readonly_fields = ("created_at", "updated_at")
+    list_filter = ("bucket_region",)
+    search_fields = ("team__id", "db_host", "bucket", "cross_account_role_arn")
+    readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team",)
 
     fieldsets = (
         (
-            "Team",
+            None,
             {
-                "fields": ("team",),
+                "fields": ("id", "team"),
             },
         ),
         (
-            "RDS Catalog",
+            "Database connection",
             {
-                "fields": (
-                    "rds_host",
-                    "rds_port",
-                    "rds_database",
-                    "rds_username",
-                    "rds_password",
-                ),
+                "fields": ("db_host", "db_port", "db_database", "db_username", "db_password"),
             },
         ),
         (
-            "S3 Storage",
+            "S3 bucket",
             {
-                "fields": (
-                    "s3_bucket",
-                    "s3_region",
-                ),
+                "fields": ("bucket", "bucket_region"),
             },
         ),
         (
-            "Cross-Account Access",
+            "Cross-account S3 access",
             {
-                "fields": (
-                    "cross_account_role_arn",
-                    "cross_account_external_id",
-                ),
+                "fields": ("cross_account_role_arn", "cross_account_external_id"),
+                "description": "Required settings for writing to customer-owned S3 buckets via IAM role assumption",
             },
         ),
         (
             "Metadata",
             {
-                "fields": (
-                    "created_at",
-                    "updated_at",
-                ),
+                "fields": ("created_at", "updated_at"),
             },
         ),
     )

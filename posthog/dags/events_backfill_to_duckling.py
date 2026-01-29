@@ -58,8 +58,8 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.dags.events_backfill_to_ducklake import DEFAULT_CLICKHOUSE_SETTINGS, EVENTS_COLUMNS, MAX_RETRY_ATTEMPTS
-from posthog.ducklake.common import attach_catalog, escape
-from posthog.ducklake.models import DuckLakeCatalog, get_team_catalog
+from posthog.ducklake.common import attach_catalog, escape, get_ducklake_catalog_for_team, get_team_config
+from posthog.ducklake.models import DuckLakeCatalog
 from posthog.ducklake.storage import configure_cross_account_connection
 
 logger = structlog.get_logger(__name__)
@@ -190,10 +190,10 @@ def export_events_to_duckling_s3(
     path_without_scheme = f"{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
 
     # ClickHouse needs HTTPS URL format for cross-account S3 access
-    s3_url = get_s3_url_for_clickhouse(catalog.s3_bucket, catalog.s3_region, path_without_scheme)
+    s3_url = get_s3_url_for_clickhouse(catalog.bucket, catalog.bucket_region, path_without_scheme)
 
     # S3 path with scheme for DuckLake registration
-    s3_path = f"s3://{catalog.s3_bucket}/{path_without_scheme}"
+    s3_path = f"s3://{catalog.bucket}/{path_without_scheme}"
 
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
@@ -261,11 +261,10 @@ def register_file_with_duckling(
         return False
 
     if config.dry_run:
-        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake at {catalog.rds_host}")
+        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake at {catalog.db_host}")
         return False
 
     destination = catalog.to_cross_account_destination()
-    catalog_config = catalog.to_config_dict()
     alias = "duckling"
 
     conn = duckdb.connect()
@@ -275,10 +274,11 @@ def register_file_with_duckling(
         # Dagster's IAM role can assume the duckling's cross-account role
         configure_cross_account_connection(
             conn,
-            role_arn=destination.role_arn,
-            external_id=destination.external_id,
-            region=destination.region,
+            destinations=[destination],
         )
+
+        # Get the catalog config including password for RDS connection
+        catalog_config = get_team_config(catalog.team_id)
 
         # Attach the duckling's catalog
         attach_catalog(conn, catalog_config, alias=alias)
@@ -327,11 +327,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     )
 
     # Look up the duckling configuration
-    catalog = get_team_catalog(team_id)
+    catalog = get_ducklake_catalog_for_team(team_id)
     if catalog is None:
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
-    context.log.info(f"Found DuckLakeCatalog: bucket={catalog.s3_bucket}, rds_host={catalog.rds_host}")
+    context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
     # Prepare ClickHouse settings
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -374,7 +374,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             "partition_date": date_str,
             "s3_path": s3_path or "(dry run)",
             "registered": registered,
-            "bucket": catalog.s3_bucket,
+            "bucket": catalog.bucket,
         }
     )
 
