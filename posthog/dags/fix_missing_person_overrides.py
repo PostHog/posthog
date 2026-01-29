@@ -36,28 +36,29 @@ class FixMissingPersonOverridesConfig(dagster.Config):
     )
 
 
-def get_mismatched_person_ids(
+def get_mismatched_distinct_ids(
     team: Team,
     min_date: Optional[str] = None,
     max_date: Optional[str] = None,
 ) -> list[str]:
-    """Find person_ids where events.person_id differs from pdi.person_id.
+    """Find distinct_ids where events.person_id differs from pdi.person_id.
 
-    This identifies persons where at least one override exists but possibly
-    not all distinct_ids have overrides yet.
+    This identifies distinct_ids where the event's stored person_id doesn't match
+    what pdi2 says it should be, indicating a missing or incorrect override.
 
     Args:
         team: The team to query
         min_date: Optional minimum date filter (ISO format)
         max_date: Optional maximum date filter (ISO format)
 
-    Returns list of person_ids that need to be checked.
+    Returns list of distinct_ids that need to be checked.
     """
     from posthog.hogql import ast
     from posthog.hogql.parser import parse_select
 
-    # Parse base query
-    query = parse_select("SELECT DISTINCT person_id FROM events WHERE person_id != pdi.person_id")
+    # Select distinct_id (not person_id) so we can look up the correct person_id from pdi2
+    query = parse_select("SELECT DISTINCT distinct_id FROM events WHERE person_id != pdi.person_id")
+    assert isinstance(query, ast.SelectQuery)
 
     # Build date filter conditions
     date_conditions: list[ast.Expr] = []
@@ -88,19 +89,18 @@ def get_mismatched_person_ids(
     return [str(row[0]) for row in result.results] if result.results else []
 
 
-def get_missing_overrides_for_person_ids(team_id: int, person_ids: list[str]) -> list[tuple[str, str, int]]:
-    """Get all (distinct_id, person_id, version) tuples that need overrides.
+def get_missing_overrides_for_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[tuple[str, str, int]]:
+    """Get (distinct_id, person_id, version) tuples that need overrides.
 
-    For all given person_ids, finds their distinct_ids in pdi2 and filters out
-    any that already have overrides.
+    For the given distinct_ids, looks up what person_id they should have according to pdi2,
+    and filters out any that already have overrides.
 
     Returns list of (distinct_id, person_id, version) tuples that need to be inserted.
     """
-    if not person_ids:
+    if not distinct_ids:
         return []
 
-    # Get all distinct_ids for the given person_ids
-    pdi2_result = sync_execute(
+    result = sync_execute(
         """
         SELECT
             distinct_id,
@@ -108,35 +108,22 @@ def get_missing_overrides_for_person_ids(team_id: int, person_ids: list[str]) ->
             max(version) as max_version
         FROM person_distinct_id2
         WHERE team_id = %(team_id)s
-        GROUP BY distinct_id
-        HAVING current_person_id IN %(person_ids)s
-          AND argMax(is_deleted, version) = 0
-        """,
-        {"team_id": team_id, "person_ids": person_ids},
-    )
-
-    if not pdi2_result:
-        return []
-
-    # Get distinct_ids that already have overrides
-    distinct_ids_to_check = [row[0] for row in pdi2_result]
-
-    existing_overrides = sync_execute(
-        """
-        SELECT distinct_id
-        FROM person_distinct_id_overrides
-        WHERE team_id = %(team_id)s
           AND distinct_id IN %(distinct_ids)s
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0
+          AND distinct_id NOT IN (
+              SELECT distinct_id
+              FROM person_distinct_id_overrides
+              WHERE team_id = %(team_id)s
+                AND distinct_id IN %(distinct_ids)s
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0
+          )
         """,
-        {"team_id": team_id, "distinct_ids": distinct_ids_to_check},
+        {"team_id": team_id, "distinct_ids": distinct_ids},
     )
 
-    existing_distinct_ids = {row[0] for row in existing_overrides} if existing_overrides else set()
-
-    # Filter out distinct_ids that already have overrides
-    return [(row[0], str(row[1]), int(row[2])) for row in pdi2_result if row[0] not in existing_distinct_ids]
+    return [(row[0], str(row[1]), int(row[2])) for row in result] if result else []
 
 
 def get_existing_override(team_id: int, distinct_id: str) -> Optional[tuple[str, int]]:
@@ -212,28 +199,28 @@ def fix_missing_person_overrides_op(
     """
     Automatically detect and fix missing person_id overrides.
 
-    1. Use HogQL to find person_ids where events.person_id != pdi.person_id
-       (indicating some overrides exist but possibly not all)
-    2. Get all distinct_ids for those person_ids that don't have overrides yet (single query)
-    3. Batch insert all missing overrides
+    1. Use HogQL to find distinct_ids where events.person_id != pdi.person_id
+    2. Look up those distinct_ids in pdi2 to get the correct person_id
+    3. Filter out distinct_ids that already have overrides
+    4. Batch insert all missing overrides
     """
     team = Team.objects.get(id=config.team_id)
 
-    context.log.info(f"Finding mismatched person_ids for team {config.team_id}")
+    context.log.info(f"Finding mismatched distinct_ids for team {config.team_id}")
     context.log.info(f"Dry run: {config.dry_run}")
     if config.min_date or config.max_date:
         context.log.info(f"Date range: {config.min_date or 'start'} to {config.max_date or 'end'}")
 
-    # Step 1: Find person_ids with mismatches (1 HogQL query)
-    mismatched_person_ids = get_mismatched_person_ids(team, config.min_date, config.max_date)
-    context.log.info(f"Found {len(mismatched_person_ids)} person_ids with mismatches")
+    # Step 1: Find distinct_ids with mismatches (1 HogQL query)
+    mismatched_distinct_ids = get_mismatched_distinct_ids(team, config.min_date, config.max_date)
+    context.log.info(f"Found {len(mismatched_distinct_ids)} distinct_ids with mismatches")
 
-    if not mismatched_person_ids:
+    if not mismatched_distinct_ids:
         context.log.info("No mismatches found, nothing to do")
         return
 
-    # Step 2: Get all missing overrides in a single query
-    missing_overrides = get_missing_overrides_for_person_ids(config.team_id, mismatched_person_ids)
+    # Step 2: Get missing overrides - looks up pdi2 for correct person_id
+    missing_overrides = get_missing_overrides_for_distinct_ids(config.team_id, mismatched_distinct_ids)
     context.log.info(f"Found {len(missing_overrides)} distinct_ids missing overrides")
 
     if not missing_overrides:

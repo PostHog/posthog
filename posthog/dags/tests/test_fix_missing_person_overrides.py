@@ -6,8 +6,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.fix_missing_person_overrides import (
     get_existing_override,
-    get_mismatched_person_ids,
-    get_missing_overrides_for_person_ids,
+    get_mismatched_distinct_ids,
+    get_missing_overrides_for_distinct_ids,
     insert_override_batch,
 )
 
@@ -43,8 +43,8 @@ def get_all_overrides(team_id: int) -> list[tuple[str, str]]:
     return [(row[0], str(row[1])) for row in result]
 
 
-class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
-    def test_finds_person_ids_where_override_differs_from_pdi2(self):
+class TestGetMismatchedDistinctIds(ClickhouseTestMixin, BaseTest):
+    def test_finds_distinct_ids_where_override_differs_from_pdi2(self):
         """When an override exists, person_id on events differs from pdi.person_id."""
         old_person_id = uuid4()
         new_person_id = uuid4()
@@ -63,11 +63,11 @@ class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        # The HogQL query should find new_person_id (from override) as mismatched
-        result = get_mismatched_person_ids(self.team)
+        # The HogQL query should find the distinct_id with a mismatch
+        result = get_mismatched_distinct_ids(self.team)
 
         assert len(result) == 1
-        assert result[0] == str(new_person_id)
+        assert result[0] == "user_a"
 
     def test_returns_empty_when_no_mismatches(self):
         """When override matches pdi2, no mismatch is detected."""
@@ -87,13 +87,13 @@ class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        result = get_mismatched_person_ids(self.team)
+        result = get_mismatched_distinct_ids(self.team)
 
         assert len(result) == 0
 
     def test_returns_empty_when_no_events_exist(self):
         """When no events exist, no mismatches are found."""
-        result = get_mismatched_person_ids(self.team)
+        result = get_mismatched_distinct_ids(self.team)
         assert len(result) == 0
 
     def test_min_date_filters_events(self):
@@ -114,11 +114,11 @@ class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         # Query with min_date in February - should find nothing
-        result = get_mismatched_person_ids(self.team, min_date="2024-02-01")
+        result = get_mismatched_distinct_ids(self.team, min_date="2024-02-01")
         assert len(result) == 0
 
         # Query with min_date in January - should find the mismatch
-        result = get_mismatched_person_ids(self.team, min_date="2024-01-01")
+        result = get_mismatched_distinct_ids(self.team, min_date="2024-01-01")
         assert len(result) == 1
 
     def test_max_date_filters_events(self):
@@ -139,11 +139,11 @@ class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         # Query with max_date in March - should find nothing (exclusive)
-        result = get_mismatched_person_ids(self.team, max_date="2024-03-01")
+        result = get_mismatched_distinct_ids(self.team, max_date="2024-03-01")
         assert len(result) == 0
 
         # Query with max_date in April - should find the mismatch
-        result = get_mismatched_person_ids(self.team, max_date="2024-04-01")
+        result = get_mismatched_distinct_ids(self.team, max_date="2024-04-01")
         assert len(result) == 1
 
     def test_date_range_filters_events(self):
@@ -164,11 +164,11 @@ class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         # Query with range that excludes the event
-        result = get_mismatched_person_ids(self.team, min_date="2024-03-01", max_date="2024-04-01")
+        result = get_mismatched_distinct_ids(self.team, min_date="2024-03-01", max_date="2024-04-01")
         assert len(result) == 0
 
         # Query with range that includes the event
-        result = get_mismatched_person_ids(self.team, min_date="2024-02-01", max_date="2024-03-01")
+        result = get_mismatched_distinct_ids(self.team, min_date="2024-02-01", max_date="2024-03-01")
         assert len(result) == 1
 
 
@@ -201,32 +201,94 @@ class TestInsertOverrideBatch(ClickhouseTestMixin, BaseTest):
         insert_override_batch([])
 
 
-class TestGetMissingOverridesForPersonIds(ClickhouseTestMixin, BaseTest):
-    def test_returns_empty_for_empty_person_ids(self):
-        result = get_missing_overrides_for_person_ids(self.team.id, [])
+class TestGetMissingOverridesForDistinctIds(ClickhouseTestMixin, BaseTest):
+    def test_returns_empty_for_empty_distinct_ids(self):
+        result = get_missing_overrides_for_distinct_ids(self.team.id, [])
         assert len(result) == 0
 
-    def test_returns_empty_for_nonexistent_person_id(self):
-        # Just call with a random UUID - no data setup needed
-        random_uuid = str(uuid4())
-        result = get_missing_overrides_for_person_ids(self.team.id, [random_uuid])
+    def test_returns_empty_for_nonexistent_distinct_id(self):
+        result = get_missing_overrides_for_distinct_ids(self.team.id, ["nonexistent_user"])
         assert len(result) == 0
 
     def test_returns_missing_overrides(self):
         person_id = uuid4()
-        person_id_str = str(person_id)
 
-        # Insert test data
+        # Insert test data - two distinct_ids mapping to the same person
         insert_pdi2_records(
             [
                 (self.team.id, "has_override", person_id, 1, 0),
                 (self.team.id, "no_override", person_id, 1, 0),
             ]
         )
+        # Only one has an override
         insert_override_records([(self.team.id, "has_override", person_id, 1, 0)])
 
-        # Query for missing overrides
-        result = get_missing_overrides_for_person_ids(self.team.id, [person_id_str])
+        # Query for missing overrides by distinct_id
+        result = get_missing_overrides_for_distinct_ids(self.team.id, ["has_override", "no_override"])
 
+        # Should return only the one without an override
         assert len(result) == 1
         assert result[0][0] == "no_override"
+        assert result[0][1] == str(person_id)
+
+    def test_returns_correct_person_id_from_pdi2(self):
+        """Verify we get the person_id from pdi2, not from some other source."""
+        pdi2_person_id = uuid4()
+
+        # pdi2 says distinct_id maps to pdi2_person_id
+        insert_pdi2_records([(self.team.id, "test_user", pdi2_person_id, 1, 0)])
+
+        result = get_missing_overrides_for_distinct_ids(self.team.id, ["test_user"])
+
+        assert len(result) == 1
+        assert result[0][0] == "test_user"
+        assert result[0][1] == str(pdi2_person_id)
+
+
+class TestIntegration(ClickhouseTestMixin, BaseTest):
+    def test_full_flow_creates_correct_override(self):
+        """
+        Integration test: verify that chaining get_mismatched_distinct_ids and
+        get_missing_overrides_for_distinct_ids produces the correct override.
+
+        Scenario: Event was written with OLD person_id, then pdi2 was updated to NEW person_id,
+        but no override was created. The job should create an override pointing to NEW.
+        """
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        # pdi2 says distinct_id -> NEW person_id (this is the source of truth after merge)
+        insert_pdi2_records([(self.team.id, "merged_user", new_person_id, 2, 0)])
+
+        # Event was written with OLD person_id (before the merge)
+        # No override exists, so person_id on event stays as OLD
+        _create_event(
+            event="old_event",
+            distinct_id="merged_user",
+            person_id=str(old_person_id),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        # Step 1: Find mismatched distinct_ids
+        # person_id (OLD, from event) != pdi.person_id (NEW, from pdi2)
+        mismatched = get_mismatched_distinct_ids(self.team)
+        assert len(mismatched) == 1
+        assert mismatched[0] == "merged_user"
+
+        # Step 2: Get missing overrides for those distinct_ids
+        missing = get_missing_overrides_for_distinct_ids(self.team.id, mismatched)
+        assert len(missing) == 1
+        distinct_id, person_id, version = missing[0]
+
+        # The override should point to NEW person_id (from pdi2), not OLD
+        assert distinct_id == "merged_user"
+        assert person_id == str(new_person_id)
+
+        # Step 3: Insert the override
+        insert_override_batch([(self.team.id, distinct_id, person_id, max(version, 1))])
+
+        # Verify the override was created correctly
+        override = get_existing_override(self.team.id, "merged_user")
+        assert override is not None
+        assert override[0] == str(new_person_id)
