@@ -572,9 +572,6 @@ OAUTH2_PROVIDER = {
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
     "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
     "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
-    # Per-application token expiry - allows overriding ACCESS_TOKEN_EXPIRE_SECONDS per OAuth application
-    # This is useful for clients that don't properly implement refresh token flow (e.g. Claude Code)
-    # See: https://github.com/anthropics/claude-code/issues/5706
     "OAUTH2_SERVER_KWARGS": {
         "token_expires_in": _get_access_token_expires_in,
     },
