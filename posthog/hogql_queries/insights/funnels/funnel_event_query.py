@@ -1,4 +1,3 @@
-from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Optional, Union, cast
@@ -93,7 +92,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         return result
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
-        table_configurations_to_steps: dict[str, TableConfigWithSteps] = defaultdict(list)
+        table_configurations_to_steps: dict[str, TableConfigWithSteps] = {}
         seen_data_warehouse_table_configurations: dict[tuple[str, str, str], int] = {}
 
         for step_index, node in enumerate(self.context.query.series):
