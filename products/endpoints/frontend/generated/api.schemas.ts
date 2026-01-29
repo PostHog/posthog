@@ -3458,6 +3458,11 @@ export interface EndpointRunRequestApi {
 Tip: Use to get data for a specific customer or user. */
     filters_override?: DashboardFilterApi | null
     /**
+     * Maximum number of results to return. If not provided, returns all results.
+     * @nullable
+     */
+    limit?: number | null
+    /**
      * Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of $pageview's
      * @nullable
      */
