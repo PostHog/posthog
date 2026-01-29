@@ -231,5 +231,6 @@ def docker_services_up(yes: bool) -> None:
         click.echo("Starting Docker core services only (no intent config found)")
     click.echo(f"  {cmd}")
 
-    result = subprocess.run(cmd, shell=True)
+    # cmd is built from internal config (intent-map.yaml), not user input
+    result = subprocess.run(cmd, shell=True)  # nosemgrep: subprocess-shell-true
     raise SystemExit(result.returncode)
