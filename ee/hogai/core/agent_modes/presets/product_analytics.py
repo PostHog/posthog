@@ -4,7 +4,7 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
+from ee.hogai.chat_agent.executables import ChatAgentExecutable, ChatAgentToolsExecutable
 from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
 from ee.hogai.utils.feature_flags import has_upsert_dashboard_feature_flag
@@ -79,13 +79,6 @@ product_analytics_agent = AgentModeDefinition(
     mode=AgentMode.PRODUCT_ANALYTICS,
     mode_description=MODE_DESCRIPTION,
     toolkit_class=ProductAnalyticsAgentToolkit,
-)
-
-
-chat_agent_plan_product_analytics_agent = AgentModeDefinition(
-    mode=AgentMode.PRODUCT_ANALYTICS,
-    mode_description=MODE_DESCRIPTION,
-    toolkit_class=ProductAnalyticsAgentToolkit,
-    node_class=ChatAgentPlanExecutable,
-    tools_node_class=ChatAgentPlanToolsExecutable,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
 )

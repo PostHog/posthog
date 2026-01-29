@@ -2,7 +2,12 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -103,6 +108,8 @@ session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
     mode_description=MODE_DESCRIPTION,
     toolkit_class=SessionReplayAgentToolkit,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
 )
 
 

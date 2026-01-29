@@ -2,7 +2,12 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -92,6 +97,8 @@ error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
     mode_description=MODE_DESCRIPTION,
     toolkit_class=ErrorTrackingAgentToolkit,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
 )
 
 
