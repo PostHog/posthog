@@ -358,8 +358,8 @@ function Message({
         isAssistantMessage(message) ||
         isFailureMessage(message) ||
         (isAssistantToolCallMessage(message) &&
-            ((message.ui_payload && Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
-                isDev)) ||
+            message.ui_payload &&
+            Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
         (isArtifactMessage(message) &&
             (isVisualizationArtifactContent(message.content) || isNotebookArtifactContent(message.content))) ||
         isMultiVisualizationMessage(message)
@@ -576,8 +576,6 @@ function Message({
                                 {actionsElement}
                             </div>
                         )
-                    } else if (isAssistantToolCallMessage(message)) {
-                        return null
                     } else if (isFailureMessage(message)) {
                         return (
                             <>
