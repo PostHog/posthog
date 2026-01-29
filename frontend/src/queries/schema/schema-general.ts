@@ -165,6 +165,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -225,6 +226,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
     | EndpointsUsageOverviewQuery
@@ -317,6 +319,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -1147,6 +1150,8 @@ interface DataTableNodeViewProps {
     showSavedQueries?: boolean
     /** Show saved filters feature for this table (requires uniqueKey) */
     showSavedFilters?: boolean
+    /** Show table views feature for this table (requires uniqueKey) */
+    showTableViews?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -1723,6 +1728,8 @@ export interface EndpointRequest {
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
+    /** Target a specific version for updates (optional, defaults to current version) */
+    version?: integer
 }
 
 /**
@@ -1766,6 +1773,8 @@ export interface EndpointRunRequest {
      * @default false
      */
     debug?: boolean
+    /** Maximum number of results to return. If not provided, returns all results. */
+    limit?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {
@@ -4014,8 +4023,35 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface TraceNeighborsQueryResponse {
+    /** ID of the newer trace (chronologically after current) */
+    newerTraceId?: string
+    /** Timestamp of the newer trace */
+    newerTimestamp?: string
+    /** ID of the older trace (chronologically before current) */
+    olderTraceId?: string
+    /** Timestamp of the older trace */
+    olderTimestamp?: string
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+}
+
+export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
+    kind: NodeKind.TraceNeighborsQuery
+    /** ID of the current trace to find neighbors for */
+    traceId: string
+    /** Timestamp of the current trace to find neighbors for */
+    timestamp: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+    filterSupportTraces?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -5259,7 +5295,8 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
+    SURVEYS_VIEWED = 'surveys_viewed',
+    SURVEY_ADD_NEW = 'survey_add_new',
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',
@@ -5321,6 +5358,11 @@ export enum ProductIntentContext {
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
+
+    // Endpoints
+    ENDPOINT_CREATED = 'endpoint_created',
+    ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',
 }
 
 // Known prod_interest values from posthog.com

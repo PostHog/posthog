@@ -84,6 +84,7 @@ export interface ChatMessage {
     authorName: string
     createdBy?: MessageAuthor | null
     createdAt: string
+    isPrivate?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

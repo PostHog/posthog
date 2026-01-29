@@ -487,6 +487,213 @@ class TestTicketAssignment(BaseConversationsAPITest):
         self.assertEqual(TicketAssignment.objects.count(), 0)
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestUnreadCountEndpoint(BaseConversationsAPITest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
+
+    def test_unread_count_returns_zero_when_no_tickets(self, mock_on_commit):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    def test_unread_count_returns_sum_of_unread_team_count(self, mock_on_commit):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=3,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+            unread_team_count=2,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 5)
+
+    def test_unread_count_excludes_resolved_tickets(self, mock_on_commit):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=3,
+            status=Status.NEW,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+            unread_team_count=5,
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+
+    def test_unread_count_returns_zero_when_conversations_disabled(self, mock_on_commit):
+        self.team.conversations_enabled = False
+        self.team.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=5,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_retrieve_ticket_invalidates_cache_when_marking_as_read(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=3,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_retrieve_ticket_does_not_invalidate_cache_when_already_read(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            unread_team_count=0,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_not_called()
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_update_ticket_invalidates_cache_when_resolved(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/",
+            {"status": Status.RESOLVED},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_update_ticket_invalidates_cache_when_reopened(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/",
+            {"status": Status.OPEN},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_called_once_with(self.team.id)
+
+    @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
+    def test_update_ticket_does_not_invalidate_cache_for_other_changes(self, mock_invalidate, mock_on_commit):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/",
+            {"priority": Priority.HIGH},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_invalidate.assert_not_called()
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestPrivateMessageAppAPI(BaseConversationsAPITest):
+    """Test that authenticated App API users can create private messages."""
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session-123",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+
+    def test_app_api_can_create_private_message(self, mock_on_commit):
+        """Verify authenticated users can create private messages via App API."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/",
+            {
+                "content": "Private internal note",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": True},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify comment was created with is_private=True
+        comment = Comment.objects.get(id=response.json()["id"])
+        assert comment.item_context is not None
+        self.assertTrue(comment.item_context["is_private"])
+
+        # Verify private message doesn't affect denormalized stats
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.message_count, 0)
+        self.assertIsNone(self.ticket.last_message_text)
+
+    def test_app_api_private_message_visible_in_comments_list(self, mock_on_commit):
+        """Verify private messages are returned in App API comments list."""
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Private note",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": True},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/?scope=conversations_ticket&item_id={self.ticket.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["content"], "Private note")
+        self.assertTrue(response.json()["results"][0]["item_context"]["is_private"])
+
+
 class TestTicketManager(BaseTest):
     def test_requires_team(self):
         with self.assertRaises(ValueError) as ctx:

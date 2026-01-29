@@ -60,17 +60,17 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response.json().items(),
         )
 
-    @patch("posthog.api.organization.delete_bulky_postgres_data")
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
     @patch("posthoganalytics.capture")
-    def test_delete_second_managed_organization(self, mock_capture, mock_delete_bulky_postgres_data):
+    def test_delete_second_managed_organization(self, mock_capture, mock_delete_task):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         organization_props = organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
         self.assertTrue(Team.objects.filter(id=team.id).exists())
         response = self.client.delete(f"/api/organizations/{organization.id}")
         self.assertEqual(response.status_code, 204)
-        self.assertFalse(Organization.objects.filter(id=organization.id).exists())
-        self.assertFalse(Team.objects.filter(id=team.id).exists())
+        # Organization and team records are now deleted asynchronously by the task
+        # so we can't assert they're gone immediately - verify task was called instead
 
         mock_capture.assert_called_once_with(
             event="organization deleted",
@@ -78,7 +78,13 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
-        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.id])
+        mock_delete_task.delay.assert_called_once_with(
+            team_ids=[team.id],
+            organization_id=str(organization.id),
+            user_id=self.user.id,
+            organization_name="X",
+            project_names=[team.name],
+        )
 
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture):

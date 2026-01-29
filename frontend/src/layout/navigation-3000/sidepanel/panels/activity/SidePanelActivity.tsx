@@ -50,7 +50,7 @@ export const SidePanelActivityIcon = (props: { className?: string }): JSX.Elemen
     )
 }
 
-export const SidePanelActivity = ({ isScenePanel }: { isScenePanel?: boolean }): JSX.Element => {
+export const SidePanelActivity = (): JSX.Element => {
     const { activeTab, allActivity, allActivityResponseLoading, allActivityHasNext, activeFilters, contextFromPage } =
         useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setActiveFilters } = useActions(sidePanelActivityLogic)
@@ -96,7 +96,7 @@ export const SidePanelActivity = ({ isScenePanel }: { isScenePanel?: boolean }):
     if (!hasAccess) {
         return (
             <>
-                {isScenePanel ? null : <SidePanelPaneHeader title="Team activity" />}
+                <SidePanelPaneHeader title="Team activity" />
                 <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
                     <IconNotification className="text-5xl text-muted" />
                     <div>
@@ -113,7 +113,7 @@ export const SidePanelActivity = ({ isScenePanel }: { isScenePanel?: boolean }):
 
     return (
         <>
-            {isScenePanel ? null : <SidePanelPaneHeader title="Team activity" />}
+            <SidePanelPaneHeader title="Team activity" />
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
                 className="flex flex-col flex-1 overflow-hidden"

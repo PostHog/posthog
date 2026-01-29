@@ -201,6 +201,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
+        cancelDashboardRefresh: true,
 
         /**
          * Auto-refresh while on page.
@@ -725,6 +726,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
                 refreshDashboardItems: () => ({}),
                 abortQuery: () => ({}),
+                cancelDashboardRefresh: () => ({}),
             },
         ],
         columns: [
@@ -1605,7 +1607,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // REFRESH DONE: all insights have been refreshed
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
-                if (forceRefresh) {
+                // and all tiles were refreshed
+                if (forceRefresh && tilesAbortedCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -1789,6 +1792,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+        cancelDashboardRefresh: () => {
+            actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values

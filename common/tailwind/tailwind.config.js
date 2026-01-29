@@ -224,6 +224,22 @@ const deprecatedColors = {
     'lettermark-7-text': 'var(--lettermark-7-text)',
     'lettermark-8-bg': 'var(--lettermark-8-bg)',
     'lettermark-8-text': 'var(--lettermark-8-text)',
+    'lettermark-9-bg': 'var(--lettermark-9-bg)',
+    'lettermark-9-text': 'var(--lettermark-9-text)',
+    'lettermark-10-bg': 'var(--lettermark-10-bg)',
+    'lettermark-10-text': 'var(--lettermark-10-text)',
+    'lettermark-11-bg': 'var(--lettermark-11-bg)',
+    'lettermark-11-text': 'var(--lettermark-11-text)',
+    'lettermark-12-bg': 'var(--lettermark-12-bg)',
+    'lettermark-12-text': 'var(--lettermark-12-text)',
+    'lettermark-13-bg': 'var(--lettermark-13-bg)',
+    'lettermark-13-text': 'var(--lettermark-13-text)',
+    'lettermark-14-bg': 'var(--lettermark-14-bg)',
+    'lettermark-14-text': 'var(--lettermark-14-text)',
+    'lettermark-15-bg': 'var(--lettermark-15-bg)',
+    'lettermark-15-text': 'var(--lettermark-15-text)',
+    'lettermark-16-bg': 'var(--lettermark-16-bg)',
+    'lettermark-16-text': 'var(--lettermark-16-text)',
 
     // Modals
     // TODO: --color-modal-backdrop-blur: var(--modal-backdrop-blur);
