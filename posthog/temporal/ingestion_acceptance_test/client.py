@@ -44,10 +44,6 @@ class PostHogClient:
         posthoganalytics.debug = True
         posthoganalytics.sync_mode = True  # Send events synchronously for testing
 
-        # Session for HogQL queries (requires personal API key)
-        self._session = requests.Session()
-        self._session.headers.update({"Authorization": f"Bearer {config.personal_api_key}"})
-
     def capture_event(
         self,
         event_name: str,
@@ -116,21 +112,26 @@ class PostHogClient:
 
     def _query_event_by_uuid_once(self, event_uuid: str) -> CapturedEvent | None:
         """Execute a single HogQL query for an event by UUID."""
-        query = f"""
+        query = """
             SELECT uuid, event, distinct_id, properties, timestamp
             FROM events
-            WHERE uuid = '{event_uuid}'
+            WHERE uuid = {event_uuid}
             LIMIT 1
         """
 
         url = f"{self.config.api_host}/api/environments/{self.config.project_id}/query/"
 
-        response = self._session.post(
+        response = requests.post(
             url,
             json={
-                "query": {"kind": "HogQLQuery", "query": query},
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": query,
+                    "values": {"event_uuid": event_uuid},
+                },
                 "refresh": "force_blocking",
             },
+            headers={"Authorization": f"Bearer {self.config.personal_api_key}"},
         )
 
         if response.status_code == 404:
