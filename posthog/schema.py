@@ -17996,6 +17996,10 @@ class EndpointRequest(BaseModel):
         default=None,
         description="How frequently should the underlying materialized view be updated",
     )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
+    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
