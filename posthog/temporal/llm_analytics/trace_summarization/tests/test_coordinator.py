@@ -9,7 +9,6 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
 )
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
@@ -18,7 +17,7 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     get_allowed_team_ids,
 )
 
-from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 
 class TestGetAllowedTeamIds:
@@ -54,7 +53,6 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                     batch_size=DEFAULT_BATCH_SIZE,
                     mode=DEFAULT_MODE,
                     window_minutes=DEFAULT_WINDOW_MINUTES,
-                    provider=DEFAULT_PROVIDER,
                     model=DEFAULT_MODEL,
                 ),
                 id="empty_inputs_uses_defaults",
@@ -67,7 +65,6 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                     batch_size=DEFAULT_BATCH_SIZE,
                     mode=DEFAULT_MODE,
                     window_minutes=DEFAULT_WINDOW_MINUTES,
-                    provider=DEFAULT_PROVIDER,
                     model=DEFAULT_MODEL,
                 ),
                 id="trace_level_with_max_traces",
@@ -80,20 +77,18 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                     batch_size=DEFAULT_BATCH_SIZE,
                     mode=DEFAULT_MODE,
                     window_minutes=DEFAULT_WINDOW_MINUTES,
-                    provider=DEFAULT_PROVIDER,
                     model=DEFAULT_MODEL,
                 ),
                 id="generation_level_with_max_traces",
             ),
             pytest.param(
-                ["trace", "200", "20", "detailed", "30", "openai", "gpt-4.1-mini"],
+                ["trace", "200", "20", "detailed", "30", "gpt-4.1-mini"],
                 BatchTraceSummarizationCoordinatorInputs(
                     analysis_level="trace",
                     max_items=200,
                     batch_size=20,
                     mode=SummarizationMode.DETAILED,
                     window_minutes=30,
-                    provider=SummarizationProvider.OPENAI,
                     model="gpt-4.1-mini",
                 ),
                 id="full_inputs",
@@ -109,5 +104,4 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert result.batch_size == expected.batch_size
         assert result.mode == expected.mode
         assert result.window_minutes == expected.window_minutes
-        assert result.provider == expected.provider
         assert result.model == expected.model

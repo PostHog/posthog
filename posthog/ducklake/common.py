@@ -52,9 +52,9 @@ def get_team_config(team_id: int) -> dict[str, str]:
 def is_dev_mode() -> bool:
     """Check if running in development mode."""
     try:
-        from django.conf import settings
+        from posthog.settings import USE_LOCAL_SETUP
 
-        return settings.USE_LOCAL_SETUP
+        return USE_LOCAL_SETUP
     except ImportError:
         return True
 
@@ -101,7 +101,10 @@ def get_ducklake_connection_string(config: dict[str, str] | None = None) -> str:
     if not host or not password:
         raise ValueError("DUCKLAKE_RDS_HOST and DUCKLAKE_RDS_PASSWORD must be set")
 
-    return f"postgres:dbname={database} host={host} port={port} user={username} password={password}"
+    conn_str = f"postgres:dbname={database} host={host} port={port} user={username} password={password}"
+    if not is_dev_mode():
+        conn_str += " sslmode=require"
+    return conn_str
 
 
 def get_ducklake_data_path(config: dict[str, str] | None = None) -> str:
@@ -140,7 +143,14 @@ def attach_catalog(
 
     catalog_uri = get_ducklake_connection_string(config)
     data_path = get_ducklake_data_path(config)
-    conn.sql(f"ATTACH '{escape(catalog_uri)}' AS {alias} (TYPE ducklake, DATA_PATH '{escape(data_path)}')")
+    try:
+        conn.sql(f"ATTACH '{escape(catalog_uri)}' AS {alias} (TYPE ducklake, DATA_PATH '{escape(data_path)}')")
+    except Exception as e:
+        password = config.get("DUCKLAKE_RDS_PASSWORD", "")
+        if password:
+            scrubbed_msg = str(e).replace(password, "***")
+            raise type(e)(scrubbed_msg) from None
+        raise
 
 
 def run_smoke_check(conn: duckdb.DuckDBPyConnection, *, alias: str = "ducklake") -> None:

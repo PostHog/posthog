@@ -637,6 +637,63 @@ class TestUnreadCountEndpoint(BaseConversationsAPITest):
         mock_invalidate.assert_not_called()
 
 
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestPrivateMessageAppAPI(BaseConversationsAPITest):
+    """Test that authenticated App API users can create private messages."""
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session-123",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+
+    def test_app_api_can_create_private_message(self, mock_on_commit):
+        """Verify authenticated users can create private messages via App API."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/",
+            {
+                "content": "Private internal note",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": True},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify comment was created with is_private=True
+        comment = Comment.objects.get(id=response.json()["id"])
+        assert comment.item_context is not None
+        self.assertTrue(comment.item_context["is_private"])
+
+        # Verify private message doesn't affect denormalized stats
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.message_count, 0)
+        self.assertIsNone(self.ticket.last_message_text)
+
+    def test_app_api_private_message_visible_in_comments_list(self, mock_on_commit):
+        """Verify private messages are returned in App API comments list."""
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Private note",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": True},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/?scope=conversations_ticket&item_id={self.ticket.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["content"], "Private note")
+        self.assertTrue(response.json()["results"][0]["item_context"]["is_private"])
+
+
 class TestTicketManager(BaseTest):
     def test_requires_team(self):
         with self.assertRaises(ValueError) as ctx:

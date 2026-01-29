@@ -8,9 +8,11 @@ import { pluralize } from 'lib/utils'
 import { PersonType } from '~/types'
 
 import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
+import { personsLogic } from './personsLogic'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
-    const logicProps = { person }
+    const { urlId } = useValues(personsLogic)
+    const logicProps = { person, urlId: urlId ?? '' }
     const { executedLoading } = useValues(mergeSplitPersonLogic(logicProps))
     const { execute, cancel } = useActions(mergeSplitPersonLogic(logicProps))
 
