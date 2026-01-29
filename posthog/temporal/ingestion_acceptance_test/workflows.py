@@ -15,8 +15,8 @@ with temporalio.workflow.unsafe.imports_passed_through():
 class IngestionAcceptanceTestWorkflow(PostHogWorkflow):
     """Workflow that runs ingestion acceptance tests.
 
-    Runs periodically (every 5 minutes) to verify that the ingestion pipeline
-    is functioning correctly by capturing events and querying them back.
+    Verifies that the ingestion pipeline is functioning correctly by
+    capturing events and querying them back.
     """
 
     @staticmethod
