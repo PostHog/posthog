@@ -65,7 +65,11 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
 
     @action(methods=["GET"], detail=False)
     def recent(self, request, *args, **kwargs):
-        """Get recent jobs (last 24 hours)."""
-        queryset = self.safely_get_queryset().order_by("-created_at")
+        """Get recently completed/failed jobs (paginated)."""
+        queryset = self.safely_get_queryset().exclude(status__in=["Running", "Cancelled"])
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
