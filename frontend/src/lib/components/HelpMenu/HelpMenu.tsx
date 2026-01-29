@@ -99,7 +99,7 @@ export function HelpMenu(): JSX.Element {
                             </span>
                             <span className="text-sm font-medium">Ask PostHog AI</span>
                             <span className="text-xs text-tertiary text-center text-pretty">
-                                Get instant answers from docs, SQL queries, regex patterns, and more
+                                Search docs, write SQL, build insights, and analyze data - instantly
                             </span>
                         </Link>
                     </DropdownMenuItem>
