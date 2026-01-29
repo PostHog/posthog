@@ -7,11 +7,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { Fragment, useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconSidebarClose, IconSidebarOpen, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -24,9 +23,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
-import { SidePanelTab } from '~/types'
 
-import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
@@ -39,9 +36,6 @@ export function SceneTabs(): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { sidePanelOpen } = useValues(sidePanelStateLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -82,7 +76,7 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div className={cn('absolute bottom-0 w-full px-[5px]', isRemovingSidePanelFlag && 'pr-[13px]')}>
+            <div className="absolute bottom-0 w-full pl-[5px] pr-3">
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
@@ -137,45 +131,6 @@ export function SceneTabs(): JSX.Element {
                                 <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
-
-                        {isRemovingSidePanelFlag && (
-                            <>
-                                <div className="flex-1" />
-                                <AppShortcut
-                                    name="OpenSidePanel"
-                                    keybind={[keyBinds.openSidePanel]}
-                                    intent="Open side panel"
-                                    interaction="click"
-                                >
-                                    <Link
-                                        data-attr="scene-tab-sidepanel-button"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            e.preventDefault()
-                                            if (sidePanelOpen) {
-                                                closeSidePanel()
-                                            } else {
-                                                openSidePanel(SidePanelTab.Notebooks)
-                                            }
-                                        }}
-                                        tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
-                                        tooltipPlacement="bottom-end"
-                                        tooltipCloseDelayMs={0}
-                                        buttonProps={{
-                                            iconOnly: true,
-                                            className:
-                                                'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
-                                        }}
-                                    >
-                                        {sidePanelOpen ? (
-                                            <IconSidebarClose className="!ml-0" fontSize={14} />
-                                        ) : (
-                                            <IconSidebarOpen className="!ml-0" fontSize={14} />
-                                        )}
-                                    </Link>
-                                </AppShortcut>
-                            </>
-                        )}
                     </div>
                 </SortableContext>
             </DndContext>
