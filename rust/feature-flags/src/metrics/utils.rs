@@ -138,6 +138,15 @@ fn test_multiple_team_ids() {
     assert_eq!(filtered_labels, labels);
 }
 
+/// Helper to create a FlagError::DatabaseError with a specific sqlx error message and context.
+/// Uses sqlx::Error::Protocol to embed the target substring in the error's Display output.
+fn make_db_error(error_msg: &str, context: Option<&str>) -> FlagError {
+    FlagError::DatabaseError(
+        sqlx::Error::Protocol(error_msg.to_string()),
+        context.map(|s| s.to_string()),
+    )
+}
+
 #[test]
 fn test_timeout_error_evaluation_error_codes() {
     // Generic timeout without a specific type
@@ -174,4 +183,61 @@ fn test_timeout_error_evaluation_error_codes() {
         unknown_timeout_error.evaluation_error_code(),
         "timeout:unknown_type"
     );
+}
+
+use rstest::rstest;
+
+#[rstest]
+#[case::statement_timeout("statement timeout", None, "timeout", "Database statement timed out")]
+#[case::no_more_connections(
+    "no more connections",
+    None,
+    "no_more_connections",
+    "Database connection pool exhausted"
+)]
+#[case::query_wait_timeout(
+    "query_wait_timeout",
+    None,
+    "query_wait_timeout",
+    "Query wait timeout exceeded"
+)]
+#[case::fetch_conditions(
+    "some error",
+    Some("Failed to fetch conditions for flag"),
+    "flag_condition_retry",
+    "Failed to fetch flag conditions"
+)]
+#[case::fetch_group(
+    "some error",
+    Some("Failed to fetch group mappings"),
+    "group_mapping_retry",
+    "Failed to fetch group mappings"
+)]
+#[case::healthcheck(
+    "some error",
+    Some("Database healthcheck failed"),
+    "healthcheck_failed",
+    "Database healthcheck failed"
+)]
+#[case::generic_db_error(
+    "something else entirely",
+    None,
+    "database_error",
+    "Database connection error during evaluation"
+)]
+#[case::generic_with_context(
+    "something else",
+    Some("some context"),
+    "database_error",
+    "Database connection error during evaluation"
+)]
+fn test_database_error_evaluation_codes(
+    #[case] error_msg: &str,
+    #[case] context: Option<&str>,
+    #[case] expected_code: &str,
+    #[case] expected_description: &str,
+) {
+    let error = make_db_error(error_msg, context);
+    assert_eq!(error.evaluation_error_code(), expected_code);
+    assert_eq!(error.evaluation_error_description(), expected_description);
 }
