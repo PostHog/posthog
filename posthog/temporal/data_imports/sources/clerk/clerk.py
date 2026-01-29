@@ -25,6 +25,14 @@ def get_resource(
     # Clerk uses offset-based pagination, so we don't add incremental filters to params
     # The incremental sync is handled by the DLT incremental object
 
+    endpoint_config: dict[str, Any] = {
+        "path": config.path,
+        "params": params,
+    }
+    # Only set data_selector for endpoints that return wrapped responses {data: [...], total_count: ...}
+    if config.is_wrapped_response:
+        endpoint_config["data_selector"] = "data"
+
     return {
         "name": config.name,
         "table_name": config.name,
@@ -35,11 +43,7 @@ def get_resource(
         }
         if should_use_incremental_field
         else "replace",
-        "endpoint": {
-            "path": config.path,
-            "params": params,
-            "data_selector": "data",
-        },
+        "endpoint": endpoint_config,
         "table_format": "delta",
     }
 
@@ -59,7 +63,9 @@ class ClerkPaginator(BasePaginator):
             self._has_next_page = False
             return
 
-        # Clerk returns {"data": [...], "totalCount": ...}
+        # Clerk endpoints return either:
+        # - Direct array: /users, /invitations
+        # - Wrapped object {data: [...], total_count: ...}: /organizations, /organization_memberships
         if isinstance(res, dict) and "data" in res:
             items = res["data"]
         elif isinstance(res, list):
@@ -91,6 +97,7 @@ TIMESTAMP_FIELDS = [
     "mfa_disabled_at",
     "password_last_updated_at",
     "legal_accepted_at",
+    "expires_at",  # invitations
 ]
 
 

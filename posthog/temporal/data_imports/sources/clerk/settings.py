@@ -12,6 +12,8 @@ class ClerkEndpointConfig:
     default_incremental_field: str = "updated_at"
     partition_key: Optional[str] = None
     page_size: int = 100  # Clerk default, max is 500
+    # Some Clerk endpoints return {data: [...], total_count: ...}, others return direct arrays
+    is_wrapped_response: bool = False
 
 
 CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
@@ -52,6 +54,7 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         path="/organizations",
         default_incremental_field="updated_at",
         partition_key="created_at",
+        is_wrapped_response=True,
         incremental_fields=[
             {
                 "label": "updated_at",
@@ -65,6 +68,12 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
                 "field": "created_at",
                 "field_type": IncrementalFieldType.Integer,
             },
+            {
+                "label": "last_active_at",
+                "type": IncrementalFieldType.Integer,
+                "field": "last_active_at",
+                "field_type": IncrementalFieldType.Integer,
+            },
         ],
     ),
     "organization_memberships": ClerkEndpointConfig(
@@ -72,6 +81,7 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         path="/organization_memberships",
         default_incremental_field="updated_at",
         partition_key="created_at",
+        is_wrapped_response=True,
         incremental_fields=[
             {
                 "label": "updated_at",
