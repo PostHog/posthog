@@ -335,7 +335,7 @@ function FilteredPatternSection({
             </h4>
             <div className="space-y-2">
                 {patterns.length > 0 ? (
-                    patterns.map((pattern, i) => (
+                    patterns.map((pattern: EvaluationPattern, i: number) => (
                         <PatternCard key={i} pattern={pattern} type={section.type} runsLookup={runsLookup} />
                     ))
                 ) : (
