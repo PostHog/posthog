@@ -77,6 +77,10 @@ logger = structlog.get_logger(__name__)
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
+# Maximum partitions to create per sensor evaluation to avoid OOM/timeout
+# The sensor runs daily, so this limits how fast full backfills progress
+MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION = 100
+
 EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
 }
@@ -1043,8 +1047,12 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
     to do a full historical backfill for a new customer. It will:
 
     1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
-    2. Create partitions for ALL dates from earliest event to yesterday
-    3. Trigger backfill runs for all historical partitions
+    2. Create partitions for dates from earliest event to yesterday (batched)
+    3. Trigger backfill runs for historical partitions
+
+    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
+    per evaluation to avoid OOM/timeout issues. Keep the sensor enabled until all
+    partitions are created, then disable it.
 
     After the full backfill completes, you should disable this sensor and let
     the daily `duckling_backfill_discovery_sensor` handle ongoing daily top-ups.
@@ -1053,15 +1061,24 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         1. Create a DuckLakeCatalog entry for the customer in Django admin
         2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
         3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete
+        4. Disable this sensor once complete (when no new partitions are created)
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    total_partitions_created = 0
 
     for catalog in DuckLakeCatalog.objects.all():
+        # Stop if we've hit the batch limit
+        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+            context.log.info(
+                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
+                "will continue in next sensor evaluation"
+            )
+            break
+
         team_id = catalog.team_id
 
         # Query ClickHouse for the earliest event date
@@ -1076,6 +1093,10 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         # Generate partitions from earliest date to yesterday
         current_date = earliest
         while current_date <= yesterday:
+            # Stop if we've hit the batch limit
+            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+                break
+
             date_str = current_date.strftime("%Y-%m-%d")
             partition_key = f"{team_id}_{date_str}"
 
@@ -1088,13 +1109,12 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
                     )
                 )
                 team_partition_count += 1
+                total_partitions_created += 1
 
             current_date += timedelta(days=1)
 
         if team_partition_count > 0:
-            context.log.info(
-                f"Team {team_id}: found {team_partition_count} new partitions from {earliest} to {yesterday}"
-            )
+            context.log.info(f"Team {team_id}: created {team_partition_count} new partitions (earliest: {earliest})")
             logger.info(
                 "duckling_full_backfill_team_partitions",
                 team_id=team_id,
@@ -1104,11 +1124,12 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             )
 
     if new_partitions:
-        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions total")
+        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions this evaluation")
         logger.info(
             "duckling_full_backfill_discovered",
             partition_count=len(new_partitions),
             run_count=len(run_requests),
+            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
         )
     else:
         context.log.info("Full backfill: no new partitions to create (all up to date)")
@@ -1228,19 +1249,31 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
     Similar to duckling_full_backfill_sensor but for persons data.
     Queries min(_timestamp) from the person table to find the earliest date.
 
+    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
+    per evaluation to avoid OOM/timeout issues.
+
     Usage:
         1. Create a DuckLakeCatalog entry for the customer in Django admin
         2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
         3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete
+        4. Disable this sensor once complete (when no new partitions are created)
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
     existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    total_partitions_created = 0
 
     for catalog in DuckLakeCatalog.objects.all():
+        # Stop if we've hit the batch limit
+        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+            context.log.info(
+                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
+                "will continue in next sensor evaluation"
+            )
+            break
+
         team_id = catalog.team_id
 
         earliest_date = get_earliest_person_date_for_team(team_id)
@@ -1253,6 +1286,10 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
 
         current_date = earliest
         while current_date <= yesterday:
+            # Stop if we've hit the batch limit
+            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+                break
+
             date_str = current_date.strftime("%Y-%m-%d")
             partition_key = f"{team_id}_{date_str}"
 
@@ -1265,12 +1302,13 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
                     )
                 )
                 team_partition_count += 1
+                total_partitions_created += 1
 
             current_date += timedelta(days=1)
 
         if team_partition_count > 0:
             context.log.info(
-                f"Team {team_id}: found {team_partition_count} new persons partitions from {earliest} to {yesterday}"
+                f"Team {team_id}: created {team_partition_count} new persons partitions (earliest: {earliest})"
             )
             logger.info(
                 "duckling_persons_full_backfill_team_partitions",
@@ -1281,11 +1319,12 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             )
 
     if new_partitions:
-        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions total")
+        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions this evaluation")
         logger.info(
             "duckling_persons_full_backfill_discovered",
             partition_count=len(new_partitions),
             run_count=len(run_requests),
+            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
         )
     else:
         context.log.info("Persons full backfill: no new partitions to create (all up to date)")
