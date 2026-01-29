@@ -45,6 +45,7 @@ from dagster import (
     AssetExecutionContext,
     Config,
     DagsterRunStatus,
+    DefaultSensorStatus,
     DynamicPartitionsDefinition,
     RunRequest,
     RunsFilter,
@@ -73,13 +74,48 @@ from posthog.ducklake.storage import configure_cross_account_connection
 
 logger = structlog.get_logger(__name__)
 
-BACKFILL_S3_PREFIX = "backfill/events"
+BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
+BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
-CONCURRENCY_TAG = {
+EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
 }
 
-duckling_backfill_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
+PERSONS_CONCURRENCY_TAG = {
+    "duckling_persons_backfill_concurrency": "duckling_persons_v1",
+}
+
+# Persons columns for export - joined with person_distinct_id2 to include distinct_ids
+# This creates one row per distinct_id, with the person's properties denormalized
+PERSONS_COLUMNS = """
+    pd.team_id AS team_id,
+    pd.distinct_id AS distinct_id,
+    toString(p.id) AS id,
+    p.properties AS properties,
+    p.created_at AS created_at,
+    p.is_identified AS is_identified,
+    pd.version AS person_distinct_id_version,
+    p.version AS person_version,
+    p._timestamp AS _timestamp,
+    NOW64() AS _inserted_at
+"""
+
+# Expected columns in the duckling's persons table for schema validation
+EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
+    "team_id",
+    "distinct_id",
+    "id",
+    "properties",
+    "created_at",
+    "is_identified",
+    "person_distinct_id_version",
+    "person_version",
+    "_timestamp",
+    "_inserted_at",
+}
+
+duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
+duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
 
 
 class DucklingBackfillConfig(Config):
@@ -130,6 +166,77 @@ def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str
     policy explicitly allows the ClickHouse EC2 role, so no credentials needed.
     """
     return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
+
+
+def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
+    """Query ClickHouse to find the earliest event date for a team.
+
+    This is used by the full backfill sensor to determine the historical range
+    of data to backfill.
+
+    Returns:
+        The date of the earliest event, or None if no events exist for this team.
+    """
+    cluster = get_cluster()
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+
+    def query_earliest(client: Client) -> datetime | None:
+        result = client.execute(
+            """
+            SELECT toDate(min(timestamp)) as earliest_date
+            FROM events
+            WHERE team_id = %(team_id)s
+            """,
+            {"team_id": team_id},
+        )
+        if result and result[0][0]:
+            # ClickHouse returns a date object, convert to datetime
+            date_val = result[0][0]
+            if isinstance(date_val, datetime):
+                return date_val
+            return datetime.combine(date_val, datetime.min.time())
+        return None
+
+    return cluster.any_host_by_role(
+        fn=query_earliest,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
+
+
+def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
+    """Query ClickHouse to find the earliest person modification date for a team.
+
+    Uses _timestamp (Kafka ingestion time) since persons don't have a natural
+    event timestamp like events do.
+
+    Returns:
+        The date of the earliest person modification, or None if no persons exist.
+    """
+    cluster = get_cluster()
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+
+    def query_earliest(client: Client) -> datetime | None:
+        result = client.execute(
+            """
+            SELECT toDate(min(_timestamp)) as earliest_date
+            FROM person
+            WHERE team_id = %(team_id)s
+            """,
+            {"team_id": team_id},
+        )
+        if result and result[0][0]:
+            date_val = result[0][0]
+            if isinstance(date_val, datetime):
+                return date_val
+            return datetime.combine(date_val, datetime.min.time())
+        return None
+
+    return cluster.any_host_by_role(
+        fn=query_earliest,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
 
 
 def validate_duckling_schema(
@@ -190,12 +297,67 @@ def validate_duckling_schema(
         conn.close()
 
 
+def validate_duckling_persons_schema(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> None:
+    """Validate that the duckling's persons table schema matches our export columns."""
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "duckling"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+
+        try:
+            attach_catalog(conn, catalog_config, alias=alias)
+        except duckdb.CatalogException as exc:
+            if alias not in str(exc):
+                raise
+
+        result = conn.execute(f"DESCRIBE {alias}.main.persons").fetchall()
+        ducklake_columns = {row[0] for row in result}
+
+        missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
+        if missing_in_ducklake:
+            context.log.warning(
+                f"Duckling persons table is missing columns that we export: {missing_in_ducklake}. "
+                "These columns will be added automatically by ducklake_add_data_files if the table "
+                "supports schema evolution."
+            )
+            logger.warning(
+                "duckling_persons_schema_mismatch",
+                team_id=catalog.team_id,
+                missing_columns=list(missing_in_ducklake),
+            )
+
+        extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+        if extra_in_ducklake:
+            context.log.info(f"Duckling persons has additional columns not in our export: {extra_in_ducklake}")
+
+        context.log.info(
+            f"Persons schema validation passed. Duckling has {len(ducklake_columns)} columns, "
+            f"we export {len(EXPECTED_DUCKLAKE_PERSONS_COLUMNS)} columns."
+        )
+        logger.info(
+            "duckling_persons_schema_validation_passed",
+            team_id=catalog.team_id,
+            ducklake_columns=len(ducklake_columns),
+            export_columns=len(EXPECTED_DUCKLAKE_PERSONS_COLUMNS),
+        )
+
+    finally:
+        conn.close()
+
+
 def cleanup_prior_run_files(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
     team_id: int,
     partition_date: datetime,
     current_run_id: str,
+    s3_prefix: str,
 ) -> int:
     """Clean up S3 files from prior failed runs for this partition.
 
@@ -203,6 +365,14 @@ def cleanup_prior_run_files(
     Only deletes files that don't match the current run_id.
 
     Uses cross-account role assumption to access the duckling's S3 bucket.
+
+    Args:
+        context: Dagster asset execution context.
+        catalog: The DuckLakeCatalog for this duckling.
+        team_id: Team ID for the partition.
+        partition_date: Date for the partition.
+        current_run_id: Current Dagster run ID (files with this ID are preserved).
+        s3_prefix: S3 prefix for the backfill (e.g., "backfill/events" or "backfill/persons").
 
     Returns the number of files deleted.
     """
@@ -234,7 +404,7 @@ def cleanup_prior_run_files(
     day = partition_date.strftime("%d")
 
     # List objects under the backfill prefix for this team and date
-    prefix = f"{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/"
+    prefix = f"{s3_prefix}/team_id={team_id}/year={year}/month={month}/day={day}/"
 
     deleted_count = 0
     paginator = s3_client.get_paginator("list_objects_v2")
@@ -321,7 +491,9 @@ def export_events_to_duckling_s3(
     date_str = date.strftime("%Y-%m-%d")
 
     # Path without s3:// scheme for the HTTPS URL
-    path_without_scheme = f"{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
+    path_without_scheme = (
+        f"{BACKFILL_EVENTS_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
+    )
 
     # ClickHouse needs HTTPS URL format for cross-account S3 access
     s3_url = get_s3_url_for_clickhouse(catalog.bucket, catalog.bucket_region, path_without_scheme)
@@ -434,10 +606,133 @@ def register_file_with_duckling(
         conn.close()
 
 
+def export_persons_to_duckling_s3(
+    context: AssetExecutionContext,
+    client: Client,
+    config: DucklingBackfillConfig,
+    catalog: DuckLakeCatalog,
+    team_id: int,
+    date: datetime,
+    run_id: str,
+    settings: dict[str, Any],
+) -> str | None:
+    """Export persons for a team/date to the duckling's S3 bucket.
+
+    Exports persons joined with person_distinct_id2 to include distinct_ids.
+    Uses _timestamp (Kafka ingestion time) for date filtering since persons
+    don't have a natural event timestamp.
+
+    The query uses ReplacingMergeTree deduplication with FINAL to get the
+    latest version of each person and distinct_id mapping.
+
+    Returns:
+        S3 path that was written, or None if dry_run.
+    """
+    year = date.strftime("%Y")
+    month = date.strftime("%m")
+    day = date.strftime("%d")
+    date_str = date.strftime("%Y-%m-%d")
+
+    path_without_scheme = (
+        f"{BACKFILL_PERSONS_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
+    )
+    s3_url = get_s3_url_for_clickhouse(catalog.bucket, catalog.bucket_region, path_without_scheme)
+    s3_path = f"s3://{catalog.bucket}/{path_without_scheme}"
+
+    # Join person with person_distinct_id2 to get distinct_ids
+    # Use FINAL to handle ReplacingMergeTree deduplication
+    # Filter by _timestamp to get persons modified on this date
+    export_sql = f"""
+    INSERT INTO FUNCTION s3(
+        '{s3_url}',
+        'Parquet'
+    )
+    SELECT
+        {PERSONS_COLUMNS}
+    FROM person AS p FINAL
+    INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
+    WHERE p.team_id = {team_id}
+      AND pd.team_id = {team_id}
+      AND toDate(p._timestamp) = '{date_str}'
+      AND p.is_deleted = 0
+      AND pd.is_deleted = 0
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
+    """
+
+    info = f"team_id={team_id}, date={date_str}"
+
+    if config.dry_run:
+        context.log.info(f"[DRY RUN] Would export persons with SQL: {export_sql[:800]}...")
+        return None
+
+    context.log.info(f"Exporting persons for {info} to {s3_path}")
+    logger.info(
+        "duckling_persons_export_start",
+        team_id=team_id,
+        date=date_str,
+        s3_path=s3_path,
+    )
+
+    try:
+        _execute_export_with_retry(client, export_sql, settings, info)
+        context.log.info(f"Successfully exported persons for {info}")
+        logger.info("duckling_persons_export_success", team_id=team_id, date=date_str)
+        return s3_path
+    except Exception:
+        context.log.exception(f"Failed to export persons for {info} after {MAX_RETRY_ATTEMPTS} attempts")
+        logger.exception("duckling_persons_export_failed", team_id=team_id, date=date_str)
+        raise
+
+
+def register_persons_file_with_duckling(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+    s3_path: str,
+    config: DucklingBackfillConfig,
+) -> bool:
+    """Register an exported persons Parquet file with the duckling's DuckLake catalog."""
+    if config.skip_ducklake_registration:
+        context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
+        return False
+
+    if config.dry_run:
+        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake at {catalog.db_host}")
+        return False
+
+    destination = catalog.to_cross_account_destination()
+    alias = "duckling"
+
+    conn = duckdb.connect()
+
+    try:
+        configure_cross_account_connection(
+            conn,
+            destinations=[destination],
+        )
+
+        catalog_config = get_team_config(catalog.team_id)
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        context.log.info(f"Registering persons file with DuckLake: {s3_path}")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.persons', '{escape(s3_path)}')")
+
+        context.log.info(f"Successfully registered persons: {s3_path}")
+        logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
+        return True
+
+    except Exception:
+        context.log.exception(f"Failed to register persons file {s3_path}")
+        logger.exception("duckling_persons_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
+        raise
+
+    finally:
+        conn.close()
+
+
 @asset(
-    partitions_def=duckling_backfill_partitions_def,
+    partitions_def=duckling_events_partitions_def,
     name="duckling_events_backfill",
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
@@ -477,7 +772,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     # Clean up orphaned files from prior failed runs
     if config.cleanup_prior_run_files and not config.dry_run:
         context.log.info("Cleaning up orphaned files from prior runs...")
-        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id)
+        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_EVENTS_S3_PREFIX)
 
     # Prepare ClickHouse settings
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -530,6 +825,108 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     )
     logger.info(
         "duckling_backfill_complete",
+        team_id=team_id,
+        date=date_str,
+        s3_path=s3_path,
+        registered=registered,
+    )
+
+
+@asset(
+    partitions_def=duckling_persons_partitions_def,
+    name="duckling_persons_backfill",
+    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **PERSONS_CONCURRENCY_TAG},
+)
+def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    """Backfill persons from ClickHouse to a customer's duckling.
+
+    This asset exports persons joined with person_distinct_id2 to include all
+    distinct_ids associated with each person. Uses _timestamp for date partitioning
+    since persons don't have a natural event timestamp.
+
+    Steps:
+    1. Parses the partition key to get team_id and date
+    2. Looks up the DuckLakeCatalog for the team
+    3. Validates the duckling's persons schema compatibility (optional)
+    4. Cleans up orphaned files from prior failed runs (optional)
+    5. Exports persons+distinct_ids to the duckling's S3 bucket
+    6. Registers the Parquet file with the duckling's DuckLake catalog
+    """
+    team_id, date_str = parse_partition_key(context.partition_key)
+    partition_date = datetime.strptime(date_str, "%Y-%m-%d")
+    run_id = context.run.run_id[:8]
+
+    context.log.info(f"Starting duckling persons backfill for team_id={team_id}, date={date_str}")
+    logger.info(
+        "duckling_persons_backfill_start",
+        team_id=team_id,
+        date=date_str,
+        run_id=run_id,
+    )
+
+    catalog = get_ducklake_catalog_for_team(team_id)
+    if catalog is None:
+        raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
+
+    context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
+        context.log.info("Validating duckling persons schema compatibility...")
+        validate_duckling_persons_schema(context, catalog)
+
+    if config.cleanup_prior_run_files and not config.dry_run:
+        context.log.info("Cleaning up orphaned persons files from prior runs...")
+        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_PERSONS_S3_PREFIX)
+
+    merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
+    merged_settings.update(settings_with_log_comment(context))
+    if config.clickhouse_settings:
+        merged_settings.update(config.clickhouse_settings)
+        context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+
+    cluster = get_cluster()
+    tags = dagster_tags(context)
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+
+    def do_export(client: Client) -> str | None:
+        with tags_context(kind="dagster", dagster=tags):
+            return export_persons_to_duckling_s3(
+                context=context,
+                client=client,
+                config=config,
+                catalog=catalog,
+                team_id=team_id,
+                date=partition_date,
+                run_id=run_id,
+                settings=merged_settings,
+            )
+
+    s3_path = cluster.any_host_by_role(
+        fn=do_export,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
+
+    registered = False
+    if s3_path:
+        registered = register_persons_file_with_duckling(context, catalog, s3_path, config)
+
+    context.add_output_metadata(
+        {
+            "team_id": team_id,
+            "partition_date": date_str,
+            "s3_path": s3_path or "(dry run)",
+            "registered": registered,
+            "bucket": catalog.bucket,
+        }
+    )
+
+    context.log.info(
+        f"Completed duckling persons backfill for team_id={team_id}, date={date_str}: "
+        f"exported={'yes' if s3_path else 'no'}, registered={'yes' if registered else 'no'}"
+    )
+    logger.info(
+        "duckling_persons_backfill_complete",
         team_id=team_id,
         date=date_str,
         s3_path=s3_path,
@@ -622,7 +1019,98 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
 
     return SensorResult(
         run_requests=run_requests,
-        dynamic_partitions_requests=[duckling_backfill_partitions_def.build_add_request(new_partitions)]
+        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+    )
+
+
+@sensor(
+    name="duckling_full_backfill_sensor",
+    minimum_interval_seconds=86400,  # Run daily when enabled
+    job_name="duckling_events_backfill_job",
+    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+)
+def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+    """Full historical backfill sensor - disabled by default.
+
+    This sensor is meant to be manually enabled via the Dagster UI when you need
+    to do a full historical backfill for a new customer. It will:
+
+    1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
+    2. Create partitions for ALL dates from earliest event to yesterday
+    3. Trigger backfill runs for all historical partitions
+
+    After the full backfill completes, you should disable this sensor and let
+    the daily `duckling_backfill_discovery_sensor` handle ongoing daily top-ups.
+
+    Usage:
+        1. Create a DuckLakeCatalog entry for the customer in Django admin
+        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
+        3. Monitor the backfill progress in the Runs tab
+        4. Disable this sensor once complete
+    """
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+
+    new_partitions: list[str] = []
+    run_requests: list[RunRequest] = []
+
+    for catalog in DuckLakeCatalog.objects.all():
+        team_id = catalog.team_id
+
+        # Query ClickHouse for the earliest event date
+        earliest_date = get_earliest_event_date_for_team(team_id)
+        if earliest_date is None:
+            context.log.info(f"No events found for team_id={team_id}, skipping")
+            continue
+
+        earliest = earliest_date.date()
+        team_partition_count = 0
+
+        # Generate partitions from earliest date to yesterday
+        current_date = earliest
+        while current_date <= yesterday:
+            date_str = current_date.strftime("%Y-%m-%d")
+            partition_key = f"{team_id}_{date_str}"
+
+            if partition_key not in existing:
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_full_backfill",
+                    )
+                )
+                team_partition_count += 1
+
+            current_date += timedelta(days=1)
+
+        if team_partition_count > 0:
+            context.log.info(
+                f"Team {team_id}: found {team_partition_count} new partitions from {earliest} to {yesterday}"
+            )
+            logger.info(
+                "duckling_full_backfill_team_partitions",
+                team_id=team_id,
+                partition_count=team_partition_count,
+                earliest_date=earliest.isoformat(),
+                latest_date=yesterday.isoformat(),
+            )
+
+    if new_partitions:
+        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions total")
+        logger.info(
+            "duckling_full_backfill_discovered",
+            partition_count=len(new_partitions),
+            run_count=len(run_requests),
+        )
+    else:
+        context.log.info("Full backfill: no new partitions to create (all up to date)")
+
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
     )
@@ -634,6 +1122,178 @@ duckling_events_backfill_job = define_asset_job(
     tags={
         "owner": JobOwners.TEAM_DATA_STACK.value,
         "disable_slack_notifications": True,
-        **CONCURRENCY_TAG,
+        **EVENTS_CONCURRENCY_TAG,
+    },
+)
+
+
+@sensor(
+    name="duckling_persons_discovery_sensor",
+    minimum_interval_seconds=3600,  # Run hourly
+    job_name="duckling_persons_backfill_job",
+)
+def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
+    """Discover teams with DuckLakeCatalog entries and create daily persons partitions.
+
+    Similar to duckling_backfill_discovery_sensor but for persons data.
+    Uses _timestamp (Kafka ingestion time) for date filtering.
+    """
+    yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+
+    new_partitions: list[str] = []
+    run_requests: list[RunRequest] = []
+
+    for catalog in DuckLakeCatalog.objects.all():
+        partition_key = f"{catalog.team_id}_{yesterday}"
+
+        if partition_key not in existing:
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_persons_new",
+                )
+            )
+            context.log.info(f"Creating persons partition for team_id={catalog.team_id}, date={yesterday}")
+        else:
+            runs = context.instance.get_runs(
+                filters=RunsFilter(
+                    job_name="duckling_persons_backfill_job",
+                    tags={"dagster/partition": partition_key},
+                ),
+                limit=1,
+            )
+            if runs:
+                latest_run = runs[0]
+                if latest_run.status == DagsterRunStatus.FAILURE:
+                    run_requests.append(
+                        RunRequest(
+                            partition_key=partition_key,
+                            run_key=f"{partition_key}_persons_retry_{latest_run.run_id[:8]}",
+                        )
+                    )
+                    context.log.info(f"Retrying failed persons partition team_id={catalog.team_id}, date={yesterday}")
+                    logger.info(
+                        "duckling_persons_sensor_retry_failed_partition",
+                        team_id=catalog.team_id,
+                        date=yesterday,
+                        previous_run_id=latest_run.run_id,
+                    )
+
+    if new_partitions:
+        context.log.info(f"Discovered {len(new_partitions)} new persons partitions to backfill")
+        logger.info(
+            "duckling_persons_sensor_discovered_partitions",
+            count=len(new_partitions),
+            partitions=new_partitions,
+        )
+
+    if run_requests:
+        logger.info(
+            "duckling_persons_sensor_run_requests",
+            total_requests=len(run_requests),
+            new_partitions=len(new_partitions),
+            retries=len(run_requests) - len(new_partitions),
+        )
+
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+    )
+
+
+@sensor(
+    name="duckling_persons_full_backfill_sensor",
+    minimum_interval_seconds=86400,  # Run daily when enabled
+    job_name="duckling_persons_backfill_job",
+    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+)
+def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+    """Full historical persons backfill sensor - disabled by default.
+
+    Similar to duckling_full_backfill_sensor but for persons data.
+    Queries min(_timestamp) from the person table to find the earliest date.
+
+    Usage:
+        1. Create a DuckLakeCatalog entry for the customer in Django admin
+        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
+        3. Monitor the backfill progress in the Runs tab
+        4. Disable this sensor once complete
+    """
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+
+    new_partitions: list[str] = []
+    run_requests: list[RunRequest] = []
+
+    for catalog in DuckLakeCatalog.objects.all():
+        team_id = catalog.team_id
+
+        earliest_date = get_earliest_person_date_for_team(team_id)
+        if earliest_date is None:
+            context.log.info(f"No persons found for team_id={team_id}, skipping")
+            continue
+
+        earliest = earliest_date.date()
+        team_partition_count = 0
+
+        current_date = earliest
+        while current_date <= yesterday:
+            date_str = current_date.strftime("%Y-%m-%d")
+            partition_key = f"{team_id}_{date_str}"
+
+            if partition_key not in existing:
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_persons_full_backfill",
+                    )
+                )
+                team_partition_count += 1
+
+            current_date += timedelta(days=1)
+
+        if team_partition_count > 0:
+            context.log.info(
+                f"Team {team_id}: found {team_partition_count} new persons partitions from {earliest} to {yesterday}"
+            )
+            logger.info(
+                "duckling_persons_full_backfill_team_partitions",
+                team_id=team_id,
+                partition_count=team_partition_count,
+                earliest_date=earliest.isoformat(),
+                latest_date=yesterday.isoformat(),
+            )
+
+    if new_partitions:
+        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions total")
+        logger.info(
+            "duckling_persons_full_backfill_discovered",
+            partition_count=len(new_partitions),
+            run_count=len(run_requests),
+        )
+    else:
+        context.log.info("Persons full backfill: no new partitions to create (all up to date)")
+
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+    )
+
+
+duckling_persons_backfill_job = define_asset_job(
+    name="duckling_persons_backfill_job",
+    selection=["duckling_persons_backfill"],
+    tags={
+        "owner": JobOwners.TEAM_DATA_STACK.value,
+        "disable_slack_notifications": True,
+        **PERSONS_CONCURRENCY_TAG,
     },
 )
