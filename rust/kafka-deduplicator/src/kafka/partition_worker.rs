@@ -16,6 +16,7 @@ use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
+use crate::metrics_const::BATCH_PROCESSING_ERROR;
 
 /// A batch of messages for a single partition
 pub struct PartitionBatch<T> {
@@ -213,6 +214,8 @@ impl<T: Send + 'static> PartitionWorker<T> {
                     }
                 }
                 Err(e) => {
+                    // Log at error level - these are unexpected errors (store-not-found is
+                    // handled gracefully in deduplicate_batch and doesn't reach here)
                     error!(
                         topic = partition.topic(),
                         partition = partition.partition_number(),
@@ -224,6 +227,15 @@ impl<T: Send + 'static> PartitionWorker<T> {
                         error_chain = ?e,
                         "Error processing batch - offset not advanced"
                     );
+
+                    // Record error metric with tags for alerting
+                    metrics::counter!(
+                        BATCH_PROCESSING_ERROR,
+                        "topic" => partition.topic().to_string(),
+                        "partition" => partition.partition_number().to_string(),
+                    )
+                    .increment(1);
+
                     // Don't mark as processed on error - offset won't advance
                     // Continue processing next batches
                 }

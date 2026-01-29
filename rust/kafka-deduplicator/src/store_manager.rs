@@ -5,8 +5,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+use thiserror::Error;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
+
+/// Error type for store lookup operations
+#[derive(Debug, Error)]
+pub enum StoreError {
+    /// Store not found - partition may have been revoked during rebalance
+    #[error("No store registered for partition {topic}:{partition}")]
+    NotFound { topic: String, partition: i32 },
+
+    /// Other store operation error
+    #[error("Store operation failed: {0}")]
+    Other(#[from] anyhow::Error),
+}
 
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
@@ -152,30 +165,27 @@ impl StoreManager {
 
     /// Get an existing store for a partition during message processing.
     ///
-    /// Returns an error if the store doesn't exist. This is the correct behavior
-    /// during normal consumption because:
-    /// - Stores are created during rebalance (via `get_or_create_for_rebalance`)
-    /// - Partitions are paused until stores are ready
-    /// - If no store exists, the partition was likely revoked
+    /// Returns `StoreError::NotFound` if the store doesn't exist. This is expected
+    /// during rebalances due to rdkafka message buffering - the partition worker may
+    /// still have buffered messages after the store is unregistered.
+    ///
+    /// The caller should handle `StoreError::NotFound` gracefully by:
+    /// - Logging at warn level (expected during rebalance)
+    /// - Recording metrics with topic/partition tags
+    /// - Dropping the messages
     ///
     /// Use this method in the batch processor instead of `get_or_create` to avoid
     /// accidentally creating stores for revoked partitions.
-    pub fn get_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+    pub fn get_store(&self, topic: &str, partition: i32) -> Result<DeduplicationStore, StoreError> {
         let partition_key = Partition::new(topic.to_string(), partition);
 
-        self.stores.get(&partition_key).map(|entry| entry.clone()).ok_or_else(|| {
-            warn!(
-                topic = topic,
-                partition = partition,
-                "No store registered for partition - message will be dropped (partition may have been revoked or not yet assigned)"
-            );
-            metrics::counter!(crate::metrics_const::MESSAGES_DROPPED_NO_STORE).increment(1);
-            anyhow::anyhow!(
-                "No store registered for partition {}:{} - partition may have been revoked or not yet assigned",
-                topic,
-                partition
-            )
-        })
+        self.stores
+            .get(&partition_key)
+            .map(|entry| entry.clone())
+            .ok_or_else(|| StoreError::NotFound {
+                topic: topic.to_string(),
+                partition,
+            })
     }
 
     /// Get or create a deduplication store for a specific partition
@@ -1888,8 +1898,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_store_returns_error_when_not_exists() {
-        // Test that get_store() returns an error when no store exists
+    async fn test_get_store_returns_not_found_when_not_exists() {
+        // Test that get_store() returns StoreError::NotFound when no store exists
         // This is the expected behavior during message processing for revoked partitions
         let temp_dir = TempDir::new().unwrap();
         let config = DeduplicationStoreConfig {
@@ -1899,19 +1909,16 @@ mod tests {
 
         let manager = StoreManager::new(config, create_test_coordinator());
 
-        // get_store() should return error when store doesn't exist
+        // get_store() should return StoreError::NotFound when store doesn't exist
         let result = manager.get_store("test-topic", 0);
-        assert!(
-            result.is_err(),
-            "get_store() should return error when store doesn't exist"
-        );
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("No store registered"),
-            "Error message should indicate no store registered"
-        );
+        match result {
+            Err(StoreError::NotFound { topic, partition }) => {
+                assert_eq!(topic, "test-topic");
+                assert_eq!(partition, 0);
+            }
+            Ok(_) => panic!("Expected StoreError::NotFound, got Ok"),
+            Err(e) => panic!("Expected StoreError::NotFound, got {:?}", e),
+        }
     }
 
     #[tokio::test]
@@ -1940,9 +1947,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_store_after_unregister_returns_error() {
-        // Test that get_store() returns error after store is unregistered
-        // This simulates the revocation scenario
+    async fn test_get_store_after_unregister_returns_not_found() {
+        // Test that get_store() returns StoreError::NotFound after store is unregistered
+        // This simulates the revocation scenario where buffered messages arrive after revoke
         let temp_dir = TempDir::new().unwrap();
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
@@ -1963,12 +1970,19 @@ mod tests {
         // Unregister store (as would happen during revocation)
         manager.unregister_store("test-topic", 0);
 
-        // get_store() should now return error
+        // get_store() should now return StoreError::NotFound
         let result = manager.get_store("test-topic", 0);
-        assert!(
-            result.is_err(),
-            "get_store() should return error after store is unregistered"
-        );
+        match result {
+            Err(StoreError::NotFound { topic, partition }) => {
+                assert_eq!(topic, "test-topic");
+                assert_eq!(partition, 0);
+            }
+            Ok(_) => panic!("Expected StoreError::NotFound after unregister, got Ok"),
+            Err(e) => panic!(
+                "Expected StoreError::NotFound after unregister, got {:?}",
+                e
+            ),
+        }
     }
 
     #[tokio::test]

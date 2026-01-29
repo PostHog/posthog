@@ -138,8 +138,13 @@ pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_t
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 
 /// Counter for messages dropped because no store was registered for the partition
-/// This indicates the partition was likely revoked during a rebalance
+/// Labels: topic, partition
+/// This is expected during rebalances due to rdkafka message buffering
 pub const MESSAGES_DROPPED_NO_STORE: &str = "messages_dropped_no_store_total";
+
+/// Counter for batch processing errors (excluding expected store-not-found errors)
+/// Labels: topic, partition, error_type
+pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
 
 // ==== Rebalance Resume ====
 
