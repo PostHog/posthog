@@ -35,6 +35,7 @@ from typing import Any
 
 from django.utils import timezone
 
+import boto3
 import duckdb
 import structlog
 from clickhouse_driver import Client
@@ -42,6 +43,7 @@ from clickhouse_driver.errors import Error as ClickHouseError
 from dagster import (
     AssetExecutionContext,
     Config,
+    DagsterRunStatus,
     DynamicPartitionsDefinition,
     RunRequest,
     SensorEvaluationContext,
@@ -57,7 +59,12 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
-from posthog.dags.events_backfill_to_ducklake import DEFAULT_CLICKHOUSE_SETTINGS, EVENTS_COLUMNS, MAX_RETRY_ATTEMPTS
+from posthog.dags.events_backfill_to_ducklake import (
+    DEFAULT_CLICKHOUSE_SETTINGS,
+    EVENTS_COLUMNS,
+    EXPECTED_DUCKLAKE_COLUMNS,
+    MAX_RETRY_ATTEMPTS,
+)
 from posthog.ducklake.common import attach_catalog, escape, get_ducklake_catalog_for_team, get_team_config
 from posthog.ducklake.models import DuckLakeCatalog
 from posthog.ducklake.storage import configure_cross_account_connection
@@ -78,6 +85,8 @@ class DucklingBackfillConfig(Config):
 
     clickhouse_settings: dict[str, Any] | None = None
     skip_ducklake_registration: bool = False
+    skip_schema_validation: bool = False
+    cleanup_prior_run_files: bool = True
     dry_run: bool = False
 
 
@@ -119,6 +128,135 @@ def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str
     policy explicitly allows the ClickHouse EC2 role, so no credentials needed.
     """
     return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
+
+
+def validate_duckling_schema(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> None:
+    """Validate that the duckling's events table schema matches our export columns.
+
+    This pre-flight check ensures we don't waste time exporting data that can't
+    be registered with DuckLake due to schema mismatches.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "duckling"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+
+        try:
+            attach_catalog(conn, catalog_config, alias=alias)
+        except duckdb.CatalogException as exc:
+            if alias not in str(exc):
+                raise
+
+        result = conn.execute(f"DESCRIBE {alias}.main.events").fetchall()
+        ducklake_columns = {row[0] for row in result}
+
+        missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
+        if missing_in_ducklake:
+            context.log.warning(
+                f"Duckling events table is missing columns that we export: {missing_in_ducklake}. "
+                "These columns will be added automatically by ducklake_add_data_files if the table "
+                "supports schema evolution."
+            )
+            logger.warning(
+                "duckling_schema_mismatch",
+                team_id=catalog.team_id,
+                missing_columns=list(missing_in_ducklake),
+            )
+
+        extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_COLUMNS
+        if extra_in_ducklake:
+            context.log.info(f"Duckling has additional columns not in our export: {extra_in_ducklake}")
+
+        context.log.info(
+            f"Schema validation passed. Duckling has {len(ducklake_columns)} columns, "
+            f"we export {len(EXPECTED_DUCKLAKE_COLUMNS)} columns."
+        )
+        logger.info(
+            "duckling_schema_validation_passed",
+            team_id=catalog.team_id,
+            ducklake_columns=len(ducklake_columns),
+            export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
+        )
+
+    finally:
+        conn.close()
+
+
+def cleanup_prior_run_files(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+    team_id: int,
+    partition_date: datetime,
+    current_run_id: str,
+) -> int:
+    """Clean up S3 files from prior failed runs for this partition.
+
+    This prevents orphaned files from accumulating when runs fail partway through.
+    Only deletes files that don't match the current run_id.
+
+    Uses cross-account role assumption to access the duckling's S3 bucket.
+
+    Returns the number of files deleted.
+    """
+    destination = catalog.to_cross_account_destination()
+
+    # Assume the cross-account role to access the duckling's bucket
+    sts_client = boto3.client("sts")
+    assume_kwargs: dict[str, Any] = {
+        "RoleArn": destination.role_arn,
+        "RoleSessionName": "duckling-cleanup",
+        "DurationSeconds": 900,  # 15 minutes
+    }
+    if destination.external_id:
+        assume_kwargs["ExternalId"] = destination.external_id
+
+    response = sts_client.assume_role(**assume_kwargs)
+    credentials = response["Credentials"]
+
+    s3_client = boto3.client(
+        "s3",
+        region_name=destination.region or "us-east-1",
+        aws_access_key_id=credentials["AccessKeyId"],
+        aws_secret_access_key=credentials["SecretAccessKey"],
+        aws_session_token=credentials["SessionToken"],
+    )
+
+    year = partition_date.strftime("%Y")
+    month = partition_date.strftime("%m")
+    day = partition_date.strftime("%d")
+
+    # List objects under the backfill prefix for this team and date
+    prefix = f"{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/"
+
+    deleted_count = 0
+    paginator = s3_client.get_paginator("list_objects_v2")
+
+    for page in paginator.paginate(Bucket=catalog.bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            # Check if this file is not from our current run
+            if not key.endswith(f"/{current_run_id}.parquet"):
+                context.log.info(f"Deleting orphaned file: {key}")
+                logger.info("duckling_cleanup_orphaned_file", key=key, bucket=catalog.bucket, team_id=team_id)
+                s3_client.delete_object(Bucket=catalog.bucket, Key=key)
+                deleted_count += 1
+
+    if deleted_count > 0:
+        context.log.info(f"Cleaned up {deleted_count} orphaned files from prior runs")
+        logger.info(
+            "duckling_cleanup_complete",
+            deleted_count=deleted_count,
+            team_id=team_id,
+            partition_date=partition_date.isoformat(),
+        )
+
+    return deleted_count
 
 
 @retry(
@@ -294,8 +432,10 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     This asset:
     1. Parses the partition key to get team_id and date
     2. Looks up the DuckLakeCatalog for the team
-    3. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
-    4. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
+    3. Validates the duckling's schema compatibility (optional)
+    4. Cleans up orphaned files from prior failed runs (optional)
+    5. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
+    6. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
     team_id, date_str = parse_partition_key(context.partition_key)
     partition_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -315,6 +455,16 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Validate schema before starting export (skip if dry_run or skip_ducklake_registration)
+    if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
+        context.log.info("Validating duckling schema compatibility...")
+        validate_duckling_schema(context, catalog)
+
+    # Clean up orphaned files from prior failed runs
+    if config.cleanup_prior_run_files and not config.dry_run:
+        context.log.info("Cleaning up orphaned files from prior runs...")
+        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id)
 
     # Prepare ClickHouse settings
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -377,6 +527,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 @sensor(
     name="duckling_backfill_discovery_sensor",
     minimum_interval_seconds=3600,  # Run hourly
+    job_name="duckling_events_backfill_job",
 )
 def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover teams with DuckLakeCatalog entries and create daily backfill partitions.
@@ -385,6 +536,7 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     1. Find all teams with DuckLakeCatalog configurations
     2. Create partitions for yesterday's data (if not already exists)
     3. Trigger backfill runs for new partitions
+    4. Retry failed partitions that already exist
     """
     # Import here to avoid Django setup issues at module load time
     from posthog.ducklake.models import DuckLakeCatalog
@@ -402,14 +554,42 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
         partition_key = f"{catalog.team_id}_{yesterday}"
 
         if partition_key not in existing:
+            # New partition - create and trigger run
             new_partitions.append(partition_key)
             run_requests.append(
                 RunRequest(
                     partition_key=partition_key,
-                    run_key=partition_key,
+                    run_key=f"{partition_key}_new",
                 )
             )
             context.log.info(f"Creating partition for team_id={catalog.team_id}, date={yesterday}")
+        else:
+            # Existing partition - check if the last run failed and needs retry
+            # Query for runs with this partition key
+            runs = context.instance.get_runs(
+                filters={"partition_key": partition_key, "job_name": "duckling_events_backfill_job"},
+                limit=1,
+            )
+            if runs:
+                latest_run = runs[0]
+                if latest_run.status == DagsterRunStatus.FAILURE:
+                    # Failed run - trigger retry with unique run_key
+                    run_requests.append(
+                        RunRequest(
+                            partition_key=partition_key,
+                            run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                        )
+                    )
+                    context.log.info(
+                        f"Retrying failed partition team_id={catalog.team_id}, date={yesterday} "
+                        f"(previous run: {latest_run.run_id[:8]})"
+                    )
+                    logger.info(
+                        "duckling_sensor_retry_failed_partition",
+                        team_id=catalog.team_id,
+                        date=yesterday,
+                        previous_run_id=latest_run.run_id,
+                    )
 
     if new_partitions:
         context.log.info(f"Discovered {len(new_partitions)} new partitions to backfill")
@@ -417,6 +597,14 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
             "duckling_sensor_discovered_partitions",
             count=len(new_partitions),
             partitions=new_partitions,
+        )
+
+    if run_requests:
+        logger.info(
+            "duckling_sensor_run_requests",
+            total_requests=len(run_requests),
+            new_partitions=len(new_partitions),
+            retries=len(run_requests) - len(new_partitions),
         )
 
     return SensorResult(
