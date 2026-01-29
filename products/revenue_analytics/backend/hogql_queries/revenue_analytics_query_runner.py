@@ -19,7 +19,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -63,6 +65,38 @@ FILTERS_AVAILABLE_SUBSCRIPTION_VIEW: list[DatabaseSchemaManagedViewTableKind] = 
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION,
 ]
+
+REVENUE_ANALYTICS_VIEW_ALIASES: set[str] = {
+    "revenue_analytics_charge",
+    "revenue_analytics_customer",
+    "revenue_analytics_product",
+    "revenue_analytics_revenue_item",
+    "revenue_analytics_subscription",
+}
+
+
+class ViewAliasCollector(TraversingVisitor):
+    """Traverses a HogQL AST and collects any revenue analytics view aliases referenced."""
+
+    def __init__(self):
+        super().__init__()
+        self.aliases: set[str] = set()
+
+    def visit_field(self, node: ast.Field):
+        if node.chain and node.chain[0] in REVENUE_ANALYTICS_VIEW_ALIASES:
+            self.aliases.add(node.chain[0])
+
+
+def _extract_view_aliases_from_hogql(hogql_expr: str) -> set[str]:
+    """Parse a HogQL expression and extract any revenue analytics view aliases it references."""
+    try:
+        parsed = parse_expr(hogql_expr)
+    except Exception:
+        return set()
+
+    collector = ViewAliasCollector()
+    collector.visit(parsed)
+    return collector.aliases
 
 
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
@@ -153,12 +187,11 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         return False
 
     def _joins_set_for_properties(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
-        joins_set = set()
+        joins_set: set[str] = set()
         for property in self.query.properties:
-            # HogQL filters are arbitrary expressions, skip them for join determination
             if isinstance(property, HogQLPropertyFilter):
-                continue
-            if self._can_access_property_from(property, join_from):
+                joins_set.update(_extract_view_aliases_from_hogql(property.key))
+            elif self._can_access_property_from(property, join_from):
                 scope, *_ = property.key.split(".")
                 joins_set.add(scope)
 
