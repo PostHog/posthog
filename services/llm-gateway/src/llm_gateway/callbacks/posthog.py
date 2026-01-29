@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user, get_product
+from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +45,8 @@ class PostHogCallback(InstrumentedCallback):
             model=standard_logging_object.get("model", ""),
         )
 
+        is_streaming = standard_logging_object.get("stream", False)
+
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
             "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
@@ -52,6 +54,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
+            "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
             "ai_product": product,
@@ -67,6 +70,11 @@ class PostHogCallback(InstrumentedCallback):
         response = standard_logging_object.get("response")
         if response:
             properties["$ai_output_choices"] = response
+
+        # Add time to first token for streaming requests
+        time_to_first_token = get_time_to_first_token()
+        if time_to_first_token is not None:
+            properties["$ai_time_to_first_token"] = time_to_first_token
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,

@@ -65,6 +65,16 @@ export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLM
                     {typeof latency === 'number' && (
                         <LemonTag type="muted" size="small">
                             {latency.toFixed(2)}s
+                            {event.properties.$ai_stream &&
+                                typeof event.properties.$ai_time_to_first_token === 'number' && (
+                                    <span className="ml-1 opacity-75">
+                                        (TTFT:{' '}
+                                        {event.properties.$ai_time_to_first_token < 0.001
+                                            ? `${(event.properties.$ai_time_to_first_token * 1000).toFixed(2)}ms`
+                                            : `${Math.round(event.properties.$ai_time_to_first_token * 1000)}ms`}
+                                        )
+                                    </span>
+                                )}
                         </LemonTag>
                     )}
                     {(isGeneration || isEmbedding) && typeof cost === 'number' && (
