@@ -48,6 +48,7 @@
           ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+          ExternalDataSourceType.CLERK: ClerkSourceConfig,
           ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,
           ExternalDataSourceType.GITHUB: GithubSourceConfig,
