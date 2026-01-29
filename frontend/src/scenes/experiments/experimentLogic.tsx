@@ -328,6 +328,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentViewed',
                 'reportExperimentLaunched',
                 'reportExperimentCompleted',
+                'reportExperimentStopped',
                 'reportExperimentArchived',
                 'reportExperimentReset',
                 'reportExperimentExposureCohortCreated',
@@ -1128,6 +1129,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         : false
                 )
             actions.closeStopExperimentModal()
+            values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
         },
         pauseExperiment: async () => {
             await actions.setFeatureFlagActive(false)

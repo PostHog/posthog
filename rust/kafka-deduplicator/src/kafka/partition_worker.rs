@@ -16,6 +16,7 @@ use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
+use crate::metrics_const::BATCH_PROCESSING_ERROR;
 
 /// A batch of messages for a single partition
 pub struct PartitionBatch<T> {
@@ -213,6 +214,8 @@ impl<T: Send + 'static> PartitionWorker<T> {
                     }
                 }
                 Err(e) => {
+                    // Log at error level - these are unexpected errors (store-not-found is
+                    // handled gracefully in deduplicate_batch and doesn't reach here)
                     error!(
                         topic = partition.topic(),
                         partition = partition.partition_number(),
@@ -224,6 +227,15 @@ impl<T: Send + 'static> PartitionWorker<T> {
                         error_chain = ?e,
                         "Error processing batch - offset not advanced"
                     );
+
+                    // Record error metric with tags for alerting
+                    metrics::counter!(
+                        BATCH_PROCESSING_ERROR,
+                        "topic" => partition.topic().to_string(),
+                        "partition" => partition.partition_number().to_string(),
+                    )
+                    .increment(1);
+
                     // Don't mark as processed on error - offset won't advance
                     // Continue processing next batches
                 }
@@ -241,7 +253,7 @@ impl<T: Send + 'static> PartitionWorker<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
     use axum::async_trait;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tokio::time::{sleep, Duration};
@@ -340,7 +352,7 @@ mod tests {
     async fn test_partition_worker_basic() {
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TestProcessor::new(0));
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 5,
@@ -368,7 +380,7 @@ mod tests {
     async fn test_partition_worker_backpressure() {
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TestProcessor::new(100)); // 100ms delay
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 2, // Small buffer
@@ -399,7 +411,7 @@ mod tests {
         // Verify that the worker continues processing after processor errors
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(FailingProcessor::new(3)); // Fail first 3 batches
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 10,
@@ -451,7 +463,7 @@ mod tests {
         // Verify that all queued messages are processed before shutdown completes
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TrackingProcessor::new(20)); // 20ms delay per batch
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 10,
@@ -499,7 +511,7 @@ mod tests {
         // Verify that the worker task exits when all senders are dropped
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TrackingProcessor::new(0));
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionWorkerConfig {
             channel_buffer_size: 5,

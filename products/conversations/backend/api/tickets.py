@@ -1,9 +1,10 @@
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Sum
 
 import structlog
 from loginas.utils import is_impersonated_session
 from rest_framework import pagination, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -14,6 +15,11 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
+from products.conversations.backend.cache import (
+    get_cached_unread_count,
+    invalidate_unread_count_cache,
+    set_cached_unread_count,
+)
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
 
@@ -82,6 +88,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
+            "unread_count",
         ]
     }
 
@@ -91,12 +98,22 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.select_related("assignment", "assignment__user", "assignment__role")
 
         status_param = self.request.query_params.get("status")
-        if status_param and status_param in [s.value for s in Status]:
-            queryset = queryset.filter(status=status_param)
+        if status_param:
+            valid_statuses = [s.value for s in Status]
+            statuses = [s.strip() for s in status_param.split(",") if s.strip() in valid_statuses]
+            if len(statuses) == 1:
+                queryset = queryset.filter(status=statuses[0])
+            elif len(statuses) > 1:
+                queryset = queryset.filter(status__in=statuses)
 
-        priority = self.request.query_params.get("priority")
-        if priority and priority in [p.value for p in Priority]:
-            queryset = queryset.filter(priority=priority)
+        priority_param = self.request.query_params.get("priority")
+        if priority_param:
+            valid_priorities = [p.value for p in Priority]
+            priorities = [p.strip() for p in priority_param.split(",") if p.strip() in valid_priorities]
+            if len(priorities) == 1:
+                queryset = queryset.filter(priority=priorities[0])
+            elif len(priorities) > 1:
+                queryset = queryset.filter(priority__in=priorities)
 
         channel_source = self.request.query_params.get("channel_source")
         if channel_source and channel_source in [c.value for c in Channel]:
@@ -149,6 +166,8 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.unread_team_count > 0:
             instance.unread_team_count = 0
             instance.save(update_fields=["unread_team_count"])
+            # Invalidate cache since unread count changed
+            invalidate_unread_count_cache(self.team_id)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -156,6 +175,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Handle ticket updates including assignee changes."""
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
+        old_status = instance.status
 
         # Handle assignee separately since it's not a direct model field
         assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
@@ -178,9 +198,47 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Refresh instance to get updated assignment
             instance.refresh_from_db()
 
+        # Invalidate unread count cache if status changed to/from resolved
+        new_status = request.data.get("status", old_status)
+        if old_status != new_status and (old_status == "resolved" or new_status == "resolved"):
+            invalidate_unread_count_cache(self.team_id)
+
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def unread_count(self, request, *args, **kwargs):
+        """
+        Get total unread ticket count for the team.
+
+        Returns the sum of unread_team_count for all non-resolved tickets.
+        Cached in Redis for 30 seconds, invalidated on changes.
+        """
+        team_id = self.team_id
+
+        # Check if support is enabled
+        if not self.team.conversations_enabled:
+            return Response({"count": 0})
+
+        # Try cache first
+        cached_count = get_cached_unread_count(team_id)
+        if cached_count is not None:
+            return Response({"count": cached_count})
+
+        # Query database - only non-resolved tickets with unread messages
+        result = (
+            Ticket.objects.filter(team_id=team_id)
+            .exclude(status="resolved")
+            .filter(unread_team_count__gt=0)
+            .aggregate(total=Sum("unread_team_count"))
+        )
+        count = result["total"] or 0
+
+        # Cache the result
+        set_cached_unread_count(team_id, count)
+
+        return Response({"count": count})
 
 
 def validate_assignee(assignee) -> None:
