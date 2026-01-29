@@ -274,7 +274,7 @@ export function getIncompleteConversionWindowStartDate(
     window: FunnelConversionWindow,
     startDate: dayjs.Dayjs = dayjs()
 ): dayjs.Dayjs {
-    const { funnelWindowInterval, funnelWindowIntervalUnit } = window
+    const { funnelWindowInterval = 14, funnelWindowIntervalUnit } = window
     return startDate.subtract(funnelWindowInterval, funnelWindowIntervalUnit)
 }
 

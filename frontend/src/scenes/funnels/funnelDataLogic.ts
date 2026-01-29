@@ -119,13 +119,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         conversionWindowInterval: [
-            null,
+            null as number | null,
             {
                 setConversionWindowInterval: (_, { funnelWindowInterval }) => funnelWindowInterval,
             },
         ],
         conversionWindowUnit: [
-            null,
+            null as FunnelConversionWindowTimeUnit | null,
             {
                 setConversionWindowUnit: (_, { funnelWindowIntervalUnit }) => funnelWindowIntervalUnit,
             },
