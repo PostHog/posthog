@@ -211,11 +211,12 @@ pub mod testing {
     use std::collections::HashMap;
     use tokio::sync::Mutex;
 
+    type MockEntries =
+        HashMap<RestrictionType, Result<Option<Vec<RestrictionEntry>>, CustomRedisError>>;
+
     /// Mock repository for unit testing RestrictionManager
     pub struct MockRestrictionsRepository {
-        entries: Mutex<
-            HashMap<RestrictionType, Result<Option<Vec<RestrictionEntry>>, CustomRedisError>>,
-        >,
+        entries: Mutex<MockEntries>,
     }
 
     impl MockRestrictionsRepository {
