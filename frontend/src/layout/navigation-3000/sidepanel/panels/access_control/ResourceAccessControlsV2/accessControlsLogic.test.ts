@@ -1,6 +1,6 @@
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { AccessControlLevelMapping } from '../accessControlLogic'
+import { AccessControlLevelMapping } from './accessControlsLogic'
 import { AccessControlFilters, AccessControlRow, AccessControlsTab } from './types'
 
 /**

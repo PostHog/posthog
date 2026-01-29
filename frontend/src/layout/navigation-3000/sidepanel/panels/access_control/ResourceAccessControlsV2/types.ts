@@ -1,6 +1,6 @@
 import { APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
 
-import { AccessControlLevelMapping } from '../accessControlLogic'
+import { AccessControlLevelMapping } from './accessControlsLogic'
 
 export type ScopeType = 'default' | 'role' | 'member'
 
