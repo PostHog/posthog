@@ -13,12 +13,16 @@ Architecture:
         │ lookup by team_id
         ▼
     ClickHouse (events table)
-        │ export via s3() with cross-account IAM role
+        │ export via s3() - bucket policy allows ClickHouse EC2 role
         ▼
     Duckling S3 Bucket (parquet files)
         │ register via ducklake_add_data_files
         ▼
     Duckling RDS Catalog (PostgreSQL)
+
+IAM Access:
+    - ClickHouse EC2 role is allowed in duckling bucket policy (direct S3 access)
+    - Dagster IRSA role can assume duckling cross-account roles (for DuckDB registration)
 
 Partition Strategy:
     DynamicPartitionsDefinition with composite keys: {team_id}_{date}
@@ -28,6 +32,8 @@ Partition Strategy:
 
 from datetime import datetime, timedelta
 from typing import Any
+
+from django.utils import timezone
 
 import duckdb
 import structlog
@@ -54,7 +60,7 @@ from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_lo
 from posthog.dags.events_backfill_to_ducklake import DEFAULT_CLICKHOUSE_SETTINGS, EVENTS_COLUMNS, MAX_RETRY_ATTEMPTS
 from posthog.ducklake.common import attach_catalog, escape
 from posthog.ducklake.models import DuckLakeCatalog, get_team_catalog
-from posthog.ducklake.storage import _get_cross_account_credentials, configure_cross_account_connection
+from posthog.ducklake.storage import configure_cross_account_connection
 
 logger = structlog.get_logger(__name__)
 
@@ -123,6 +129,15 @@ def get_s3_path_for_duckling(
     return f"s3://{bucket}/{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
 
 
+def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str) -> str:
+    """Build S3 URL in the format ClickHouse expects for cross-account access.
+
+    ClickHouse uses the EC2 instance role for authentication. The duckling bucket
+    policy explicitly allows the ClickHouse EC2 role, so no credentials needed.
+    """
+    return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
+
+
 @retry(
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -160,53 +175,33 @@ def export_events_to_duckling_s3(
 ) -> str | None:
     """Export events for a team/date to the duckling's S3 bucket.
 
-    Uses cross-account IAM role assumption to write directly to the customer's S3 bucket.
+    ClickHouse uses its EC2 instance role for S3 access. The duckling bucket policy
+    explicitly allows the ClickHouse EC2 role, so no explicit credentials are needed.
 
     Returns:
         S3 path that was written, or None if dry_run.
     """
-    destination = catalog.to_cross_account_destination()
-
-    # Get cross-account credentials for ClickHouse s3() function
-    access_key, secret_key, session_token = _get_cross_account_credentials(
-        destination.role_arn,
-        destination.external_id,
-    )
-
-    s3_path = get_s3_path_for_duckling(
-        bucket=destination.bucket,
-        team_id=team_id,
-        date=date,
-        run_id=run_id,
-    )
-
-    # ClickHouse s3() function with explicit credentials including session token
-    # Note: ClickHouse s3() function accepts session token as the 4th credential argument
+    year = date.strftime("%Y")
+    month = date.strftime("%m")
+    day = date.strftime("%d")
     date_str = date.strftime("%Y-%m-%d")
+
+    # Path without s3:// scheme for the HTTPS URL
+    path_without_scheme = f"{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
+
+    # ClickHouse needs HTTPS URL format for cross-account S3 access
+    s3_url = get_s3_url_for_clickhouse(catalog.s3_bucket, catalog.s3_region, path_without_scheme)
+
+    # S3 path with scheme for DuckLake registration
+    s3_path = f"s3://{catalog.s3_bucket}/{path_without_scheme}"
+
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
+    # ClickHouse uses its EC2 instance role - no credentials needed
+    # The duckling bucket policy allows the ClickHouse EC2 role
     export_sql = f"""
     INSERT INTO FUNCTION s3(
-        '{s3_path}',
-        '{access_key}',
-        '{secret_key}',
-        '{session_token}',
-        'Parquet'
-    )
-    SELECT
-        {EVENTS_COLUMNS}
-    FROM events
-    WHERE {where_clause}
-    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
-    """
-
-    # For logging, redact credentials
-    safe_sql = f"""
-    INSERT INTO FUNCTION s3(
-        '{s3_path}',
-        '[REDACTED]',
-        '[REDACTED]',
-        '[REDACTED]',
+        '{s3_url}',
         'Parquet'
     )
     SELECT
@@ -219,7 +214,7 @@ def export_events_to_duckling_s3(
     info = f"team_id={team_id}, date={date_str}"
 
     if config.dry_run:
-        context.log.info(f"[DRY RUN] Would export with SQL: {safe_sql[:800]}...")
+        context.log.info(f"[DRY RUN] Would export with SQL: {export_sql[:800]}...")
         return None
 
     context.log.info(f"Exporting events for {info} to {s3_path}")
@@ -249,6 +244,9 @@ def register_file_with_duckling(
 ) -> bool:
     """Register an exported Parquet file with the duckling's DuckLake catalog.
 
+    Uses cross-account role assumption via IRSA. The Dagster worker's IAM role
+    has permission to assume the duckling's cross-account S3 role.
+
     Args:
         context: Dagster asset execution context.
         catalog: The DuckLakeCatalog for this duckling.
@@ -263,7 +261,7 @@ def register_file_with_duckling(
         return False
 
     if config.dry_run:
-        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake")
+        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake at {catalog.rds_host}")
         return False
 
     destination = catalog.to_cross_account_destination()
@@ -273,7 +271,8 @@ def register_file_with_duckling(
     conn = duckdb.connect()
 
     try:
-        # Configure cross-account S3 access
+        # Configure cross-account S3 access using IRSA
+        # Dagster's IAM role can assume the duckling's cross-account role
         configure_cross_account_connection(
             conn,
             role_arn=destination.role_arn,
@@ -312,8 +311,8 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     This asset:
     1. Parses the partition key to get team_id and date
     2. Looks up the DuckLakeCatalog for the team
-    3. Exports events to the duckling's S3 bucket via cross-account IAM role
-    4. Registers the Parquet file with the duckling's DuckLake catalog
+    3. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
+    4. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
     team_id, date_str = parse_partition_key(context.partition_key)
     partition_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -407,7 +406,7 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     # Import here to avoid Django setup issues at module load time
     from posthog.ducklake.models import DuckLakeCatalog
 
-    yesterday = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Get existing partitions
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
