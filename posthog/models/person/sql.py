@@ -31,7 +31,12 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     properties VARCHAR,
     is_identified Int8,
     is_deleted Int8,
-    version UInt64
+    version UInt64,
+    group_0_key VARCHAR{group_key_default},
+    group_1_key VARCHAR{group_key_default},
+    group_2_key VARCHAR{group_key_default},
+    group_3_key VARCHAR{group_key_default},
+    group_4_key VARCHAR{group_key_default}
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -51,6 +56,7 @@ def PERSONS_TABLE_SQL(on_cluster=True):
         table_name=PERSONS_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PERSONS_TABLE_ENGINE(),
+        group_key_default=" DEFAULT ''",
         extra_fields=f"""
     {KAFKA_COLUMNS}
     , {index_by_kafka_timestamp(PERSONS_TABLE)}
@@ -60,10 +66,12 @@ def PERSONS_TABLE_SQL(on_cluster=True):
 
 
 def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
+    # Kafka tables cannot have DEFAULT expressions
     return PERSONS_TABLE_BASE_SQL.format(
         table_name=KAFKA_PERSONS_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(KAFKA_PERSON),
+        group_key_default="",
         extra_fields="",
     )
 
@@ -80,6 +88,11 @@ properties,
 is_identified,
 is_deleted,
 version,
+group_0_key,
+group_1_key,
+group_2_key,
+group_3_key,
+group_4_key,
 _timestamp,
 _offset
 FROM {kafka_table}
@@ -96,6 +109,7 @@ def PERSONS_WRITABLE_TABLE_SQL():
         table_name=PERSONS_WRITABLE_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(data_table=PERSONS_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
+        group_key_default=" DEFAULT ''",
         extra_fields=KAFKA_COLUMNS,
     )
 
