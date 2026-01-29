@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import {
     IconAI,
     IconBrackets,
+    IconChevronDown,
     IconCorrelationAnalysis,
     IconCursor,
     IconFilter,
@@ -39,6 +40,8 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { tagSelectLogic } from 'lib/components/tagSelectLogic'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -905,7 +908,7 @@ export function SavedInsights(): JSX.Element {
                     </ul>
                 </div>
             ),
-            moreIcon: <IconFilter />,
+            moreIcon: <IconChevronDown />,
             moreFilterCount: filters.tags?.length || 0,
         },
         ...(tab === SavedInsightsTabs.Yours
@@ -990,7 +993,7 @@ export function SavedInsights(): JSX.Element {
                               </ul>
                           </div>
                       ),
-                      moreIcon: <IconFilter />,
+                      moreIcon: <IconChevronDown />,
                       moreFilterCount: filters.createdBy !== 'All users' ? (filters.createdBy as number[]).length : 0,
                   } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
               ]),
@@ -1011,7 +1014,7 @@ export function SavedInsights(): JSX.Element {
             more: createDateFilterOverlay(filters.createdDateFrom, filters.createdDateTo, (fromDate, toDate) =>
                 setSavedInsightsFilters({ createdDateFrom: fromDate, createdDateTo: toDate })
             ),
-            moreIcon: <IconFilter />,
+            moreIcon: <IconChevronDown />,
             moreFilterCount: filters.createdDateFrom && filters.createdDateFrom !== 'all' ? 1 : 0,
         } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
@@ -1026,7 +1029,7 @@ export function SavedInsights(): JSX.Element {
             more: createDateFilterOverlay(filters.dateFrom, filters.dateTo, (fromDate, toDate) =>
                 setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
             ),
-            moreIcon: <IconFilter />,
+            moreIcon: <IconChevronDown />,
             moreFilterCount: filters.dateFrom && filters.dateFrom !== 'all' ? 1 : 0,
         },
         {
@@ -1043,7 +1046,7 @@ export function SavedInsights(): JSX.Element {
             more: createDateFilterOverlay(filters.lastViewedDateFrom, filters.lastViewedDateTo, (fromDate, toDate) =>
                 setSavedInsightsFilters({ lastViewedDateFrom: fromDate, lastViewedDateTo: toDate })
             ),
-            moreIcon: <IconFilter />,
+            moreIcon: <IconChevronDown />,
             moreFilterCount: filters.lastViewedDateFrom && filters.lastViewedDateFrom !== 'all' ? 1 : 0,
         },
         {
