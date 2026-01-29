@@ -193,6 +193,27 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         assert response.json()["approver_config"]["quorum"] == 2
         assert ApprovalPolicy.objects.filter(action_key="feature_flag.enable").exists()
 
+    def test_create_duplicate_policy_returns_error(self):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": "feature_flag.enable",
+                "approver_config": {"quorum": 2, "users": [self.user.id]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
+
     def test_update_policy(self):
         policy = ApprovalPolicy.objects.create(
             organization=self.organization,
