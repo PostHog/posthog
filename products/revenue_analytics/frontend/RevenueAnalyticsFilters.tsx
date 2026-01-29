@@ -10,7 +10,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isHogQLPropertyFilter, isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -22,7 +22,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
+import {
+    RevenueAnalyticsBreakdown,
+    RevenueAnalyticsPropertyFilters as RevenueAnalyticsPropertyFiltersType,
+} from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -195,9 +198,17 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                         <div className="p-2">
                             <PropertyFilters
                                 disablePopover
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                ]}
                                 onChange={(filters) =>
-                                    setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
+                                    setRevenueAnalyticsFilters(
+                                        filters.filter(
+                                            (f): f is RevenueAnalyticsPropertyFiltersType[number] =>
+                                                isRevenueAnalyticsPropertyFilter(f) || isHogQLPropertyFilter(f)
+                                        )
+                                    )
                                 }
                                 propertyFilters={revenueAnalyticsFilter}
                                 pageKey="revenue-analytics"

@@ -28917,7 +28917,14 @@
         },
         "RevenueAnalyticsPropertyFilters": {
             "items": {
-                "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                    },
+                    {
+                        "$ref": "#/definitions/HogQLPropertyFilter"
+                    }
+                ]
             },
             "type": "array"
         },

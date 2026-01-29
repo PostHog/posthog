@@ -2,14 +2,20 @@ from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 
-from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
+from parameterized import parameterized
+
+from posthog.schema import HogQLPropertyFilter, IntervalType, RevenueAnalyticsGrossRevenueQuery
 
 from posthog.constants import AvailableFeature
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import (
+    RevenueAnalyticsQueryRunner,
+    _extract_view_aliases_from_hogql,
+)
+from products.revenue_analytics.backend.views import RevenueAnalyticsRevenueItemView
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -334,3 +340,54 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
 
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
         self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+
+    @parameterized.expand(
+        [
+            (
+                "JSONExtractString(revenue_analytics_customer.metadata, 'key') = 'value'",
+                {"revenue_analytics_customer"},
+            ),
+            (
+                "revenue_analytics_product.name = 'Product A'",
+                {"revenue_analytics_product"},
+            ),
+            (
+                "revenue_analytics_customer.name = 'Test' AND revenue_analytics_product.active = true",
+                {"revenue_analytics_customer", "revenue_analytics_product"},
+            ),
+            (
+                "simple_field = 'value'",
+                set(),
+            ),
+            (
+                "JSONExtractString(metadata, 'key')",
+                set(),
+            ),
+            (
+                "revenue_analytics_charge.amount > 100 OR revenue_analytics_subscription.status = 'active'",
+                {"revenue_analytics_charge", "revenue_analytics_subscription"},
+            ),
+            (
+                "invalid expression [[[",
+                set(),
+            ),
+        ]
+    )
+    def test_extract_view_aliases_from_hogql(self, hogql_expr: str, expected: set[str]):
+        result = _extract_view_aliases_from_hogql(hogql_expr)
+        self.assertEqual(result, expected)
+
+    def test_joins_set_for_properties_includes_hogql_aliases(self):
+        query = RevenueAnalyticsGrossRevenueQuery(
+            breakdown=[],
+            properties=[
+                HogQLPropertyFilter(
+                    type="hogql",
+                    key="JSONExtractString(revenue_analytics_customer.metadata, 'revenue_source') = 'self-serve'",
+                )
+            ],
+            interval=IntervalType.MONTH,
+        )
+        runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=query)
+        joins_set = runner._joins_set_for_properties(RevenueAnalyticsRevenueItemView)
+        self.assertIn("revenue_analytics_customer", joins_set)

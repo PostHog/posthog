@@ -31,6 +31,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
+    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntegrationType,
@@ -2285,7 +2286,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 /*
  * Revenue Analytics
  */
-export type RevenueAnalyticsPropertyFilters = RevenueAnalyticsPropertyFilter[]
+export type RevenueAnalyticsPropertyFilters = (RevenueAnalyticsPropertyFilter | HogQLPropertyFilter)[]
 export interface RevenueAnalyticsBreakdown {
     type: 'revenue_analytics'
     property: string

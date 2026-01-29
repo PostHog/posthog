@@ -892,6 +892,47 @@ class TestProperty(BaseTest):
             self._parse_expr("revenue_analytics_product.name IN ('Product A', 'Product C')"),
         )
 
+    def test_revenue_analytics_metadata_json_extraction(self):
+        # Test filtering by custom metadata keys using JSONExtractString
+        expr = self._property_to_expr(
+            {
+                "type": "revenue_analytics",
+                "key": "revenue_analytics_customer.metadata.revenue_source",
+                "value": "self-serve",
+                "operator": "exact",
+            },
+            scope="revenue_analytics",
+        )
+        # Should generate JSONExtractString(revenue_analytics_customer.metadata, 'revenue_source') = 'self-serve'
+        self.assertIsInstance(expr, ast.CompareOperation)
+        self.assertEqual(expr.op, ast.CompareOperationOp.Eq)
+        self.assertIsInstance(expr.left, ast.Call)
+        self.assertEqual(expr.left.name, "JSONExtractString")
+        self.assertEqual(len(expr.left.args), 2)
+        self.assertIsInstance(expr.left.args[0], ast.Field)
+        self.assertEqual(expr.left.args[0].chain, ["revenue_analytics_customer", "metadata"])
+        self.assertIsInstance(expr.left.args[1], ast.Constant)
+        self.assertEqual(expr.left.args[1].value, "revenue_source")
+        self.assertEqual(expr.right.value, "self-serve")
+
+    def test_revenue_analytics_metadata_json_extraction_subscription(self):
+        # Test filtering subscription metadata
+        expr = self._property_to_expr(
+            {
+                "type": "revenue_analytics",
+                "key": "revenue_analytics_subscription.metadata.plan_type",
+                "value": "enterprise",
+                "operator": "exact",
+            },
+            scope="revenue_analytics",
+        )
+        self.assertIsInstance(expr, ast.CompareOperation)
+        self.assertIsInstance(expr.left, ast.Call)
+        self.assertEqual(expr.left.name, "JSONExtractString")
+        self.assertEqual(expr.left.args[0].chain, ["revenue_analytics_subscription", "metadata"])
+        self.assertEqual(expr.left.args[1].value, "plan_type")
+        self.assertEqual(expr.right.value, "enterprise")
+
     def test_property_to_expr_event_metadata(self):
         self.assertEqual(
             self._property_to_expr(
