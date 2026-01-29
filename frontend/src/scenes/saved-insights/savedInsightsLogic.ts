@@ -43,9 +43,14 @@ export interface SavedInsightFilters {
     tab: SavedInsightsTabs
     search: string
     insightType: string
-    createdBy: number | 'All users'
+    createdBy: number[] | 'All users'
+    tags: string[] | undefined | null
     dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
+    createdDateFrom: string | dayjs.Dayjs | undefined | null
+    createdDateTo: string | dayjs.Dayjs | undefined | null
+    lastViewedDateFrom: string | dayjs.Dayjs | undefined | null
+    lastViewedDateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
@@ -59,8 +64,13 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
         createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
+        tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
+        createdDateFrom: values.createdDateFrom || undefined,
+        createdDateTo: values.createdDateTo || undefined,
+        lastViewedDateFrom: values.lastViewedDateFrom || undefined,
+        lastViewedDateTo: values.lastViewedDateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
@@ -238,11 +248,24 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                ...(filters.createdBy !== 'All users' && {
+                    created_by: JSON.stringify(filters.createdBy),
+                }),
+                ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
+                    }),
+                ...(filters.createdDateFrom &&
+                    filters.createdDateFrom !== 'all' && {
+                        created_date_from: filters.createdDateFrom,
+                        created_date_to: filters.createdDateTo,
+                    }),
+                ...(filters.lastViewedDateFrom &&
+                    filters.lastViewedDateFrom !== 'all' && {
+                        last_viewed_date_from: filters.lastViewedDateFrom,
+                        last_viewed_date_to: filters.lastViewedDateTo,
                     }),
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],

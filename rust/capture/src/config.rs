@@ -5,10 +5,11 @@ use envconfig::Envconfig;
 use health::HealthStrategy;
 use tracing::Level;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
     Recordings,
+    Ai,
 }
 
 impl CaptureMode {
@@ -16,6 +17,26 @@ impl CaptureMode {
         match self {
             CaptureMode::Events => "events",
             CaptureMode::Recordings => "recordings",
+            CaptureMode::Ai => "ai",
+        }
+    }
+
+    /// Returns the pipeline name used in Redis restriction configs.
+    /// These must match the values in Django's EventIngestionRestrictionConfig.pipelines.
+    pub fn as_pipeline_name(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "analytics",
+            CaptureMode::Recordings => "session_recordings",
+            CaptureMode::Ai => "ai",
+        }
+    }
+
+    pub fn parse_pipeline_name(s: &str) -> Option<Self> {
+        match s {
+            "analytics" => Some(Self::Events),
+            "session_recordings" => Some(Self::Recordings),
+            "ai" => Some(Self::Ai),
+            _ => None,
         }
     }
 }
@@ -27,6 +48,7 @@ impl std::str::FromStr for CaptureMode {
         match s.trim().to_lowercase().as_ref() {
             "events" => Ok(CaptureMode::Events),
             "recordings" => Ok(CaptureMode::Recordings),
+            "ai" => Ok(CaptureMode::Ai),
             _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }
@@ -76,6 +98,19 @@ pub struct Config {
     /// Connection timeout for dedicated global rate limiter Redis (milliseconds).
     /// Defaults to redis_connection_timeout_ms if unset.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
+
+    // Event restrictions configuration (reads from Redis, synced by Django)
+    #[envconfig(default = "false")]
+    pub event_restrictions_enabled: bool,
+
+    /// Redis URL for event restrictions (separate from main redis_url)
+    pub event_restrictions_redis_url: Option<String>,
+
+    #[envconfig(default = "30")]
+    pub event_restrictions_refresh_interval_secs: u64,
+
+    #[envconfig(default = "300")]
+    pub event_restrictions_fail_open_after_secs: u64,
 
     pub otel_url: Option<String>,
 
@@ -205,6 +240,8 @@ pub struct KafkaConfig {
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,
+    #[envconfig(default = "events_plugin_ingestion_dlq")]
+    pub kafka_dlq_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]

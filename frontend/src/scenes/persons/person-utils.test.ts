@@ -150,56 +150,35 @@ describe('the person header', () => {
     })
 
     describe('color index', () => {
-        it('returns undefined for null/undefined person', () => {
+        it('returns undefined for null/undefined identifier', () => {
             expect(getPersonColorIndex(null)).toBeUndefined()
             expect(getPersonColorIndex(undefined)).toBeUndefined()
         })
 
-        it('returns undefined for person without distinct_id', () => {
-            expect(getPersonColorIndex({ properties: { email: 'test@example.com' } })).toBeUndefined()
-        })
-
-        it('returns a number between 0 and 15 for person with distinct_id', () => {
+        it('returns a number between 0 and 15', () => {
             for (let i = 0; i < 26; i++) {
                 const letter = String.fromCharCode(97 + i) // a-z
-                const idx = getPersonColorIndex({ distinct_id: `user-1234${letter}` })
+                const idx = getPersonColorIndex(`user-1234${letter}`)
                 expect(idx).toBeGreaterThanOrEqual(0)
                 expect(idx).toBeLessThanOrEqual(15)
             }
         })
 
-        it('returns consistent index for the same distinct_id', () => {
-            const person = { distinct_id: 'user-abc-123' }
-            const index1 = getPersonColorIndex(person)
-            const index2 = getPersonColorIndex(person)
+        it('returns consistent index for the same identifier', () => {
+            const index1 = getPersonColorIndex('user-abc-123')
+            const index2 = getPersonColorIndex('user-abc-123')
             expect(index1).toEqual(index2)
         })
 
-        it('returns different indices for IDs starting with the same character', () => {
-            // This is the key test: IDs starting with same char should get different colors
-            const index1 = getPersonColorIndex({ distinct_id: '0abc123' })
-            const index2 = getPersonColorIndex({ distinct_id: '0xyz789' })
-            const index3 = getPersonColorIndex({ distinct_id: '0different' })
+        it('returns different indices for identifiers starting with the same character', () => {
+            // This is the key test: identifiers starting with same char should get different colors
+            const index1 = getPersonColorIndex('0abc123')
+            const index2 = getPersonColorIndex('0xyz789')
+            const index3 = getPersonColorIndex('0different')
 
             // At least two of these should be different (with good hash distribution)
             const uniqueIndices = new Set([index1, index2, index3])
-            expect(uniqueIndices.size).toBeGreaterThan(1)
-        })
-
-        it('uses first distinct_id from distinct_ids array', () => {
-            const index1 = getPersonColorIndex({ distinct_ids: ['user-abc'] })
-            const index2 = getPersonColorIndex({ distinct_id: 'user-abc' })
-            expect(index1).toEqual(index2)
-        })
-
-        it('prefers distinct_id over distinct_ids', () => {
-            const index = getPersonColorIndex({
-                id: 'person-uuid',
-                distinct_id: 'primary-id',
-                distinct_ids: ['secondary-id'],
-            })
-            const expected = getPersonColorIndex({ distinct_id: 'primary-id' })
-            expect(index).toEqual(expected)
+            expect(uniqueIndices.size).toBe(3)
         })
     })
 })

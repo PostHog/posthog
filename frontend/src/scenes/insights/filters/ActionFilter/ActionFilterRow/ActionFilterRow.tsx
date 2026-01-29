@@ -15,6 +15,7 @@ import {
     LemonSelect,
     LemonSelectOption,
     LemonSelectOptions,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -387,7 +388,19 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
-                tooltipDocLink={addFilterDocLink}
+                tooltip={
+                    addFilterDocLink ? (
+                        <>
+                            Show filters
+                            <br />
+                            <Link to={addFilterDocLink} target="_blank">
+                                Read the docs
+                            </Link>
+                        </>
+                    ) : (
+                        'Show filters'
+                    )
+                }
             />
         </IconWithCount>
     )
@@ -430,22 +443,29 @@ export function ActionFilterRow({
         </LemonButton>
     )
 
-    const combineRowButton = (
-        <Tooltip title="Count multiple events as a single event">
-            <LemonButton
-                key="combine"
-                icon={<IconStack />}
-                data-attr={`show-prop-combine-${index}`}
-                noPadding={!enablePopup}
-                onClick={() => {
-                    setIsMenuVisible(false)
-                    convertFilterToGroup(index)
-                }}
-                fullWidth={enablePopup}
-            >
-                {enablePopup ? 'Combine' : undefined}
-            </LemonButton>
-        </Tooltip>
+    const combineInlineButton = (
+        <LemonButton
+            key="combine-inline"
+            icon={<IconStack />}
+            title="Count multiple events as a single event"
+            data-attr={`show-prop-combine-${index}`}
+            noPadding
+            onClick={() => {
+                convertFilterToGroup(index)
+            }}
+            tooltip={
+                <>
+                    Combine events
+                    <br />
+                    <Link
+                        to="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
+                        target="_blank"
+                    >
+                        Read the docs
+                    </Link>
+                </>
+            }
+        />
     )
 
     const deleteButton = (
@@ -486,7 +506,6 @@ export function ActionFilterRow({
                   !hideFilter && propertyFiltersButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
-                  showCombine && combineRowButton,
                   !hideDeleteBtn && !singleFilter && deleteButton,
               ].filter(Boolean)
             : []
@@ -646,6 +665,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
+                                        {showCombine && combineInlineButton}
                                         <div className="relative">
                                             <LemonMenu
                                                 placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
@@ -721,13 +741,6 @@ export function ActionFilterRow({
                                                         ? [
                                                               {
                                                                   label: () => duplicateRowButton,
-                                                              },
-                                                          ]
-                                                        : []),
-                                                    ...(showCombine
-                                                        ? [
-                                                              {
-                                                                  label: () => combineRowButton,
                                                               },
                                                           ]
                                                         : []),

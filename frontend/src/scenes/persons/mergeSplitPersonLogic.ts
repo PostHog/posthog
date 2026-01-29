@@ -13,6 +13,7 @@ import { personsLogic } from './personsLogic'
 
 export interface SplitPersonLogicProps {
     person: PersonType
+    urlId: string
 }
 
 export type PersonUuids = NonNullable<PersonType['uuid']>[]
@@ -21,12 +22,12 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
     props({} as SplitPersonLogicProps),
     key((props) => props.person.id ?? 'new'),
     path((key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key]),
-    connect(() => ({
+    connect((props: SplitPersonLogicProps) => ({
         actions: [
-            personsLogic({ syncWithUrl: true }),
+            personsLogic({ syncWithUrl: true, urlId: props.urlId }),
             ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
         ],
-        values: [personsLogic({ syncWithUrl: true }), ['persons']],
+        values: [personsLogic({ syncWithUrl: true, urlId: props.urlId }), ['persons']],
     })),
     actions({
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),

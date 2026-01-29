@@ -102,7 +102,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
+        sendMessage: (content: string, isPrivate: boolean, onSuccess?: () => void) => ({
+            content,
+            isPrivate,
+            onSuccess,
+        }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
@@ -285,6 +289,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         authorName: displayName,
                         createdBy: message.created_by,
                         createdAt: message.created_at,
+                        isPrivate: message.item_context?.is_private || false,
                     }
                 }),
         ],
@@ -412,7 +417,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
+        sendMessage: async ({ content, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -425,12 +430,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         item_id: props.id.toString(),
                         item_context: {
                             author_type: 'support',
-                            is_private: false,
+                            is_private: isPrivate,
                         },
                     },
                     {}
                 )
-                lemonToast.success('Message sent')
+                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
                 setTimeout(() => {

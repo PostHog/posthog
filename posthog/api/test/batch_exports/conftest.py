@@ -51,16 +51,16 @@ async def describe_workflow(temporal: TemporalClient, workflow_id: str):
     return temporal_workflow
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def temporal():
     """Return a TemporalClient instance."""
     client = sync_connect()
     yield client
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="package", autouse=True)
 def temporal_worker(temporal):
-    """Use a module scoped fixture to start a Temporal Worker.
+    """Use a package scoped fixture to start a Temporal Worker.
 
     This saves a lot of time, as waiting for the worker to stop takes a while.
     """

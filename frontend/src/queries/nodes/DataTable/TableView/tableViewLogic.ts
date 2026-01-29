@@ -6,7 +6,8 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { PEOPLE_LIST_CONTEXT_KEY, defaultQuery } from 'scenes/persons/personsSceneLogic'
+import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
+import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
 
 import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
 
@@ -235,10 +236,25 @@ export const tableViewLogic = kea<tableViewLogicType>([
     })),
 
     afterMount(({ values, actions, props }) => {
-        const contextKeyMatch = props.contextKey === PEOPLE_LIST_CONTEXT_KEY
-        const queryMatch = equal(props.query, defaultQuery.source)
-        if (contextKeyMatch && queryMatch && values.currentView) {
-            actions.applyView(values.currentView)
+        if (!values.currentView) {
+            return
+        }
+
+        switch (props.contextKey) {
+            case PEOPLE_LIST_CONTEXT_KEY:
+                if (equal(props.query, PEOPLE_LIST_DEFAULT_QUERY.source)) {
+                    actions.applyView(values.currentView)
+                }
+                break
+            case 'group-0-list':
+            case 'group-1-list':
+            case 'group-2-list':
+            case 'group-3-list':
+            case 'group-4-list':
+                const groupTypeIndex = parseInt(props.contextKey.split('-')[1])
+                if (equal(props.query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)) {
+                    actions.applyView(values.currentView)
+                }
         }
     }),
 ])
