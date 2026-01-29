@@ -156,15 +156,6 @@ class OAuthApplication(AbstractApplication):
         default=False, help_text="True if this application has been verified by PostHog"
     )
 
-    # Custom token expiry - if set, overrides the default ACCESS_TOKEN_EXPIRE_SECONDS for this application
-    # This is useful for clients that don't properly implement refresh token flow (e.g. Claude Code)
-    # See: https://github.com/anthropics/claude-code/issues/5706
-    access_token_expire_seconds: models.PositiveIntegerField = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Custom access token expiry in seconds. If not set, uses the default (1 hour).",
-    )
-
 
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):

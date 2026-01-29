@@ -15,21 +15,15 @@ logger = structlog.get_logger(__name__)
 
 def _get_access_token_expires_in(request) -> int:
     """
-    Returns the access token expiry in seconds for the given request.
-    This is called by oauthlib when issuing tokens.
+    Returns the access token expiry in seconds.
 
-    Workaround for clients that don't properly implement refresh token flow (e.g. Claude Code).
+    Claude Code doesn't implement refresh tokens properly, so we extend to 4 hours.
     See: https://github.com/anthropics/claude-code/issues/5706
     """
     from oauth2_provider.settings import oauth2_settings
 
     if hasattr(request, "client") and request.client:
-        app = request.client
-        # Per-application custom expiry (if set)
-        if hasattr(app, "access_token_expire_seconds") and app.access_token_expire_seconds:
-            return app.access_token_expire_seconds
-        # Claude Code doesn't implement refresh tokens properly, extend to 4 hours
-        if app.name and "claude" in app.name.lower():
+        if request.client.name and "claude" in request.client.name.lower():
             return 60 * 60 * 4
 
     return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
