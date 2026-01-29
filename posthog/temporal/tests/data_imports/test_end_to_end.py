@@ -2405,7 +2405,7 @@ async def test_worker_shutdown_desc_sort_order(team):
             source_type="Vitally",
             job_inputs={
                 "secret_token": "test_token",
-                "region": {"selection": "EU", "subdomain": None},
+                "region": {"selection": "EU", "subdomain": ""},
             },
             mock_data_response=[],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
