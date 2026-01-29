@@ -10,7 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
+import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/funnelConversionWindowFilterLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownAttributionType, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
