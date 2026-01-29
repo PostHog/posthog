@@ -5,6 +5,7 @@
  */
 import { useActions, useValues } from 'kea'
 
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -34,8 +35,8 @@ interface SummaryViewLogicValues {
 
 export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: SummaryViewDisplayProps): JSX.Element {
     const logic = summaryViewLogic({ trace, event, tree, autoGenerate })
-    const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
-    const { generateSummary, setSummaryMode, regenerateSummary } = useActions(logic)
+    const { summaryData, summaryDataLoading, summaryMode, feedbackGiven } = useValues(logic)
+    const { generateSummary, setSummaryMode, regenerateSummary, reportFeedback } = useActions(logic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     // Compute derived values from props
@@ -222,7 +223,37 @@ export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: Summary
 
                     <div className="flex-none">
                         <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light overflow-x-auto">
-                            <SummaryRenderer summary={summaryData.summary} trace={trace} event={event} tree={tree} />
+                            <SummaryRenderer
+                                summary={summaryData.summary}
+                                trace={trace}
+                                event={event}
+                                tree={tree}
+                                headerActions={
+                                    <div className="flex gap-1 items-center not-prose">
+                                        <span className="text-muted text-xs mr-1">
+                                            {feedbackGiven !== null ? 'Thanks!' : 'Helpful?'}
+                                        </span>
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconThumbsUp />}
+                                            onClick={() => reportFeedback(true)}
+                                            tooltip="Helpful"
+                                            disabled={feedbackGiven !== null}
+                                            active={feedbackGiven === true}
+                                            data-attr="llma-summary-feedback-positive"
+                                        />
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconThumbsDown />}
+                                            onClick={() => reportFeedback(false)}
+                                            tooltip="Not helpful"
+                                            disabled={feedbackGiven !== null}
+                                            active={feedbackGiven === false}
+                                            data-attr="llma-summary-feedback-negative"
+                                        />
+                                    </div>
+                                }
+                            />
                         </div>
                     </div>
 
