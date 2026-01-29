@@ -25,7 +25,7 @@ export function GroupedAccessControlRuleModal(props: {
     canEdit: boolean
     memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
-    roleHasAdminAccess
+    roleHasAdminAccess: boolean
 }): JSX.Element | null {
     const logic = accessControlsLogic({ projectId: props.projectId })
     const { groupedRulesForm } = useValues(logic)
