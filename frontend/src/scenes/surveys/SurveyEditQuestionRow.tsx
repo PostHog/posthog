@@ -183,7 +183,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         ? {
               ...question,
               ...question.translations?.[editingLanguage],
-              // Ensure choices array exists for translations by using original choices if translation is empty
               choices:
                   question.translations?.[editingLanguage]?.choices ||
                   (question.type === SurveyQuestionType.SingleChoice ||
@@ -210,7 +209,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             const trans = updatedTranslations[lang]
             if (trans.choices) {
                 const oldChoices = trans.choices
-                // Use default text if available, otherwise use placeholder
                 const newTransChoices = [...newChoices].map(
                     (defaultChoice, idx) => oldChoices[idx] || defaultChoice || '[Translation needed]'
                 )
@@ -221,7 +219,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
             }
         })
 
-        // Update question with synced translations AND updated choices
         setSurveyValue('questions', [
             ...survey.questions.slice(0, index),
             { ...question, choices: newChoices, translations: updatedTranslations },
@@ -234,7 +231,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         question: MultipleSurveyQuestion,
         newType: SurveyQuestionType
     ): void => {
-        // Reset to current type first (because onSelect has already changed it)
         setMultipleSurveyQuestion(index, question, question.type)
 
         LemonDialog.open({
@@ -311,7 +307,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 newType === SurveyQuestionType.MultipleChoice ||
                                 newType === SurveyQuestionType.SingleChoice
 
-                            // Same multiple choice type - just update type
                             if (isCurrentMultipleChoice && isNewMultipleChoice) {
                                 setMultipleSurveyQuestion(index, question, newType)
                                 resetBranchingForQuestion(index)
@@ -321,7 +316,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 confirmQuestionTypeChange(index, question, newType)
                                 return
                             }
-                            // Check if question has translations
                             if (hasTranslations) {
                                 confirmQuestionTypeChangeWithTranslations(index, question, newType)
                                 return
@@ -508,7 +502,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
                                 <LemonField name={getFieldName('choices')} label="Choices">
                                     {({ value, onChange }) => {
-                                        // Wrap onChange to sync translations
                                         const handleChoicesChange = (newChoices: string[]): void => {
                                             onChange(newChoices)
                                             if (!editingLanguage) {
