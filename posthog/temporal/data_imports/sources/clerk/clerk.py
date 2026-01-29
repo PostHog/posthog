@@ -106,7 +106,8 @@ def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     for field in TIMESTAMP_FIELDS:
         if field in item and item[field] is not None:
             # Clerk returns timestamps in milliseconds, convert to seconds
-            item[field] = item[field] / 1000
+            # Use integer division to maintain int64 type for delta table compatibility
+            item[field] = item[field] // 1000
     return item
 
 

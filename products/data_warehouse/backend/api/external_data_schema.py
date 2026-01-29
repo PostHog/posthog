@@ -357,6 +357,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "full_refresh_available": True,
+            "default_incremental_field": schema.default_incremental_field,
         }
 
         return Response(status=status.HTTP_200_OK, data=data)
