@@ -38,7 +38,6 @@ __all__ = [
     "CohortAdmin",
     "ColumnConfigurationAdmin",
     "DashboardAdmin",
-    "DuckLakeCatalogAdmin",
     "DashboardTemplateAdmin",
     "DataColorThemeAdmin",
     "DataWarehouseTableAdmin",

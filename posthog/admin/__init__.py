@@ -127,7 +127,3 @@ def register_all_admin():
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)
-
-    from posthog.ducklake.models import DuckLakeCatalog
-
-    admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
