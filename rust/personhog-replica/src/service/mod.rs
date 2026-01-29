@@ -1,5 +1,6 @@
 mod consistency;
-mod convert;
+mod error;
+mod types;
 
 #[cfg(test)]
 mod tests;
@@ -32,9 +33,7 @@ use uuid::Uuid;
 use crate::storage::{self, FullStorage};
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
-use convert::{
-    group_to_proto, group_type_mapping_to_proto, log_and_convert_error, person_to_proto,
-};
+use error::log_and_convert_error;
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
@@ -66,7 +65,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_person"))?;
 
         Ok(Response::new(GetPersonResponse {
-            person: person.map(person_to_proto),
+            person: person.map(Into::into),
         }))
     }
 
@@ -91,7 +90,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(PersonsResponse {
-            persons: persons.into_iter().map(person_to_proto).collect(),
+            persons: persons.into_iter().map(Into::into).collect(),
             missing_ids,
         }))
     }
@@ -113,7 +112,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))?;
 
         Ok(Response::new(GetPersonResponse {
-            person: person.map(person_to_proto),
+            person: person.map(Into::into),
         }))
     }
 
@@ -138,13 +137,13 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_persons_by_uuids"))?;
 
         Ok(Response::new(PersonsResponse {
-            persons: persons.into_iter().map(person_to_proto).collect(),
+            persons: persons.into_iter().map(Into::into).collect(),
             missing_ids: Vec::new(),
         }))
     }
 
     // ============================================================
-    // Person lookups by Distinct ID (HIGHEST VOLUME)
+    // Person lookups by Distinct ID
     // ============================================================
 
     async fn get_person_by_distinct_id(
@@ -161,7 +160,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_person_by_distinct_id"))?;
 
         Ok(Response::new(GetPersonResponse {
-            person: person.map(person_to_proto),
+            person: person.map(Into::into),
         }))
     }
 
@@ -183,7 +182,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .into_iter()
                 .map(|(distinct_id, person)| PersonWithDistinctIds {
                     distinct_id,
-                    person: person.map(person_to_proto),
+                    person: person.map(Into::into),
                 })
                 .collect(),
         }))
@@ -217,7 +216,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                             team_id,
                             distinct_id,
                         }),
-                        person: person.map(person_to_proto),
+                        person: person.map(Into::into),
                     },
                 )
                 .collect(),
@@ -437,7 +436,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_group"))?;
 
         Ok(Response::new(GetGroupResponse {
-            group: group.map(group_to_proto),
+            group: group.map(Into::into),
         }))
     }
 
@@ -476,7 +475,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GroupsResponse {
-            groups: groups.into_iter().map(group_to_proto).collect(),
+            groups: groups.into_iter().map(Into::into).collect(),
             missing_groups,
         }))
     }
@@ -522,7 +521,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                         group_type_index: k.group_type_index,
                         group_key: k.group_key,
                     }),
-                    group: found.get(&key).cloned().map(group_to_proto),
+                    group: found.get(&key).cloned().map(Into::into),
                 }
             })
             .collect();
@@ -550,7 +549,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         Ok(Response::new(GroupTypeMappingsResponse {
             mappings: mappings
                 .into_iter()
-                .map(group_type_mapping_to_proto)
+                .map(Into::into)
                 .collect(),
         }))
     }
@@ -574,7 +573,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             by_team
                 .entry(mapping.team_id)
                 .or_default()
-                .push(group_type_mapping_to_proto(mapping));
+                .push(Into::into(mapping));
         }
 
         let results = req
@@ -605,7 +604,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         Ok(Response::new(GroupTypeMappingsResponse {
             mappings: mappings
                 .into_iter()
-                .map(group_type_mapping_to_proto)
+                .map(Into::into)
                 .collect(),
         }))
     }
@@ -629,7 +628,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             by_project
                 .entry(mapping.project_id)
                 .or_default()
-                .push(group_type_mapping_to_proto(mapping));
+                .push(Into::into(mapping));
         }
 
         let results = req
