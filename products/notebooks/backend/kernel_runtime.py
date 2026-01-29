@@ -528,27 +528,32 @@ class KernelRuntimeService:
         response_blob = f"{len(response_bytes)}\n".encode() + response_bytes
         encoded_response = base64.b64encode(response_blob).decode("utf-8")
 
-        command = (
-            "python3 - <<'EOF_NOTEBOOK_BRIDGE'\n"
-            "import base64\n"
-            "from pathlib import Path\n"
-            f"payload = base64.b64decode('{encoded_response}')\n"
-            f"path = Path({json.dumps(response_path)})\n"
-            "path.parent.mkdir(parents=True, exist_ok=True)\n"
-            "path.write_bytes(payload)\n"
-            "EOF_NOTEBOOK_BRIDGE"
-        )
-
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)
-        result = sandbox.execute(command, timeout_seconds=int(self._execution_timeout))
-        if result.exit_code != 0:
-            logger.warning(
-                "notebook_bridge_response_write_failed",
-                stdout=result.stdout,
-                stderr=result.stderr,
-                sandbox_id=handle.sandbox_id,
+        chunk_size = 50000
+        for index in range(0, len(encoded_response), chunk_size):
+            chunk = encoded_response[index : index + chunk_size]
+            write_mode = "wb" if index == 0 else "ab"
+            command = (
+                "python3 - <<'EOF_NOTEBOOK_BRIDGE'\n"
+                "import base64\n"
+                "from pathlib import Path\n"
+                f"path = Path({json.dumps(response_path)})\n"
+                "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                f"payload = base64.b64decode('{chunk}')\n"
+                f"with path.open({json.dumps(write_mode)}) as response_file:\n"
+                "    response_file.write(payload)\n"
+                "EOF_NOTEBOOK_BRIDGE"
             )
+            result = sandbox.execute(command, timeout_seconds=int(self._execution_timeout))
+            if result.exit_code != 0:
+                logger.warning(
+                    "notebook_bridge_response_write_failed",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    sandbox_id=handle.sandbox_id,
+                )
+                break
 
     def _extract_user_expression_text(self, payload: dict[str, Any]) -> str | None:
         data = payload.get("data")
