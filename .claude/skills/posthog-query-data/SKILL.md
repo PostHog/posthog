@@ -34,6 +34,7 @@ Table | Description
 `system.dashboard_tiles` | Links insights to dashboards with layout
 `system.data_warehouse_sources` | Connected external data sources
 `system.data_warehouse_tables` | Connected tables with their columns and formats
+`system.error_tracking_issues` | Error tracking issues (grouped exceptions)
 `system.experiments` | A/B tests and experiments
 `system.exports` | Export jobs
 `system.feature_flags` | Feature flags for controlling rollouts
@@ -60,6 +61,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Cohorts & Persons](references/models-cohorts.md)
 - [Dashboards, Tiles & Insights](references/models-dashboards-insights.md)
 - [Data Warehouse](references/models-data-warehouse.md)
+- [Error Tracking](references/models-error-tracking.md)
 - [Flags & Experiments](references/models-flags-experiments.md)
 - [Groups](references/models-groups.md)
 - [Notebooks](references/models-notebooks.md)
