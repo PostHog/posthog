@@ -439,7 +439,7 @@ function ResourcesAccessControlRoles({
     )
 }
 
-export function ResourceAccessControlModal(props: {
+function ResourceAccessControlModal(props: {
     modalOpen: boolean
     setModalOpen: () => void
     placeholder: string

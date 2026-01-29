@@ -8,8 +8,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { AccessControlLevelMapping, GroupedAccessControlRulesForm, accessControlLogic } from '../accessControlLogic'
 import { ScopeIcon } from './ScopeIcon'
+import { AccessControlLevelMapping, GroupedAccessControlRulesForm, accessControlsLogic } from './accessControlsLogic'
 import { RuleModalState, ScopeType } from './types'
 
 export function GroupedAccessControlRuleModal(props: {
@@ -23,14 +23,10 @@ export function GroupedAccessControlRuleModal(props: {
     loading: boolean
     projectId: string
     canEdit: boolean
+    memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
 }): JSX.Element | null {
-    const logic = accessControlLogic({
-        resource: 'project',
-        resource_id: props.projectId,
-        title: '',
-        description: '',
-    })
+    const logic = accessControlsLogic({ projectId: props.projectId })
     const { groupedRulesForm } = useValues(logic)
     const { setGroupedRulesFormValues } = useActions(logic)
 
@@ -96,6 +92,7 @@ export function GroupedAccessControlRuleModal(props: {
                 onUpdate={updateLevels}
                 getLevelOptionsForResource={props.getLevelOptionsForResource}
                 canEdit={props.canEdit}
+                memberIsOrgAdmin={props.memberIsOrgAdmin}
                 memberHasAdminAccess={props.memberHasAdminAccess}
             />
         </LemonModal>
@@ -145,6 +142,7 @@ function GroupedAccessControlRuleModalContent(props: {
         resourceKey: APIScopeObject
     ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
     canEdit: boolean
+    memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
@@ -154,7 +152,7 @@ function GroupedAccessControlRuleModalContent(props: {
         {} as Record<APIScopeObject, AccessControlLevel>
     )
 
-    const disabledReason = useMemo(() => {
+    const disabledReasonForFeatures = useMemo(() => {
         if (props.loading) {
             return 'Loading...'
         }
@@ -166,7 +164,21 @@ function GroupedAccessControlRuleModalContent(props: {
         if (props.memberHasAdminAccess) {
             return 'Feature overrides do not apply to admins'
         }
-    }, [])
+    }, [props.loading, props.canEdit, props.memberHasAdminAccess])
+
+    const disabledReasonForProject = useMemo(() => {
+        if (props.loading) {
+            return 'Loading...'
+        }
+
+        if (!props.canEdit) {
+            return 'Cannot edit'
+        }
+
+        if (props.memberIsOrgAdmin) {
+            return 'Project overrides do not apply to organization admins'
+        }
+    }, [props.loading, props.canEdit, props.memberIsOrgAdmin])
 
     return (
         <div className="space-y-4">
@@ -181,7 +193,7 @@ function GroupedAccessControlRuleModalContent(props: {
                     <LemonSelect
                         dropdownPlacement="bottom-end"
                         value={mappedLevels['project'] ?? null}
-                        disabled={props.loading || !props.canEdit}
+                        disabledReason={disabledReasonForProject}
                         size="small"
                         className="w-36"
                         onChange={(newValue) => {
@@ -236,7 +248,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                         className="w-36"
                                         size="small"
                                         value={mappedLevels[resource.key] ?? null}
-                                        disabledReason={disabledReason}
+                                        disabledReason={disabledReasonForFeatures}
                                         onChange={(newValue) => {
                                             const newLevels = [
                                                 ...props.groupedRuleForm.levels.filter(

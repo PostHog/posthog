@@ -3,7 +3,7 @@ import { LemonButton, LemonTable, LemonTableColumns, ProfilePicture } from '@pos
 
 import { APIScopeObject } from '~/types'
 
-import { SummarizeAccessLevels } from '../SummarizeAccessLevels'
+import { SummarizeAccessLevels } from './SummarizeAccessLevels'
 import { AccessControlRow, AccessControlsTab } from './types'
 
 function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<AccessControlRow> {

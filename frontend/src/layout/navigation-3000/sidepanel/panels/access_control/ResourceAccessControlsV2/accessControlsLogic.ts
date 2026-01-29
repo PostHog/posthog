@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { fullName, toSentenceCase } from 'lib/utils'
@@ -17,7 +18,7 @@ import {
     OrganizationMemberType,
 } from '~/types'
 
-import { AccessControlLevelMapping, accessControlLogic } from '../accessControlLogic'
+import { accessControlLogic } from '../accessControlLogic'
 import { MemberResourceAccessControls, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
@@ -33,6 +34,16 @@ const initialFilters: AccessControlFilters = {
     memberIds: [],
     resourceKeys: [],
     ruleLevels: [],
+}
+
+export type AccessControlLevelMapping = {
+    resourceKey: APIScopeObject
+    level: AccessControlLevel
+}
+
+export type GroupedAccessControlRulesForm = {
+    scopeId: string | null
+    levels: AccessControlLevelMapping[]
 }
 
 export const accessControlsLogic = kea<accessControlsLogicType>([
@@ -412,7 +423,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 resourceAccessControlsLoading || accessControlsLoading,
         ],
 
-        ruleModalMemberHasAdminAccess: [
+        ruleModalMemberIsOrgAdmin: [
             (s) => [s.ruleModalState],
             (ruleModalState): boolean => {
                 if (!ruleModalState) {
@@ -424,9 +435,24 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     return false
                 }
 
-                // Check if member is an organization admin
-                if (row.member.level >= OrganizationMembershipLevel.Admin) {
+                return row.member.level >= OrganizationMembershipLevel.Admin
+            },
+        ],
+
+        ruleModalMemberHasAdminAccess: [
+            (s) => [s.ruleModalState, s.ruleModalMemberIsOrgAdmin],
+            (ruleModalState, ruleModalMemberIsOrgAdmin): boolean => {
+                if (!ruleModalState) {
+                    return false
+                }
+
+                if (ruleModalMemberIsOrgAdmin) {
                     return true
+                }
+
+                const row = ruleModalState.row
+                if (!row.member) {
+                    return false
                 }
 
                 // Check if member has project admin access
@@ -439,6 +465,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             },
         ],
     }),
+    forms(() => ({
+        groupedRulesForm: {
+            defaults: {
+                scopeId: null,
+                levels: [] as AccessControlLevelMapping[],
+            } as GroupedAccessControlRulesForm,
+        },
+    })),
 
     listeners(({ actions, values }) => ({
         saveGroupedRules: async ({ scopeType, scopeId, levels }) => {
