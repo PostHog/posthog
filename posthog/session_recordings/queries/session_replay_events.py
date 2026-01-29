@@ -33,7 +33,7 @@ def seconds_until_midnight():
 
 class SessionReplayEvents:
     def exists(self, session_id: str, team: Team) -> bool:
-        cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
+        cache_key = f"session_recording_existence_team_{team.pk}_id_{session_id}"
         cached_response = cache.get(cache_key)
         if isinstance(cached_response, bool):
             return cached_response
@@ -47,6 +47,50 @@ class SessionReplayEvents:
             # that should be impossible but cache invalidation is hard etc etc
             cache.set(cache_key, existence, timeout=seconds_until_midnight())
         return existence
+
+    def batch_exists(self, session_ids: list[str], team: Team) -> dict[str, bool]:
+        """
+        Check which session IDs have recordings within retention period.
+        Returns a dict mapping session_id -> exists (boolean).
+        Only positive results (exists=True) are cached.
+        """
+        if not session_ids:
+            return {}
+
+        results: dict[str, bool] = {}
+        uncached_session_ids: list[str] = []
+
+        # Check cache first
+        for sid in session_ids:
+            cache_key = f"session_recording_existence_team_{team.pk}_id_{sid}"
+            cached_value = cache.get(cache_key)
+            if cached_value is True:
+                results[sid] = True
+            else:
+                uncached_session_ids.append(sid)
+
+        if not uncached_session_ids:
+            return results
+
+        # Query ClickHouse for uncached session IDs
+        found_sessions = self._find_with_timestamps(uncached_session_ids, team)
+        # Build a mapping from session_id to expiry_time (tuple is: session_id, min_ts, max_ts, expiry_time)
+        session_expiry_map = {session_id: expiry_time for session_id, _, _, expiry_time in found_sessions}
+
+        now = datetime.now(pytz.timezone("UTC"))
+
+        # Build results and cache positive results with expiry-based TTL
+        for sid in uncached_session_ids:
+            exists = sid in session_expiry_map
+            results[sid] = exists
+            if exists:
+                expiry_time = session_expiry_map[sid]
+                ttl_seconds = int((expiry_time - now).total_seconds())
+                if ttl_seconds > 0:
+                    cache_key = f"session_recording_existence_team_{team.pk}_id_{sid}"
+                    cache.set(cache_key, True, timeout=ttl_seconds)
+
+        return results
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
@@ -93,27 +137,27 @@ class SessionReplayEvents:
         if not found_sessions:
             return set(), None, None
         # Calculate min/max timestamps for the entire list of sessions
-        replay_session_ids = [session_id for session_id, _, _ in found_sessions]
-        min_timestamp = min(ts for _, ts, _ in found_sessions)
-        max_timestamp = max(ts for _, _, ts in found_sessions)
+        replay_session_ids = [session_id for session_id, _, _, _ in found_sessions]
+        min_timestamp = min(ts for _, ts, _, _ in found_sessions)
+        max_timestamp = max(ts for _, _, ts, _ in found_sessions)
         # Check which sessions also have events in the events table
         sessions_with_events = self._find_sessions_in_events(replay_session_ids, min_timestamp, max_timestamp, team)
         if not sessions_with_events:
             return set(), None, None
         # Filter to only sessions that exist in both tables
-        session_ids_found = {session_id for session_id, _, _ in found_sessions if session_id in sessions_with_events}
+        session_ids_found = {session_id for session_id, _, _, _ in found_sessions if session_id in sessions_with_events}
         if not session_ids_found:
             return set(), None, None
         # Recalculate timestamps for filtered sessions only
-        min_timestamp = min(ts for session_id, ts, _ in found_sessions if session_id in session_ids_found)
-        max_timestamp = max(ts for session_id, _, ts in found_sessions if session_id in session_ids_found)
+        min_timestamp = min(ts for session_id, ts, _, _ in found_sessions if session_id in session_ids_found)
+        max_timestamp = max(ts for session_id, _, ts, _ in found_sessions if session_id in session_ids_found)
         return session_ids_found, min_timestamp, max_timestamp
 
     @staticmethod
-    def _find_with_timestamps(session_ids: list[str], team: Team) -> list[tuple[str, datetime, datetime]]:
+    def _find_with_timestamps(session_ids: list[str], team: Team) -> list[tuple[str, datetime, datetime, datetime]]:
         """
         Check which session IDs exist in session_replay_events within retention period.
-        Returns a list of tuples of (session_id, min_timestamp, max_timestamp).
+        Returns a list of tuples of (session_id, min_timestamp, max_timestamp, expiry_time).
         Timestamps are per session, not for the entire list of sessions.
         """
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -146,7 +190,9 @@ class SessionReplayEvents:
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return []
-        sessions_found: list[tuple[str, datetime, datetime]] = [(row[0], row[1], row[2]) for row in result.results]
+        sessions_found: list[tuple[str, datetime, datetime, datetime]] = [
+            (row[0], row[1], row[2], row[4]) for row in result.results
+        ]
         return sessions_found
 
     @staticmethod
@@ -204,6 +250,7 @@ class SessionReplayEvents:
                 sum(console_warn_count) as console_warn_count,
                 sum(console_error_count) as console_error_count,
                 argMinMerge(snapshot_source) as snapshot_source,
+                argMinMerge(snapshot_library) as snapshot_library,
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
@@ -290,12 +337,13 @@ class SessionReplayEvents:
             console_warn_count=replay[11],
             console_error_count=replay[12],
             snapshot_source=replay[13] or "web",
-            block_first_timestamps=replay[14],
-            block_last_timestamps=replay[15],
-            block_urls=replay[16],
-            retention_period_days=replay[17],
-            expiry_time=replay[18],
-            recording_ttl=replay[19],
+            snapshot_library=replay[14],
+            block_first_timestamps=replay[15],
+            block_last_timestamps=replay[16],
+            block_urls=replay[17],
+            retention_period_days=replay[18],
+            expiry_time=replay[19],
+            recording_ttl=replay[20],
         )
 
     def get_metadata(
@@ -356,6 +404,7 @@ class SessionReplayEvents:
                 sum(console_warn_count) as console_warn_count,
                 sum(console_error_count) as console_error_count,
                 argMinMerge(snapshot_source) as snapshot_source,
+                argMinMerge(snapshot_library) as snapshot_library,
                 groupArrayArray(block_first_timestamps) as block_first_timestamps,
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,

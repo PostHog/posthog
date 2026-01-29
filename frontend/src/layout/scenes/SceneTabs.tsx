@@ -76,7 +76,7 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div className="absolute bottom-0 w-full px-[5px]">
+            <div className="absolute bottom-0 w-full pl-[5px] pr-3">
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
@@ -85,7 +85,7 @@ export function SceneTabs(): JSX.Element {
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto">
+                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2">
                         {tabs.map((tab, index) => {
                             const sortableId = getSortableId(tab, index)
                             const isLastPinned =
@@ -116,17 +116,19 @@ export function SceneTabs(): JSX.Element {
                                 data-attr="scene-tab-new-button"
                                 onClick={(e) => {
                                     e.preventDefault()
-                                    newTab()
+                                    const currentPath = router.values.location.pathname
+                                    // If on /sql route, open a new /sql tab, otherwise default to /search
+                                    const isSqlRoute = currentPath.endsWith('/sql')
+                                    newTab(isSqlRoute ? '/sql' : null)
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
                                 buttonProps={{
                                     iconOnly: true,
-                                    size: 'sm',
                                     className: 'p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20',
                                 }}
                             >
-                                <IconPlus className="!ml-0" fontSize={14} />
+                                <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
                     </div>

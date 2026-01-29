@@ -229,7 +229,7 @@ const Component = ({
         pythonExecution?.traceback?.length,
         pythonExecution?.variables?.length,
         updateAttributes,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!expanded) {
         return null
@@ -240,7 +240,7 @@ const Component = ({
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
             <div
                 ref={outputRef}
-                className="p-3 overflow-y-auto h-full space-y-3"
+                className="p-2 overflow-y-auto h-full space-y-3"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >

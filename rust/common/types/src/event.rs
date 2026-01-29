@@ -77,6 +77,7 @@ pub struct RawEngageEvent {
     pub set_once: Option<HashMap<String, Value>>,
 }
 
+#[derive(Debug, Clone)]
 pub struct CapturedEventHeaders {
     pub token: Option<String>,
     pub distinct_id: Option<String>,

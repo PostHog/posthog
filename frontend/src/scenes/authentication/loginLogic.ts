@@ -147,6 +147,8 @@ export const loginLogic = kea<loginLogicType>([
             }),
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
+                // Clear any previous passkey errors when submitting with password
+                actions.clearGeneralError()
                 try {
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {
@@ -184,7 +186,7 @@ export const loginLogic = kea<loginLogicType>([
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-        precheckSuccess: async () => {
+        precheckSuccess: async (_, breakpoint) => {
             const { precheckResponse } = values
             // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
             if (
@@ -192,8 +194,10 @@ export const loginLogic = kea<loginLogicType>([
                 precheckResponse.webauthn_credentials.length > 0 &&
                 !precheckResponse.sso_enforcement
             ) {
+                breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('./passkeyLogic')
+                breakpoint()
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
             }
         },

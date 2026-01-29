@@ -4,9 +4,12 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SourceFormComponent } from 'scenes/data-warehouse/external/forms/SourceForm'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { buildKeaFormDefaultFromSourceDetails } from 'scenes/data-warehouse/new/sourceWizardLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
@@ -68,15 +71,21 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     setSourceConfigValue={setSourceConfigValue}
                 />
                 <div className="mt-4 flex flex-row justify-end gap-2">
-                    <LemonButton
-                        loading={sourceConfigLoading}
-                        type="primary"
-                        center
-                        htmlType="submit"
-                        data-attr="source-update"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.ExternalDataSource}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={source.user_access_level}
                     >
-                        Save
-                    </LemonButton>
+                        <LemonButton
+                            loading={sourceConfigLoading}
+                            type="primary"
+                            center
+                            htmlType="submit"
+                            data-attr="source-update"
+                        >
+                            Save
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             </Form>
         </>

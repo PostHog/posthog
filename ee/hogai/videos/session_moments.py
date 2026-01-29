@@ -2,7 +2,6 @@ import uuid
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from io import BytesIO
 from math import ceil
 
 from django.conf import settings
@@ -12,7 +11,6 @@ import structlog
 from google.genai import Client
 from google.genai.errors import APIError
 from google.genai.types import Blob, Content, Part, VideoMetadata
-from pymediainfo import MediaInfo
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.models.exported_asset import ExportedAsset
@@ -28,10 +26,11 @@ from products.llm_analytics.backend.providers.gemini import GeminiProvider
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    SESSION_VIDEO_RENDERING_DELAY,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
-    VALIDATION_VIDEO_RENDERING_DELAY,
 )
+from ee.hogai.videos.utils import get_video_duration_s
 
 logger = structlog.get_logger(__name__)
 
@@ -206,20 +205,6 @@ class SessionMomentsLLMAnalyzer:
         except ExportedAsset.DoesNotExist:
             return None
 
-    @staticmethod
-    def _get_webm_duration(video_bytes: bytes) -> int | None:
-        """Extract duration in milliseconds from WEBM video bytes to understand when the export UI finished rendering"""
-        try:
-            media_info = MediaInfo.parse(BytesIO(video_bytes))
-            for track in media_info.tracks:
-                if track.track_type == "General":
-                    # Convert ms to seconds, ceil to avoid grey "not-rendered" frames at the start
-                    return ceil(track.duration / 1000.0)
-            return None
-        except Exception as e:
-            logger.exception(f"Error extracting video duration: {e}")
-            return None
-
     async def _analyze_single_moment_video_with_llm(
         self,
         asset_id: int,
@@ -236,9 +221,12 @@ class SessionMomentsLLMAnalyzer:
                 )
                 return None
             # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
-            total_video_duration = self._get_webm_duration(video_bytes=video_bytes)
+            try:
+                total_video_duration = get_video_duration_s(video_bytes=video_bytes)
+            except ValueError:
+                total_video_duration = None
             start_offset_s = (
-                total_video_duration - VALIDATION_VIDEO_DURATION + VALIDATION_VIDEO_RENDERING_DELAY
+                total_video_duration - VALIDATION_VIDEO_DURATION + SESSION_VIDEO_RENDERING_DELAY
                 if total_video_duration
                 else None
             )

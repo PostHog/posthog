@@ -50,6 +50,7 @@ import {
     PythonKernelExecuteResponse,
     buildPythonExecutionError,
     buildPythonExecutionResult,
+    buildPythonExecutionRunning,
 } from './pythonExecution'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -154,17 +155,50 @@ const getDependencyNodesForRun = (
     return dependencyGraph.nodes.filter((node) => nodeIds.has(node.nodeId))
 }
 
+const getDependencyEntriesWithLogic = ({
+    dependencyGraph,
+    nodeId,
+    direction,
+    notebookLogic,
+}: {
+    dependencyGraph: NotebookDependencyGraph
+    nodeId: string
+    direction: DependencyRunDirection
+    notebookLogic: BuiltLogic<notebookLogicType>
+}): { node: NotebookDependencyNode; nodeLogic: BuiltLogic<notebookNodeLogicType> }[] => {
+    const nodesToRun = getDependencyNodesForRun(dependencyGraph, nodeId, direction)
+    if (nodesToRun.length === 0) {
+        return []
+    }
+
+    return nodesToRun
+        .map((node) => ({
+            node,
+            nodeLogic: notebookLogic.values.findNodeLogicById(node.nodeId),
+        }))
+        .filter(
+            (
+                entry
+            ): entry is {
+                node: (typeof nodesToRun)[number]
+                nodeLogic: BuiltLogic<notebookNodeLogicType>
+            } => !!entry.nodeLogic
+        )
+}
+
 const isPythonExecutionFresh = (nodeLogic: BuiltLogic<notebookNodeLogicType>, code: string): boolean => {
     const { pythonExecutionCodeHash, pythonExecution, pythonExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(code)
     const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const kernelIsRunning = nodeLogic.values.kernelInfo?.status === 'running'
     const sandboxMatches =
         pythonExecutionSandboxId && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
     return (
         pythonExecutionCodeHash &&
         pythonExecutionCodeHash === codeHash &&
         pythonExecution?.status === 'ok' &&
-        sandboxMatches
+        sandboxMatches &&
+        kernelIsRunning
     )
 }
 
@@ -176,10 +210,15 @@ const isDuckSqlExecutionFresh = (
     const { duckExecutionCodeHash, duckExecution, duckExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(`${code}\n${returnVariable}`)
     const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const kernelIsRunning = nodeLogic.values.kernelInfo?.status === 'running'
     const sandboxMatches =
         duckExecutionSandboxId && kernelSandboxId !== null && duckExecutionSandboxId === kernelSandboxId
     return (
-        duckExecutionCodeHash && duckExecutionCodeHash === codeHash && duckExecution?.status === 'ok' && sandboxMatches
+        duckExecutionCodeHash &&
+        duckExecutionCodeHash === codeHash &&
+        duckExecution?.status === 'ok' &&
+        sandboxMatches &&
+        kernelIsRunning
     )
 }
 
@@ -203,12 +242,14 @@ const runDependencyNodes = async ({
     mode,
     duckSqlNodeSummaries,
     currentNodeId,
+    skipDataframeVariableUpdateForNodeId,
 }: {
     entries: { node: NotebookDependencyNode; nodeLogic: BuiltLogic<notebookNodeLogicType> }[]
     notebookId: string
     mode: PythonRunMode | DuckSqlRunMode
     duckSqlNodeSummaries: DuckSqlNodeSummary[]
     currentNodeId: string
+    skipDataframeVariableUpdateForNodeId?: string
 }): Promise<void> => {
     entries.forEach(({ node, nodeLogic }) => setDependencyNodeQueued(nodeLogic, node.nodeType, true))
 
@@ -282,7 +323,14 @@ const runDependencyNodes = async ({
                 const isSuccess = executed && execution?.status === 'ok'
                 if (isSuccess) {
                     const previewResult = parseDataframePreview(execution?.result)
-                    nodeLogic.actions.setDataframeVariableName(nodeLogic.values.duckSqlReturnVariable, previewResult)
+                    const shouldUpdateDataframeVariable =
+                        node.nodeId !== skipDataframeVariableUpdateForNodeId || !nodeLogic.values.dataframeVariableName
+                    if (shouldUpdateDataframeVariable) {
+                        nodeLogic.actions.setDataframeVariableName(
+                            nodeLogic.values.duckSqlReturnVariable,
+                            previewResult
+                        )
+                    }
                 } else {
                     nodeLogic.actions.setDataframeVariableName(null)
                 }
@@ -306,19 +354,99 @@ const runPythonCell = async ({
 }: RunPythonCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setPythonRunLoading(true)
     try {
-        const execution = (await api.notebooks.kernelExecute(notebookId, {
-            code,
-            return_variables: exportedGlobals.length > 0,
-        })) as PythonKernelExecuteResponse
+        let stdout = ''
+        let stderr = ''
+        let executionResult: PythonExecutionResult | null = null
+        let kernelResponse: PythonKernelExecuteResponse | null = null
+        let didFail = false
+        const codeHash = hashCodeForString(code)
 
-        const executionResult = buildPythonExecutionResult(execution, exportedGlobals)
         updateAttributes({
-            pythonExecution: executionResult,
-            pythonExecutionCodeHash: hashCodeForString(code),
+            pythonExecution: buildPythonExecutionRunning(exportedGlobals),
+            pythonExecutionCodeHash: codeHash,
             pythonExecutionSandboxId: executionSandboxId,
         })
-        return { executed: true, execution: executionResult }
+
+        await api.notebooks.kernelExecuteStream(
+            notebookId,
+            {
+                code,
+                return_variables: exportedGlobals.length > 0,
+            },
+            {
+                onMessage: (event) => {
+                    if (event.event === 'stdout') {
+                        const payload = JSON.parse(event.data) as { text?: string }
+                        stdout = `${stdout}${payload.text ?? ''}`
+                        updateAttributes({
+                            pythonExecution: buildPythonExecutionRunning(exportedGlobals, stdout, stderr),
+                        })
+                        return
+                    }
+                    if (event.event === 'stderr') {
+                        const payload = JSON.parse(event.data) as { text?: string }
+                        stderr = `${stderr}${payload.text ?? ''}`
+                        updateAttributes({
+                            pythonExecution: buildPythonExecutionRunning(exportedGlobals, stdout, stderr),
+                        })
+                        return
+                    }
+                    if (event.event === 'error') {
+                        const payload = JSON.parse(event.data) as { error?: string }
+                        const message = payload.error ?? 'Failed to run Python cell.'
+                        executionResult = buildPythonExecutionError(message, exportedGlobals)
+                        didFail = true
+                        updateAttributes({
+                            pythonExecution: executionResult,
+                            pythonExecutionCodeHash: codeHash,
+                            pythonExecutionSandboxId: executionSandboxId,
+                        })
+                        return
+                    }
+                    if (event.event === 'result') {
+                        kernelResponse = JSON.parse(event.data) as PythonKernelExecuteResponse
+                        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+                        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
+                        updateAttributes({
+                            pythonExecution: executionResult,
+                            pythonExecutionCodeHash: codeHash,
+                            pythonExecutionSandboxId: runtimeSandboxId,
+                        })
+                    }
+                },
+                onError: (error) => {
+                    const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
+                    executionResult = buildPythonExecutionError(message, exportedGlobals)
+                    didFail = true
+                    updateAttributes({
+                        pythonExecution: executionResult,
+                        pythonExecutionCodeHash: codeHash,
+                        pythonExecutionSandboxId: executionSandboxId,
+                    })
+                    throw error
+                },
+            }
+        )
+
+        if (!executionResult && kernelResponse) {
+            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+        }
+
+        if (!executionResult) {
+            throw new Error('Python execution did not return a result.')
+        }
+
+        return { executed: !didFail, execution: executionResult }
     } catch (error) {
+        if (error instanceof Error && error.message === 'Python execution did not return a result.') {
+            const executionResult = buildPythonExecutionError(error.message, exportedGlobals)
+            updateAttributes({
+                pythonExecution: executionResult,
+                pythonExecutionCodeHash: hashCodeForString(code),
+                pythonExecutionSandboxId: executionSandboxId,
+            })
+            return { executed: false, execution: executionResult }
+        }
         const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
         const executionResult = buildPythonExecutionError(message, exportedGlobals)
         updateAttributes({
@@ -345,19 +473,37 @@ const runDuckSqlCell = async ({
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const executionCode = buildDuckSqlCode(code, returnVariable, pageSize)
     try {
-        const execution = (await api.notebooks.kernelExecute(notebookId, {
+        let executionResult: PythonExecutionResult | null = null
+        let kernelResponse: PythonKernelExecuteResponse | null = null
+        const codeHash = hashCodeForString(`${code}\n${resolvedReturnVariable}`)
+        const exportedGlobals = [{ name: resolvedReturnVariable, type: 'DataFrame' }]
+
+        updateAttributes({
+            duckExecution: buildPythonExecutionRunning(exportedGlobals),
+            duckExecutionCodeHash: codeHash,
+            duckExecutionSandboxId: executionSandboxId,
+        })
+
+        kernelResponse = (await api.notebooks.kernelExecute(notebookId, {
             code: executionCode,
             return_variables: true,
         })) as PythonKernelExecuteResponse
-
-        const executionResult = buildPythonExecutionResult(execution, [
-            { name: resolvedReturnVariable, type: 'DataFrame' },
-        ])
+        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
         updateAttributes({
             duckExecution: executionResult,
-            duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
-            duckExecutionSandboxId: executionSandboxId,
+            duckExecutionCodeHash: codeHash,
+            duckExecutionSandboxId: runtimeSandboxId,
         })
+
+        if (!executionResult && kernelResponse) {
+            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+        }
+
+        if (!executionResult) {
+            throw new Error('DuckDB execution did not return a result.')
+        }
+
         return { executed: true, execution: executionResult }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'
@@ -1034,25 +1180,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
 
             const direction: DependencyRunDirection = mode === 'cell_downstream' ? 'downstream' : 'upstream'
-            const nodesToRun = getDependencyNodesForRun(values.dependencyGraph, values.nodeId, direction)
-            if (nodesToRun.length === 0) {
+            const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                dependencyGraph: values.dependencyGraph,
+                nodeId: values.nodeId,
+                direction,
+                notebookLogic: values.notebookLogic,
+            })
+            if (nodesToRunWithLogic.length === 0) {
                 await actions.runDuckSqlNode()
                 return
             }
-
-            const nodesToRunWithLogic = nodesToRun
-                .map((node) => ({
-                    node,
-                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
-                }))
-                .filter(
-                    (
-                        entry
-                    ): entry is {
-                        node: (typeof nodesToRun)[number]
-                        nodeLogic: BuiltLogic<notebookNodeLogicType>
-                    } => !!entry.nodeLogic
-                )
 
             await runDependencyNodes({
                 entries: nodesToRunWithLogic,
@@ -1078,25 +1215,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
 
             const direction: DependencyRunDirection = mode === 'cell_downstream' ? 'downstream' : 'upstream'
-            const nodesToRun = getDependencyNodesForRun(values.dependencyGraph, values.nodeId, direction)
-            if (nodesToRun.length === 0) {
+            const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                dependencyGraph: values.dependencyGraph,
+                nodeId: values.nodeId,
+                direction,
+                notebookLogic: values.notebookLogic,
+            })
+            if (nodesToRunWithLogic.length === 0) {
                 await actions.runPythonNode({ code: (values.nodeAttributes as { code?: string }).code ?? '' })
                 return
             }
-
-            const nodesToRunWithLogic = nodesToRun
-                .map((node) => ({
-                    node,
-                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
-                }))
-                .filter(
-                    (
-                        entry
-                    ): entry is {
-                        node: (typeof nodesToRun)[number]
-                        nodeLogic: BuiltLogic<notebookNodeLogicType>
-                    } => !!entry.nodeLogic
-                )
 
             await runDependencyNodes({
                 entries: nodesToRunWithLogic,
@@ -1132,6 +1260,33 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const notebook = values.notebook
             if (!notebook) {
                 return
+            }
+            const nodeLogic = values.notebookLogic.values.findNodeLogicById(values.nodeId)
+            if (
+                props.nodeType === NotebookNodeType.DuckSQL &&
+                nodeLogic &&
+                !isDuckSqlExecutionFresh(
+                    nodeLogic,
+                    (values.nodeAttributes as { code?: string }).code ?? '',
+                    values.duckSqlReturnVariable
+                )
+            ) {
+                const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                    dependencyGraph: values.dependencyGraph,
+                    nodeId: values.nodeId,
+                    direction: 'upstream',
+                    notebookLogic: values.notebookLogic,
+                })
+                if (nodesToRunWithLogic.length > 0) {
+                    await runDependencyNodes({
+                        entries: nodesToRunWithLogic,
+                        notebookId: notebook.short_id,
+                        mode: 'cell_upstream',
+                        duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                        currentNodeId: values.nodeId,
+                        skipDataframeVariableUpdateForNodeId: values.nodeId,
+                    })
+                }
             }
             actions.setDataframeLoading(true)
             actions.setDataframeError(null)

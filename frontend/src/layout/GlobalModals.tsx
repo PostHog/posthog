@@ -5,6 +5,8 @@ import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemS
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
+import { SuperpowersModal } from 'lib/components/Superpowers/Superpowers'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
@@ -69,6 +71,7 @@ export function GlobalModals(): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
+    const { superpowersEnabled } = useValues(superpowersLogic)
 
     // Expose modal actions to window for debugging purposes
     useEffect(() => {
@@ -110,6 +113,7 @@ export function GlobalModals(): JSX.Element {
             <LinkToModal />
             <ItemSelectModal />
             {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
+            {superpowersEnabled && <SuperpowersModal />}
         </>
     )
 }

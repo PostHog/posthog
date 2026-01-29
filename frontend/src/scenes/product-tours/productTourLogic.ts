@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { DateRange } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
+    FeatureFlagBasicType,
     FeatureFlagFilters,
     ProductTour,
     ProductTourBannerConfig,
@@ -22,7 +24,7 @@ import {
 
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
-import { productToursLogic } from './productToursLogic'
+import { isAnnouncement, productToursLogic } from './productToursLogic'
 
 /**
  * Builds a HogQL date filter clause from a DateRange.
@@ -123,6 +125,8 @@ export interface ProductTourForm {
     content: ProductTourContent
     auto_launch: boolean
     targeting_flag_filters: FeatureFlagFilters | null
+    linked_flag: FeatureFlagBasicType | null
+    linked_flag_id: number | null
 }
 
 const NEW_PRODUCT_TOUR: ProductTourForm = {
@@ -131,6 +135,8 @@ const NEW_PRODUCT_TOUR: ProductTourForm = {
     content: { steps: [] },
     auto_launch: false,
     targeting_flag_filters: null,
+    linked_flag: null,
+    linked_flag_id: null,
 }
 
 export const productTourLogic = kea<productTourLogicType>([
@@ -138,7 +144,7 @@ export const productTourLogic = kea<productTourLogicType>([
     props({} as ProductTourLogicProps),
     key((props) => props.id),
     connect(() => ({
-        actions: [productToursLogic, ['loadProductTours']],
+        actions: [productToursLogic, ['loadProductTours'], eventUsageLogic, ['reportProductTourViewed']],
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
@@ -147,6 +153,9 @@ export const productTourLogic = kea<productTourLogicType>([
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
+        openToolbarModal: true,
+        closeToolbarModal: true,
+        submitAndOpenToolbar: true,
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -344,6 +353,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: processedContent,
                     auto_launch: formValues.auto_launch,
                     targeting_flag_filters: formValues.targeting_flag_filters,
+                    linked_flag_id: formValues.linked_flag_id,
                 }
 
                 if (props.id && props.id !== 'new') {
@@ -381,8 +391,35 @@ export const productTourLogic = kea<productTourLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        pendingToolbarOpen: [
+            false,
+            {
+                submitAndOpenToolbar: () => true,
+                openToolbarModal: () => false,
+                closeToolbarModal: () => false,
+                submitProductTourFormFailure: () => false,
+            },
+        ],
+        isToolbarModalOpen: [
+            false,
+            {
+                openToolbarModal: () => true,
+                closeToolbarModal: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        submitAndOpenToolbar: () => {
+            actions.submitProductTourForm()
+        },
+        submitProductTourFormSuccess: () => {
+            if (values.pendingToolbarOpen) {
+                actions.openToolbarModal()
+            }
+        },
+        submitProductTourFormFailure: () => {
+            lemonToast.error('Failed to save product tour')
+        },
         launchProductTour: async () => {
             if (values.productTour) {
                 await api.productTours.update(values.productTour.id, {
@@ -414,6 +451,9 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         loadProductTourSuccess: ({ productTour }) => {
+            if (productTour) {
+                actions.reportProductTourViewed(productTour)
+            }
             // Set date range to start from tour's start_date (or keep default -30d)
             // This will trigger loadTourStats via the setDateRange listener
             if (productTour?.start_date) {
@@ -434,6 +474,8 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: productTour.content,
                     auto_launch: productTour.auto_launch,
                     targeting_flag_filters: productTour.targeting_flag_filters,
+                    linked_flag: productTour.linked_flag,
+                    linked_flag_id: productTour.linked_flag?.id ?? null,
                 })
             }
         },
@@ -447,6 +489,8 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: values.productTour.content,
                     auto_launch: values.productTour.auto_launch,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
+                    linked_flag: values.productTour.linked_flag,
+                    linked_flag_id: values.productTour.linked_flag?.id ?? null,
                 })
             }
         },
@@ -482,6 +526,12 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
                 }
                 return undefined
+            },
+        ],
+        entityKeyword: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): string => {
+                return productTour && isAnnouncement(productTour) ? 'announcement' : 'tour'
             },
         ],
     }),

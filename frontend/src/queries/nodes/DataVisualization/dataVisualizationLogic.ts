@@ -28,6 +28,7 @@ import {
     ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
+    HeatmapSettings,
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -235,6 +236,27 @@ const isNumericalType = (type: ColumnScalar): boolean => {
     return false
 }
 
+const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
+    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    const nextSettings: Partial<HeatmapSettings> = {}
+
+    if (!heatmapSettings.xAxisColumn && stringColumns[0]) {
+        nextSettings.xAxisColumn = stringColumns[0].name
+    }
+
+    if (!heatmapSettings.yAxisColumn && stringColumns[1]) {
+        nextSettings.yAxisColumn = stringColumns[1].name
+    }
+
+    if (!heatmapSettings.valueColumn && numericalColumns[0]) {
+        nextSettings.valueColumn = numericalColumns[0].name
+    }
+
+    return nextSettings
+}
+
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     key((props) => props.key),
     path(['queries', 'nodes', 'DataVisualization', 'dataVisualizationLogic']),
@@ -438,7 +460,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedXAxis: [
-            null as string | null,
+            props.query.chartSettings?.xAxis?.column ?? null,
             {
                 _setQuery: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
                 clearAxis: () => null,
@@ -446,7 +468,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedYAxis: [
-            null as (SelectedYAxis | null)[] | null,
+            (props.query.chartSettings?.yAxis?.map((axis) => ({
+                name: axis.column,
+                settings: axis.settings ?? DefaultAxisSettings(),
+            })) ?? null) as (SelectedYAxis | null)[] | null,
             {
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
@@ -1010,7 +1035,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }))
         },
     })),
-    listeners(({ props, actions, sharedListeners }) => ({
+    listeners(({ props, values, actions, sharedListeners }) => ({
         updateChartSettings: ({ settings }) => {
             actions.setQuery((query) => ({
                 ...query,
@@ -1027,6 +1052,30 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 display: visualizationType,
             }))
+        },
+        toggleChartSettingsPanel: ({ open }) => {
+            const shouldOpen = open ?? !values.isChartSettingsPanelOpen
+            if (!shouldOpen) {
+                return
+            }
+
+            if (values.visualizationType !== ChartDisplayType.TwoDimensionalHeatmap) {
+                return
+            }
+
+            const heatmapSettings = values.chartSettings.heatmap ?? {}
+            const autoSettings = getHeatmapAutoSettings(values.columns, heatmapSettings)
+
+            if (Object.keys(autoSettings).length === 0) {
+                return
+            }
+
+            actions.updateChartSettings({
+                heatmap: {
+                    ...heatmapSettings,
+                    ...autoSettings,
+                },
+            })
         },
         clearAxis: [sharedListeners.axesChanged],
         updateXSeries: [sharedListeners.axesChanged],
@@ -1087,6 +1136,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 if (xAxisTypes) {
                     actions.updateXSeries(xAxisTypes.name)
+                }
+            }
+
+            if (
+                values.isChartSettingsPanelOpen &&
+                values.visualizationType === ChartDisplayType.TwoDimensionalHeatmap
+            ) {
+                const heatmapSettings = values.chartSettings.heatmap ?? {}
+                const autoSettings = getHeatmapAutoSettings(value, heatmapSettings)
+
+                if (Object.keys(autoSettings).length > 0) {
+                    actions.updateChartSettings({
+                        heatmap: {
+                            ...heatmapSettings,
+                            ...autoSettings,
+                        },
+                    })
                 }
             }
         },

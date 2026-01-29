@@ -31,9 +31,9 @@ LOCAL_HTTPS=1
 DEBUG=1
 
 # ngrok tunnel URLs for HTTPS local development (update with your ngrok URL)
+SITE_URL=https://your-ngrok-tunnel.ngrok-free.dev
 JS_URL=https://your-ngrok-tunnel.ngrok-free.dev
 WEBPACK_HOT_RELOAD_HOST=0.0.0.0
-NGROK_ORIGIN=https://your-ngrok-tunnel.ngrok-free.dev
 
 # Vercel integration credentials (automatically loaded from 1Password)
 VERCEL_CLIENT_INTEGRATION_ID="op://General/Vercel Client Integration Secret/client id"

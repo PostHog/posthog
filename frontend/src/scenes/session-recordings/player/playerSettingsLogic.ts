@@ -36,7 +36,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
-        setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
+        setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
@@ -109,11 +109,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
-        isCinemaMode: [
+        isPlaylistCollapsed: [
             false,
             { persist: true },
             {
-                setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
+                setPlaylistCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
         showMetadataFooter: [

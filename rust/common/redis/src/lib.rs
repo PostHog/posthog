@@ -7,6 +7,11 @@ use thiserror::Error;
 pub use redis::ErrorKind as RedisErrorKind;
 pub use redis::RetryMethod;
 
+// Re-export pipeline types
+pub use pipeline::{Pipeline, PipelineCommand, PipelineResult};
+
+// ClientPipelineExt is defined later in this file after the Client trait
+
 #[derive(Error, Debug, Clone)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
@@ -188,7 +193,7 @@ pub enum RedisValueFormat {
 }
 
 #[async_trait]
-pub trait Client {
+pub trait Client: Send + Sync {
     async fn zrangebyscore(
         &self,
         k: String,
@@ -265,11 +270,50 @@ pub trait Client {
         ttl_seconds: usize,
     ) -> Result<Vec<bool>, CustomRedisError>;
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
+    /// Execute a batch of pipeline commands in a single round-trip.
+    ///
+    /// Returns a vector of results, one for each command in the same order.
+    /// The outer Result is for connection-level errors, inner Results are per-command.
+    async fn execute_pipeline(
+        &self,
+        commands: Vec<PipelineCommand>,
+    ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError>;
 }
+
+/// Extension trait providing the `.pipeline()` builder method.
+///
+/// Requires `Clone` because the client is cloned into the Pipeline builder.
+/// For trait objects (`dyn Client`), call `execute_pipeline()` directly instead.
+pub trait ClientPipelineExt: Client + Clone {
+    /// Create a new pipeline for batching multiple Redis commands.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use common_redis::{Client, ClientPipelineExt, PipelineResult};
+    ///
+    /// async fn example(client: &impl ClientPipelineExt) {
+    ///     let results = client.pipeline()
+    ///         .set("key1", "value1")
+    ///         .set("key2", "value2")
+    ///         .get("key3")
+    ///         .execute()
+    ///         .await
+    ///         .unwrap();
+    /// }
+    /// ```
+    fn pipeline(&self) -> Pipeline<Self> {
+        Pipeline::new(self.clone())
+    }
+}
+
+// Blanket implementation for all types that implement Client and Clone
+impl<T: Client + Clone> ClientPipelineExt for T {}
 
 // Module declarations
 mod client;
 mod mock;
+mod pipeline;
 mod read_write;
 
 // Re-export public APIs

@@ -25,7 +25,7 @@ class VercelSSOSerializer(DataclassSerializer[SSOParams]):
         return value
 
     def validate_path(self, value: str | None) -> str | None:
-        valid_paths = {"billing", "usage", "support", "secrets"}
+        valid_paths = {"billing", "usage", "support", "secrets", "onboarding"}
         if value and value not in valid_paths:
             raise serializers.ValidationError(f"Path must be one of: {', '.join(valid_paths)}")
         return value

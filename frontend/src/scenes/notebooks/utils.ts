@@ -91,3 +91,22 @@ export function defaultNotebookContent(title?: string, content?: JSONContent[]):
 
     return { type: 'doc', content: initialContent }
 }
+
+export function updateContentHeading(content: JSONContent, newTitle: string): JSONContent {
+    const firstNode = content?.content?.[0]
+    const firstTextNode = firstNode?.content?.[0]
+    if (!firstNode || !firstTextNode?.text) {
+        return content
+    }
+
+    return {
+        ...content,
+        content: [
+            {
+                ...firstNode,
+                content: [{ ...firstTextNode, text: newTitle }, ...(firstNode.content?.slice(1) ?? [])],
+            },
+            ...(content.content?.slice(1) ?? []),
+        ],
+    }
+}

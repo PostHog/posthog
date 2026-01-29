@@ -906,8 +906,13 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         ]
         self.assertEqual(len(switch_mode_msgs), 1, "Switch mode tool call should be preserved")
 
-    def test_no_mode_message_injection_when_initial_mode_message_present(self):
-        """Test that mode reminder is not injected when initial mode message is already present"""
+    def test_mode_reminder_injected_when_initial_mode_outside_window(self):
+        """Test that mode reminder IS injected when initial mode message is outside the window.
+
+        The initial mode ContextMessage is at the start of messages, but window boundaries
+        are only HumanMessage/AssistantMessage. So after compaction, the initial mode
+        message ends up outside the window and a reminder is needed.
+        """
         from ee.hogai.context.prompts import CONTEXT_INITIAL_MODE_PROMPT
 
         start_id = str(uuid4())
@@ -929,22 +934,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             start_id=start_id,
         )
 
-        # Should have initial mode message and summary, but no mode reminder
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertGreaterEqual(len(context_messages), 2, "Should have initial mode message and summary")
-
-        # Verify initial mode message is still present
-        initial_mode_present = any(
-            msg.id == initial_mode_id and CONTEXT_INITIAL_MODE_PROMPT.format(mode="product_analytics") in msg.content
-            for msg in context_messages
-        )
-        self.assertTrue(initial_mode_present, "Initial mode message should be preserved")
-
         # Verify summary is present
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
         summary_present = any(msg.id == summary_id for msg in context_messages)
         self.assertTrue(summary_present, "Summary should be present")
 
-        # Verify no mode reminder was added
+        # Verify mode reminder WAS added (since initial mode is outside the window)
         from ee.hogai.core.agent_modes.prompts import ROOT_AGENT_MODE_REMINDER_PROMPT
 
         mode_reminders = [
@@ -953,7 +948,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             if isinstance(msg, ContextMessage)
             and ROOT_AGENT_MODE_REMINDER_PROMPT.format(mode="product_analytics") in msg.content
         ]
-        self.assertEqual(len(mode_reminders), 0, "Should not add mode reminder when initial mode message is present")
+        self.assertEqual(len(mode_reminders), 1, "Should add mode reminder when initial mode message is outside window")
 
     def test_mode_message_content_matches_agent_mode(self):
         """Test that mode reminder content matches the agent mode"""

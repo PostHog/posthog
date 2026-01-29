@@ -217,7 +217,7 @@ class TestRateLimitResponseHeaders:
 
             async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
                 return ThrottleResult.deny(
-                    detail=f"Input token rate limit exceeded for model {context.model}",
+                    detail="Product rate limit exceeded",
                     scope=self.scope,
                     retry_after=3600,
                 )
@@ -229,6 +229,7 @@ class TestRateLimitResponseHeaders:
                 "user_id": 1,
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
+                "distinct_id": "test-distinct-id",
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)
@@ -247,7 +248,7 @@ class TestRateLimitResponseHeaders:
                     "error": {
                         "message": "Rate limit exceeded",
                         "type": "rate_limit_error",
-                        "reason": "Input token rate limit exceeded for model gpt-4",
+                        "reason": "Product rate limit exceeded",
                     }
                 }
             }

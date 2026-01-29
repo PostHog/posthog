@@ -337,7 +337,7 @@ impl FeatureFlagMatcher {
 
         // Record when the optimization actually skips the lookup
         if request_is_optimizable && optimize_experience_continuity_lookups {
-            with_canonical_log(|log| log.hash_key_override_skipped = true);
+            with_canonical_log(|log| log.hash_key_override_status = Some("skipped"));
         }
 
         // Clone the request's hash_key_override before passing it to process_hash_key_override_if_needed
@@ -920,6 +920,37 @@ impl FeatureFlagMatcher {
             });
         }
         // For person-based flags, empty distinct_id is valid and should continue evaluation
+        if flag.get_group_type_index().is_none() {
+            use crate::flags::flag_models::BucketingIdentifier;
+
+            if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if let Some(device_id) = &self.device_id {
+                    if !device_id.is_empty() {
+                        with_canonical_log(|log| log.flags_device_id_bucketing += 1);
+                    } else {
+                        with_canonical_log(|log| {
+                            tracing::warn!(
+                                flag_key = %flag.key,
+                                team_id = %flag.team_id,
+                                lib = log.lib,
+                                lib_version = log.lib_version.as_deref(),
+                                "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                            );
+                        });
+                    }
+                } else {
+                    with_canonical_log(|log| {
+                        tracing::warn!(
+                            flag_key = %flag.key,
+                            team_id = %flag.team_id,
+                            lib = log.lib,
+                            lib_version = log.lib_version.as_deref(),
+                            "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                        );
+                    });
+                }
+            }
+        }
 
         let mut highest_match = FeatureFlagMatchReason::NoConditionMatch;
         let mut highest_index = None;
@@ -1354,13 +1385,6 @@ impl FeatureFlagMatcher {
                         return Ok(device_id.clone());
                     }
                 }
-                // If device_id bucketing is set but no device_id provided,
-                // fall through to hash_key_overrides or distinct_id
-                tracing::warn!(
-                    flag_key = %feature_flag.key,
-                    team_id = %feature_flag.team_id,
-                    "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
-                );
             }
 
             // Use hash key overrides for experience continuity
@@ -1667,7 +1691,6 @@ impl FeatureFlagMatcher {
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
-                with_canonical_log(|log| log.hash_key_override_attempted = true);
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -1724,9 +1747,16 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        // Track success in canonical log
-        if hash_key_overrides.is_some() && !flag_hash_key_override_error {
-            with_canonical_log(|log| log.hash_key_override_succeeded = true);
+        // Track hash key override status in canonical log
+        if flag_hash_key_override_error {
+            with_canonical_log(|log| log.hash_key_override_status = Some("error"));
+        } else if let Some(ref overrides) = hash_key_overrides {
+            let status = if overrides.is_empty() {
+                "empty"
+            } else {
+                "found"
+            };
+            with_canonical_log(|log| log.hash_key_override_status = Some(status));
         }
 
         (hash_key_overrides, flag_hash_key_override_error)

@@ -34,7 +34,7 @@ Spawns child workflows for teams in `ALLOWED_TEAM_IDS` (configured in `constants
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 
-**Returns** `CoordinatorResult`: `teams_processed`, `teams_failed`, `failed_team_ids`, `total_traces`, `total_summaries`
+**Returns** `CoordinatorResult`: `teams_processed`, `teams_failed`, `failed_team_ids`, `total_items`, `total_summaries`
 
 ### Per-Team: `llma-trace-summarization`
 
@@ -45,7 +45,7 @@ Spawns child workflows for teams in `ALLOWED_TEAM_IDS` (configured in `constants
 - `window_start`, `window_end` - optional explicit window (RFC3339)
 - `model` - optional LLM model override
 
-**Returns** `BatchSummarizationResult`: `batch_run_id`, `metrics` (traces_queried, summaries_generated/skipped/failed, embedding_requests_succeeded/failed, duration_seconds)
+**Returns** `BatchSummarizationResult`: `batch_run_id`, `metrics` (items_queried, summaries_generated/skipped/failed, embedding_requests_succeeded/failed, duration_seconds)
 
 ## Output Events
 
@@ -107,15 +107,16 @@ Edit `ALLOWED_TEAM_IDS` in `constants.py`. Empty list = coordinator skips all te
 
 Key constants in `constants.py`:
 
-| Constant                             | Default    | Description                 |
-| ------------------------------------ | ---------- | --------------------------- |
-| `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100        | Max traces per window       |
-| `DEFAULT_BATCH_SIZE`                 | 3          | Concurrent trace processing |
-| `DEFAULT_MODE`                       | "detailed" | Summary detail level        |
-| `DEFAULT_WINDOW_MINUTES`             | 60         | Time window to query        |
-| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120        | Max workflow duration       |
-| `SAMPLE_TIMEOUT_SECONDS`             | 300        | Sampling activity timeout   |
-| `GENERATE_SUMMARY_TIMEOUT_SECONDS`   | 300        | Summary activity timeout    |
+| Constant                             | Default        | Description                 |
+| ------------------------------------ | -------------- | --------------------------- |
+| `DEFAULT_MAX_ITEMS_PER_WINDOW`       | 10             | Max items per window        |
+| `DEFAULT_BATCH_SIZE`                 | 3              | Concurrent trace processing |
+| `DEFAULT_MODE`                       | "detailed"     | Summary detail level        |
+| `DEFAULT_MODEL`                      | "gpt-4.1-nano" | LLM model for summarization |
+| `DEFAULT_WINDOW_MINUTES`             | 60             | Time window to query        |
+| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120            | Max workflow duration       |
+| `SAMPLE_TIMEOUT_SECONDS`             | 300            | Sampling activity timeout   |
+| `GENERATE_SUMMARY_TIMEOUT_SECONDS`   | 300            | Summary activity timeout    |
 
 Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `SUMMARIZE_RETRY_POLICY` (2 attempts), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts).
 

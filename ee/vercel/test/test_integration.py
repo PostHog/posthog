@@ -161,18 +161,10 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    @patch("django.conf.settings.DEBUG", True)
-    def test_delete_installation_dev_mode(self):
+    def test_delete_installation(self):
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
-        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
-
-    @patch("django.conf.settings.DEBUG", False)
-    def test_delete_installation_prod_mode(self):
-        result = VercelIntegration.delete_installation(self.installation_id)
-
-        assert not result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     def test_delete_installation_not_found(self):
@@ -236,6 +228,7 @@ class TestVercelIntegration(TestCase):
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_existing_user_new_org(self, mock_report):
+        """Test: External user (no Vercel mapping) installs - added to org but no mapping until SSO."""
         existing_user = User.objects.create_user(
             email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
         )
@@ -249,7 +242,7 @@ class TestVercelIntegration(TestCase):
         new_installation = OrganizationIntegration.objects.get(integration_id=new_installation_id)
         assert new_installation.created_by == existing_user
 
-        # User mapping was not created for existing user (happens during SSO)
+        # User mapping is NOT created - user must prove ownership via SSO login first
         assert "user_mappings" not in new_installation.config or "existing_user_789" not in new_installation.config.get(
             "user_mappings", {}
         )
@@ -258,11 +251,123 @@ class TestVercelIntegration(TestCase):
         for key, value in self.payload.items():
             assert new_installation.config[key] == value
 
-        # Existing user was not automatically added to the organization (also happens during SSO)
+        # Existing user IS added to the organization - they are installing so they should be a member
         new_org = new_installation.organization
-        assert not OrganizationMembership.objects.filter(user=existing_user, organization=new_org).exists()
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
+        assert membership.level == OrganizationMembership.Level.OWNER
 
         mock_report.assert_not_called()
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_requires_login_for_external_user(self, mock_report):
+        """Security test: External users (no Vercel mapping) must prove ownership via login."""
+        from ee.vercel.integration import RequiresExistingUserLogin
+
+        # Create an existing PostHog user (not through Vercel)
+        existing_user = User.objects.create_user(
+            email="external@example.com", password="external", first_name="External"
+        )
+
+        # Now install Vercel integration with that email
+        installation_id = self.NEW_INSTALLATION_ID
+        payload = {
+            **self.payload,
+            "account": {
+                **self.payload["account"],
+                "contact": {"email": "external@example.com", "name": "External User"},
+            },
+        }
+        user_claims = self._create_user_claims("vercel_external_user")
+        user_claims.installation_id = installation_id
+        user_claims.user_email = "external@example.com"
+
+        VercelIntegration.upsert_installation(installation_id, payload, user_claims)
+
+        installation = OrganizationIntegration.objects.get(integration_id=installation_id)
+
+        # User mapping is NOT created - they need to prove ownership via SSO login
+        assert "user_mappings" not in installation.config or "vercel_external_user" not in installation.config.get(
+            "user_mappings", {}
+        )
+
+        # User IS added to org - they are installing so they should be a member
+        membership = OrganizationMembership.objects.get(user=existing_user, organization=installation.organization)
+        assert membership.level == OrganizationMembership.Level.OWNER
+
+        # SSO should require login for external user (no mapping yet)
+        sso_claims = self._create_user_claims("vercel_external_user")
+        sso_claims.installation_id = installation_id
+        sso_claims.user_email = "external@example.com"
+
+        with self.assertRaises(RequiresExistingUserLogin):
+            VercelIntegration._find_sso_user(sso_claims)
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
+        """E2E: Trusted Vercel user's second installation should auto-link and SSO should work."""
+        from ee.vercel.integration import RequiresExistingUserLogin
+
+        # First installation - creates user with mapping
+        first_installation_id = self.NEW_INSTALLATION_ID
+        first_user_claims = self._create_user_claims("vercel_user_abc")
+        first_user_claims.installation_id = first_installation_id
+
+        VercelIntegration.upsert_installation(first_installation_id, self.payload, first_user_claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+
+        # Second installation - same email, different installation
+        second_installation_id = "icfg_second_install_12345678"
+        second_payload = {**self.payload, "account": {**self.payload["account"], "name": "Second Org"}}
+        second_user_claims = self._create_user_claims("vercel_user_xyz")
+        second_user_claims.installation_id = second_installation_id
+
+        VercelIntegration.upsert_installation(second_installation_id, second_payload, second_user_claims)
+
+        # Verify installation created mapping and membership
+        second_installation = OrganizationIntegration.objects.get(integration_id=second_installation_id)
+        assert second_installation.config["user_mappings"].get("vercel_user_xyz") == user.pk
+        membership = OrganizationMembership.objects.get(user=user, organization=second_installation.organization)
+        assert membership.level == OrganizationMembership.Level.OWNER
+
+        # SSO should work without requiring login
+        sso_claims = self._create_user_claims("vercel_user_xyz")
+        sso_claims.installation_id = second_installation_id
+
+        try:
+            sso_user = VercelIntegration._find_sso_user(sso_claims)
+            assert sso_user.pk == user.pk
+        except RequiresExistingUserLogin:
+            self.fail("SSO should NOT require login for trusted Vercel user")
+
+    @patch("ee.vercel.integration.report_user_signed_up")
+    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.vercel.integration.get_cached_instance_license")
+    def test_billing_failure_does_not_delete_existing_user(self, mock_license, mock_billing, mock_report):
+        """Billing failure should NOT delete existing users (only newly created ones)."""
+        # First installation - creates user with mapping
+        first_installation_id = self.NEW_INSTALLATION_ID
+        first_user_claims = self._create_user_claims("vercel_user_billing")
+        first_user_claims.installation_id = first_installation_id
+
+        VercelIntegration.upsert_installation(first_installation_id, self.payload, first_user_claims)
+        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
+        user_pk = user.pk
+
+        # Second installation - billing will fail
+        second_installation_id = "icfg_billing_fail_123456789"
+        second_payload = {**self.payload, "account": {**self.payload["account"], "name": "Second Org"}}
+        second_user_claims = self._create_user_claims("vercel_user_billing_2")
+        second_user_claims.installation_id = second_installation_id
+
+        # Make billing fail
+        mock_license.return_value = Mock()
+        mock_billing.return_value.authorize.side_effect = Exception("Billing failed")
+
+        with self.assertRaises(Exception):
+            VercelIntegration.upsert_installation(second_installation_id, second_payload, second_user_claims)
+
+        # User should NOT be deleted - they existed before this installation
+        assert User.objects.filter(pk=user_pk).exists(), "Trusted Vercel user should NOT be deleted on billing failure"
 
     @patch("ee.vercel.integration.capture_exception")
     def test_upsert_installation_integrity_error(self, mock_capture):

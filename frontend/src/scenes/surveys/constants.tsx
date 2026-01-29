@@ -31,8 +31,17 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+export const QUESTION_TYPE_OPTIONS = [
+    { type: SurveyQuestionType.Open, label: 'Open text', icon: <IconComment /> },
+    { type: SurveyQuestionType.Rating, label: 'Rating', icon: <IconAreaChart /> },
+    { type: SurveyQuestionType.SingleChoice, label: 'Single choice', icon: <IconListView /> },
+    { type: SurveyQuestionType.MultipleChoice, label: 'Multiple choice', icon: <IconGridView /> },
+    { type: SurveyQuestionType.Link, label: 'Link / Announcement', icon: <IconLink /> },
+]
+
 // Rating scale constants
 export const SURVEY_RATING_SCALE = {
+    THUMB_2_POINT: 2,
     EMOJI_3_POINT: 3,
     LIKERT_5_POINT: 5,
     LIKERT_7_POINT: 7,
@@ -187,6 +196,7 @@ export interface NewSurvey
         | 'response_sampling_limit'
         | 'schedule'
         | 'enable_partial_responses'
+        | 'enable_iframe_embedding'
         | 'user_access_level'
         | 'headline_summary'
         | 'headline_response_count'
@@ -647,6 +657,7 @@ export const SURVEY_TYPE_LABEL_MAP = {
 export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
 
 export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
+    [SURVEY_RATING_SCALE.THUMB_2_POINT]: '1-2 (thumbs up/down)',
     [SURVEY_RATING_SCALE.EMOJI_3_POINT]: '1 - 3',
     [SURVEY_RATING_SCALE.LIKERT_5_POINT]: '1 - 5',
     [SURVEY_RATING_SCALE.LIKERT_7_POINT]: '1 - 7',
@@ -655,6 +666,7 @@ export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
 
 export const SCALE_OPTIONS = {
     EMOJI: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.THUMB_2_POINT], value: SURVEY_RATING_SCALE.THUMB_2_POINT },
         { label: SCALE_LABELS[SURVEY_RATING_SCALE.EMOJI_3_POINT], value: SURVEY_RATING_SCALE.EMOJI_3_POINT },
         { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
     ],
@@ -675,6 +687,7 @@ export enum SURVEY_CREATED_SOURCE {
     FEATURE_FLAGS = 'feature_flags',
     MAX_AI = 'max_ai',
     SURVEY_FORM = 'survey_form',
+    SURVEY_WIZARD = 'survey_wizard',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
@@ -744,21 +757,6 @@ export const surveyThemes: SurveyTheme[] = [
     },
     // Dark themes
     {
-        id: 'midnight',
-        name: 'Midnight',
-        description: 'Dark & sophisticated',
-        appearance: {
-            backgroundColor: '#1a1a2e',
-            textColor: '#eaeaea',
-            borderColor: '#4a4a6a',
-            submitButtonColor: '#6366f1',
-            submitButtonTextColor: '#ffffff',
-            ratingButtonColor: '#2d2d44',
-            ratingButtonActiveColor: '#6366f1',
-            inputBackground: '#252540',
-        },
-    },
-    {
         id: 'carbon',
         name: 'Carbon',
         description: 'Dark & neutral',
@@ -771,6 +769,21 @@ export const surveyThemes: SurveyTheme[] = [
             ratingButtonColor: '#262626',
             ratingButtonActiveColor: '#fafafa',
             inputBackground: '#262626',
+        },
+    },
+    {
+        id: 'midnight',
+        name: 'Midnight',
+        description: 'Dark & sophisticated',
+        appearance: {
+            backgroundColor: '#1a1a2e',
+            textColor: '#eaeaea',
+            borderColor: '#4a4a6a',
+            submitButtonColor: '#6366f1',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#2d2d44',
+            ratingButtonActiveColor: '#6366f1',
+            inputBackground: '#252540',
         },
     },
     {

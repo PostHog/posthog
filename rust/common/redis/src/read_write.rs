@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::warn;
 
+use crate::pipeline::{PipelineCommand, PipelineResult};
 use crate::{Client, CompressionConfig, CustomRedisError, RedisClient, RedisValueFormat};
 
 /// Configuration for creating a ReadWriteClient with separate primary and replica URLs.
@@ -84,6 +85,10 @@ impl ReadWriteClientConfig {
 ///
 /// Read operations automatically fall back to the writer if the reader fails,
 /// providing resilience against reader replica failures.
+///
+/// **Pipeline Routing:** All pipeline commands are routed to the primary (writer) since
+/// pipelines can contain a mix of read and write operations. This ensures consistency
+/// and simplifies routing logic.
 ///
 /// # Examples
 ///
@@ -472,12 +477,24 @@ impl Client for ReadWriteClient {
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
         self.writer.batch_del(keys).await
     }
+
+    /// Execute a pipeline of commands.
+    ///
+    /// All pipeline commands are routed to the primary (writer) since pipelines
+    /// can contain a mix of read and write operations. This ensures consistency
+    /// and avoids complex routing logic for mixed pipelines.
+    async fn execute_pipeline(
+        &self,
+        commands: Vec<PipelineCommand>,
+    ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
+        self.writer.execute_pipeline(commands).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MockRedisClient;
+    use crate::{ClientPipelineExt, MockRedisClient, PipelineResult};
 
     fn create_test_client(
         reader_setup: impl FnOnce(&mut MockRedisClient),
@@ -828,5 +845,118 @@ mod tests {
 
         let result = client.mget(vec!["key1".to_string()]).await;
         assert!(matches!(result, Err(CustomRedisError::ParseError(_))));
+    }
+
+    // Pipeline routing tests - verify all pipeline commands go to writer (primary)
+
+    #[tokio::test]
+    async fn test_pipeline_routes_all_commands_to_writer() {
+        // Clone mocks before wrapping so we can inspect calls after test
+        // (MockRedisClient uses Arc<Mutex<Vec<_>>> internally, so clones share state)
+        let reader_mock = MockRedisClient::new();
+        let reader_inspector = reader_mock.clone();
+
+        let mut writer_mock = MockRedisClient::new();
+        writer_mock.get_ret("key1", Ok("writer_value".to_string()));
+        writer_mock.set_ret("key2", Ok(()));
+        let writer_inspector = writer_mock.clone();
+
+        // Coerce to trait objects
+        let reader: Arc<dyn Client + Send + Sync> = Arc::new(reader_mock);
+        let writer: Arc<dyn Client + Send + Sync> = Arc::new(writer_mock);
+
+        let client = ReadWriteClient::new(reader, writer);
+
+        // Execute mixed read/write pipeline
+        let results = client
+            .pipeline()
+            .get("key1") // Read operation
+            .set("key2", "value2") // Write operation
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(
+            &results[0],
+            Ok(PipelineResult::String(s)) if s == "writer_value"
+        ));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+
+        // Verify ALL commands went to writer, not reader
+        let writer_calls = writer_inspector.get_calls();
+        assert_eq!(
+            writer_calls.len(),
+            2,
+            "Writer should handle all pipeline commands"
+        );
+        assert_eq!(writer_calls[0].op, "pipeline_get");
+        assert_eq!(writer_calls[0].key, "key1");
+        assert_eq!(writer_calls[1].op, "pipeline_set");
+        assert_eq!(writer_calls[1].key, "key2");
+
+        // Verify reader was NOT called
+        let reader_calls = reader_inspector.get_calls();
+        assert_eq!(
+            reader_calls.len(),
+            0,
+            "Reader should never be called for pipelines"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_does_not_fallback_to_reader_on_error() {
+        // Configure reader with good data but writer returns error
+        let mut reader_mock = MockRedisClient::new();
+        reader_mock.get_ret("key1", Ok("reader_value".to_string()));
+        let reader_inspector = reader_mock.clone();
+
+        // Writer has no configured response, will return NotFound
+        let writer_mock = MockRedisClient::new();
+
+        let reader: Arc<dyn Client + Send + Sync> = Arc::new(reader_mock);
+        let writer: Arc<dyn Client + Send + Sync> = Arc::new(writer_mock);
+
+        let client = ReadWriteClient::new(reader, writer);
+
+        // Pipeline should use writer and return its error, NOT fallback to reader
+        let results = client.pipeline().get("key1").execute().await.unwrap();
+
+        assert_eq!(results.len(), 1);
+        // Should get writer's NotFound error, not reader's success
+        assert!(
+            matches!(&results[0], Err(CustomRedisError::NotFound)),
+            "Pipeline should return writer's error, not fallback to reader"
+        );
+
+        // Verify reader was never consulted
+        let reader_calls = reader_inspector.get_calls();
+        assert_eq!(
+            reader_calls.len(),
+            0,
+            "Reader should never be called for pipeline operations"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_empty_does_not_call_either_client() {
+        let reader_mock = MockRedisClient::new();
+        let reader_inspector = reader_mock.clone();
+
+        let writer_mock = MockRedisClient::new();
+        let writer_inspector = writer_mock.clone();
+
+        let reader: Arc<dyn Client + Send + Sync> = Arc::new(reader_mock);
+        let writer: Arc<dyn Client + Send + Sync> = Arc::new(writer_mock);
+
+        let client = ReadWriteClient::new(reader, writer);
+
+        let results = client.pipeline().execute().await.unwrap();
+
+        assert!(results.is_empty());
+
+        // Neither client should be called for empty pipeline
+        assert_eq!(reader_inspector.get_calls().len(), 0);
+        assert_eq!(writer_inspector.get_calls().len(), 0);
     }
 }

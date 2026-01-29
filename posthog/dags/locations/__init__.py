@@ -6,6 +6,7 @@ from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import S3Resource
 
 from posthog.dags.common.resources import (
+    ClayWebhookResource,
     ClickhouseClusterResource,
     PostgresResource,
     PostgresURLResource,
@@ -42,6 +43,11 @@ resources_by_env = {
         ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
+        # Clay webhook for sending enriched contact data
+        "clay_webhook": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_API_KEY"),
+        ),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
@@ -68,6 +74,11 @@ resources_by_env = {
         ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
+        # Clay webhook for sending enriched contact data
+        "clay_webhook": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_API_KEY"),
+        ),
     },
 }
 

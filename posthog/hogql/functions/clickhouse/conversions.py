@@ -67,6 +67,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "_toDate": HogQLFunctionMeta("toDate", 1, 1),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
+    "toUUIDOrDefault": HogQLFunctionMeta("toUUIDOrDefault", 2, 2),
     "toString": HogQLFunctionMeta(
         "toString",
         1,

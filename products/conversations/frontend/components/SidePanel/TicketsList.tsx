@@ -60,6 +60,9 @@ export function TicketsList(): JSX.Element {
                         >
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
+                                    {ticket.ticket_number && (
+                                        <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>
+                                    )}
                                     <LemonTag
                                         type={
                                             ticket.status === 'resolved'

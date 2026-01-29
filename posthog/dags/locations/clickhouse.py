@@ -1,11 +1,14 @@
 import dagster
 
 from posthog.dags import (
+    add_index_to_materialized_column,
+    backfill_materialized_column,
     backups,
     ch_examples,
+    create_materialized_column,
     deletes,
     export_query_logs_to_s3,
-    materialized_columns,
+    fix_person_id_overrides,
     orm_examples,
     person_overrides,
     postgres_to_clickhouse_etl,
@@ -24,9 +27,12 @@ defs = dagster.Definitions(
         postgres_to_clickhouse_etl.teams_in_clickhouse,
     ],
     jobs=[
+        add_index_to_materialized_column.add_index_to_materialized_column,
+        create_materialized_column.create_materialized_column,
         deletes.deletes_job,
         export_query_logs_to_s3.export_query_logs_to_s3,
-        materialized_columns.materialize_column,
+        backfill_materialized_column.backfill_materialized_column,
+        fix_person_id_overrides.fix_person_id_overrides_job,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,

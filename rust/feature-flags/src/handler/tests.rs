@@ -1374,14 +1374,10 @@ fn test_disable_flags_request_parsing() {
 
 #[test]
 fn test_logs_config_serialization_enabled() {
-    use crate::api::types::{ConfigResponse, LogsConfig};
+    use crate::api::types::ConfigResponse;
 
-    let config = ConfigResponse {
-        logs: Some(LogsConfig {
-            capture_console_logs: Some(true),
-        }),
-        ..Default::default()
-    };
+    let mut config = ConfigResponse::new();
+    config.set("logs", serde_json::json!({"captureConsoleLogs": true}));
 
     let serialized = serde_json::to_string(&config).expect("Failed to serialize");
     assert!(serialized.contains("\"logs\""));
@@ -1392,23 +1388,23 @@ fn test_logs_config_serialization_enabled() {
 fn test_logs_config_serialization_disabled() {
     use crate::api::types::ConfigResponse;
 
-    let config = ConfigResponse::default(); // logs = None by default
+    let config = ConfigResponse::default();
 
     let serialized = serde_json::to_string(&config).expect("Failed to serialize");
-    // When logs is None, it should be omitted from serialization due to skip_serializing_if
-    assert!(!serialized.contains("\"logs\""));
+    // Empty config should serialize to empty object
+    assert_eq!(serialized, "{}");
 }
 
 #[test]
 fn test_flags_response_with_logs_config() {
-    use crate::api::types::{FlagsResponse, LogsConfig};
+    use crate::api::types::FlagsResponse;
     use std::collections::HashMap;
 
     let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
-    response.config.logs = Some(LogsConfig {
-        capture_console_logs: Some(true),
-    });
+    response
+        .config
+        .set("logs", serde_json::json!({"captureConsoleLogs": true}));
 
     let serialized = serde_json::to_string(&response).expect("Failed to serialize");
     assert!(serialized.contains("\"logs\":{\"captureConsoleLogs\":true}"));

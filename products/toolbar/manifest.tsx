@@ -1,5 +1,7 @@
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -18,6 +20,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Toolbar',
+            intents: [ProductKey.TOOLBAR],
             href: urls.toolbarLaunch(),
             type: 'toolbar',
             category: 'Tools',

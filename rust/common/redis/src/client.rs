@@ -4,6 +4,7 @@ use redis::{AsyncCommands, RedisError};
 use std::time::Duration;
 use tracing::warn;
 
+use crate::pipeline::{PipelineCommand, PipelineResult};
 use crate::{Client, CompressionConfig, CustomRedisError, RedisValueFormat};
 
 // Error messages for consistent handling of RawBytes format
@@ -11,6 +12,7 @@ const ERR_RAWBYTES_GET: &str = "Use get_raw_bytes() for RawBytes format";
 const ERR_RAWBYTES_SET: &str =
     "RawBytes format not supported in set_with_format, use set_raw_bytes instead";
 
+#[derive(Clone)]
 pub struct RedisClient {
     connection: MultiplexedConnection,
     compression: CompressionConfig,
@@ -507,6 +509,148 @@ impl Client for RedisClient {
             .await?;
         Ok(())
     }
+
+    async fn execute_pipeline(
+        &self,
+        commands: Vec<PipelineCommand>,
+    ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
+        let mut pipe = redis::pipe();
+
+        // Track commands for result processing
+        let mut metas: Vec<PipelineCommand> = Vec::with_capacity(commands.len());
+
+        // Build the pipeline
+        for cmd in commands {
+            match &cmd {
+                PipelineCommand::Get { key, .. } | PipelineCommand::GetRawBytes { key } => {
+                    pipe.cmd("GET").arg(key);
+                }
+                PipelineCommand::Set { key, value, format } => {
+                    let bytes = self.serialize_and_compress(value.clone(), *format)?;
+                    pipe.cmd("SET").arg(key).arg(&bytes);
+                }
+                PipelineCommand::SetEx {
+                    key,
+                    value,
+                    seconds,
+                    format,
+                } => {
+                    let bytes = self.serialize_and_compress(value.clone(), *format)?;
+                    pipe.cmd("SETEX").arg(key).arg(*seconds).arg(&bytes);
+                }
+                PipelineCommand::SetNxEx {
+                    key,
+                    value,
+                    seconds,
+                    format,
+                } => {
+                    let bytes = self.serialize_and_compress(value.clone(), *format)?;
+                    pipe.cmd("SET")
+                        .arg(key)
+                        .arg(&bytes)
+                        .arg("EX")
+                        .arg(*seconds)
+                        .arg("NX");
+                }
+                PipelineCommand::Del { key } => {
+                    pipe.cmd("DEL").arg(key);
+                }
+                PipelineCommand::HGet { key, field } => {
+                    pipe.cmd("HGET").arg(key).arg(field);
+                }
+                PipelineCommand::HIncrBy { key, field, count } => {
+                    pipe.cmd("HINCRBY").arg(key).arg(field).arg(*count);
+                }
+                PipelineCommand::Scard { key } => {
+                    pipe.cmd("SCARD").arg(key);
+                }
+                PipelineCommand::ZRangeByScore { key, min, max } => {
+                    pipe.cmd("ZRANGEBYSCORE").arg(key).arg(min).arg(max);
+                }
+            }
+            metas.push(cmd);
+        }
+
+        // Execute the pipeline
+        let mut conn = self.connection.clone();
+        let raw_results: Vec<redis::Value> = pipe.query_async(&mut conn).await?;
+
+        // Process results
+        let mut results = Vec::with_capacity(raw_results.len());
+        for (i, raw) in raw_results.into_iter().enumerate() {
+            let cmd = &metas[i];
+            let result = self.process_pipeline_result(raw, cmd);
+            results.push(result);
+        }
+
+        Ok(results)
+    }
+}
+
+impl RedisClient {
+    /// Process a single pipeline result based on the command type.
+    fn process_pipeline_result(
+        &self,
+        raw: redis::Value,
+        command: &PipelineCommand,
+    ) -> Result<PipelineResult, CustomRedisError> {
+        match command {
+            PipelineCommand::Get { format, .. } => {
+                let bytes: Vec<u8> = redis::from_redis_value(&raw)?;
+                if bytes.is_empty() {
+                    return Err(CustomRedisError::NotFound);
+                }
+                let decompressed = Self::try_decompress(bytes);
+                let string = match format {
+                    RedisValueFormat::Pickle => {
+                        serde_pickle::from_slice(&decompressed, Default::default())?
+                    }
+                    RedisValueFormat::Utf8 => String::from_utf8(decompressed)?,
+                    RedisValueFormat::RawBytes => {
+                        return Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
+                    }
+                };
+                Ok(PipelineResult::String(string))
+            }
+            PipelineCommand::GetRawBytes { .. } => {
+                let bytes: Vec<u8> = redis::from_redis_value(&raw)?;
+                if bytes.is_empty() {
+                    return Err(CustomRedisError::NotFound);
+                }
+                let decompressed = Self::try_decompress(bytes);
+                Ok(PipelineResult::Bytes(decompressed))
+            }
+            PipelineCommand::Set { .. }
+            | PipelineCommand::SetEx { .. }
+            | PipelineCommand::Del { .. }
+            | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            PipelineCommand::SetNxEx { .. } => {
+                // SET NX returns OK if set, nil if key existed
+                match raw {
+                    redis::Value::Okay | redis::Value::SimpleString(_) => {
+                        Ok(PipelineResult::Bool(true))
+                    }
+                    redis::Value::Nil => Ok(PipelineResult::Bool(false)),
+                    _ => Ok(PipelineResult::Bool(false)),
+                }
+            }
+            PipelineCommand::HGet { .. } => {
+                let result: Option<String> = redis::from_redis_value(&raw)?;
+                match result {
+                    Some(value) => Ok(PipelineResult::String(value)),
+                    None => Err(CustomRedisError::NotFound),
+                }
+            }
+            PipelineCommand::Scard { .. } => {
+                let count: u64 = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Count(count))
+            }
+            PipelineCommand::ZRangeByScore { .. } => {
+                let strings: Vec<String> = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Strings(strings))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -888,5 +1032,330 @@ mod tests {
             assert_eq!(config.threshold, 1024);
             assert_eq!(config.level, 3);
         }
+    }
+}
+
+/// Integration tests using a real Redis instance via testcontainers.
+///
+/// These tests verify the actual Redis protocol implementation works correctly,
+/// complementing the mock-based unit tests.
+///
+/// # Requirements
+/// - Docker must be running and accessible
+/// - The `redis:7-alpine` image will be pulled if not present
+///
+/// # Running the tests
+/// These tests are ignored by default because they require Docker and are slower.
+/// Run them explicitly with:
+/// ```sh
+/// cargo test client::integration_tests -- --ignored --test-threads=1
+/// ```
+///
+/// The `--test-threads=1` flag is recommended to avoid container conflicts.
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::{ClientPipelineExt, PipelineResult};
+    use testcontainers::core::{IntoContainerPort, WaitFor};
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers::GenericImage;
+
+    async fn create_test_client() -> (RedisClient, testcontainers::ContainerAsync<GenericImage>) {
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_exposed_port(6379.tcp())
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .start()
+            .await
+            .unwrap();
+
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let url = format!("redis://{host}:{port}");
+
+        let client = RedisClient::with_config(
+            url,
+            CompressionConfig::disabled(),
+            RedisValueFormat::Utf8,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        (client, container)
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_set_and_get() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .set("key1", "value1")
+            .set("key2", "value2")
+            .get("key1")
+            .get("key2")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(matches!(&results[2], Ok(PipelineResult::String(s)) if s == "value1"));
+        assert!(matches!(&results[3], Ok(PipelineResult::String(s)) if s == "value2"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_get_nonexistent_key() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .get("nonexistent_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Err(CustomRedisError::NotFound)));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_setex_with_ttl() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .setex("expiring_key", "temp_value", 3600)
+            .get("expiring_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(&results[1], Ok(PipelineResult::String(s)) if s == "temp_value"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_set_nx_ex() {
+        let (client, _container) = create_test_client().await;
+
+        // First set should succeed (key doesn't exist)
+        let results = client
+            .pipeline()
+            .set_nx_ex("nx_key", "first_value", 3600)
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Ok(PipelineResult::Bool(true))));
+
+        // Second set should fail (key exists)
+        let results = client
+            .pipeline()
+            .set_nx_ex("nx_key", "second_value", 3600)
+            .get("nx_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], Ok(PipelineResult::Bool(false))));
+        // Value should still be the first one
+        assert!(matches!(&results[1], Ok(PipelineResult::String(s)) if s == "first_value"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_del() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .set("to_delete", "value")
+            .del("to_delete")
+            .get("to_delete")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[2], Err(CustomRedisError::NotFound)));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_empty() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client.pipeline().execute().await.unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_result_order_preserved() {
+        let (client, _container) = create_test_client().await;
+
+        // Set up keys with different values
+        client
+            .pipeline()
+            .set("order_a", "1")
+            .set("order_b", "2")
+            .set("order_c", "3")
+            .execute()
+            .await
+            .unwrap();
+
+        // Get them back in a different order
+        let results = client
+            .pipeline()
+            .get("order_c")
+            .get("order_a")
+            .get("order_b")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert!(matches!(&results[0], Ok(PipelineResult::String(s)) if s == "3"));
+        assert!(matches!(&results[1], Ok(PipelineResult::String(s)) if s == "1"));
+        assert!(matches!(&results[2], Ok(PipelineResult::String(s)) if s == "2"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_large_batch() {
+        let (client, _container) = create_test_client().await;
+
+        // Build a pipeline with 100 operations
+        let mut pipeline = client.pipeline();
+        for i in 0..100 {
+            pipeline = pipeline.set(format!("batch_key_{i}"), format!("value_{i}"));
+        }
+        let results = pipeline.execute().await.unwrap();
+        assert_eq!(results.len(), 100);
+        assert!(results.iter().all(|r| matches!(r, Ok(PipelineResult::Ok))));
+
+        // Verify all keys were set correctly
+        let mut pipeline = client.pipeline();
+        for i in 0..100 {
+            pipeline = pipeline.get(format!("batch_key_{i}"));
+        }
+        let results = pipeline.execute().await.unwrap();
+        assert_eq!(results.len(), 100);
+
+        for (i, result) in results.iter().enumerate() {
+            let expected = format!("value_{i}");
+            assert!(
+                matches!(result, Ok(PipelineResult::String(s)) if s == &expected),
+                "Mismatch at index {i}: expected {expected:?}, got {result:?}"
+            );
+        }
+    }
+
+    /// Helper to create a test client with compression enabled.
+    /// Uses a low threshold (100 bytes) to ensure compression triggers for test values.
+    async fn create_test_client_with_compression(
+    ) -> (RedisClient, testcontainers::ContainerAsync<GenericImage>) {
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_exposed_port(6379.tcp())
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .start()
+            .await
+            .unwrap();
+
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let url = format!("redis://{host}:{port}");
+
+        let client = RedisClient::with_config(
+            url,
+            CompressionConfig::new(true, 100, 0), // threshold: 100 bytes, level: default
+            RedisValueFormat::Utf8,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        (client, container)
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_with_compression_enabled() {
+        let (client, _container) = create_test_client_with_compression().await;
+
+        // Create values that exceed the compression threshold (100 bytes)
+        let large_value = "x".repeat(500); // 500 bytes > 100 byte threshold
+
+        let results = client
+            .pipeline()
+            .set("compressed_key1", large_value.clone())
+            .set("compressed_key2", large_value.clone())
+            .get("compressed_key1")
+            .get("compressed_key2")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(
+            matches!(&results[2], Ok(PipelineResult::String(s)) if s == &large_value),
+            "Expected large_value, got {:?}",
+            results[2]
+        );
+        assert!(
+            matches!(&results[3], Ok(PipelineResult::String(s)) if s == &large_value),
+            "Expected large_value, got {:?}",
+            results[3]
+        );
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_compression_mixed_sizes() {
+        let (client, _container) = create_test_client_with_compression().await;
+
+        // Mix of small (no compression) and large (compressed) values
+        let small_value = "tiny"; // 4 bytes < 100 byte threshold
+        let large_value = "y".repeat(200); // 200 bytes > 100 byte threshold
+
+        let results = client
+            .pipeline()
+            .set("small_key", small_value)
+            .set("large_key", large_value.clone())
+            .get("small_key")
+            .get("large_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(
+            matches!(&results[2], Ok(PipelineResult::String(s)) if s == small_value),
+            "Expected small_value, got {:?}",
+            results[2]
+        );
+        assert!(
+            matches!(&results[3], Ok(PipelineResult::String(s)) if s == &large_value),
+            "Expected large_value, got {:?}",
+            results[3]
+        );
     }
 }
