@@ -33,12 +33,6 @@ class Config(BaseSettings):
         return {
             "api_host": self.api_host,
             "project_id": self.project_id,
-            "project_api_key": f"{self.project_api_key[:8]}...{self.project_api_key[-4:]}"
-            if len(self.project_api_key) > 12
-            else "***",
-            "personal_api_key": f"{self.personal_api_key[:8]}...{self.personal_api_key[-4:]}"
-            if len(self.personal_api_key) > 12
-            else "***",
             "event_timeout_seconds": str(self.event_timeout_seconds),
             "poll_interval_seconds": str(self.poll_interval_seconds),
         }
