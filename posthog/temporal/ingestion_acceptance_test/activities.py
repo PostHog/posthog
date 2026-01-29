@@ -1,5 +1,7 @@
 """Activities for ingestion acceptance test workflow."""
 
+import asyncio
+
 import structlog
 import temporalio.activity
 
@@ -28,7 +30,7 @@ async def run_ingestion_acceptance_tests() -> dict:
     """
     logger.info("Starting ingestion acceptance tests")
 
-    result: TestSuiteResult = run_tests()
+    result: TestSuiteResult = await asyncio.to_thread(run_tests)
 
     logger.info(
         "Ingestion acceptance tests completed",
