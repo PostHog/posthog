@@ -982,6 +982,7 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
             )
             if runs:
                 latest_run = runs[0]
+                # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
                     # Failed run - trigger retry with unique run_key
                     run_requests.append(
@@ -999,6 +1000,10 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
                         team_id=catalog.team_id,
                         date=yesterday,
                         previous_run_id=latest_run.run_id,
+                    )
+                elif latest_run.status in (DagsterRunStatus.STARTED, DagsterRunStatus.QUEUED):
+                    context.log.debug(
+                        f"Skipping partition team_id={catalog.team_id}, date={yesterday} - run in progress"
                     )
 
     if new_partitions:
@@ -1167,6 +1172,7 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
             )
             if runs:
                 latest_run = runs[0]
+                # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
                     run_requests.append(
                         RunRequest(
@@ -1180,6 +1186,10 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
                         team_id=catalog.team_id,
                         date=yesterday,
                         previous_run_id=latest_run.run_id,
+                    )
+                elif latest_run.status in (DagsterRunStatus.STARTED, DagsterRunStatus.QUEUED):
+                    context.log.debug(
+                        f"Skipping persons partition team_id={catalog.team_id}, date={yesterday} - run in progress"
                     )
 
     if new_partitions:
