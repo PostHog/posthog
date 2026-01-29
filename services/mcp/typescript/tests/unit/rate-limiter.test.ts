@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { RateLimiter } from '@/api/rate-limiter'
 
@@ -117,24 +117,37 @@ describe('RateLimiter', () => {
     it('should handle concurrent requests correctly', async () => {
         const limiter = new RateLimiter(3, 1000)
         
-        // Start 5 concurrent requests
-        const promises = [
-            limiter.throttle(),
-            limiter.throttle(),
-            limiter.throttle(),
-            limiter.throttle(),
-            limiter.throttle(),
-        ]
+        const completionTimes: number[] = []
+        
+        // Start 5 concurrent requests and track when they complete
+        const promises = Array.from({ length: 5 }, () =>
+            limiter.throttle().then(() => {
+                completionTimes.push(Date.now())
+            })
+        )
         
         // First 3 should complete immediately
         await vi.advanceTimersByTimeAsync(10)
+        expect(completionTimes.length).toBe(3)
         
-        // Advance time to allow remaining requests
+        // Advance time to allow remaining requests (need to wait for window to expire)
         await vi.advanceTimersByTimeAsync(1020)
         
         // All promises should resolve
         await Promise.all(promises)
-        expect(true).toBe(true)
+        expect(completionTimes.length).toBe(5)
+        
+        // Verify that the first 3 completed quickly and the last 2 were delayed
+        const firstBatch = completionTimes.slice(0, 3)
+        const secondBatch = completionTimes.slice(3, 5)
+        
+        // All in first batch should be close together (within 50ms)
+        const firstBatchSpread = Math.max(...firstBatch) - Math.min(...firstBatch)
+        expect(firstBatchSpread).toBeLessThan(50)
+        
+        // Second batch should be significantly later (at least 1000ms after first batch)
+        const timeDiff = Math.min(...secondBatch) - Math.max(...firstBatch)
+        expect(timeDiff).toBeGreaterThanOrEqual(1000)
     })
 
     it('should maintain sliding window correctly', async () => {
