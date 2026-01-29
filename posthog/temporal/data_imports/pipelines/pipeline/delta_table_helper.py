@@ -9,12 +9,12 @@ import deltalake as deltalake
 import pyarrow.compute as pc
 import deltalake.exceptions
 from conditional_cache import lru_cache
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.delta_utils import ensure_delta_compatible_arrow_schema
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 
 from products.data_warehouse.backend.models import ExternalDataJob
@@ -65,7 +65,7 @@ class DeltaTableHelper:
         }
 
     def _get_delta_table_uri(self) -> str:
-        normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
+        normalized_resource_name = normalize_identifier(self._resource_name)
         return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
 
     def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:

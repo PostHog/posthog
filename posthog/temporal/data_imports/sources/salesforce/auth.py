@@ -2,13 +2,12 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+import pendulum
 import requests
-from dlt.common.configuration import configspec
-from dlt.common.pendulum import pendulum
-from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
+
+from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
 
-@configspec
 class SalesforceAuth(BearerTokenAuth):
     refresh_token: Optional[str] = None
     instance_url: Optional[str] = None
@@ -20,9 +19,9 @@ class SalesforceAuth(BearerTokenAuth):
         access_token: Optional[str] = None,
         instance_url: Optional[str] = None,
     ):
-        super().__init__()
+        super().__init__(token=access_token or "")
         if access_token is not None:
-            self.parse_native_representation(access_token)
+            self.token = access_token
         if refresh_token is not None:
             self.refresh_token = refresh_token
         if instance_url is not None:
@@ -44,7 +43,7 @@ class SalesforceAuth(BearerTokenAuth):
         if self.refresh_token is None or self.instance_url is None:
             raise ValueError("refresh_token and instance_url are required to obtain a new token")
         new_token = salesforce_refresh_access_token(self.refresh_token, self.instance_url)
-        self.parse_native_representation(new_token)
+        self.token = new_token
         self.token_expiry = pendulum.now().add(hours=1)
 
 

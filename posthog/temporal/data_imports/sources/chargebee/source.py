@@ -17,7 +17,6 @@ from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, 
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -59,18 +58,16 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
         return False, "Invalid credentials"
 
     def source_for_pipeline(self, config: ChargebeeSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
-            chargebee_source(
-                api_key=config.api_key,
-                site_name=config.site_name,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        return chargebee_source(
+            api_key=config.api_key,
+            site_name=config.site_name,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property

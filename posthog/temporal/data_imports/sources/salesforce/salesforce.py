@@ -3,11 +3,11 @@ from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import dlt
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+import requests
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
 
@@ -374,7 +374,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         )
         return f"<SalesforceEndpointPaginator at {hex(id(self))}: {', '.join(pairs)}>"
 
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         if not res or not res["records"]:
@@ -388,7 +388,7 @@ class SalesforceEndpointPaginator(BasePaginator):
         self._last_record_id = last_record["Id"]
         self._model_name = model_name
 
-    def update_request(self, request: Request) -> None:
+    def update_request(self, request: requests.Request) -> None:
         if not self._has_next_page:
             return
 
@@ -409,7 +409,6 @@ class SalesforceEndpointPaginator(BasePaginator):
         request.url = f"{self.instance_url}{_next_page}"
 
 
-@dlt.source(max_table_nesting=0)
 def salesforce_source(
     instance_url: str,
     access_token: str,
@@ -419,7 +418,7 @@ def salesforce_source(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
-):
+) -> SourceResponse:
     config: RESTAPIConfig = {
         "client": {
             "base_url": instance_url,
@@ -434,4 +433,10 @@ def salesforce_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resource = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=["Id"] if should_use_incremental_field else None,
+    )

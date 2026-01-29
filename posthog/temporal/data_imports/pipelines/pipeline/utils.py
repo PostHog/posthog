@@ -4,7 +4,7 @@ import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -14,13 +14,15 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 from dateutil import parser
-from dlt.common.data_types.typing import TDataType
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.common.normalizers.naming.snake_case import NamingConvention
-from dlt.sources import DltResource
+
+# DltResource removed - using Iterator[dict[str, Any]]
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+
+# TDataType removed - simplified to Any
+from posthog.temporal.data_imports.pipelines.pipeline.delta_utils import ensure_delta_compatible_arrow_schema
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
@@ -60,7 +62,7 @@ class TemporaryFileSizeExceedsLimitException(Exception):
 
 
 def normalize_column_name(column_name: str) -> str:
-    return NamingConvention().normalize_identifier(column_name)
+    return normalize_identifier(column_name)
 
 
 def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:
@@ -84,28 +86,8 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
         return None
 
 
-def _get_primary_keys(resource: DltResource) -> list[str] | None:
-    primary_keys = resource._hints.get("primary_key")
-
-    if primary_keys is None:
-        return None
-
-    if isinstance(primary_keys, str):
-        return [normalize_column_name(primary_keys)]
-
-    if isinstance(primary_keys, list | Sequence):
-        return [normalize_column_name(pk) for pk in primary_keys]
-
-    raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
-
-
-def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
-    columns = resource._hints.get("columns")
-
-    if columns is None:
-        return None
-
-    return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
+# _get_primary_keys and _get_column_hints removed - these were DLT-specific helpers
+# that are no longer needed after removing the DLT dependency
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:

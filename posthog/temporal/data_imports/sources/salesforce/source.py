@@ -11,7 +11,6 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
 from posthog.temporal.data_imports.sources.salesforce.auth import salesforce_refresh_access_token
 from posthog.temporal.data_imports.sources.salesforce.salesforce import salesforce_source
@@ -78,17 +77,17 @@ class SalesforceSource(SimpleSource[SalesforceSourceConfig], OAuthMixin):
         if not salesforce_access_token:
             salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token, salesforce_instance_url)
 
-        return dlt_source_to_source_response(
-            salesforce_source(
-                instance_url=salesforce_instance_url,
-                access_token=salesforce_access_token,
-                refresh_token=salesforce_refresh_token,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        resources = salesforce_source(
+            instance_url=salesforce_instance_url,
+            access_token=salesforce_access_token,
+            refresh_token=salesforce_refresh_token,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
+        # salesforce_source returns a list with a single resource
+        return resources
