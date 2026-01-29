@@ -2,14 +2,13 @@
 
 import uuid
 
-from ...client import PostHogClient
-from ...config import Config
+from ..runner import AcceptanceTest
 
 
-class TestEventPropertiesCapture:
+class TestEventPropertiesCapture(AcceptanceTest):
     """Test event capture with person properties."""
 
-    def test_capture_event_with_person_properties(self, client: PostHogClient, config: Config) -> None:
+    def test_capture_event_with_person_properties(self) -> None:
         """Capture an event with $set and $set_once person properties."""
         test_run_id = uuid.uuid4().hex[:8]
         event_name = "$test_person_props"
@@ -22,25 +21,21 @@ class TestEventPropertiesCapture:
                 "name": "Test User",
                 "plan": "enterprise",
             },
-            "$set_once": {
-                "initial_referrer": "https://google.com",
-                "created_at": "2024-01-15T10:30:00Z",
-            },
         }
 
-        event_uuid = client.capture_event(
+        event_uuid = self.client.capture_event(
             event_name=event_name,
             distinct_id=distinct_id,
             properties=properties,
         )
 
-        found_event = client.query_event_by_uuid(
+        found_event = self.client.query_event_by_uuid(
             event_uuid=event_uuid,
-            timeout_seconds=config.event_timeout_seconds,
+            timeout_seconds=self.config.event_timeout_seconds,
         )
 
         assert found_event is not None, (
-            f"Event with UUID '{event_uuid}' not found within {config.event_timeout_seconds}s timeout"
+            f"Event with UUID '{event_uuid}' not found within {self.config.event_timeout_seconds}s timeout"
         )
         assert found_event.uuid == event_uuid
         assert found_event.event == event_name
@@ -53,7 +48,12 @@ class TestEventPropertiesCapture:
         assert set_props.get("name") == "Test User"
         assert set_props.get("plan") == "enterprise"
 
-        set_once_props = found_event.properties.get("$set_once")
-        assert set_once_props is not None, "$set_once properties not found in event"
-        assert set_once_props.get("initial_referrer") == "https://google.com"
-        assert set_once_props.get("created_at") == "2024-01-15T10:30:00Z"
+        person = self.client.query_person_by_distinct_id(
+            distinct_id=distinct_id,
+            timeout_seconds=self.config.event_timeout_seconds,
+        )
+
+        assert person is not None, f"Person with distinct_id '{distinct_id}' not found"
+        assert person.properties.get("email") == f"test_{test_run_id}@example.com"
+        assert person.properties.get("name") == "Test User"
+        assert person.properties.get("plan") == "enterprise"

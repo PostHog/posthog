@@ -13,6 +13,4 @@ ACTIVITIES = [run_ingestion_acceptance_tests]
 __all__ = [
     "WORKFLOWS",
     "ACTIVITIES",
-    "IngestionAcceptanceTestWorkflow",
-    "run_ingestion_acceptance_tests",
 ]

@@ -5,8 +5,10 @@ import asyncio
 import structlog
 import temporalio.activity
 
+from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.results import TestSuiteResult
 from posthog.temporal.ingestion_acceptance_test.runner import run_tests
+from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -30,7 +32,8 @@ async def run_ingestion_acceptance_tests() -> dict:
     """
     logger.info("Starting ingestion acceptance tests")
 
-    result: TestSuiteResult = await asyncio.to_thread(run_tests)
+    config = Config()
+    result: TestSuiteResult = await asyncio.to_thread(run_tests, config)
 
     logger.info(
         "Ingestion acceptance tests completed",
@@ -40,5 +43,7 @@ async def run_ingestion_acceptance_tests() -> dict:
         errors=result.error_count,
         success=result.success,
     )
+
+    send_slack_notification(config, result)
 
     return result.to_dict()

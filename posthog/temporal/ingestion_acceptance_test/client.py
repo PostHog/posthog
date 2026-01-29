@@ -4,8 +4,9 @@ import json
 import time
 import uuid
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 import requests
 
@@ -15,6 +16,8 @@ import posthoganalytics
 from .config import Config
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -26,6 +29,15 @@ class CapturedEvent:
     distinct_id: str
     properties: dict[str, Any]
     timestamp: str
+
+
+@dataclass
+class Person:
+    """A person retrieved from the PostHog API."""
+
+    id: str
+    properties: dict[str, Any]
+    created_at: str
 
 
 class PostHogClient:
@@ -50,16 +62,7 @@ class PostHogClient:
         distinct_id: str,
         properties: dict[str, Any] | None = None,
     ) -> str:
-        """Send an event using the official PostHog SDK.
-
-        Args:
-            event_name: Name of the event to capture.
-            distinct_id: Distinct ID of the user.
-            properties: Optional event properties.
-
-        Returns:
-            The UUID of the captured event.
-        """
+        """Send an event using the official PostHog SDK."""
         event_uuid = str(uuid.uuid4())
 
         logger.info("[capture] Sending event '%s' with UUID %s", event_name, event_uuid)
@@ -79,46 +82,58 @@ class PostHogClient:
         event_uuid: str,
         timeout_seconds: int | None = None,
     ) -> CapturedEvent | None:
-        """Query for an event by UUID, polling until found or timeout.
+        """Query for an event by UUID, polling until found or timeout."""
+        return self._poll_until_found(
+            fetch_fn=lambda: self._fetch_event_by_uuid(event_uuid),
+            description=f"event UUID '{event_uuid}'",
+            timeout_seconds=timeout_seconds,
+        )
 
-        Args:
-            event_uuid: UUID of the event to find.
-            timeout_seconds: Maximum time to wait for the event.
-                Defaults to config.event_timeout_seconds.
+    def query_person_by_distinct_id(
+        self,
+        distinct_id: str,
+        timeout_seconds: int | None = None,
+    ) -> Person | None:
+        """Query for a person by distinct_id, polling until found or timeout."""
+        return self._poll_until_found(
+            fetch_fn=lambda: self._fetch_person_by_distinct_id(distinct_id),
+            description=f"person with distinct_id '{distinct_id}'",
+            timeout_seconds=timeout_seconds,
+        )
 
-        Returns:
-            The found event, or None if not found within timeout.
-        """
+    def shutdown(self) -> None:
+        """Shutdown the client and flush any pending events."""
+        posthoganalytics.shutdown()
+
+    def _poll_until_found(
+        self,
+        fetch_fn: Callable[[], T | None],
+        description: str,
+        timeout_seconds: int | None = None,
+    ) -> T | None:
+        """Poll until fetch_fn returns a non-None result or timeout."""
         timeout = timeout_seconds or self.config.event_timeout_seconds
         start_time = time.time()
         attempt = 0
 
-        logger.info("[query] Polling for event UUID '%s' (timeout: %ds)", event_uuid, timeout)
+        logger.info("[query] Polling for %s (timeout: %ds)", description, timeout)
 
         while time.time() - start_time < timeout:
             attempt += 1
-            elapsed = time.time() - start_time
-            logger.debug("[query] Attempt %d (%.1fs elapsed)", attempt, elapsed)
-
-            event = self._query_event_by_uuid_once(event_uuid)
-            if event:
-                logger.info("[query] Event found after %.1fs (%d attempts)", time.time() - start_time, attempt)
-                return event
+            result = fetch_fn()
+            if result is not None:
+                logger.info(
+                    "[query] Found %s after %.1fs (%d attempts)", description, time.time() - start_time, attempt
+                )
+                return result
 
             time.sleep(self.config.poll_interval_seconds)
 
-        logger.warning("[query] Event not found within %ds (%d attempts)", timeout, attempt)
+        logger.warning("[query] %s not found within %ds (%d attempts)", description, timeout, attempt)
         return None
 
-    def _query_event_by_uuid_once(self, event_uuid: str) -> CapturedEvent | None:
-        """Execute a single HogQL query for an event by UUID."""
-        query = """
-            SELECT uuid, event, distinct_id, properties, timestamp
-            FROM events
-            WHERE uuid = {event_uuid}
-            LIMIT 1
-        """
-
+    def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:
+        """Execute a HogQL query and return the first row as a dict, or None if no results."""
         url = f"{self.config.api_host}/api/environments/{self.config.project_id}/query/"
 
         response = requests.post(
@@ -127,11 +142,12 @@ class PostHogClient:
                 "query": {
                     "kind": "HogQLQuery",
                     "query": query,
-                    "values": {"event_uuid": event_uuid},
+                    "values": values,
                 },
                 "refresh": "force_blocking",
             },
             headers={"Authorization": f"Bearer {self.config.personal_api_key}"},
+            timeout=10,
         )
 
         if response.status_code == 404:
@@ -145,21 +161,53 @@ class PostHogClient:
             return None
 
         columns = data.get("columns", [])
-        row = results[0]
-        event_dict = dict(zip(columns, row))
+        return dict(zip(columns, results[0]))
 
-        properties = event_dict.get("properties", {})
+    def _fetch_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
+        """Fetch an event by UUID."""
+        query = """
+            SELECT uuid, event, distinct_id, properties, timestamp
+            FROM events
+            WHERE uuid = {event_uuid}
+            LIMIT 1
+        """
+
+        row = self._execute_hogql_query(query, {"event_uuid": event_uuid})
+        if not row:
+            return None
+
+        properties = row.get("properties", {})
         if isinstance(properties, str):
             properties = json.loads(properties)
 
         return CapturedEvent(
-            uuid=event_dict.get("uuid", ""),
-            event=event_dict.get("event", ""),
-            distinct_id=event_dict.get("distinct_id", ""),
+            uuid=row.get("uuid", ""),
+            event=row.get("event", ""),
+            distinct_id=row.get("distinct_id", ""),
             properties=properties,
-            timestamp=event_dict.get("timestamp", ""),
+            timestamp=row.get("timestamp", ""),
         )
 
-    def shutdown(self) -> None:
-        """Shutdown the client and flush any pending events."""
-        posthoganalytics.shutdown()
+    def _fetch_person_by_distinct_id(self, distinct_id: str) -> Person | None:
+        """Fetch a person by distinct_id."""
+        query = """
+            SELECT p.id, p.properties, p.created_at
+            FROM persons p
+            JOIN person_distinct_ids pdi ON p.id = pdi.person_id
+            WHERE pdi.distinct_id = {distinct_id}
+            LIMIT 1
+        """
+
+        row = self._execute_hogql_query(query, {"distinct_id": distinct_id})
+        if not row:
+            return None
+
+        properties = row.get("properties", {})
+        if isinstance(properties, str):
+            properties = json.loads(properties)
+
+        return Person(
+            id=row.get("id", ""),
+            properties=properties,
+            created_at=row.get("created_at", ""),
+        )
