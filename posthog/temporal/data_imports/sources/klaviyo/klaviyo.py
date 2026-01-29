@@ -2,11 +2,10 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 
@@ -81,7 +80,7 @@ def get_resource(
 
 
 class KlaviyoPaginator(BasePaginator):
-    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+    def update_state(self, response: requests.Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
         self._next_offset = None
@@ -99,7 +98,7 @@ class KlaviyoPaginator(BasePaginator):
         else:
             self._has_next_page = False
 
-    def update_request(self, request: Request) -> None:
+    def update_request(self, request: requests.Request) -> None:
         if self._next_offset:
             # Use the full next URL from the response
             # Clear params since the next URL already contains all query parameters
@@ -175,13 +174,15 @@ def klaviyo_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, None)
-    assert len(resources) == 1
-    resource = resources[0].add_map(_flatten_item)
+    resource = rest_api_resources(config, team_id, job_id, None)
+
+    def flattened_items():
+        for item in resource:
+            yield _flatten_item(item)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=flattened_items,
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,

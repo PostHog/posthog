@@ -2,7 +2,7 @@ from typing import Any, Optional, cast
 
 from posthog.temporal.common.utils import make_sync_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, create_resources
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import BASE_URL, TIKTOK_ADS_CONFIG, EndpointType
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
@@ -110,8 +110,16 @@ def tiktok_ads_source(
                     resource_endpoint["paginator"] = TikTokAdsPaginator()
 
     # Apply retry logic to the entire resource creation process
-    dlt_resources = make_sync_retryable_with_exponential_backoff(
-        lambda: rest_api_resources(config, team_id, job_id, db_incremental_field_last_value),
+    # Note: TikTok uses multiple resources for date chunking in report endpoints
+    resources_dict = make_sync_retryable_with_exponential_backoff(
+        lambda: create_resources(
+            config["client"],
+            config.get("resource_defaults", {}),
+            config["resources"],
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+        ),
         max_attempts=5,
         initial_retry_delay=300,  # TikTok's 5-minute circuit breaker
         max_retry_delay=3600 * 5,  # Cap at 5 hours
@@ -121,10 +129,11 @@ def tiktok_ads_source(
     )()
 
     if endpoint_type == EndpointType.REPORT:
-        items = TikTokReportResource.process_resources(dlt_resources)
+        # For reports, we have multiple chunked resources - process them all
+        items = TikTokReportResource.process_resources(list(resources_dict.values()))
     else:
-        assert len(dlt_resources) == 1, f"Expected 1 resource for {endpoint_type} endpoint, got {len(dlt_resources)}"
-        items = dlt_resources[0]
+        # For entities, we have a single resource
+        items = next(iter(resources_dict.values()))
 
     # Apply appropriate transformations based on endpoint type
     items = TikTokReportResource.apply_stream_transformations(endpoint_type, items)

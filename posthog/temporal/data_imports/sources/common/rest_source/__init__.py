@@ -1,46 +1,45 @@
-"""Generic API Source"""
+"""Generic REST API Source - Simplified version without DLT dependency."""
 
-import graphlib  # type: ignore[import,unused-ignore]
-from collections.abc import AsyncGenerator, Callable, Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
-import dlt
 from dateutil import parser
-from dlt.common import jsonpath
-from dlt.common.configuration.specs import BaseConfiguration
-from dlt.common.schema.schema import Schema
-from dlt.common.schema.typing import TSchemaContract
-from dlt.common.validation import validate_dict
-from dlt.extract.incremental import Incremental
-from dlt.extract.source import DltResource, DltSource
-from dlt.sources.helpers.rest_client.client import RESTClient
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from dlt.sources.helpers.rest_client.typing import HTTPMethodBasic
 
 from .config_setup import (
     IncrementalParam,
-    build_resource_dependency_graph,
+    _bind_path_params,
+    _make_endpoint_resource,
+    _setup_single_entity_endpoint,
     create_auth,
     create_paginator,
     create_response_hooks,
-    process_parent_data_item,
     setup_incremental_object,
+    update_dict_nested,
 )
+from .http_client import RESTClient
+from .incremental import Incremental
+from .jsonpath_utils import TJsonPath
+from .pagination import BasePaginator
 from .typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
-    ResolvedParam,
+    EndpointResourceBase,
+    HTTPMethodBasic,
     RESTAPIConfig,
     TAnySchemaColumns,
     TTableHintTemplate,
 )
 from .utils import exclude_keys  # noqa: F401
 
+# Type alias for resources - simple iterators
+Resource = Iterator[dict[str, Any]]
+
 
 def convert_types(
     data: Iterator[Any] | list[Any], types: Optional[dict[str, dict[str, Any]]]
 ) -> Iterator[dict[str, Any]]:
+    """Convert data types based on column configuration."""
     if types is None:
         yield from data
         return
@@ -59,192 +58,68 @@ def convert_types(
         yield item
 
 
-def rest_api_source(
-    config: RESTAPIConfig,
-    team_id: int,
-    job_id: str,
-    db_incremental_field_last_value: Optional[Any] = None,
-    name: Optional[str] = None,
-    section: Optional[str] = None,
-    max_table_nesting: Optional[int] = None,
-    root_key: bool = False,
-    schema: Optional[Schema] = None,
-    schema_contract: Optional[TSchemaContract] = None,
-    spec: Optional[type[BaseConfiguration]] = None,
-) -> DltSource:
-    """Creates and configures a REST API source for data extraction.
-
-    Args:
-        config (RESTAPIConfig): Configuration for the REST API source.
-        name (str, optional): Name of the source.
-        section (str, optional): Section of the configuration file.
-        max_table_nesting (int, optional): Maximum depth of nested table above which
-            the remaining nodes are loaded as structs or JSON.
-        root_key (bool, optional): Enables merging on all resources by propagating
-            root foreign key to child tables. This option is most useful if you
-            plan to change write disposition of a resource to disable/enable merge.
-            Defaults to False.
-        schema (Schema, optional): An explicit `Schema` instance to be associated
-            with the source. If not present, `dlt` creates a new `Schema` object
-            with provided `name`. If such `Schema` already exists in the same
-            folder as the module containing the decorated function, such schema
-            will be loaded from file.
-        schema_contract (TSchemaContract, optional): Schema contract settings
-            that will be applied to this resource.
-        spec (type[BaseConfiguration], optional): A specification of configuration
-            and secret values required by the source.
-
-    Returns:
-        DltSource: A configured dlt source.
-
-    Example:
-        pokemon_source = rest_api_source({
-            "client": {
-                "base_url": "https://pokeapi.co/api/v2/",
-                "paginator": "json_response",
-            },
-            "endpoints": {
-                "pokemon": {
-                    "params": {
-                        "limit": 100, # Default page size is 20
-                    },
-                    "resource": {
-                        "primary_key": "id",
-                    }
-                },
-            },
-        })
-    """
-    decorated = dlt.source(
-        rest_api_resources,
-        name,
-        section,
-        max_table_nesting,
-        root_key,
-        schema,
-        schema_contract,
-        spec,
-    )
-
-    return decorated(config, team_id, job_id, db_incremental_field_last_value)
-
-
 def rest_api_resources(
     config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
-) -> list[DltResource]:
-    """Creates a list of resources from a REST API configuration.
+) -> Resource:
+    """Creates a resource iterator from a REST API configuration.
 
     Args:
-        config (RESTAPIConfig): Configuration for the REST API source.
+        config: Configuration with single resource in "resources" array
+        team_id: Team ID
+        job_id: Job ID
+        db_incremental_field_last_value: Last incremental value from database
 
     Returns:
-        list[DltResource]: List of dlt resources.
-
-    Example:
-        github_source = rest_api_resources({
-            "client": {
-                "base_url": "https://api.github.com/repos/dlt-hub/dlt/",
-                "auth": {
-                    "token": dlt.secrets["token"],
-                },
-            },
-            "resource_defaults": {
-                "primary_key": "id",
-                "write_disposition": "merge",
-                "endpoint": {
-                    "params": {
-                        "per_page": 100,
-                    },
-                },
-            },
-            "resources": [
-                {
-                    "name": "issues",
-                    "endpoint": {
-                        "path": "issues",
-                        "params": {
-                            "sort": "updated",
-                            "direction": "desc",
-                            "state": "open",
-                            "since": {
-                                "type": "incremental",
-                                "cursor_path": "updated_at",
-                                "initial_value": "2024-01-25T11:21:28Z",
-                            },
-                        },
-                    },
-                },
-                {
-                    "name": "issue_comments",
-                    "endpoint": {
-                        "path": "issues/{issue_number}/comments",
-                        "params": {
-                            "issue_number": {
-                                "type": "resolve",
-                                "resource": "issues",
-                                "field": "number",
-                            }
-                        },
-                    },
-                },
-            ],
-        })
+        Resource iterator yielding dicts
     """
-
-    validate_dict(RESTAPIConfig, config, path=".")
-
     client_config = config["client"]
     resource_defaults = config.get("resource_defaults", {})
     resource_list = config["resources"]
 
-    (
-        dependency_graph,
-        endpoint_resource_map,
-        resolved_param_map,
-    ) = build_resource_dependency_graph(
-        resource_defaults,
-        resource_list,
-    )
-
     resources = create_resources(
         client_config,
-        dependency_graph,
-        endpoint_resource_map,
-        resolved_param_map,
+        resource_defaults,
+        resource_list,
         team_id=team_id,
         job_id=job_id,
         db_incremental_field_last_value=db_incremental_field_last_value,
     )
 
-    return list(resources.values())
+    # Return first resource (we only use single resources in production)
+    return next(iter(resources.values()))
 
 
 def create_resources(
     client_config: ClientConfig,
-    dependency_graph: graphlib.TopologicalSorter,
-    endpoint_resource_map: dict[str, EndpointResource],
-    resolved_param_map: dict[str, Optional[ResolvedParam]],
+    resource_defaults: EndpointResourceBase,
+    resource_list: list[str | EndpointResource],
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any] = None,
-) -> dict[str, DltResource]:
+) -> dict[str, Resource]:
+    """Create resource iterators from configuration.
+
+    Simplified version without dependency graph support.
+    """
     resources = {}
 
-    for resource_name in dependency_graph.static_order():
-        resource_name = cast(str, resource_name)
-        endpoint_resource = endpoint_resource_map[resource_name]
+    # Process each resource
+    for resource_kwargs in resource_list:
+        if isinstance(resource_kwargs, dict):
+            resource_kwargs = update_dict_nested({}, resource_kwargs)
+
+        endpoint_resource = _make_endpoint_resource(resource_kwargs, resource_defaults)
+        assert isinstance(endpoint_resource["endpoint"], dict)
+        _setup_single_entity_endpoint(endpoint_resource["endpoint"])
+        _bind_path_params(endpoint_resource)
+
+        resource_name = endpoint_resource["name"]
+        assert isinstance(resource_name, str), f"Resource name must be a string, got {type(resource_name)}"
+
         endpoint_config = cast(Endpoint, endpoint_resource.get("endpoint"))
         request_params = endpoint_config.get("params", {})
         request_json = endpoint_config.get("json", None)
         paginator = create_paginator(endpoint_config.get("paginator"))
-
-        resolved_param: ResolvedParam | None = resolved_param_map[resource_name]
-
-        include_from_parent: list[str] = endpoint_resource.get("include_from_parent", [])
-        if not resolved_param and include_from_parent:
-            raise ValueError(
-                f"Resource {resource_name} has include_from_parent but is not dependent on another resource"
-            )
 
         (
             incremental_object,
@@ -260,140 +135,79 @@ def create_resources(
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))
-
-        resource_kwargs = exclude_keys(endpoint_resource, {"endpoint", "include_from_parent"})
-
         columns_config = endpoint_resource.get("columns")
 
-        if resolved_param is None:
-
-            async def paginate_resource(
-                method: HTTPMethodBasic,
-                path: str,
-                params: dict[str, Any],
-                json: Optional[dict[str, Any]],
-                paginator: Optional[BasePaginator],
-                data_selector: Optional[jsonpath.TJsonPath],
-                hooks: Optional[dict[str, Any]],
-                client: RESTClient = client,
-                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
-                incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: Optional[IncrementalParam] = incremental_param,
-                incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-            ) -> AsyncGenerator[Iterator[Any], Any]:
-                yield dlt.mark.materialize_table_schema()  # type: ignore
-
-                if incremental_object:
-                    params = _set_incremental_params(
-                        params,
-                        incremental_object,
-                        incremental_param,
-                        incremental_cursor_transform,
-                        db_incremental_field_last_value,
-                    )
-
-                yield convert_types(
-                    client.paginate(
-                        method=method,
-                        path=path,
-                        params=params,
-                        json=json,
-                        paginator=paginator,
-                        data_selector=data_selector,
-                        hooks=hooks,
-                    ),
-                    columns_config,
+        # Create resource generator
+        def make_resource(
+            method: HTTPMethodBasic,
+            path: str,
+            params: dict[str, Any],
+            json_body: Optional[dict[str, Any]],
+            paginator: Optional[BasePaginator],
+            data_selector: Optional[TJsonPath],
+            hooks: Optional[dict[str, Any]],
+            client: RESTClient,
+            columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]],
+            incremental_object: Optional[Incremental],
+            incremental_param: Optional[IncrementalParam],
+            incremental_cursor_transform: Optional[Callable[..., Any]],
+            db_incremental_field_last_value: Optional[Any],
+        ) -> Resource:
+            """Generator function for resource data."""
+            # Set up incremental params
+            if incremental_object:
+                params = _set_incremental_params(
+                    params,
+                    incremental_object,
+                    incremental_param,
+                    incremental_cursor_transform,
+                    db_incremental_field_last_value,
                 )
 
-            resources[resource_name] = dlt.resource(
-                paginate_resource,
-                **resource_kwargs,  # TODO: implement typing.Unpack
-            )(
-                method=endpoint_config.get("method", "get"),  # type: ignore[arg-type]
-                path=endpoint_config.get("path"),  # type: ignore[arg-type]
-                params=request_params,  # type: ignore[arg-type]
-                json=request_json,
-                paginator=paginator,
-                data_selector=endpoint_config.get("data_selector"),
-                hooks=hooks,
-                columns_config=columns_config,
+            # Paginate and yield data
+            yield from convert_types(
+                client.paginate(
+                    method=method,
+                    path=path,
+                    params=params,
+                    json=json_body,
+                    data_selector=data_selector,
+                ),
+                columns_config,
             )
 
-        else:
-            predecessor = resources[resolved_param.resolve_config["resource"]]
+        # Store resource with its hints for later use
+        resource = make_resource(
+            method=endpoint_config.get("method", "GET"),  # type: ignore[arg-type]
+            path=endpoint_config.get("path"),  # type: ignore[arg-type]
+            params=request_params.copy(),
+            json_body=request_json,
+            paginator=paginator,
+            data_selector=endpoint_config.get("data_selector"),
+            hooks=hooks,
+            client=client,
+            columns_config=columns_config,
+            incremental_object=incremental_object,
+            incremental_param=incremental_param,
+            incremental_cursor_transform=incremental_cursor_transform,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
 
-            base_params = exclude_keys(request_params, {resolved_param.param_name})
-
-            async def paginate_dependent_resource(
-                items: list[dict[str, Any]],
-                method: HTTPMethodBasic,
-                path: str,
-                params: dict[str, Any],
-                paginator: Optional[BasePaginator],
-                data_selector: Optional[jsonpath.TJsonPath],
-                hooks: Optional[dict[str, Any]],
-                client: RESTClient = client,
-                resolved_param: ResolvedParam = resolved_param,
-                include_from_parent: list[str] = include_from_parent,
-                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
-                incremental_object: Optional[Incremental[Any]] = incremental_object,
-                incremental_param: Optional[IncrementalParam] = incremental_param,
-                incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-            ) -> AsyncGenerator[Any, Any]:
-                yield dlt.mark.materialize_table_schema()
-
-                if incremental_object:
-                    params = _set_incremental_params(
-                        params,
-                        incremental_object,
-                        incremental_param,
-                        incremental_cursor_transform,
-                        db_incremental_field_last_value,
-                    )
-
-                for item in items:
-                    formatted_path, parent_record = process_parent_data_item(
-                        path, item, resolved_param, include_from_parent
-                    )
-
-                    for child_page in client.paginate(
-                        method=method,
-                        path=formatted_path,
-                        params=params,
-                        paginator=paginator,
-                        data_selector=data_selector,
-                        hooks=hooks,
-                    ):
-                        if parent_record:
-                            for child_record in child_page:
-                                child_record.update(parent_record)
-
-                        yield convert_types(child_page, columns_config)
-
-            resources[resource_name] = dlt.resource(  # type: ignore[call-overload]
-                paginate_dependent_resource,
-                data_from=predecessor,
-                **resource_kwargs,  # TODO: implement typing.Unpack
-            )(
-                method=endpoint_config.get("method", "get"),
-                path=endpoint_config.get("path"),
-                params=base_params,
-                paginator=paginator,
-                data_selector=endpoint_config.get("data_selector"),
-                hooks=hooks,
-                columns_config=columns_config,
-            )
+        # No need to attach hints - not using DLT anymore
+        resources[resource_name] = resource
 
     return resources
 
 
 def _set_incremental_params(
     params: dict[str, Any],
-    incremental_object: Incremental[Any],
+    incremental_object: Incremental,
     incremental_param: Optional[IncrementalParam],
     transform: Optional[Callable[..., Any]],
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> dict[str, Any]:
+    """Set incremental parameters in request params."""
+
     def identity_func(x: Any) -> Any:
         return x
 

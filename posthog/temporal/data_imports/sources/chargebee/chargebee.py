@@ -1,12 +1,11 @@
 import base64
 from typing import Any, Optional
 
-import dlt
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
@@ -191,7 +190,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
 
 
 class ChargebeePaginator(BasePaginator):
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
         self._next_offset = None
@@ -206,14 +205,13 @@ class ChargebeePaginator(BasePaginator):
         else:
             self._has_next_page = False
 
-    def update_request(self, request: Request) -> None:
+    def update_request(self, request: requests.Request) -> None:
         if request.params is None:
             request.params = {}
 
         request.params["offset"] = self._next_offset
 
 
-@dlt.source(max_table_nesting=0)
 def chargebee_source(
     api_key: str,
     site_name: str,
@@ -222,7 +220,8 @@ def chargebee_source(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
-):
+) -> SourceResponse:
+    """Chargebee source for data import."""
     config: RESTAPIConfig = {
         "client": {
             "base_url": f"https://{site_name}.chargebee.com/api",
@@ -245,7 +244,13 @@ def chargebee_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resource = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=["id"],
+    )
 
 
 def validate_credentials(api_key: str, site_name: str) -> bool:

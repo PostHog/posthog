@@ -1,14 +1,14 @@
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
+import requests
 import structlog
 from dateutil import parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
 from posthog.temporal.data_imports.pipelines.helpers import initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.pagination import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 
@@ -118,7 +118,7 @@ class RedditAdsPaginator(BasePaginator):
         self._next_url = None
         self._has_next_page = False
 
-    def update_state(self, response: Response, data: Optional[Any] = None) -> None:
+    def update_state(self, response: requests.Response, data: Optional[Any] = None) -> None:
         """Update pagination state from response"""
         try:
             response_data = response.json()
@@ -132,7 +132,7 @@ class RedditAdsPaginator(BasePaginator):
             self._next_url = None
             self._has_next_page = False
 
-    def update_request(self, request: Request) -> None:
+    def update_request(self, request: requests.Request) -> None:
         """Update request with next page URL"""
         if self._next_url:
             request.url = self._next_url
@@ -173,9 +173,7 @@ def reddit_ads_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    assert len(resources) == 1
-    resource = resources[0]
+    resource = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
     endpoint_config = REDDIT_ADS_CONFIG[endpoint]
 
