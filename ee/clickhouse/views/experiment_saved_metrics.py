@@ -3,7 +3,7 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
 import pydantic
-from rest_framework import serializers, viewsets
+from rest_framework import filters, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -122,6 +122,8 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
     scope_object = "experiment_saved_metric"
     queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()
     serializer_class = ExperimentSavedMetricSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name", "description"]
 
 
 @mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
