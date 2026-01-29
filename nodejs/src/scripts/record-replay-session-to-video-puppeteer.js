@@ -247,7 +247,7 @@ async function main() {
         log('Launching browser, headless:', headless)
         browser = await puppeteer.launch({
             headless: headless ? 'new' : false,
-            devtools: !headless,
+            // devtools: !headless, // Enable for debugging
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: [
                 // The default flag for PostHog usage of headless browsers, as they run within containers
