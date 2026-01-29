@@ -426,7 +426,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Workflows',
         iconType: 'workflows',
         projectBased: true,
-        description: 'Create and manage your workflows',
+        description: 'Automate user communication and internal processes',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -609,10 +609,10 @@ export const productUrls = {
         sceneSource?: InsightSceneSource
     } = {}): string => {
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor(query.query)
+            return urls.sqlEditor({ query: query.query })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor(query.source.query)
+            return urls.sqlEditor({ query: query.source.query })
         }
         return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
@@ -653,6 +653,7 @@ export const productUrls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
     alerts: (): string => `/insights?tab=alerts`,
+    insightOptions: (): string => '/insights/options',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     replay: (
@@ -1033,7 +1034,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Data pipelines`,
-        intents: [ProductKey.PIPELINE_DESTINATIONS, ProductKey.PIPELINE_TRANSFORMATIONS, ProductKey.SITE_APPS],
+        intents: [
+            ProductKey.PIPELINE_BATCH_EXPORTS,
+            ProductKey.PIPELINE_DESTINATIONS,
+            ProductKey.PIPELINE_TRANSFORMATIONS,
+            ProductKey.SITE_APPS,
+        ],
         category: 'Tools',
         type: 'hog_function',
         iconType: 'data_pipeline',
@@ -1267,7 +1273,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
-        category: 'Unreleased',
+        category: 'Behavior',
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
@@ -1485,7 +1491,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Support',
-        category: 'Unreleased',
+        category: 'Behavior',
         iconType: 'conversations' as FileSystemIconType,
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         href: urls.supportTickets(),

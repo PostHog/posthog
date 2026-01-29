@@ -19,7 +19,7 @@ where
         r#"
 WITH to_delete AS (
     DELETE FROM cyclotron_jobs
-    WHERE state IN ('failed', 'completed')
+    WHERE state IN ('failed', 'completed', 'canceled')
     RETURNING last_transition, team_id, function_id::text, state::text
 ),
 aggregated_data AS (

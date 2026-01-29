@@ -18,6 +18,7 @@ from .constants import (
     METRIC_PERIODS,
     PERSONAL_EMAIL_DOMAINS,
     SALESFORCE_UPDATE_BATCH_SIZE,
+    YC_INVESTOR_NAME,
 )
 from .harmonic_client import AsyncHarmonicClient
 from .redis_cache import get_accounts_from_redis
@@ -136,6 +137,37 @@ def _process_single_metric(metric_data: dict[str, Any]) -> dict[str, Any] | None
     return processed_metric
 
 
+def _is_yc_funded(investors: list | None) -> bool:
+    """Check if Y Combinator is among the company's investors.
+
+    Args:
+        investors: List of investor dicts with 'name' (Company) or 'fullName' (Person)
+
+    Returns:
+        True if Y Combinator is found in company investors (not person names)
+    """
+    if not investors:
+        return False
+
+    for investor in investors:
+        if isinstance(investor, dict):
+            # Only check company names, not person fullNames
+            name = investor.get("name", "")
+            if name and YC_INVESTOR_NAME in name.lower():
+                return True
+    return False
+
+
+def _safe_dict(value: Any) -> dict[str, Any]:
+    """Return value if it's a dict, otherwise return an empty dict."""
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_list(value: Any) -> list[Any]:
+    """Return value if it's a list, otherwise return an empty list."""
+    return value if isinstance(value, list) else []
+
+
 def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | None:
     """Transform Harmonic API response into Salesforce field format.
 
@@ -148,32 +180,31 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
     if not company_data or not isinstance(company_data, dict):
         return None
 
-    website_data = company_data.get("website") or {}
-    founding_data = company_data.get("foundingDate") or {}
+    website_data = _safe_dict(company_data.get("website"))
+    founding_data = _safe_dict(company_data.get("foundingDate"))
+    funding_data = _safe_dict(company_data.get("funding"))
+    traction_metrics = _safe_dict(company_data.get("tractionMetrics"))
 
-    transformed_data = {
-        "company_info": {
-            "name": company_data.get("name"),
-            "type": company_data.get("companyType"),
-            "website": website_data.get("url") if isinstance(website_data, dict) else None,
-            "description": company_data.get("description"),
-            "founding_date": founding_data.get("date") if isinstance(founding_data, dict) else None,
-        },
-        "funding": company_data.get("funding", {}) if isinstance(company_data.get("funding"), dict) else {},
-        "metrics": {},
-        "tags": company_data.get("tags", []) if isinstance(company_data.get("tags"), list) else [],
-        "tagsV2": company_data.get("tagsV2", []) if isinstance(company_data.get("tagsV2"), list) else [],
-    }
-
-    traction_metrics = (
-        company_data.get("tractionMetrics", {}) if isinstance(company_data.get("tractionMetrics"), dict) else {}
-    )
+    metrics = {}
     for metric_name, metric_data in traction_metrics.items():
         processed_metric = _process_single_metric(metric_data)
         if processed_metric:
-            transformed_data["metrics"][metric_name] = processed_metric
+            metrics[metric_name] = processed_metric
 
-    return transformed_data
+    return {
+        "company_info": {
+            "name": company_data.get("name"),
+            "type": company_data.get("companyType"),
+            "website": website_data.get("url"),
+            "description": company_data.get("description"),
+            "founding_date": founding_data.get("date"),
+        },
+        "funding": funding_data,
+        "is_yc_company": _is_yc_funded(funding_data.get("investors")),
+        "metrics": metrics,
+        "tags": _safe_list(company_data.get("tags")),
+        "tagsV2": _safe_list(company_data.get("tagsV2")),
+    }
 
 
 def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
@@ -182,6 +213,30 @@ def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | 
         if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
             if value := tag.get("displayValue"):
                 return value
+    return None
+
+
+def _get_historical_metric_value(metrics: dict[str, Any], metric_name: str, period: str) -> Any:
+    """Extract a historical metric value for a given period."""
+    return metrics.get(metric_name, {}).get("historical", {}).get(period, {}).get("value")
+
+
+def _extract_primary_tag(tags: list, tags_v2: list) -> str | None:
+    """Extract the primary tag from tags arrays.
+
+    Priority: isPrimaryTag=True in tags, then first valid tag in tags,
+    then MARKET_VERTICAL in tagsV2, then first valid tag in tagsV2.
+    """
+    if tags:
+        for tag in tags:
+            if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
+                return value
+        if first_tag := _extract_first_tag(tags):
+            return first_tag
+
+    if tags_v2:
+        return _extract_first_tag(tags_v2, "MARKET_VERTICAL") or _extract_first_tag(tags_v2)
+
     return None
 
 
@@ -206,45 +261,24 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
 
     current_metrics = {metric_name: metric_data.get("current_value") for metric_name, metric_data in metrics.items()}
 
-    def get_historical_value(metric_name, period):
-        metric_data = metrics.get(metric_name, {})
-        historical = metric_data.get("historical", {})
-        period_data = historical.get(period, {})
-        return period_data.get("value")
-
-    # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag, then tagsV2)
-    primary_tag = None
-
-    if tags:
-        # First try isPrimaryTag, then first valid tag
-        for tag in tags:
-            if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
-                primary_tag = value
-                break
-        if not primary_tag:
-            primary_tag = _extract_first_tag(tags)
-
-    # Fallback to tagsV2: MARKET_VERTICAL first, then any
-    if not primary_tag and tags_v2:
-        primary_tag = _extract_first_tag(tags_v2, "MARKET_VERTICAL") or _extract_first_tag(tags_v2)
+    founding_date = company_info.get("founding_date", "")
+    founded_year = int(founding_date.split("-")[0]) if founding_date and "-" in founding_date else None
 
     update_data = {
         "Id": account_id,
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
-        "harmonic_industry__c": primary_tag,
+        "harmonic_industry__c": _extract_primary_tag(tags, tags_v2),
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
-        "Founded_year__c": (
-            int(company_info.get("founding_date", "").split("-")[0])
-            if company_info.get("founding_date") and "-" in company_info.get("founding_date", "")
-            else None
-        ),
+        "Founded_year__c": founded_year,
         # Funding Info
         "harmonic_last_funding__c": funding.get("lastFundingTotal"),
         "Last_Funding_Date__c": funding.get("lastFundingAt"),
         "Total_Funding__c": funding.get("fundingTotal"),
         "harmonic_funding_stage__c": funding.get("fundingStage"),
+        # YC Flag
+        "harmonic_is_yc_company__c": harmonic_data.get("is_yc_company"),
         # Current Metrics
         "harmonic_headcount__c": current_metrics.get("headcount"),
         "harmonic_headcountEngineering__c": current_metrics.get("headcountEngineering"),
@@ -252,17 +286,19 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         "harmonic_twitterFollowerCount__c": current_metrics.get("twitterFollowerCount"),
         "harmonic_web_traffic__c": current_metrics.get("webTraffic"),
         # 90d Historical Data
-        "harmonic_headcount_90d__c": get_historical_value("headcount", "90d"),
-        "harmonic_headcountEngineering_90d__c": get_historical_value("headcountEngineering", "90d"),
-        "harmonic_linkedinFollowerCount_90d__c": get_historical_value("linkedinFollowerCount", "90d"),
-        "harmonic_twitterFollowerCount_90d__c": get_historical_value("twitterFollowerCount", "90d"),
-        "harmonic_web_traffic_90d__c": get_historical_value("webTraffic", "90d"),
+        "harmonic_headcount_90d__c": _get_historical_metric_value(metrics, "headcount", "90d"),
+        "harmonic_headcountEngineering_90d__c": _get_historical_metric_value(metrics, "headcountEngineering", "90d"),
+        "harmonic_linkedinFollowerCount_90d__c": _get_historical_metric_value(metrics, "linkedinFollowerCount", "90d"),
+        "harmonic_twitterFollowerCount_90d__c": _get_historical_metric_value(metrics, "twitterFollowerCount", "90d"),
+        "harmonic_web_traffic_90d__c": _get_historical_metric_value(metrics, "webTraffic", "90d"),
         # 180d Historical Data
-        "harmonic_headcount_180d__c": get_historical_value("headcount", "180d"),
-        "harmonic_headcountEngineering_180d__c": get_historical_value("headcountEngineering", "180d"),
-        "harmonic_linkedinFollowerCount_180d__c": get_historical_value("linkedinFollowerCount", "180d"),
-        "harmonic_twitterFollowerCount_180d__c": get_historical_value("twitterFollowerCount", "180d"),
-        "harmonic_web_traffic_180d__c": get_historical_value("webTraffic", "180d"),
+        "harmonic_headcount_180d__c": _get_historical_metric_value(metrics, "headcount", "180d"),
+        "harmonic_headcountEngineering_180d__c": _get_historical_metric_value(metrics, "headcountEngineering", "180d"),
+        "harmonic_linkedinFollowerCount_180d__c": _get_historical_metric_value(
+            metrics, "linkedinFollowerCount", "180d"
+        ),
+        "harmonic_twitterFollowerCount_180d__c": _get_historical_metric_value(metrics, "twitterFollowerCount", "180d"),
+        "harmonic_web_traffic_180d__c": _get_historical_metric_value(metrics, "webTraffic", "180d"),
     }
 
     # Remove None values to avoid Salesforce errors
@@ -640,6 +676,34 @@ def _compare_update_with_fetched(
     }
 
 
+def _build_debug_error_result(
+    chunk_number: int,
+    start_time: float,
+    domain: str,
+    error_message: str,
+    accounts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build an error result for debug mode enrichment failures."""
+    account_count = len(accounts) if accounts else 0
+    records_processed = account_count if accounts else 1
+
+    summary: dict[str, Any] = {
+        "harmonic_data_found": False,
+        "salesforce_update_succeeded": False,
+        "salesforce_accounts_count": account_count,
+        "domain": domain,
+        "error": error_message,
+    }
+    if accounts:
+        summary["salesforce_accounts"] = [f"{acc['Name']} ({acc['Id']})" for acc in accounts]
+
+    return {
+        **_build_result(chunk_number, start_time, records_processed=records_processed),
+        "summary": summary,
+        "error": f"{error_message} for domain '{domain}'",
+    }
+
+
 async def _enrich_specific_domain_debug(
     domain: str,
     chunk_number: int,
@@ -657,70 +721,33 @@ async def _enrich_specific_domain_debug(
     """
     logger = LOGGER.bind(domain=domain, mode="debug")
 
-    # Query Salesforce for all accounts matching domain
     accounts = get_salesforce_accounts_by_domain(domain)
-
     if not accounts:
-        return {
-            **_build_result(chunk_number, start_time, records_processed=1),
-            "summary": {
-                "harmonic_data_found": False,
-                "salesforce_update_succeeded": False,
-                "salesforce_accounts_count": 0,
-                "domain": domain,
-                "error": "No Salesforce accounts found",
-            },
-            "error": f"No Salesforce accounts found for domain '{domain}'",
-        }
+        return _build_debug_error_result(chunk_number, start_time, domain, "No Salesforce accounts found")
 
-    # Enrich with Harmonic API (once for the domain)
     async with AsyncHarmonicClient() as harmonic_client:
         harmonic_results = await harmonic_client.enrich_companies_batch([domain])
         harmonic_result = harmonic_results[0] if harmonic_results else None
 
         if not harmonic_result:
-            return {
-                **_build_result(chunk_number, start_time, records_processed=len(accounts)),
-                "summary": {
-                    "harmonic_data_found": False,
-                    "salesforce_update_succeeded": False,
-                    "salesforce_accounts_count": len(accounts),
-                    "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
-                    "domain": domain,
-                    "error": "No Harmonic data found",
-                },
-                "error": f"No Harmonic data found for domain '{domain}'",
-            }
+            return _build_debug_error_result(chunk_number, start_time, domain, "No Harmonic data found", accounts)
 
-        # Transform Harmonic data
         harmonic_data = transform_harmonic_data(harmonic_result)
-
         if not harmonic_data:
-            return {
-                **_build_result(chunk_number, start_time, records_processed=len(accounts)),
-                "summary": {
-                    "harmonic_data_found": False,
-                    "salesforce_update_succeeded": False,
-                    "salesforce_accounts_count": len(accounts),
-                    "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
-                    "domain": domain,
-                    "error": "Failed to transform Harmonic data",
-                },
-                "error": f"Failed to transform Harmonic data for domain '{domain}'",
-            }
+            return _build_debug_error_result(
+                chunk_number, start_time, domain, "Failed to transform Harmonic data", accounts
+            )
 
-        # Prepare Salesforce updates for all matching accounts
-        update_records = []
-        for account in accounts:
-            update_data = prepare_salesforce_update_data(account["Id"], harmonic_data)
-            if update_data:
-                update_records.append(update_data)
+        update_records = [
+            update_data
+            for account in accounts
+            if (update_data := prepare_salesforce_update_data(account["Id"], harmonic_data))
+        ]
 
-        # Execute bulk update for all accounts
         salesforce_updated = False
         update_error = None
         records_updated = 0
-        updated_salesforce_accounts = []
+        updated_salesforce_accounts: list[dict[str, Any]] = []
         field_comparison = None
 
         try:
@@ -729,27 +756,18 @@ async def _enrich_specific_domain_debug(
                 bulk_update_salesforce_accounts(sf, update_records)
                 salesforce_updated = True
                 records_updated = len(update_records)
-                logger.info(
-                    "Successfully updated Salesforce accounts",
-                    accounts_updated=records_updated,
-                )
+                logger.info("Successfully updated Salesforce accounts", accounts_updated=records_updated)
 
                 updated_salesforce_accounts = _fetch_updated_account_fields(sf, accounts, update_records)
-
-                # Compare what we sent with what we got back to detect field mismatches
                 field_comparison = _compare_update_with_fetched(update_records, updated_salesforce_accounts)
             else:
                 update_error = "Failed to prepare Salesforce update data for any accounts"
         except Exception as e:
             update_error = f"Salesforce update failed: {str(e)}"
-            logger.exception(
-                "Failed to update Salesforce",
-                accounts_count=len(accounts),
-                error=str(e),
-            )
+            logger.exception("Failed to update Salesforce", accounts_count=len(accounts), error=str(e))
             capture_exception(e)
 
-        summary = {
+        summary: dict[str, Any] = {
             "harmonic_data_found": True,
             "salesforce_update_succeeded": salesforce_updated,
             "salesforce_accounts_count": len(accounts),

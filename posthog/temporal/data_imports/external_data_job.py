@@ -310,7 +310,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 **timeout_params,
             )  # type: ignore
 
-            if pipeline_result["should_trigger_cdp_producer"]:
+            if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
                     workflow="dwh-cdp-producer-job",
                     arg=dataclasses.asdict(
@@ -319,7 +319,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         )
                     ),
                     id=f"dwh-cdp-producer-job-{job_id}",
-                    task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
+                    task_queue=str(settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE),
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     retry_policy=RetryPolicy(
                         maximum_attempts=3,

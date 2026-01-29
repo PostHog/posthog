@@ -267,7 +267,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-2">
+        <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Dispatch <LemonDivider className="flex-1" />
             </span>

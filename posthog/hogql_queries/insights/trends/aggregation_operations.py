@@ -74,7 +74,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
-            return parse_expr(self.series.math_hogql)
+            # Wrap in ifNull to handle empty result sets - formulas can't handle NULL values
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toFloat", args=[parse_expr(self.series.math_hogql)]),
+                    ast.Constant(value=0),
+                ],
+            )
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
         elif self.series.math == "dau":
@@ -339,7 +346,14 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(name="_toDate", args=[timestamp_expr]),
             )
 
-            return ast.Call(name=method, args=[currency_field_expr])
+            # Wrap in ifNull to handle empty result sets - formulas can't handle NULL values
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name=method, args=[currency_field_expr]),
+                    ast.Constant(value=0),
+                ],
+            )
 
         # Apply math_multiplier if present
         field_expr: ast.Expr = ast.Field(chain=chain)

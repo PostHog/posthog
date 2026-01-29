@@ -7,11 +7,28 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `private` - Private (only visible to creator)
+ * `shared` - Shared with team
+ */
+export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
+
+export const VisibilityEnumApi = {
+    private: 'private',
+    shared: 'shared',
+} as const
+
 export interface ColumnConfigurationApi {
     readonly id: string
     /** @maxLength 255 */
     context_key: string
     columns?: string[]
+    /** @maxLength 255 */
+    name?: string
+    filters?: unknown | null
+    visibility?: VisibilityEnumApi
+    /** @nullable */
+    readonly created_by: number | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -30,6 +47,12 @@ export interface PatchedColumnConfigurationApi {
     /** @maxLength 255 */
     context_key?: string
     columns?: string[]
+    /** @maxLength 255 */
+    name?: string
+    filters?: unknown | null
+    visibility?: VisibilityEnumApi
+    /** @nullable */
+    readonly created_by?: number | null
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -131,18 +154,7 @@ export interface PatchedElementApi {
     order?: number | null
 }
 
-export type EnvironmentsColumnConfigurationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsElementsListParams = {
+export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -154,6 +166,17 @@ export type EnvironmentsElementsListParams = {
 }
 
 export type ElementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ElementsList2Params = {
     /**
      * Number of results to return per page.
      */

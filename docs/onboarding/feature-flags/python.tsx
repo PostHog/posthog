@@ -1,22 +1,16 @@
-import { getPythonSteps as getPythonStepsPA } from '../product-analytics/python'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getPythonSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    dedent: any,
-    Tab: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getPythonSteps as getPythonStepsPA } from '../product-analytics/python'
+import { StepDefinition } from '../steps'
+
+export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, Tab, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
     const OverrideProperties = snippets?.OverridePropertiesSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getPythonStepsPA(CodeBlock, Markdown, CalloutBox, dedent, snippets)
+    const installationSteps = getPythonStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -135,21 +129,7 @@ export const getPythonSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const PythonInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent, snippets, Tab } = useMDXComponents()
-    const steps = getPythonSteps(CodeBlock, Markdown, CalloutBox, dedent, Tab, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const PythonInstallation = createInstallation(getPythonSteps)

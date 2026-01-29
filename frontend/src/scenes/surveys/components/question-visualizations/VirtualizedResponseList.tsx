@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { Grid, GridCellProps, ScrollParams } from 'react-virtualized/dist/es/Grid'
+import { CSSProperties, useCallback, useState } from 'react'
+import { Grid } from 'react-window'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -30,10 +30,8 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
             <div className="text-sm truncate mb-auto">{responseText}</div>
             <div className="flex items-center justify-between text-xs text-secondary mt-1">
                 <PersonDisplay
-                    person={{
-                        distinct_id: response.distinctId,
-                        properties: response.personProperties || {},
-                    }}
+                    person={{ distinct_id: response.distinctId }}
+                    displayName={response.personDisplayName}
                     withIcon="xs"
                     noEllipsis={false}
                     noLink={!response.distinctId}
@@ -59,10 +57,8 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                     <p className="text-sm whitespace-pre-wrap leading-relaxed">{responseText}</p>
                     <div className="flex items-center justify-between text-xs text-secondary mt-3 pt-2 border-t">
                         <PersonDisplay
-                            person={{
-                                distinct_id: response.distinctId,
-                                properties: response.personProperties || {},
-                            }}
+                            person={{ distinct_id: response.distinctId }}
+                            displayName={response.personDisplayName}
                             withIcon
                             noEllipsis={false}
                             noLink={!response.distinctId}
@@ -77,6 +73,40 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
     )
 }
 
+interface ResponseCellProps {
+    responses: OpenQuestionResponseData[]
+}
+
+function ResponseCell({
+    columnIndex,
+    rowIndex,
+    style,
+    responses,
+}: {
+    ariaAttributes: Record<string, unknown>
+    columnIndex: number
+    rowIndex: number
+    style: CSSProperties
+} & ResponseCellProps): JSX.Element | null {
+    const index = rowIndex * COLUMN_COUNT + columnIndex
+    if (index >= responses.length) {
+        return null
+    }
+    const response = responses[index]
+
+    const adjustedStyle = {
+        ...style,
+        left: Number(style.left) + (columnIndex === 1 ? COLUMN_GAP : 0),
+        paddingBottom: 8,
+    }
+
+    return (
+        <div style={adjustedStyle}>
+            <ResponseListItem response={response} />
+        </div>
+    )
+}
+
 export function VirtualizedResponseList({ responses, maxHeight = 400 }: VirtualizedResponseListProps): JSX.Element {
     const rowCount = Math.ceil(responses.length / COLUMN_COUNT)
     const [isAtBottom, setIsAtBottom] = useState(false)
@@ -85,25 +115,14 @@ export function VirtualizedResponseList({ responses, maxHeight = 400 }: Virtuali
     const totalHeight = rowCount * ROW_HEIGHT
     const isScrollable = totalHeight > maxHeight
 
-    const cellRenderer = ({ columnIndex, rowIndex, key, style }: GridCellProps): JSX.Element | null => {
-        const index = rowIndex * COLUMN_COUNT + columnIndex
-        if (index >= responses.length) {
-            return null
-        }
-        const response = responses[index]
-
-        const adjustedStyle = {
-            ...style,
-            left: Number(style.left) + (columnIndex === 1 ? COLUMN_GAP : 0),
-            paddingBottom: 8,
-        }
-
-        return (
-            <div key={key} style={adjustedStyle}>
-                <ResponseListItem response={response} />
-            </div>
-        )
-    }
+    const handleScroll = useCallback(
+        (event: React.UIEvent<HTMLDivElement>): void => {
+            const { scrollTop, clientHeight, scrollHeight } = event.currentTarget
+            const atBottom = scrollTop + clientHeight >= scrollHeight - 20
+            setIsAtBottom(atBottom)
+        },
+        [setIsAtBottom]
+    )
 
     if (responses.length <= 8) {
         return (
@@ -115,31 +134,28 @@ export function VirtualizedResponseList({ responses, maxHeight = 400 }: Virtuali
         )
     }
 
-    const handleScroll = ({ scrollTop, clientHeight, scrollHeight }: ScrollParams): void => {
-        const atBottom = scrollTop + clientHeight >= scrollHeight - 20
-        setIsAtBottom(atBottom)
-    }
-
     const showScrollIndicator = isScrollable && !isAtBottom
 
     return (
         <div className="relative">
             <div style={{ height: containerHeight }}>
-                <AutoSizer>
-                    {({ height, width }) => (
-                        <Grid
-                            width={width}
-                            height={height}
-                            columnCount={COLUMN_COUNT}
-                            columnWidth={(width - COLUMN_GAP) / COLUMN_COUNT}
-                            rowCount={rowCount}
-                            rowHeight={ROW_HEIGHT}
-                            cellRenderer={cellRenderer}
-                            overscanRowCount={3}
-                            onScroll={handleScroll}
-                        />
-                    )}
-                </AutoSizer>
+                <AutoSizer
+                    renderProp={({ height, width }) =>
+                        height && width ? (
+                            <Grid<ResponseCellProps>
+                                style={{ width, height }}
+                                columnCount={COLUMN_COUNT}
+                                columnWidth={(width - COLUMN_GAP) / COLUMN_COUNT}
+                                rowCount={rowCount}
+                                rowHeight={ROW_HEIGHT}
+                                cellComponent={ResponseCell}
+                                cellProps={{ responses }}
+                                overscanCount={3}
+                                onScroll={handleScroll}
+                            />
+                        ) : null
+                    }
+                />
             </div>
             <div
                 className={`absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-bg-light to-transparent pointer-events-none flex items-end justify-center pb-2 transition-all duration-300 ${

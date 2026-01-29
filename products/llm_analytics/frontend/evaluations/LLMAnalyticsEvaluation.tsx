@@ -8,19 +8,24 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { urls } from '~/scenes/urls'
 
+import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
@@ -35,7 +40,15 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
+        selectedProvider,
+        selectedKeyId,
+        selectedModel,
+        keysForSelectedProvider,
+        availableModels,
+        availableModelsLoading,
+        providerKeysLoading,
     } = useValues(llmEvaluationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -43,6 +56,9 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setAllowsNA,
         saveEvaluation,
         resetEvaluation,
+        setSelectedProvider,
+        setSelectedKeyId,
+        setSelectedModel,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -184,6 +200,86 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                         <h3 className="text-lg font-semibold mb-4">Evaluation prompt</h3>
                         <EvaluationPromptEditor />
                     </div>
+
+                    {/* Judge Model Configuration */}
+                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
+                        <div className="bg-bg-light border rounded p-6">
+                            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
+                            <p className="text-muted text-sm mb-4">
+                                Select which LLM provider and model to use for running this evaluation.
+                            </p>
+
+                            <div className="space-y-4">
+                                <Field name="provider" label="Provider">
+                                    <LemonSelect
+                                        value={selectedProvider}
+                                        onChange={(value) => setSelectedProvider(value as LLMProvider)}
+                                        options={[
+                                            { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
+                                            { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
+                                            { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
+                                        ]}
+                                        fullWidth
+                                    />
+                                </Field>
+
+                                <Field
+                                    name="provider_key"
+                                    label={
+                                        <div className="flex items-center gap-1">
+                                            <span>API key</span>
+                                            <span className="text-muted">-</span>
+                                            <Link to={urls.llmAnalyticsSettings()}>Manage</Link>
+                                        </div>
+                                    }
+                                >
+                                    <LemonSelect
+                                        value={selectedKeyId || 'posthog_default'}
+                                        onChange={(value) =>
+                                            setSelectedKeyId(value === 'posthog_default' ? null : value)
+                                        }
+                                        options={[
+                                            ...(keysForSelectedProvider.length === 0
+                                                ? [{ value: 'posthog_default', label: 'PostHog default' }]
+                                                : []),
+                                            ...keysForSelectedProvider.map((key) => ({
+                                                value: key.id,
+                                                label: key.name,
+                                            })),
+                                        ]}
+                                        loading={providerKeysLoading}
+                                        fullWidth
+                                    />
+                                </Field>
+
+                                <Field name="model" label="Model">
+                                    <>
+                                        <LemonSelect
+                                            value={selectedModel || undefined}
+                                            onChange={(value) => setSelectedModel(value || '')}
+                                            options={availableModels.map((model) => ({
+                                                value: model.id,
+                                                label: model.id,
+                                                disabledReason:
+                                                    !selectedKeyId && !model.posthog_available
+                                                        ? 'Requires API key'
+                                                        : undefined,
+                                            }))}
+                                            loading={availableModelsLoading}
+                                            placeholder="Select a model"
+                                            fullWidth
+                                            disabled={!selectedKeyId}
+                                        />
+                                        {!selectedKeyId && (
+                                            <p className="text-xs text-muted mt-1">
+                                                Add your own API key for model selection
+                                            </p>
+                                        )}
+                                    </>
+                                </Field>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Trigger Configuration */}
                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">

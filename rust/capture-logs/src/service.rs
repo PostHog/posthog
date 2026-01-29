@@ -97,8 +97,8 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 
 #[derive(Clone)]
 pub struct Service {
-    sink: KafkaSink,
-    token_dropper: Arc<TokenDropper>,
+    pub(crate) sink: KafkaSink,
+    pub(crate) token_dropper: Arc<TokenDropper>,
 }
 
 #[derive(Deserialize)]
@@ -109,11 +109,11 @@ pub struct QueryParams {
 impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
-        token_dropper: TokenDropper,
+        token_dropper: Arc<TokenDropper>,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
-            token_dropper: token_dropper.into(),
+            token_dropper,
         })
     }
 }

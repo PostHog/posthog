@@ -49,7 +49,13 @@ function triggerShortcut(shortcut: AppShortcutType): void {
     }
 }
 
-function isEditableElement(target: EventTarget | null): boolean {
+function isEditableElement(event: KeyboardEvent): boolean {
+    // Use composedPath to get the actual target element, even through shadow DOM boundaries
+    // This is necessary because event.target gets retargeted to the shadow host when events
+    // bubble up from inside a shadow DOM (e.g., surveys product inputs)
+    const path = event.composedPath()
+    const target = path[0] as HTMLElement | null
+
     if (!target || !(target instanceof HTMLElement)) {
         return false
     }
@@ -143,7 +149,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             }
 
             // Handle sequence shortcuts (no modifier keys, not in editable elements)
-            if (isEditableElement(event.target) || event.altKey) {
+            if (isEditableElement(event) || event.altKey) {
                 return
             }
 

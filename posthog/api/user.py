@@ -51,7 +51,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     TemporaryTokenAuthentication,
-    authenticate_secondarily,
+    session_auth_required,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
@@ -772,7 +772,7 @@ class UserViewSet(
         return Response({"success": True})
 
 
-@authenticate_secondarily
+@session_auth_required
 def get_toolbar_preloaded_flags(request):
     """Retrieve cached feature flags for toolbar"""
     toolbar_flags_key = request.GET.get("key")
@@ -800,7 +800,7 @@ def get_toolbar_preloaded_flags(request):
     return JsonResponse({"featureFlags": feature_flags})
 
 
-@authenticate_secondarily
+@session_auth_required
 @require_http_methods(["POST"])
 def prepare_toolbar_preloaded_flags(request):
     """
@@ -851,7 +851,7 @@ def prepare_toolbar_preloaded_flags(request):
         return JsonResponse({"error": "Invalid request"}, status=400)
 
 
-@authenticate_secondarily
+@session_auth_required
 def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
@@ -903,7 +903,7 @@ def redirect_to_site(request):
         return redirect("{}#__posthog={}".format(app_url, state))
 
 
-@authenticate_secondarily
+@session_auth_required
 def redirect_to_website(request):
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
@@ -966,7 +966,7 @@ def redirect_to_website(request):
 
 
 @require_http_methods(["POST"])
-@authenticate_secondarily
+@session_auth_required
 def test_slack_webhook(request):
     """Test webhook."""
     try:

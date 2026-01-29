@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Add;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 
 use axum::http::StatusCode;
@@ -8,6 +9,78 @@ use std::time::Duration;
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
+
+/// Shutdown status state machine for graceful rollout/termination.
+///
+/// During Kubernetes rolling deployments, the pre-stop hook creates `/tmp/shutdown`
+/// to signal the pod is being terminated. The readiness probe detects this and
+/// transitions to `Prestop`, returning 503 to stop receiving new traffic while
+/// existing requests complete.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum ShutdownStatus {
+    Unknown = 0,
+    Running = 1,
+    Prestop = 2,
+    Terminating = 3,
+    Completed = 4,
+}
+
+impl ShutdownStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Running => "running",
+            Self::Prestop => "prestop",
+            Self::Terminating => "terminating",
+            Self::Completed => "completed",
+        }
+    }
+}
+
+impl From<u8> for ShutdownStatus {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => Self::Running,
+            2 => Self::Prestop,
+            3 => Self::Terminating,
+            4 => Self::Completed,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+static SHUTDOWN_STATUS: AtomicU8 = AtomicU8::new(ShutdownStatus::Running as u8);
+
+pub fn set_shutdown_status(status: ShutdownStatus) {
+    SHUTDOWN_STATUS.store(status as u8, Ordering::Relaxed);
+}
+
+pub fn get_shutdown_status() -> ShutdownStatus {
+    SHUTDOWN_STATUS.load(Ordering::Relaxed).into()
+}
+
+/// Readiness check that returns 503 when shutting down.
+///
+/// This endpoint should be used as the Kubernetes readiness probe. When the
+/// pre-stop hook creates `/tmp/shutdown`, subsequent readiness checks will
+/// return 503, causing Kubernetes to stop routing traffic to this pod.
+pub async fn readiness_handler() -> StatusCode {
+    let shutdown_status = get_shutdown_status();
+    let is_running_or_unknown =
+        shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown;
+
+    if is_running_or_unknown && std::path::Path::new("/tmp/shutdown").exists() {
+        set_shutdown_status(ShutdownStatus::Prestop);
+        tracing::info!("Shutdown file detected, transitioning to PRESTOP status");
+    }
+
+    if is_running_or_unknown {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
+}
 
 /// Health reporting for components of the service.
 ///
@@ -261,7 +334,10 @@ impl HealthRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ComponentStatus, HealthRegistry, HealthStatus, HealthStrategy};
+    use crate::{
+        get_shutdown_status, set_shutdown_status, ComponentStatus, HealthRegistry, HealthStatus,
+        HealthStrategy, ShutdownStatus,
+    };
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use std::ops::{Add, Sub};
@@ -451,5 +527,36 @@ mod tests {
             HealthStrategy::Any
         );
         assert!("invalid".parse::<HealthStrategy>().is_err());
+    }
+
+    #[test]
+    fn shutdown_status_conversion() {
+        assert_eq!(ShutdownStatus::from(0), ShutdownStatus::Unknown);
+        assert_eq!(ShutdownStatus::from(1), ShutdownStatus::Running);
+        assert_eq!(ShutdownStatus::from(2), ShutdownStatus::Prestop);
+        assert_eq!(ShutdownStatus::from(3), ShutdownStatus::Terminating);
+        assert_eq!(ShutdownStatus::from(4), ShutdownStatus::Completed);
+        assert_eq!(ShutdownStatus::from(255), ShutdownStatus::Unknown);
+    }
+
+    #[test]
+    fn shutdown_status_as_str() {
+        assert_eq!(ShutdownStatus::Unknown.as_str(), "unknown");
+        assert_eq!(ShutdownStatus::Running.as_str(), "running");
+        assert_eq!(ShutdownStatus::Prestop.as_str(), "prestop");
+        assert_eq!(ShutdownStatus::Terminating.as_str(), "terminating");
+        assert_eq!(ShutdownStatus::Completed.as_str(), "completed");
+    }
+
+    #[test]
+    fn get_set_shutdown_status() {
+        set_shutdown_status(ShutdownStatus::Running);
+        assert_eq!(get_shutdown_status(), ShutdownStatus::Running);
+
+        set_shutdown_status(ShutdownStatus::Prestop);
+        assert_eq!(get_shutdown_status(), ShutdownStatus::Prestop);
+
+        // Reset for other tests
+        set_shutdown_status(ShutdownStatus::Running);
     }
 }

@@ -71,20 +71,31 @@ describe('DateFilter with allowFixedRangeWithTime', () => {
         cleanup()
     })
 
-    it('shows custom fixed date range with time option', async () => {
+    it('shows include time toggle in custom fixed date range', async () => {
         const dateFilter = screen.getByTestId('date-filter')
         userEvent.click(dateFilter)
 
-        expect(screen.getByText(/custom fixed date range with time/i)).toBeInTheDocument()
-        expect(screen.getByText(/custom fixed date range…$/i)).toBeInTheDocument()
+        const fixedRangeOption = screen.getByText(/custom fixed date range…$/i)
+        userEvent.click(fixedRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText(/include time\?/i)).toBeInTheDocument()
+        })
     })
 
-    it('opens the time range picker when clicking custom fixed date range with time', async () => {
+    it('opens the time range picker when toggling include time', async () => {
         const dateFilter = screen.getByTestId('date-filter')
         userEvent.click(dateFilter)
 
-        const timeRangeOption = screen.getByText(/custom fixed date range with time/i)
-        userEvent.click(timeRangeOption)
+        const fixedRangeOption = screen.getByText(/custom fixed date range…$/i)
+        userEvent.click(fixedRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText(/include time\?/i)).toBeInTheDocument()
+        })
+
+        const timeToggle = screen.getByRole('switch')
+        userEvent.click(timeToggle)
 
         await waitFor(() => {
             expect(screen.getByText(/select a date and time range/i)).toBeInTheDocument()

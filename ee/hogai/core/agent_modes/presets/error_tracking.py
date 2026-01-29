@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -49,6 +50,8 @@ Assistant: I'll help you analyze how error tracking issues are impacting your ch
 Based on your event taxonomy, the checkout-related events are: checkout_started, payment_submitted, and order_completed. These are the events you should analyze to understand which issues may be blocking or affecting your checkout conversion.
 """.strip()
 
+MODE_DESCRIPTION = "Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause."
+
 POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
 The assistant used the read_taxonomy tool because:
 1. The user wants to understand how issues affect a specific product flow (checkout)
@@ -87,6 +90,15 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can retrieve detailed stack trace information for any issue to analyze and explain its root cause. For impact analysis, use read_taxonomy to identify which events relate to the user's query.",
+    mode_description=MODE_DESCRIPTION,
     toolkit_class=ErrorTrackingAgentToolkit,
+)
+
+
+chat_agent_plan_error_tracking_agent = AgentModeDefinition(
+    mode=AgentMode.ERROR_TRACKING,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=ErrorTrackingAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

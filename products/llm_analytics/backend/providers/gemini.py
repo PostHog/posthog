@@ -1,99 +1,38 @@
-import json
-import uuid
-import logging
+"""
+DEPRECATED: This module is internal to LLM Analytics and should not be imported by other products.
+
+If you are importing this from outside llm_analytics, please either:
+- Copy the code you need into your own codebase and maintain it there
+- Migrate to the LLM Gateway when available
+
+This shim will be removed in a future release.
+"""
+
 from collections.abc import Generator
 from typing import Any
 
-from django.conf import settings
+from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter, GeminiConfig
+from products.llm_analytics.backend.llm.types import AnalyticsContext, CompletionRequest
 
-import posthoganalytics
-from anthropic.types import MessageParam
-from google.genai.errors import APIError
-from google.genai.types import GenerateContentConfig, HttpOptions
-from posthoganalytics.ai.gemini import genai
-
-from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
-
-logger = logging.getLogger(__name__)
-
-
-class GeminiConfig:
-    # these are hardcoded for now, we might experiment with different values
-    TEMPERATURE: float = 0
-    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
-    # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
-    TIMEOUT: int = 300
-
-    SUPPORTED_MODELS: list[str] = [
-        "gemini-3-flash-preview",
-        "gemini-2.5-flash-preview-09-2025",
-        "gemini-2.5-flash-lite-preview-09-2025",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-    ]
+__all__ = ["GeminiConfig", "GeminiProvider"]
 
 
 class GeminiProvider:
-    def __init__(self, model_id: str):
-        posthog_client = posthoganalytics.default_client
-        if not posthog_client:
-            raise ValueError("PostHog client not found")
+    """Backward-compatible wrapper - delegates to GeminiAdapter."""
 
-        self.client = genai.Client(
-            api_key=self.get_api_key(),
-            posthog_client=posthog_client,
-            http_options=HttpOptions(timeout=GeminiConfig.TIMEOUT),
-        )
-        self.validate_model(model_id)
+    def __init__(self, model_id: str, api_key: str | None = None):
+        self._adapter = GeminiAdapter()
         self.model_id = model_id
-
-    def validate_model(self, model_id: str) -> None:
-        if model_id not in GeminiConfig.SUPPORTED_MODELS:
-            raise ValueError(f"Model {model_id} is not supported")
+        self._api_key = api_key
 
     @classmethod
     def get_api_key(cls) -> str:
-        api_key = settings.GEMINI_API_KEY
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY is not set in environment or settings")
-        return api_key
+        return GeminiAdapter.get_api_key()
 
-    def _extract_content_from_chunk(self, chunk) -> list[str]:
-        results = []
-
-        if hasattr(chunk, "text") and chunk.text:
-            results.append(f"data: {json.dumps({'type': 'text', 'text': chunk.text})}\n\n")
-
-            return results
-
-        if hasattr(chunk, "candidates") and chunk.candidates:
-            for candidate in chunk.candidates:
-                if hasattr(candidate, "content") and candidate.content:
-                    if hasattr(candidate.content, "parts") and candidate.content.parts:
-                        for part in candidate.content.parts:
-                            if hasattr(part, "function_call") and part.function_call:
-                                tool_call_data = {
-                                    "type": "tool_call",
-                                    "id": f"gemini_tool_{hash(str(part.function_call))}",
-                                    "function": {
-                                        "name": part.function_call.name,
-                                        "arguments": (
-                                            json.dumps(dict(part.function_call.args))
-                                            if part.function_call.args
-                                            else "{}"
-                                        ),
-                                    },
-                                }
-
-                                results.append(f"data: {json.dumps(tool_call_data)}\n\n")
-                            elif hasattr(part, "text") and part.text:
-                                results.append(f"data: {json.dumps({'type': 'text', 'text': part.text})}\n\n")
-
-        return results
+    def validate_model(self, model_id: str) -> None:
+        """Validate that the model is supported."""
+        if model_id not in GeminiConfig.SUPPORTED_MODELS:
+            raise ValueError(f"Model {model_id} is not supported. Supported models: {GeminiConfig.SUPPORTED_MODELS}")
 
     @staticmethod
     def prepare_config_kwargs(
@@ -102,24 +41,13 @@ class GeminiProvider:
         max_tokens: int | None = None,
         tools: list[dict] | None = None,
     ) -> dict[str, Any]:
-        effective_temperature = temperature if temperature is not None else GeminiConfig.TEMPERATURE
-        effective_max_tokens = max_tokens  # May be None; Gemini API uses max_output_tokens
-        # Build config with conditionals
-        config_kwargs: dict[str, Any] = {
-            "temperature": effective_temperature,
-        }
-        if system:
-            config_kwargs["system_instruction"] = system
-        if effective_max_tokens is not None:
-            config_kwargs["max_output_tokens"] = effective_max_tokens
-        if tools is not None:
-            config_kwargs["tools"] = tools
-        return config_kwargs
+        """Prepare Gemini config kwargs - delegates to adapter."""
+        return GeminiAdapter._prepare_config_kwargs(system, temperature, max_tokens, tools)
 
     def stream_response(
         self,
         system: str,
-        messages: list[MessageParam],
+        messages: list[dict[str, Any]],
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -129,42 +57,25 @@ class GeminiProvider:
         properties: dict | None = None,
         groups: dict | None = None,
     ) -> Generator[str, None]:
-        """
-        Async generator function that yields SSE formatted data.
-        """
-        self.validate_model(self.model_id)
-        try:
-            config_kwargs = self.prepare_config_kwargs(
-                system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
-            )
-            response = self.client.models.generate_content_stream(
-                model=self.model_id,
-                contents=convert_anthropic_messages_to_gemini(messages),
-                config=GenerateContentConfig(**config_kwargs),
-                posthog_distinct_id=distinct_id,
-                posthog_trace_id=trace_id or str(uuid.uuid4()),
-                posthog_properties={**(properties or {}), "ai_product": "playground"},
-                posthog_groups=groups or {},
-            )
-
-            for chunk in response:
-                content_messages = self._extract_content_from_chunk(chunk)
-
-                yield from content_messages
-
-                if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                    input_tokens = chunk.usage_metadata.prompt_token_count
-                    output_tokens = chunk.usage_metadata.candidates_token_count
-                    yield f"data: {json.dumps({'type': 'usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
-
-        except APIError as e:
-            logger.exception(f"Gemini API error when streaming response: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Gemini API error'})}\n\n"
-            return
-        except Exception as e:
-            logger.exception(f"Unexpected error when streaming response: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
-            return
+        """Generator function that yields SSE formatted data."""
+        request = CompletionRequest(
+            model=self.model_id,
+            messages=list(messages),
+            provider="gemini",
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+            thinking=thinking,
+        )
+        analytics = AnalyticsContext(
+            distinct_id=distinct_id,
+            trace_id=trace_id,
+            properties=properties,
+            groups=groups,
+        )
+        for chunk in self._adapter.stream(request, self._api_key, analytics):
+            yield chunk.to_sse()
 
     def get_response(
         self,
@@ -178,27 +89,21 @@ class GeminiProvider:
         properties: dict | None = None,
         groups: dict | None = None,
     ) -> str:
-        """
-        Get direct string response from Gemini API for a provided string prompt (no streaming).
-        """
-        self.validate_model(self.model_id)
-        try:
-            config_kwargs = self.prepare_config_kwargs(
-                system=system, temperature=temperature, max_tokens=max_tokens, tools=tools
-            )
-            response = self.client.models.generate_content(
-                model=self.model_id,
-                contents=prompt,
-                config=GenerateContentConfig(**config_kwargs),
-                posthog_distinct_id=distinct_id,
-                posthog_trace_id=trace_id or str(uuid.uuid4()),
-                posthog_properties={**(properties or {}), "ai_product": "playground"},
-                posthog_groups=groups or {},
-            )
-            return response.text
-        except APIError as err:
-            logger.exception(f"Gemini API error when getting response: {err}")
-            raise
-        except Exception as err:
-            logger.exception(f"Unexpected error when getting response: {err}")
-            raise
+        """Get direct string response from Gemini API for a provided string prompt."""
+        request = CompletionRequest(
+            model=self.model_id,
+            messages=[{"role": "user", "content": prompt}],
+            provider="gemini",
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+        )
+        analytics = AnalyticsContext(
+            distinct_id=distinct_id,
+            trace_id=trace_id,
+            properties=properties,
+            groups=groups,
+        )
+        response = self._adapter.complete(request, self._api_key, analytics)
+        return response.content

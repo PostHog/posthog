@@ -128,6 +128,7 @@ class VercelIntegration:
         "usage": "/organization/billing/usage",
         "support": "/#panel=support",
         "secrets": "/settings/project#variables",
+        "onboarding": "/onboarding",
     }
     SSO_DEFAULT_REDIRECT = "/"
 
@@ -299,13 +300,13 @@ class VercelIntegration:
             if existing_user:
                 user = existing_user
                 user_created = False
-                if VercelIntegration._user_has_any_vercel_mapping(existing_user):
-                    VercelIntegration._add_user_to_organization(
-                        existing_user, organization, OrganizationMembership.Level.OWNER
-                    )
-                    should_create_mapping = True
-                else:
-                    should_create_mapping = False
+                # Always add existing user to the new organization - they're installing so they should be a member
+                VercelIntegration._add_user_to_organization(
+                    existing_user, organization, OrganizationMembership.Level.OWNER
+                )
+                # Only create mapping if user is trusted (has existing Vercel mapping somewhere)
+                # External users will get mapped during SSO when they prove ownership
+                should_create_mapping = VercelIntegration._user_has_any_vercel_mapping(existing_user)
             else:
                 user, user_created = VercelIntegration._find_or_create_user_by_email(
                     email=config.account.contact.email,
@@ -399,14 +400,12 @@ class VercelIntegration:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
         installation.delete()
-        is_dev = settings.DEBUG
         logger.info(
             "Successfully deleted Vercel installation",
             installation_id=installation_id,
-            finalized=is_dev,
             integration="vercel",
         )
-        return {"finalized": is_dev}  # Immediately finalize in dev mode for testing purposes
+        return {"finalized": True}
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:

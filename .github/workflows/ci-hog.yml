@@ -116,6 +116,8 @@ jobs:
               run: |
                   python -m common.hogvm.stl.compile
                   git diff --exit-code
+              env:
+                  TEST: 1
 
             - name: Run HogVM Python tests
               run: |
@@ -133,6 +135,8 @@ jobs:
                   bin/turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
+              env:
+                  TEST: 1
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update

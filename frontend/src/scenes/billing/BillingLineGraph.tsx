@@ -204,6 +204,9 @@ export function BillingLineGraph({
                                             return null
                                         }
                                         const value = point.parsed.y
+                                        if (value === null) {
+                                            return null
+                                        }
                                         return {
                                             id: dataset.id,
                                             label: dataset.label,

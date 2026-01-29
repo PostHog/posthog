@@ -1,19 +1,29 @@
-from django.db.models import CharField, Count, OuterRef, Q, QuerySet, Subquery
-from django.db.models.functions import Cast
+from django.db import transaction
+from django.db.models import Q, QuerySet, Sum
 
 import structlog
+from loginas.utils import is_impersonated_session
 from rest_framework import pagination, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
-from posthog.models.comment import Comment
+from posthog.models import OrganizationMembership
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.api.serializers import TicketAssignmentSerializer
+from products.conversations.backend.cache import (
+    get_cached_unread_count,
+    invalidate_unread_count_cache,
+    set_cached_unread_count,
+)
+from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, Priority, Status
+
+from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
@@ -24,10 +34,7 @@ class TicketPagination(pagination.LimitOffsetPagination):
 
 
 class TicketSerializer(serializers.ModelSerializer):
-    message_count = serializers.SerializerMethodField()
-    last_message_at = serializers.SerializerMethodField()
-    last_message_text = serializers.SerializerMethodField()
-    assigned_to_user = serializers.SerializerMethodField()
+    assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
 
     class Meta:
         model = Ticket
@@ -38,8 +45,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "distinct_id",
             "status",
             "priority",
-            "assigned_to",
-            "assigned_to_user",
+            "assignee",
             "anonymous_traits",
             "ai_resolved",
             "escalation_reason",
@@ -62,46 +68,10 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
-            "assigned_to_user",
+            "assignee",
             "session_id",
             "session_context",
         ]
-
-    def get_message_count(self, obj: Ticket) -> int:
-        """Get count of messages in this ticket."""
-        if hasattr(obj, "message_count"):
-            return obj.message_count or 0  # Subquery returns None when no messages
-        return Comment.objects.filter(
-            team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False
-        ).count()
-
-    def get_last_message_at(self, obj: Ticket):
-        """Get timestamp of last message."""
-        if hasattr(obj, "last_message_at"):
-            return obj.last_message_at
-        last_comment = (
-            Comment.objects.filter(team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False)
-            .order_by("-created_at")
-            .first()
-        )
-        return last_comment.created_at if last_comment else None
-
-    def get_last_message_text(self, obj: Ticket) -> str | None:
-        """Get text of last message."""
-        if hasattr(obj, "last_message_text"):
-            return obj.last_message_text
-        last_comment = (
-            Comment.objects.filter(team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False)
-            .order_by("-created_at")
-            .first()
-        )
-        return last_comment.content if last_comment else None
-
-    def get_assigned_to_user(self, obj: Ticket) -> dict | None:
-        """Get full user details for assigned_to."""
-        if obj.assigned_to:
-            return UserBasicSerializer(obj.assigned_to).data
-        return None
 
 
 class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -118,54 +88,14 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
+            "unread_count",
         ]
     }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        """Filter tickets by team and add annotations."""
+        """Filter tickets by team."""
         queryset = queryset.filter(team_id=self.team_id)
-        queryset = queryset.select_related("assigned_to")
-
-        # Add message count annotation using Subquery
-        # Cast ticket UUID id to string to match Comment.item_id CharField
-        message_count_subquery = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .values("item_id")
-            .annotate(count=Count("id"))
-            .values("count")
-        )
-        queryset = queryset.annotate(message_count=Subquery(message_count_subquery))
-
-        # Add last message timestamp annotation using Subquery
-        last_message_subquery = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("created_at")[:1]
-        )
-        queryset = queryset.annotate(last_message_at=Subquery(last_message_subquery))
-
-        # Add last message text annotation using Subquery
-        last_message_text_subquery = (
-            Comment.objects.filter(
-                team_id=self.team_id,
-                scope="conversations_ticket",
-                item_id=Cast(OuterRef("id"), output_field=CharField()),
-                deleted=False,
-            )
-            .order_by("-created_at")
-            .values("content")[:1]
-        )
-        queryset = queryset.annotate(last_message_text=Subquery(last_message_text_subquery))
+        queryset = queryset.select_related("assignment", "assignment__user", "assignment__role")
 
         status_param = self.request.query_params.get("status")
         if status_param and status_param in [s.value for s in Status]:
@@ -179,16 +109,19 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if channel_source and channel_source in [c.value for c in Channel]:
             queryset = queryset.filter(channel_source=channel_source)
 
-        assigned_to = self.request.query_params.get("assigned_to")
-        if assigned_to:
-            if assigned_to.lower() == "unassigned":
-                queryset = queryset.filter(assigned_to__isnull=True)
-            else:
+        assignee = self.request.query_params.get("assignee")
+        if assignee:
+            if assignee.lower() == "unassigned":
+                queryset = queryset.filter(assignment__isnull=True)
+            elif assignee.startswith("user:"):
                 try:
-                    assigned_to_id = int(assigned_to)
-                    queryset = queryset.filter(assigned_to_id=assigned_to_id)
+                    user_id = int(assignee[5:])
+                    queryset = queryset.filter(assignment__user_id=user_id)
                 except ValueError:
                     pass
+            elif assignee.startswith("role:"):
+                role_id = assignee[5:]
+                queryset = queryset.filter(assignment__role_id=role_id)
 
         date_from = self.request.query_params.get("date_from")
         if date_from:
@@ -223,5 +156,159 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.unread_team_count > 0:
             instance.unread_team_count = 0
             instance.save(update_fields=["unread_team_count"])
+            # Invalidate cache since unread count changed
+            invalidate_unread_count_cache(self.team_id)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def update(self, request, *args, **kwargs):
+        """Handle ticket updates including assignee changes."""
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        old_status = instance.status
+
+        # Handle assignee separately since it's not a direct model field
+        assignee = request.data.pop("assignee", None) if "assignee" in request.data else ...
+
+        # Update other fields normally
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        # Handle assignee update if provided (not ... sentinel)
+        if assignee is not ...:
+            assign_ticket(
+                instance,
+                assignee,
+                self.organization,
+                request.user,
+                self.team_id,
+                is_impersonated_session(request),
+            )
+            # Refresh instance to get updated assignment
+            instance.refresh_from_db()
+
+        # Invalidate unread count cache if status changed to/from resolved
+        new_status = request.data.get("status", old_status)
+        if old_status != new_status and (old_status == "resolved" or new_status == "resolved"):
+            invalidate_unread_count_cache(self.team_id)
+
+        # Re-serialize to include updated assignee
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def unread_count(self, request, *args, **kwargs):
+        """
+        Get total unread ticket count for the team.
+
+        Returns the sum of unread_team_count for all non-resolved tickets.
+        Cached in Redis for 30 seconds, invalidated on changes.
+        """
+        team_id = self.team_id
+
+        # Check if support is enabled
+        if not self.team.conversations_enabled:
+            return Response({"count": 0})
+
+        # Try cache first
+        cached_count = get_cached_unread_count(team_id)
+        if cached_count is not None:
+            return Response({"count": cached_count})
+
+        # Query database - only non-resolved tickets with unread messages
+        result = (
+            Ticket.objects.filter(team_id=team_id)
+            .exclude(status="resolved")
+            .filter(unread_team_count__gt=0)
+            .aggregate(total=Sum("unread_team_count"))
+        )
+        count = result["total"] or 0
+
+        # Cache the result
+        set_cached_unread_count(team_id, count)
+
+        return Response({"count": count})
+
+
+def validate_assignee(assignee) -> None:
+    """Validate assignee payload structure."""
+    if assignee is None:
+        return
+    if not isinstance(assignee, dict):
+        raise serializers.ValidationError({"assignee": "must be an object"})
+    if "type" not in assignee or "id" not in assignee:
+        raise serializers.ValidationError({"assignee": "must have 'type' and 'id'"})
+    if assignee["type"] not in ("user", "role"):
+        raise serializers.ValidationError({"assignee": "type must be 'user' or 'role'"})
+
+
+def validate_assignee_membership(assignee, organization) -> None:
+    """Validate that the assignee belongs to the organization."""
+    if assignee is None:
+        return
+
+    if assignee["type"] == "user":
+        if not OrganizationMembership.objects.filter(organization=organization, user_id=assignee["id"]).exists():
+            raise serializers.ValidationError({"assignee": "user is not a member of this organization"})
+    elif assignee["type"] == "role":
+        if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+            raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
+
+
+def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+    """
+    Assign a ticket to a user or role.
+
+    Args:
+        ticket: The ticket to assign
+        assignee: Dict with 'type' ('user' or 'role') and 'id', or None to unassign
+        organization: The organization
+        user: The user making the change
+        team_id: The team ID
+        was_impersonated: Whether the session is impersonated
+    """
+    validate_assignee(assignee)
+    validate_assignee_membership(assignee, organization)
+
+    with transaction.atomic():
+        # Lock the ticket to prevent concurrent modifications
+        Ticket.objects.select_for_update().get(id=ticket.id)
+        assignment_before = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
+        serialized_assignment_before = TicketAssignmentSerializer(assignment_before).data if assignment_before else None
+
+        if assignee:
+            assignment_after, _ = TicketAssignment.objects.update_or_create(
+                ticket_id=ticket.id,
+                defaults={
+                    "user_id": None if assignee["type"] != "user" else assignee["id"],
+                    "role_id": None if assignee["type"] != "role" else assignee["id"],
+                },
+            )
+            serialized_assignment_after = TicketAssignmentSerializer(assignment_after).data
+        else:
+            if assignment_before:
+                assignment_before.delete()
+            serialized_assignment_after = None
+
+        log_activity(
+            organization_id=organization.id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(ticket.id),
+            scope="Ticket",
+            activity="assigned",
+            detail=Detail(
+                name=f"Ticket #{ticket.ticket_number}",
+                changes=[
+                    Change(
+                        type="Ticket",
+                        field="assignee",
+                        before=serialized_assignment_before,
+                        after=serialized_assignment_after,
+                        action="changed",
+                    )
+                ],
+            ),
+        )

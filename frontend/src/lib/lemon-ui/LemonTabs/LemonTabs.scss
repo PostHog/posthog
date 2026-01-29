@@ -12,6 +12,17 @@
         --lemon-tabs-content-padding: 0.375rem 0;
     }
 
+    &--xsmall {
+        --lemon-tabs-margin-bottom: 0.25rem;
+        --lemon-tabs-content-padding: 0.25rem 0;
+
+        font-size: 0.8125rem;
+
+        .LemonTabs__bar {
+            overflow-x: clip; // Prevent scrollbar from slider positioning
+        }
+    }
+
     .Navigation3000__scene > &:first-child,
     .Navigation3000__scene > :first-child > &:first-child {
         margin-top: -0.75rem;

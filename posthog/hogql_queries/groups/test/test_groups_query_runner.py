@@ -557,3 +557,51 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
                 for index, expected_value in expected_values.items():
                     self.assertEqual(result.results[0][index], expected_value)
+
+    def test_groups_query_count_total(self):
+        self.create_standard_test_groups()
+
+        query = GroupsQuery(
+            group_type_index=0,
+            select=["count(*)"],
+        )
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 1)
+        self.assertEqual(result.columns, ["count(*)"])
+        self.assertEqual(result.results[0][0], 3, "Should match number of groups created")
+
+    def test_groups_query_count_with_filters(self):
+        self.create_standard_test_groups()
+
+        query = GroupsQuery(
+            group_type_index=0,
+            select=["count(*)"],
+            properties=[
+                GroupPropertyFilter(
+                    key="arr",
+                    type="group",
+                    operator=PropertyOperator.GT,
+                    value=100,
+                    group_type_index=0,
+                )
+            ],
+        )
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(result.results[0][0], 2, "Should count groups with arr > 100")
+
+    def test_groups_query_count_with_search(self):
+        self.create_standard_test_groups()
+
+        query = GroupsQuery(
+            group_type_index=0,
+            select=["count(*)"],
+            search="org1",
+        )
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(result.results[0][0], 1, "Should count only org1")

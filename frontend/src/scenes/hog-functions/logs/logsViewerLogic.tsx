@@ -77,9 +77,10 @@ const toKey = (log: LogEntry): string => {
     return `${log.instanceId}-${log.level}-${log.timestamp.toISOString()}`
 }
 
-const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
-    // TRICKY: CH query is timezone aware so we dont send iso
-    return timestamp.format('YYYY-MM-DD HH:mm:ss.SSS')
+export const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
+    // TRICKY: CH query is timezone aware so we dont send iso, and we need to convert to UTC
+    // See https://github.com/PostHog/posthog/pull/45651
+    return timestamp.tz('UTC').format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
 const buildBoundaryFilters = (request: LogEntryParams): string => {
@@ -342,7 +343,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!results.length) {
                         actions.markLogsEnd()
                     }
-                    return groupLogs([...results, ...values.groupedLogs.flatMap((group) => group.entries)])
+                    return groupLogs([...values.groupedLogs.flatMap((group) => group.entries), ...results])
                 },
 
                 addLogGroups: ({ logGroups }) => {

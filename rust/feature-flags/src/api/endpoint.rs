@@ -109,14 +109,18 @@ fn get_minimal_flags_response(
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
 
     // Create minimal config response
-    let config = ConfigResponse {
-        supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
-        config: Some(serde_json::json!({"enable_collect_everything": true})),
-        toolbar_params: Some(serde_json::json!({})),
-        is_authenticated: Some(false),
-        session_recording: Some(crate::api::types::SessionRecordingField::Disabled(false)),
-        ..Default::default()
-    };
+    let mut config = ConfigResponse::new();
+    config.set(
+        "supportedCompression",
+        serde_json::json!(["gzip", "gzip-js"]),
+    );
+    config.set(
+        "config",
+        serde_json::json!({"enable_collect_everything": true}),
+    );
+    config.set("toolbarParams", serde_json::json!({}));
+    config.set("isAuthenticated", serde_json::json!(false));
+    config.set("sessionRecording", serde_json::json!(false));
 
     // Create empty flags response with minimal config
     let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
@@ -345,6 +349,9 @@ pub async fn flags(
     })
     .instrument(_span)
     .await;
+
+    // Emit DB operations metrics before the canonical log
+    log.emit_db_operations_metrics();
 
     match result {
         Ok(response) => {

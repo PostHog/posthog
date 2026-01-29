@@ -122,16 +122,6 @@ services:
         volumes:
             - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
-    redis:
-        image: redis:6.2.7-alpine
-        restart: on-failure
-        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
-        healthcheck:
-            test: ['CMD', 'redis-cli', 'ping']
-            interval: 3s
-            timeout: 10s
-            retries: 10
-
     redis7:
         image: redis:7.2-alpine
         restart: on-failure
@@ -229,7 +219,7 @@ services:
         restart: on-failure
         environment:
             FLOWER_PORT: 5555
-            CELERY_BROKER_URL: redis://redis:6379
+            CELERY_BROKER_URL: redis://redis7:6379
 
     worker: &worker
         command: ./bin/docker-worker-celery --with-scheduler
@@ -249,7 +239,7 @@ services:
             CLICKHOUSE_APP_PASSWORD: 'apppass'
             API_QUERIES_PER_TEAM: '{"1": 100}'
             KAFKA_HOSTS: 'kafka'
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
@@ -273,7 +263,7 @@ services:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
 
@@ -288,7 +278,7 @@ services:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'session_recording_snapshot_item_events'
             KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: recordings
 
     capture-ai:
@@ -302,7 +292,7 @@ services:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
             # AI endpoint S3 blob storage (MinIO)
@@ -362,14 +352,14 @@ services:
             PERSONS_READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
             # Shared Redis for non-critical path (analytics, billing, cookieless)
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             # Optional: Use separate Redis URL for read replicas
             # REDIS_READER_URL: 'redis://redis-replica:6379/'
             # Optional: Increase Redis timeout (default is 100ms)
             # REDIS_TIMEOUT_MS: 200
             # Dedicated Redis database for critical path (team cache + flags cache)
             # Hobby deployments start in Mode 1 (shared-only). Developers override in docker-compose.dev.yml for Mode 2.
-            # FLAGS_REDIS_URL: 'redis://redis:6379/1'
+            # FLAGS_REDIS_URL: 'redis://redis7:6379/1'
             # Optional: Use separate Flags Redis URL for read replicas
             # FLAGS_REDIS_READER_URL: 'redis://redis-replica:6379/1'
             ADDRESS: '0.0.0.0:3001'
@@ -378,14 +368,14 @@ services:
             COOKIELESS_REDIS_PORT: 6379
 
     plugins:
-        command: ./bin/posthog-node --no-restart-loop
+        command: node nodejs/dist/index.js
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis7:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'

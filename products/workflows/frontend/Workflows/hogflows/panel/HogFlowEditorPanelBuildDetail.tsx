@@ -44,7 +44,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 },
             } as HogFlowAction)
         }
-    }, [outputResultPath])
+    }, [outputResultPath]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const Step = useHogFlowStep(selectedNode?.data)
 
