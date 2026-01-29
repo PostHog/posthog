@@ -223,6 +223,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     active={isListening}
                                     className={isListening ? 'text-danger animate-pulse' : ''}
                                     disabled={inputDisabled || threadLoading}
+                                    data-attr="ai-voice-input-button"
                                 />
                             </Tooltip>
                         )}
