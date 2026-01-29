@@ -376,11 +376,9 @@ where
         Option<JoinHandle<()>>,
     ) = if config.event_restrictions_enabled {
         if let Some(ref redis_url) = config.event_restrictions_redis_url {
-            let restrictions_redis = Arc::new(
-                RedisClient::with_config(
+            let repository = Arc::new(
+                RedisRestrictionsRepository::new(
                     redis_url.clone(),
-                    common_redis::CompressionConfig::disabled(),
-                    common_redis::RedisValueFormat::Utf8, // Data is plain JSON written by Python
                     if config.redis_response_timeout_ms == 0 {
                         None
                     } else {
@@ -393,7 +391,7 @@ where
                     },
                 )
                 .await
-                .expect("failed to create event restrictions redis client"),
+                .expect("failed to create event restrictions repository"),
             );
 
             let service = EventRestrictionService::new(
@@ -403,9 +401,6 @@ where
 
             // Create cancellation token for graceful shutdown
             let cancel_token = CancellationToken::new();
-
-            // Wrap Redis client in repository
-            let repository = Arc::new(RedisRestrictionsRepository::new(restrictions_redis));
 
             // Spawn background refresh task with cancellation support
             let service_clone = service.clone();

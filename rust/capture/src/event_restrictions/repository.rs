@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use common_redis::{Client as RedisClient, CustomRedisError};
@@ -66,25 +67,64 @@ pub trait EventRestrictionsRepository: Send + Sync {
 
 /// Redis implementation of the restrictions repository.
 /// Reads plain JSON data written by Python.
+///
+/// This repository creates its own Redis client configured for UTF-8/JSON format,
+/// ensuring the correct serialization format is always used.
 pub struct RedisRestrictionsRepository {
     redis: Arc<dyn RedisClient + Send + Sync>,
     key_prefix: Option<String>,
 }
 
 impl RedisRestrictionsRepository {
-    pub fn new(redis: Arc<dyn RedisClient + Send + Sync>) -> Self {
-        Self {
+    /// Create a new repository connected to the given Redis URL.
+    ///
+    /// The Redis client is configured with UTF-8 format (no compression) to read
+    /// plain JSON data written by Python.
+    pub async fn new(
+        redis_url: String,
+        response_timeout: Option<Duration>,
+        connection_timeout: Option<Duration>,
+    ) -> Result<Self, CustomRedisError> {
+        let redis = Arc::new(
+            common_redis::RedisClient::with_config(
+                redis_url,
+                common_redis::CompressionConfig::disabled(),
+                common_redis::RedisValueFormat::Utf8,
+                response_timeout,
+                connection_timeout,
+            )
+            .await?,
+        );
+
+        Ok(Self {
             redis,
             key_prefix: None,
-        }
+        })
     }
 
-    /// Create with a key prefix (useful for testing)
-    pub fn with_prefix(redis: Arc<dyn RedisClient + Send + Sync>, prefix: String) -> Self {
-        Self {
+    /// Create with a key prefix (for testing only).
+    ///
+    /// Like `new()`, this creates a correctly-configured Redis client internally.
+    #[cfg(test)]
+    pub async fn with_prefix_for_test(
+        redis_url: String,
+        prefix: String,
+    ) -> Result<Self, CustomRedisError> {
+        let redis = Arc::new(
+            common_redis::RedisClient::with_config(
+                redis_url,
+                common_redis::CompressionConfig::disabled(),
+                common_redis::RedisValueFormat::Utf8,
+                None,
+                None,
+            )
+            .await?,
+        );
+
+        Ok(Self {
             redis,
             key_prefix: Some(prefix),
-        }
+        })
     }
 
     fn build_key(&self, restriction_type: RestrictionType) -> String {
@@ -299,12 +339,14 @@ mod integration_tests {
         format!("test_{suffix}/")
     }
 
-    async fn create_redis_client() -> Arc<dyn Client + Send + Sync> {
+    /// Helper client for test setup/cleanup (writing test data, deleting keys).
+    /// The repository creates its own client with guaranteed correct config.
+    async fn create_helper_client() -> Arc<dyn Client + Send + Sync> {
         Arc::new(
             common_redis::RedisClient::with_config(
                 REDIS_URL.to_string(),
                 common_redis::CompressionConfig::disabled(),
-                common_redis::RedisValueFormat::Utf8, // Plain JSON format
+                common_redis::RedisValueFormat::Utf8,
                 None,
                 None,
             )
@@ -322,15 +364,17 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_repository_reads_plain_json() {
-        let client = create_redis_client().await;
+        let helper = create_helper_client().await;
         let prefix = random_prefix();
 
         // Write plain JSON like Python does
         let json = r#"[{"version": 2, "token": "test_token", "pipelines": ["analytics"]}]"#;
         let key = format!("{}{}:force_overflow_from_ingestion", prefix, REDIS_KEY_PREFIX);
-        client.set(key, json.to_string()).await.unwrap();
+        helper.set(key, json.to_string()).await.unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix(client.clone(), prefix.clone());
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
+            .await
+            .unwrap();
         let entries = repo
             .get_entries(RestrictionType::ForceOverflow)
             .await
@@ -342,15 +386,17 @@ mod integration_tests {
         assert_eq!(entries[0].token, "test_token");
         assert_eq!(entries[0].version, Some(2));
 
-        cleanup(&client, &prefix).await;
+        cleanup(&helper, &prefix).await;
     }
 
     #[tokio::test]
     async fn test_repository_returns_none_for_missing_key() {
-        let client = create_redis_client().await;
+        let helper = create_helper_client().await;
         let prefix = random_prefix();
 
-        let repo = RedisRestrictionsRepository::with_prefix(client.clone(), prefix.clone());
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
+            .await
+            .unwrap();
         let entries = repo
             .get_entries(RestrictionType::DropEvent)
             .await
@@ -358,12 +404,12 @@ mod integration_tests {
 
         assert!(entries.is_none());
 
-        cleanup(&client, &prefix).await;
+        cleanup(&helper, &prefix).await;
     }
 
     #[tokio::test]
     async fn test_repository_parses_entries_with_filters() {
-        let client = create_redis_client().await;
+        let helper = create_helper_client().await;
         let prefix = random_prefix();
 
         let json = r#"[{
@@ -374,9 +420,11 @@ mod integration_tests {
             "event_names": ["$pageview", "$autocapture"]
         }]"#;
         let key = format!("{}{}:drop_event_from_ingestion", prefix, REDIS_KEY_PREFIX);
-        client.set(key, json.to_string()).await.unwrap();
+        helper.set(key, json.to_string()).await.unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix(client.clone(), prefix.clone());
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
+            .await
+            .unwrap();
         let entries = repo
             .get_entries(RestrictionType::DropEvent)
             .await
@@ -387,12 +435,12 @@ mod integration_tests {
         assert_eq!(entries[0].distinct_ids, vec!["user1", "user2"]);
         assert_eq!(entries[0].event_names, vec!["$pageview", "$autocapture"]);
 
-        cleanup(&client, &prefix).await;
+        cleanup(&helper, &prefix).await;
     }
 
     #[tokio::test]
     async fn test_repository_parses_multiple_entries() {
-        let client = create_redis_client().await;
+        let helper = create_helper_client().await;
         let prefix = random_prefix();
 
         let json = r#"[
@@ -401,9 +449,11 @@ mod integration_tests {
             {"version": 2, "token": "token_c", "pipelines": ["analytics", "ai"], "distinct_ids": ["user1"]}
         ]"#;
         let key = format!("{}{}:drop_event_from_ingestion", prefix, REDIS_KEY_PREFIX);
-        client.set(key, json.to_string()).await.unwrap();
+        helper.set(key, json.to_string()).await.unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix(client.clone(), prefix.clone());
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
+            .await
+            .unwrap();
         let entries = repo
             .get_entries(RestrictionType::DropEvent)
             .await
@@ -419,12 +469,12 @@ mod integration_tests {
         assert_eq!(entries[2].pipelines, vec!["analytics", "ai"]);
         assert_eq!(entries[2].distinct_ids, vec!["user1"]);
 
-        cleanup(&client, &prefix).await;
+        cleanup(&helper, &prefix).await;
     }
 
     #[tokio::test]
     async fn test_repository_restriction_types_are_isolated() {
-        let client = create_redis_client().await;
+        let helper = create_helper_client().await;
         let prefix = random_prefix();
 
         // Write different data to each restriction type
@@ -434,14 +484,14 @@ mod integration_tests {
         let dlq_json = r#"[{"version": 2, "token": "dlq_token", "pipelines": ["analytics"]}]"#;
         let skip_json = r#"[{"version": 2, "token": "skip_token", "pipelines": ["analytics"]}]"#;
 
-        client
+        helper
             .set(
                 format!("{}{}:drop_event_from_ingestion", prefix, REDIS_KEY_PREFIX),
                 drop_json.to_string(),
             )
             .await
             .unwrap();
-        client
+        helper
             .set(
                 format!(
                     "{}{}:force_overflow_from_ingestion",
@@ -451,14 +501,14 @@ mod integration_tests {
             )
             .await
             .unwrap();
-        client
+        helper
             .set(
                 format!("{}{}:redirect_to_dlq", prefix, REDIS_KEY_PREFIX),
                 dlq_json.to_string(),
             )
             .await
             .unwrap();
-        client
+        helper
             .set(
                 format!("{}{}:skip_person_processing", prefix, REDIS_KEY_PREFIX),
                 skip_json.to_string(),
@@ -466,7 +516,9 @@ mod integration_tests {
             .await
             .unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix(client.clone(), prefix.clone());
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
+            .await
+            .unwrap();
 
         // Verify each restriction type returns only its own data
         let drop_entries = repo
@@ -501,6 +553,6 @@ mod integration_tests {
         assert_eq!(skip_entries.len(), 1);
         assert_eq!(skip_entries[0].token, "skip_token");
 
-        cleanup(&client, &prefix).await;
+        cleanup(&helper, &prefix).await;
     }
 }
