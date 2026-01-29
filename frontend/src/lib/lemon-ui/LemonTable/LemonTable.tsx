@@ -334,7 +334,14 @@ export function LemonTable<T extends Record<string, any>>({
                                                         <div
                                                             className="LemonTable__header-content"
                                                             /* eslint-disable-next-line react/forbid-dom-props */
-                                                            style={{ justifyContent: column.align }}
+                                                            style={{
+                                                                justifyContent:
+                                                                    column.align === 'center'
+                                                                        ? 'center'
+                                                                        : column.align === 'right'
+                                                                          ? 'flex-end'
+                                                                          : 'flex-start',
+                                                            }}
                                                             onClick={
                                                                 column.sorter
                                                                     ? (event) => {
