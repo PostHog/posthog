@@ -89,7 +89,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-2 items-start">
+            <div className="flex flex-col gap-2 items-start w-full">
                 <span className="text-muted">Job filters</span>
                 <PropertyFiltersDisplay
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}

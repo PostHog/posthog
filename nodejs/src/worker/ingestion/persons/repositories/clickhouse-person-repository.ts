@@ -172,13 +172,15 @@ export class ClickHousePersonRepository implements PersonRepository {
                             .filter((v) => v !== null)
                             .map((v) => `'${escapeClickHouseString(v!)}'`)
                             .join(', ')
-                        return `JSONExtractString(properties, '${escapedKey}') IN (${values})`
+                        // Wrap in toString() like icontains does to ensure proper string comparison
+                        return `toString(JSONExtractString(properties, '${escapedKey}')) IN (${values})`
                     } else {
                         const normalizedValue = normalizeValue(value)
                         if (normalizedValue === null) {
                             return `JSONExtractString(properties, '${escapedKey}') = ''`
                         }
-                        return `JSONExtractString(properties, '${escapedKey}') = '${escapeClickHouseString(normalizedValue)}'`
+                        // Wrap in toString() like icontains does to ensure proper string comparison
+                        return `toString(JSONExtractString(properties, '${escapedKey}')) = '${escapeClickHouseString(normalizedValue)}'`
                     }
                 }
 
