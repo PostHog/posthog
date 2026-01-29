@@ -304,8 +304,8 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
-    def test_filter_multiple_priorities_includes_null(self, mock_on_commit):
-        """Test that multiple priority filter includes tickets with NULL priority."""
+    def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
+        """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW
         self.ticket.save()
 
@@ -316,7 +316,7 @@ class TestTicketAPI(BaseConversationsAPITest):
             distinct_id="high-user",
             priority=Priority.HIGH,
         )
-        null_priority_ticket = Ticket.objects.create_with_number(
+        Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
             widget_session_id="null-session",
@@ -326,11 +326,10 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=low,high")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(response.json()["count"], 2)
         ticket_ids = {t["id"] for t in response.json()["results"]}
         self.assertIn(str(self.ticket.id), ticket_ids)
         self.assertIn(str(high_ticket.id), ticket_ids)
-        self.assertIn(str(null_priority_ticket.id), ticket_ids)
 
     @parameterized.expand(
         [
