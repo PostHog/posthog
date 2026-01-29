@@ -1518,13 +1518,22 @@ class TestNoProjectAccessWithObjectGrant(BaseAccessControlTest):
     def _setup_no_project_access_with_object_grant(self, access_level="viewer"):
         """
         Set up the scenario:
-        1. Give user explicit object-level access to specific dashboard
-        2. Set project-level access to "none" (no project membership)
+        1. Set resource-level access to "none" for dashboards
+        2. Give user explicit object-level access to specific dashboard
+        3. Set project-level access to "none" (no project membership)
         """
         from ee.models.rbac.access_control import AccessControl
 
         # First grant object-level access (must be done by admin)
         self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Set resource-level access to "none" for dashboards
+        # This ensures the queryset filter only shows explicitly granted dashboards
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
         # Create explicit object-level access for the user
         res = self.client.put(
@@ -1645,6 +1654,13 @@ class TestNoProjectAccessWithObjectGrant(BaseAccessControlTest):
         # Create a role and add user to it
         role = Role.objects.create(name="External Contractors", organization=self.organization)
         RoleMembership.objects.create(user=self.user, role=role)
+
+        # Set resource-level access to "none" for dashboards
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
         # Give role access to specific dashboard
         res = self.client.put(
