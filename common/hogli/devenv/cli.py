@@ -208,8 +208,13 @@ def _get_docker_profiles_from_config() -> list[str]:
         return []
 
 
-@cli.command(name="docker:services:up", help="Start Docker services based on your intent config")
-def docker_services_up() -> None:
+@cli.command(
+    name="docker:services:up",
+    help="Start Docker services based on your intent config",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.option("--yes", is_flag=True, hidden=True, help="Ignored, for composite command compatibility")
+def docker_services_up(yes: bool) -> None:
     """Start Docker infrastructure services respecting intent configuration.
 
     Uses docker compose profiles based on your configured intents.
