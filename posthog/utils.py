@@ -749,13 +749,17 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str]]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int, float, Optional[str]]) -> str:
     if isinstance(input, bool):
         if input is True:
             return "true"
         return "false"
     if isinstance(input, dict) or isinstance(input, list):
         return json.dumps(input, sort_keys=True)
+    # Convert floats that are whole numbers to integers (e.g., 1.0 -> "1" not "1.0")
+    # This fixes issue #45273 where integer property values were displayed as floats
+    if isinstance(input, float) and input.is_integer():
+        return str(int(input))
     return str(input)
 
 
