@@ -2840,7 +2840,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="user_id",
+                            distinct_id_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                     ],
@@ -2861,7 +2861,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     [
                         FunnelStepResult(name="$pageview", count=1, breakdown=["Chrome"]),
                         FunnelStepResult(
-                            name="posthog_test_test_table_1.user_id",
+                            name="posthog_test_test_table_1.toUUID(user_id)",
                             count=1,
                             breakdown=["Chrome"],
                             type="data_warehouse",
@@ -2920,7 +2920,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     [
                         FunnelStepResult(name="$pageview", count=1, breakdown=["Firefox"]),
                         FunnelStepResult(
-                            name="posthog_test_test_table_1.user_id",
+                            name="posthog_test_test_table_1.toUUID(user_id)",
                             count=0,
                             breakdown=["Firefox"],
                             type="data_warehouse",
