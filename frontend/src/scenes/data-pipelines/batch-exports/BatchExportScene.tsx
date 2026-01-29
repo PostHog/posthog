@@ -1,6 +1,7 @@
 import {
     BindLogic,
     actions,
+    afterMount,
     kea,
     key,
     listeners,
@@ -101,6 +102,10 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
             })
         },
     })),
+    afterMount(({ actions, values }) => {
+        // Track initial tab view
+        actions.setCurrentTab(values.currentTab)
+    }),
     actionToUrl(({ values }) => ({
         setCurrentTab: () => {
             return [
