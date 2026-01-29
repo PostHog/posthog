@@ -291,12 +291,6 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
-        if isinstance(value, (int, float)):
-            # Unix timestamp - check if milliseconds (13+ digits) or seconds (10 digits)
-            if value > 10_000_000_000:
-                return datetime.fromtimestamp(value / 1000)
-            return datetime.fromtimestamp(value)
-
         return parser.parse(value)
 
     if field_type == IncrementalFieldType.Date:
@@ -305,12 +299,6 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
         if isinstance(value, date):
             return value
-
-        if isinstance(value, (int, float)):
-            # Unix timestamp - check if milliseconds (13+ digits) or seconds (10 digits)
-            if value > 10_000_000_000:
-                return datetime.fromtimestamp(value / 1000).date()
-            return datetime.fromtimestamp(value).date()
 
         return parser.parse(value).date()
 
