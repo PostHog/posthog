@@ -1467,6 +1467,277 @@ class TestResourceInheritance(BaseUserAccessControlTest):
 
 
 @pytest.mark.ee
+class TestContractorDashboardAccess(BaseUserAccessControlTest):
+    """
+    Test the contractor dashboard access use case:
+    - A contractor with "No access" for all resource types
+    - Given specific "Viewer" access to a desired dashboard
+    - The contractor should only see and access that specific dashboard
+
+    This is a common use case where external contractors need access to only
+    specific dashboards without access to other project resources.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Create dashboards for testing the contractor scenario
+        self.dashboard_allowed = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Contractor Dashboard"
+        )
+        self.dashboard_blocked = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Internal Dashboard"
+        )
+        self.dashboard_another_blocked = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Another Internal Dashboard"
+        )
+        # User's own dashboard (should always be accessible to creator)
+        self.dashboard_created_by_user = Dashboard.objects.create(
+            team=self.team, created_by=self.user, name="User's Dashboard"
+        )
+
+    def test_contractor_with_no_resource_access_but_specific_dashboard_viewer_access(self):
+        """
+        Scenario: Contractor with access to only one dashboard
+        Setup:
+        1. Set resource-level access controls to "No access" for dashboards
+        2. Give the contractor specific "Viewer" access to the desired dashboard
+        Result: The contractor should only see and access that specific dashboard
+        """
+        # Step 1: Set resource-level access to "none" for dashboards
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Step 2: Give contractor specific "Viewer" access to one dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Verify: Contractor can view the allowed dashboard
+        assert self.user_access_control.get_user_access_level(self.dashboard_allowed) == "viewer"
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "viewer") is True
+
+        # Verify: Contractor cannot edit the allowed dashboard (only viewer access)
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "editor") is False
+
+        # Verify: Contractor cannot access other dashboards
+        assert self.user_access_control.get_user_access_level(self.dashboard_blocked) == "none"
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_blocked, "viewer") is False
+
+        # Verify: Contractor can still access their own created dashboard
+        assert self.user_access_control.get_user_access_level(self.dashboard_created_by_user) == "manager"
+
+    def test_contractor_dashboard_list_filtering(self):
+        """
+        Test that queryset filtering correctly shows only accessible dashboards for contractor
+        """
+        # Set resource-level access to "none" for dashboards
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Give contractor specific "Viewer" access to one dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Filter the queryset
+        queryset = Dashboard.objects.all()
+        filtered_queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        # Should only include: allowed dashboard + user's created dashboard
+        dashboard_ids = list(filtered_queryset.values_list("id", flat=True))
+        assert self.dashboard_allowed.id in dashboard_ids
+        assert self.dashboard_created_by_user.id in dashboard_ids  # Creator has access
+        assert self.dashboard_blocked.id not in dashboard_ids
+        assert self.dashboard_another_blocked.id not in dashboard_ids
+        assert len(dashboard_ids) == 2
+
+    def test_contractor_effective_access_allows_navigation(self):
+        """
+        Test that effective_access_level returns "viewer" for contractors with specific access,
+        allowing them to navigate to the dashboards page even with "none" resource access.
+        """
+        # Set resource-level access to "none" for dashboards
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Give contractor specific "Viewer" access to one dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return "viewer" (not "none") to allow navigation
+        effective_level = self.user_access_control.effective_access_level_for_resource("dashboard")
+        assert effective_level == "viewer"
+
+        # But raw resource access should still be "none"
+        raw_level = self.user_access_control.access_level_for_resource("dashboard")
+        assert raw_level == "none"
+
+    def test_contractor_cannot_create_dashboards(self):
+        """
+        Test that contractors with specific object access but "none" resource access
+        cannot create new dashboards - creation requires resource-level access.
+        """
+        # Set resource-level access to "none" for dashboards
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Give contractor specific access to one dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Resource-level access is "none" - contractor cannot create dashboards
+        assert self.user_access_control.check_access_level_for_resource("dashboard", "editor") is False
+        assert self.user_access_control.check_access_level_for_resource("dashboard", "viewer") is False
+
+        # Effective level is "viewer" (for navigation only)
+        assert self.user_access_control.effective_access_level_for_resource("dashboard") == "viewer"
+
+    def test_contractor_with_editor_access_can_edit_specific_dashboard(self):
+        """
+        Test that contractors given "editor" access to a specific dashboard can edit it.
+        """
+        # Set resource-level access to "none"
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Give contractor "editor" access to specific dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Contractor can view and edit the allowed dashboard
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "viewer") is True
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "editor") is True
+
+        # But cannot manage (highest level)
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "manager") is False
+
+    def test_contractor_access_via_role(self):
+        """
+        Test that contractors can get dashboard access through roles instead of direct membership.
+        """
+        # Set resource-level access to "none"
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Give role (which user belongs to) viewer access to specific dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            role=self.role_a,  # User is member of role_a from setUp
+        )
+
+        self._clear_uac_caches()
+
+        # Contractor can access dashboard through role
+        assert self.user_access_control.get_user_access_level(self.dashboard_allowed) == "viewer"
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "viewer") is True
+
+        # Can navigate to dashboards page
+        assert self.user_access_control.effective_access_level_for_resource("dashboard") == "viewer"
+
+    def test_contractor_all_resource_types_no_access(self):
+        """
+        Test the full contractor scenario where they have "none" access to all resource types
+        but specific access to one dashboard.
+        """
+        from products.notebooks.backend.models import Notebook
+
+        # Create test resources
+        notebook = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Internal Notebook")
+
+        # Set "none" access for multiple resource types (simulating contractor restrictions)
+        self._create_access_control(resource="dashboard", access_level="none")
+        self._create_access_control(resource="notebook", access_level="none")
+        self._create_access_control(resource="feature_flag", access_level="none")
+        self._create_access_control(resource="insight", access_level="none")
+
+        # Give contractor viewer access to only one dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Contractor can only access the specific dashboard
+        assert self.user_access_control.effective_access_level_for_resource("dashboard") == "viewer"
+        assert self.user_access_control.get_user_access_level(self.dashboard_allowed) == "viewer"
+
+        # All other resource types should have "none" access
+        assert self.user_access_control.effective_access_level_for_resource("notebook") == "none"
+        assert self.user_access_control.effective_access_level_for_resource("feature_flag") == "none"
+        assert self.user_access_control.effective_access_level_for_resource("insight") == "none"
+
+        # Contractor cannot access the notebook
+        assert self.user_access_control.check_access_level_for_object(notebook, "viewer") is False
+
+    def test_contractor_with_multiple_specific_dashboards(self):
+        """
+        Test contractor with access to multiple specific dashboards but not all.
+        """
+        # Set resource-level access to "none"
+        self._create_access_control(resource="dashboard", access_level="none")
+
+        # Give contractor access to multiple specific dashboards
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_blocked.id),  # Now allowed for contractor
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Contractor can access both dashboards
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_allowed, "viewer") is True
+        assert self.user_access_control.check_access_level_for_object(self.dashboard_blocked, "editor") is True
+
+        # But not the third dashboard
+        assert self.user_access_control.get_user_access_level(self.dashboard_another_blocked) == "none"
+
+        # Filter should include both allowed dashboards + user's created dashboard
+        queryset = Dashboard.objects.all()
+        filtered_queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        dashboard_ids = list(filtered_queryset.values_list("id", flat=True))
+
+        assert self.dashboard_allowed.id in dashboard_ids
+        assert self.dashboard_blocked.id in dashboard_ids
+        assert self.dashboard_created_by_user.id in dashboard_ids
+        assert self.dashboard_another_blocked.id not in dashboard_ids
+
+
+@pytest.mark.ee
 class TestFieldLevelAccessControl(BaseUserAccessControlTest):
     def test_field_access_control_mapping_exists(self):
         """Test that field access control mappings are properly configured"""

@@ -1053,7 +1053,212 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         assert app_context["current_team"]["user_access_level"] == "none"
 
 
-# TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
+class TestContractorDashboardAccessAPI(BaseAccessControlTest):
+    """
+    API tests for the contractor dashboard access use case:
+    - A contractor with "No access" for all resource types
+    - Given specific "Viewer" access to a desired dashboard
+    - The contractor should only see and access that specific dashboard
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user@example.com")
+
+        # Create dashboards for testing
+        self.allowed_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Contractor Dashboard"
+        )
+        self.blocked_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Internal Dashboard"
+        )
+        self.user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="User's Dashboard")
+
+    def _setup_contractor_access(self, access_level="viewer"):
+        """Set up contractor access: none at resource level, specific access to one dashboard"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Set resource-level access to "none" for dashboards
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Give contractor specific access to one dashboard
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}/access_controls",
+            {
+                "organization_member": str(self.organization_membership.id),
+                "access_level": access_level,
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Switch back to member level (simulating contractor)
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+    def test_contractor_can_view_allowed_dashboard(self):
+        """Test that contractor can view the dashboard they have specific access to"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["name"] == "Contractor Dashboard"
+        assert res.json()["user_access_level"] == "viewer"
+
+    def test_contractor_cannot_view_blocked_dashboard(self):
+        """Test that contractor cannot view dashboards they don't have access to"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.blocked_dashboard.id}")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_contractor_can_view_own_created_dashboard(self):
+        """Test that contractor can still view dashboards they created"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.user_dashboard.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["user_access_level"] == "manager"  # Creator gets highest access
+
+    def test_contractor_list_shows_only_accessible_dashboards(self):
+        """Test that the dashboard list only shows accessible dashboards"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.get("/api/projects/@current/dashboards/")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        dashboard_ids = [d["id"] for d in res.json()["results"]]
+        # Should include: allowed dashboard + user's created dashboard
+        assert self.allowed_dashboard.id in dashboard_ids
+        assert self.user_dashboard.id in dashboard_ids
+        # Should not include: blocked dashboard
+        assert self.blocked_dashboard.id not in dashboard_ids
+
+    def test_contractor_cannot_create_dashboard(self):
+        """Test that contractor cannot create new dashboards"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.post("/api/projects/@current/dashboards/", {"name": "New Dashboard"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_contractor_with_viewer_cannot_edit_dashboard(self):
+        """Test that contractor with viewer access cannot edit the dashboard"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.patch(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}",
+            {"name": "Updated Name"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_contractor_with_editor_can_edit_dashboard(self):
+        """Test that contractor with editor access can edit the dashboard"""
+        self._setup_contractor_access(access_level="editor")
+
+        res = self.client.patch(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}",
+            {"name": "Updated Name"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["name"] == "Updated Name"
+
+    def test_contractor_user_access_level_in_response(self):
+        """Test that user_access_level is correctly returned in API response"""
+        self._setup_contractor_access(access_level="viewer")
+
+        # Allowed dashboard should have viewer access
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}")
+        assert res.json()["user_access_level"] == "viewer"
+
+        # User's own dashboard should have manager access
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.user_dashboard.id}")
+        assert res.json()["user_access_level"] == "manager"
+
+    def test_contractor_access_via_role(self):
+        """Test that contractor can get dashboard access through a role"""
+        from ee.models.rbac.role import Role, RoleMembership
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Create a role for contractors
+        role = Role.objects.create(name="Contractors", organization=self.organization)
+        RoleMembership.objects.create(user=self.user, role=role)
+
+        # Set resource-level access to "none"
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Give role viewer access to specific dashboard
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}/access_controls",
+            {"role": str(role.id), "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Switch to member level
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Contractor should be able to access dashboard via role
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["user_access_level"] == "viewer"
+
+    def test_contractor_with_no_access_to_other_resources(self):
+        """Test that contractor has no access to other resource types"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Set "none" access for multiple resource types
+        for resource in ["dashboard", "notebook", "feature_flag"]:
+            res = self.client.put(
+                "/api/projects/@current/resource_access_controls",
+                {"resource": resource, "access_level": "none"},
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Give contractor access to only one dashboard
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}/access_controls",
+            {
+                "organization_member": str(self.organization_membership.id),
+                "access_level": "viewer",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Switch to member
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Contractor can access allowed dashboard
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Contractor cannot access notebooks
+        res = self.client.get("/api/projects/@current/notebooks/")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+        # Contractor cannot access feature flags
+        res = self.client.get("/api/projects/@current/feature_flags/")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_contractor_dashboard_list_returns_correct_access_levels(self):
+        """Test that dashboard list returns correct user_access_level for each dashboard"""
+        self._setup_contractor_access(access_level="viewer")
+
+        res = self.client.get("/api/projects/@current/dashboards/")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        dashboards_by_id = {d["id"]: d for d in res.json()["results"]}
+
+        # Allowed dashboard should have viewer access
+        assert dashboards_by_id[self.allowed_dashboard.id]["user_access_level"] == "viewer"
+
+        # User's dashboard should have manager access (creator)
+        assert dashboards_by_id[self.user_dashboard.id]["user_access_level"] == "manager"
 
 
 class TestAccessControlScopeRequirements(BaseAccessControlTest):
