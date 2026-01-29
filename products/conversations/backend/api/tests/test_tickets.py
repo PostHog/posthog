@@ -666,6 +666,7 @@ class TestPrivateMessageAppAPI(BaseConversationsAPITest):
 
         # Verify comment was created with is_private=True
         comment = Comment.objects.get(id=response.json()["id"])
+        assert comment.item_context is not None
         self.assertTrue(comment.item_context["is_private"])
 
         # Verify private message doesn't affect denormalized stats
