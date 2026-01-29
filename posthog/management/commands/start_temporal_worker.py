@@ -243,6 +243,11 @@ _task_queue_specs = [
         LLM_ANALYTICS_EVAL_WORKFLOWS,
         LLM_ANALYTICS_EVAL_ACTIVITIES,
     ),
+    (
+        settings.LLMA_TASK_QUEUE,
+        LLM_ANALYTICS_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES,
+    ),
 ]
 
 # Note: When running locally, many task queues resolve to the same queue name.
