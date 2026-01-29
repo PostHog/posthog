@@ -10,4 +10,3 @@ class SourceSchema:
     supports_append: bool
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     row_count: int | None = None
-    default_incremental_field: str | None = None
