@@ -10,6 +10,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 import { autoCaptureEventToDescription, isURL } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { formatCurrency } from 'lib/utils/geography/currency'
@@ -371,6 +372,8 @@ export function renderColumn(
                 recordIndex={recordIndex}
                 rowCount={rowCount}
             />
+        ) : typeof value === 'string' && isExternalLink(value) ? (
+            <Link to={value} target="_blank">{value}</Link>
         ) : (
             String(value)
         )
@@ -416,6 +419,7 @@ export function renderColumn(
             // do nothing
         }
     }
+
 
     if (typeof value === 'string' && isURL(value)) {
         return (
