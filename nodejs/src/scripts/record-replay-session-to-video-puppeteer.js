@@ -250,6 +250,7 @@ async function main() {
             devtools: !headless,
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: [
+                // The default flag for PostHog usage of headless browsers, as they run within containers
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
                 '--use-gl=swiftshader',
