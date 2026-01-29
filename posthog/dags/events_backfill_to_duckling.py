@@ -38,6 +38,7 @@ from django.utils import timezone
 import boto3
 import duckdb
 import structlog
+from botocore.exceptions import ClientError
 from clickhouse_driver import Client
 from clickhouse_driver.errors import Error as ClickHouseError
 from dagster import (
@@ -244,8 +245,19 @@ def cleanup_prior_run_files(
             if not key.endswith(f"/{current_run_id}.parquet"):
                 context.log.info(f"Deleting orphaned file: {key}")
                 logger.info("duckling_cleanup_orphaned_file", key=key, bucket=catalog.bucket, team_id=team_id)
-                s3_client.delete_object(Bucket=catalog.bucket, Key=key)
-                deleted_count += 1
+                try:
+                    s3_client.delete_object(Bucket=catalog.bucket, Key=key)
+                    deleted_count += 1
+                except ClientError as e:
+                    # Log and continue - don't fail the whole job for cleanup failures
+                    context.log.warning(f"Failed to delete orphaned file {key}: {e}")
+                    logger.warning(
+                        "duckling_cleanup_delete_failed",
+                        key=key,
+                        bucket=catalog.bucket,
+                        team_id=team_id,
+                        error=str(e),
+                    )
 
     if deleted_count > 0:
         context.log.info(f"Cleaned up {deleted_count} orphaned files from prior runs")
@@ -538,9 +550,6 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     3. Trigger backfill runs for new partitions
     4. Retry failed partitions that already exist
     """
-    # Import here to avoid Django setup issues at module load time
-    from posthog.ducklake.models import DuckLakeCatalog
-
     yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Get existing partitions
