@@ -12,7 +12,7 @@ from posthog.temporal.data_imports.sources.clerk.clerk import (
     clerk_source,
     validate_credentials as validate_clerk_credentials,
 )
-from posthog.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.clerk.settings import ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -55,13 +55,14 @@ The secret key starts with `sk_live_` or `sk_test_`.
         )
 
     def get_schemas(self, config: ClerkSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+        # Clerk only supports full refresh - the API doesn't support filtering by updated_at
         return [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                default_incremental_field=CLERK_ENDPOINTS[endpoint].default_incremental_field,
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+                default_incremental_field=None,
             )
             for endpoint in list(ENDPOINTS)
         ]

@@ -10,25 +10,18 @@ from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConf
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
-def get_resource(
-    name: str,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> EndpointResource:
+def get_resource(name: str) -> EndpointResource:
     config = CLERK_ENDPOINTS[name]
 
     params: dict[str, Any] = {
         "limit": config.page_size,
     }
 
-    # Clerk uses offset-based pagination, so we don't add incremental filters to params
-    # The incremental sync is handled by the DLT incremental object
-
     endpoint_config: dict[str, Any] = {
         "path": config.path,
         "params": params,
     }
+
     # Only set data_selector for endpoints that return wrapped responses {data: [...], total_count: ...}
     if config.is_wrapped_response:
         endpoint_config["data_selector"] = "data"
@@ -37,12 +30,7 @@ def get_resource(
         "name": config.name,
         "table_name": config.name,
         "primary_key": "id",
-        "write_disposition": {
-            "disposition": "merge",
-            "strategy": "upsert",
-        }
-        if should_use_incremental_field
-        else "replace",
+        "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
@@ -135,6 +123,8 @@ def clerk_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
+    # Note: Incremental parameters are accepted but ignored - Clerk only supports full refresh
+    # because the API doesn't support filtering by updated_at
     endpoint_config = CLERK_ENDPOINTS[endpoint]
 
     config: RESTAPIConfig = {
@@ -158,14 +148,7 @@ def clerk_source(
                 },
             },
         },
-        "resources": [
-            get_resource(
-                endpoint,
-                should_use_incremental_field,
-                db_incremental_field_last_value,
-                incremental_field,
-            )
-        ],
+        "resources": [get_resource(endpoint)],
     }
 
     resources = rest_api_resources(config, team_id, job_id, None)
