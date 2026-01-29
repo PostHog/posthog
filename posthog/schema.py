@@ -4838,6 +4838,43 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: str | None = Field(
+        default=None,
+        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
+    )
+    debug: bool | None = Field(
+        default=False,
+        description=("Whether to include debug information (such as the executed HogQL) in the response."),
+    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
+            " `query_override` and `filters_override` are not allowed — use variables"
+            " instead."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
+    )
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10369,51 +10406,6 @@ class DocumentSimilarityQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
-    )
-
-
-class EndpointRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: str | None = Field(
-        default=None,
-        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
-    )
-    debug: bool | None = Field(
-        default=False,
-        description=("Whether to include debug information (such as the executed HogQL) in the response."),
-    )
-    filters_override: DashboardFilter | None = Field(
-        default=None,
-        description=(
-            "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
-        ),
-    )
-    query_override: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Map of Insight query keys to be overridden at execution time. For example:"
-            '   Assuming query = {"kind": "TrendsQuery", "series": [{"kind":'
-            ' "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]} '
-            '  If query_override = {"series": [{"kind": "EventsNode","name":'
-            ' "$identify","event": "$identify","math": "total"}]}   The query executed'
-            " will return the count of $identify events, instead of $pageview's"
-        ),
-    )
-    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
-    variables: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "A map for overriding HogQL query variables, where the key is the variable"
-            " name and the value is the variable value. Variable must be set on the"
-            " endpoint's query between curly braces (i.e. {variable.from_date}) For"
-            ' example: {"from_date": "1970-01-01"}'
-        ),
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
     )
 
 
