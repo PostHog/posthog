@@ -7,6 +7,8 @@ import { IconChevronRight, IconPlusSmall, IconSidebarClose, IconSidebarOpen } fr
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
+import { OrganizationMenu } from 'lib/components/Account/OrganizationMenu'
+import { ProjectMenu } from 'lib/components/Account/ProjectMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -22,15 +24,13 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
 import { ConversationsMenu } from '~/layout/panel-layout/ai-first/ConversationsMenu'
 import { RecentConversationsList } from '~/layout/panel-layout/ai-first/RecentConversationsList'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
-import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
-import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { DataMenu } from './ai-first/DataMenu'
 
 const navBarStyles = cva({
