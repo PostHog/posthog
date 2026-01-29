@@ -49,7 +49,7 @@ The token needs `repo` scope for private repositories, or just `public_repo` for
                         label="Personal access token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="ghp_xxxxxxxxxxxx",
+                        placeholder="github_pat_...",
                     ),
                     SourceFieldInputConfig(
                         name="repository",
