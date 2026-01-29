@@ -169,11 +169,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return stmt
 
         def _build_data_warehouse_table_query(
-            table_name: str, steps: Sequence[tuple[int, DataWarehouseNode]]
+            table_name: str, table_config_index: int, steps: Sequence[tuple[int, DataWarehouseNode]]
         ) -> ast.SelectQuery:
             node = steps[0][1]
 
-            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, node)
+            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, table_config_index, node)
 
             field = self.get_warehouse_field(node.table_name, node.timestamp_field)
 
@@ -233,7 +233,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 queries.append(_build_events_table_query(table_name, event_steps))
             else:
                 dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], table_config_with_steps.steps)
-                queries.append(_build_data_warehouse_table_query(table_config_with_steps.table_name, dwh_steps))
+                queries.append(
+                    _build_data_warehouse_table_query(
+                        table_config_with_steps.table_name, table_config_with_steps.table_config_index, dwh_steps
+                    )
+                )
 
         if len(queries) == 1:
             return queries[0]
@@ -251,12 +255,16 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         )
 
     def _get_funnel_cols(
-        self, source_kind: SourceTableKind, table_name: str, node: Optional[DataWarehouseNode] = None
+        self,
+        source_kind: SourceTableKind,
+        table_name: str,
+        table_config_index: int | None = None,
+        node: Optional[DataWarehouseNode] = None,
     ) -> list[ast.Expr]:
         cols: list[ast.Expr] = []
 
         # extra fields
-        cols.extend(self._get_extra_fields(source_kind, node))
+        cols.extend(self._get_extra_fields(source_kind, node, table_config_index))
 
         # step cols
         for index, entity in enumerate(self.context.query.series):
@@ -454,7 +462,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             raise ValidationError(f"Unknown breakdown attribution type {breakdownAttributionType}")
 
     def _get_extra_fields(
-        self, source_kind: SourceTableKind, node: Optional[DataWarehouseNode] = None
+        self,
+        source_kind: SourceTableKind,
+        node: Optional[DataWarehouseNode] = None,
+        table_config_index: int | None = None,
     ) -> list[ast.Expr]:
         def _expr_for(field: str) -> ast.Expr:
             if is_data_warehouse_source(source_kind):
@@ -478,7 +489,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                             ), 2)""",
                             placeholders={
                                 "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field]),
-                                "table_prefix": ast.Constant(value=f"{node.table_name}_"),
+                                "table_prefix": ast.Constant(
+                                    value=f"{node.table_name}_{table_config_index}_"
+                                    if table_config_index is not None
+                                    else f"{node.table_name}_"
+                                ),
                                 "exception_message": ast.Constant(
                                     value=f"Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
                                 ),
