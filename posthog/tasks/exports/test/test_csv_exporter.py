@@ -32,11 +32,14 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
+    ExcelWriter,
     UnexpectedEmptyJsonResponse,
     _convert_response_to_csv_data,
+    _format_breakdown_value,
     add_query_params,
     sanitize_value_for_excel,
 )
+from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -1516,3 +1519,35 @@ class TestCSVExporter(APIBaseTest):
                 # Control characters should be stripped, but visible parts preserved
                 assert "beforeafter" in str(data_row)  # NULL stripped
                 assert "[31mred[0mafter" in str(data_row)  # ANSI: ESC stripped, rest preserved
+
+    def test_format_breakdown_value(self) -> None:
+        """Test _format_breakdown_value handles None."""
+        # None was causing TypeError: can only join an iterable
+        assert _format_breakdown_value(None) == ""
+
+        # Normal list behavior unchanged
+        assert _format_breakdown_value([]) == ""
+        assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
+        assert _format_breakdown_value(["single"]) == "single"
+
+    def test_excel_writer_raises_column_limit_exceeded(self) -> None:
+        writer = ExcelWriter()
+        # Create more columns than openpyxl supports (18,278 max)
+        # See: https://foss.heptapod.net/openpyxl/openpyxl/-/blob/a345f3975f06450193646a53a5caaf081730e9ea/openpyxl/utils/cell.py#L93
+        columns = [f"col_{i}" for i in range(18300)]
+
+        with pytest.raises(ExcelColumnLimitExceeded) as exc_info:
+            writer.write_header(columns)
+
+        assert "18,278 columns" in str(exc_info.value)
+        assert "CSV format" in str(exc_info.value)
+
+    def test_excel_writer_normal_column_count_works(self) -> None:
+        writer = ExcelWriter()
+        columns = ["col_a", "col_b", "col_c"]
+        writer.write_header(columns)
+        writer.write_row({"col_a": "1", "col_b": "2", "col_c": "3"})
+        path = writer.finish()
+
+        assert os.path.exists(path)
+        os.unlink(path)
