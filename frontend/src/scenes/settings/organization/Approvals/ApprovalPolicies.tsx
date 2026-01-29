@@ -261,6 +261,8 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             },
             allow_self_approve: allowSelfApprove,
             conditions,
+            bypass_org_membership_levels: [],
+            bypass_roles: [],
             enabled: true,
         }
 
