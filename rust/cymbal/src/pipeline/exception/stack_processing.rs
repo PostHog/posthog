@@ -151,13 +151,7 @@ pub async fn do_stack_processing(
             .expect("no events have been dropped since indexed-property gathering")
             .team_id;
 
-        let mut conn = context
-            .posthog_pool
-            .acquire()
-            .await
-            .map_err(|e| (index, Arc::new(e.into())))?;
-
-        let proposed = resolve_fingerprint(&mut conn, &context.team_manager, team_id, &props)
+        let proposed = resolve_fingerprint(&context, team_id, &props)
             .await
             .map_err(|e| (index, Arc::new(e)))?;
 

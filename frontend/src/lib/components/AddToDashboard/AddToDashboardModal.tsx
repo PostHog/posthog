@@ -143,7 +143,7 @@ export function AddToDashboardModal({
         if (scrollIndex >= 0 && listRef.current) {
             listRef.current.scrollToRow({ index: scrollIndex, align: 'smart' })
         }
-    }, [scrollIndex])
+    }, [scrollIndex, listRef.current])
 
     const rowProps: DashboardRowProps = {
         orderedDashboards,
