@@ -66,7 +66,7 @@ class KafkaProducerForTests:
         topic: str,
         value: bytes,
         key: Optional[bytes] = None,
-        headers: Optional[list[tuple[str, bytes]]] = None,
+        headers: Optional[list[tuple[str, str | bytes | None]]] = None,
         on_delivery: Optional[Callable] = None,
     ):
         # Immediately trigger the delivery callback with success
@@ -280,7 +280,7 @@ class _KafkaProducer:
                 pass  # already bytes
             else:
                 key = str(key).encode("utf-8")
-        encoded_headers: list[tuple[str, bytes]] | None = (
+        encoded_headers: list[tuple[str, str | bytes | None]] | None = (
             [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
         )
 
