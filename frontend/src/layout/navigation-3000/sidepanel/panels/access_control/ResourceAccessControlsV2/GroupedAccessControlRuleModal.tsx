@@ -163,7 +163,7 @@ function GroupedAccessControlRuleModalContent(props: {
             return 'Cannot edit'
         }
 
-        if (!props.memberHasAdminAccess) {
+        if (props.memberHasAdminAccess) {
             return 'Feature overrides do not apply to admins'
         }
     }, [])
