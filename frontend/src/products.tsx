@@ -1033,6 +1033,17 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'Apps',
+        intents: [ProductKey.SITE_APPS],
+        category: 'Tools',
+        type: 'hog_function',
+        iconType: 'data_pipeline',
+        iconColor: ['var(--color-product-data-pipeline-light)'],
+        href: urls.apps(),
+        sceneKey: 'Apps',
+        sceneKeys: ['Apps'],
+    },
+    {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: 'Analytics',

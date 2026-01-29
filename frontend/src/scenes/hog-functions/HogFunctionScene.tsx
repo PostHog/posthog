@@ -53,7 +53,6 @@ const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelin
     transformation: 'transformations',
     destination: 'destinations',
     site_destination: 'destinations',
-    site_app: 'site_apps',
     source_webhook: 'sources',
 }
 
@@ -130,6 +129,18 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             key: 'alert',
                             name: 'Alert',
                             path: urls.alert(alertId),
+                            iconType: 'data_pipeline',
+                        },
+                        finalCrumb,
+                    ]
+                }
+
+                if (type === 'site_app') {
+                    return [
+                        {
+                            key: Scene.Apps,
+                            name: 'Apps',
+                            path: urls.apps(),
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,

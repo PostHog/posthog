@@ -70,6 +70,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Approval',
         description: 'Review and approve a change request',
     },
+    [Scene.Apps]: {
+        projectBased: true,
+        name: 'Apps',
+        description: 'Apps allow you to add custom functionality to your website using PostHog.',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/cdp/apps',
+        iconType: 'data_pipeline',
+    },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
         defaultDocsPath: '/pricing',
@@ -614,7 +622,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     ...productConfiguration,
 }
 
-const redirectPipeline = (stage: DataPipelinesSceneTab, id: string): string => {
+const redirectPipeline = (stage: DataPipelinesSceneTab | 'site_apps', id: string): string => {
     // Hog functions (destinations & transformations)
     if (id.startsWith('hog-')) {
         return urls.hogFunction(id.replace('hog-', ''))
@@ -640,6 +648,9 @@ const redirectPipeline = (stage: DataPipelinesSceneTab, id: string): string => {
     }
     if (stage === 'transformations') {
         return urls.transformations()
+    }
+    if (stage === 'site_apps') {
+        return urls.apps()
     }
     return urls.dataPipelines(stage)
 }
@@ -854,6 +865,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.instanceMetrics()]: [Scene.SystemStatus, 'instanceMetrics'],
     [urls.asyncMigrations()]: [Scene.AsyncMigrations, 'asyncMigrations'],
     [urls.asyncMigrationsFuture()]: [Scene.AsyncMigrations, 'asyncMigrationsFuture'],
+    [urls.apps()]: [Scene.Apps, 'apps'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],

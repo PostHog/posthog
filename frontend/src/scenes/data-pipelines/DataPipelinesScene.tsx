@@ -24,14 +24,7 @@ import { DataPipelinesOverview } from './DataPipelinesOverview'
 import type { dataPipelinesSceneLogicType } from './DataPipelinesSceneType'
 import { DataPipelinesSources } from './DataPipelinesSources'
 
-const DATA_PIPELINES_SCENE_TABS = [
-    'overview',
-    'sources',
-    'transformations',
-    'destinations',
-    'site_apps',
-    'history',
-] as const
+const DATA_PIPELINES_SCENE_TABS = ['overview', 'sources', 'transformations', 'destinations', 'history'] as const
 export type DataPipelinesSceneTab = (typeof DATA_PIPELINES_SCENE_TABS)[number]
 
 export type DataPipelinesSceneProps = {
@@ -135,11 +128,6 @@ function DataPipelineTabs({ action }: { action: JSX.Element }): JSX.Element {
             ),
         },
         {
-            label: 'Apps',
-            key: 'site_apps',
-            content: <DataPipelinesHogFunctions kind="site_app" action={action} />,
-        },
-        {
             label: 'History',
             key: 'history',
             content: <ActivityLog scope={[ActivityScope.HOG_FUNCTION]} />,
@@ -162,7 +150,7 @@ export function DataPipelinesScene(): JSX.Element {
         { label: 'Destination', to: urls.dataPipelinesNew('destination') },
     ]
 
-    const SceneAction = (): JSX.Element => {
+    const SceneAction = (): JSX.Element | null => {
         if (currentTab === 'overview') {
             return (
                 <LemonMenu items={menuItems}>
@@ -236,25 +224,7 @@ export function DataPipelinesScene(): JSX.Element {
             )
         }
 
-        return (
-            <AppShortcut
-                name="NewPipelineApp"
-                keybind={[keyBinds.new]}
-                intent="New app"
-                interaction="click"
-                scope={Scene.DataPipelines}
-            >
-                <LemonButton
-                    to={urls.dataPipelinesNew('site_app')}
-                    type="primary"
-                    icon={<IconPlusSmall />}
-                    size="small"
-                    tooltip="New app"
-                >
-                    New app
-                </LemonButton>
-            </AppShortcut>
-        )
+        return null
     }
 
     return (

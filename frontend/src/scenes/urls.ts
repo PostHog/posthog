@@ -42,6 +42,7 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
+    apps: (): string => '/apps',
     destinations: (): string => '/data-management/destinations',
     models: (): string => '/models',
     sources: (): string => '/data-management/sources',

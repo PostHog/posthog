@@ -622,6 +622,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
                         {
+                            identifier: Scene.Apps,
+                            label: 'Apps',
+                            icon: <IconPlug />,
+                            to: urls.apps(),
+                            tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
+                        },
+                        {
                             identifier: Scene.Heatmaps,
                             label: 'Heatmaps',
                             icon: <IconCursorClick />,

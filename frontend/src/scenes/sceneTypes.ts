@@ -12,6 +12,7 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Annotations = 'Annotations',
     Approval = 'Approval',
+    Apps = 'Apps',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',

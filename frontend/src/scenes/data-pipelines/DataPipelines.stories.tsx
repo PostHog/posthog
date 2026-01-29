@@ -135,7 +135,7 @@ export function PipelineDestinationsPageWithoutPipelines(): JSX.Element {
 
 export function PipelineSiteAppsPage(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.dataPipelines('site_apps'))
+        router.actions.push(urls.apps())
     }, [])
     return <App />
 }
