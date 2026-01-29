@@ -107,19 +107,11 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [
-                s.sourceKind,
-                s.orderBy,
-                s.response,
-                s.columnsInQuery,
-                s.columnsInResponse,
-                (_, props) => props.context,
-            ],
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, (_, props) => props.context],
             (
                 sourceKind: NodeKind | null,
                 orderBy: string[] | null,
                 response: AnyDataNode['response'],
-                columnsInQuery: HogQLExpression[],
                 columnsInResponse: string[] | null,
                 context: QueryContext<DataTableNode> | undefined
             ): DataTableRow[] | null => {
