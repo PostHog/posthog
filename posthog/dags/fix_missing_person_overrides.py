@@ -1,9 +1,9 @@
 """Dagster job to automatically fix missing person_id overrides.
 
 This job detects distinct_ids where the resolved person_id (using overrides) differs
-from the person_id in person_distinct_id2, indicating that some overrides exist but
-others may be missing. It then ensures ALL distinct_ids for affected persons have
-the correct overrides.
+from the person_id in person_distinct_id2, indicating that a problem has occurred
+during ingestion, person merges, clickhouse migration, etc. (It has hard to know
+which, after the fact).
 """
 
 from typing import Optional
