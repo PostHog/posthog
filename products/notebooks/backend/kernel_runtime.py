@@ -969,6 +969,9 @@ class KernelRuntimeService:
             "    def __getitem__(self, item: Any) -> Any:\n"
             "        return self.to_df().__getitem__(item)\n"
             "\n"
+            "    def __setitem__(self, key: Any, value: Any) -> None:\n"
+            "        self.to_df().__setitem__(key, value)\n"
+            "\n"
             "    def __repr__(self) -> str:\n"
             '        return f"HogQLLazyFrame(query={self._query!r})"\n'
             "\n"
