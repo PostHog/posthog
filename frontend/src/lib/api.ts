@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
-import { PushSubscriptionType } from 'lib/integrations/pushSubscriptionLogic'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -1328,11 +1327,6 @@ export class ApiRequest {
 
     public subscription(id: SubscriptionType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.subscriptions(teamId).addPathComponent(id)
-    }
-
-    // # Push Subscriptions
-    public pushSubscriptions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('push_subscriptions')
     }
 
     // # Integrations
@@ -4651,10 +4645,6 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
-    },
-
-    pushSubscriptionsList(teamId?: TeamType['id']): Promise<PaginatedResponse<PushSubscriptionType>> {
-        return new ApiRequest().pushSubscriptions(teamId).get()
     },
 
     integrations: {

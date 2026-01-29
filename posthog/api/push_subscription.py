@@ -9,11 +9,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team
-from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -63,52 +60,6 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id)
-
-    def list(self, request: Request, *args, **kwargs) -> Response:
-        """
-        List push subscriptions with person identification data but without the secret token.
-        Returns only id, distinct_id, platform, and person identification (email, name).
-        Only returns active subscriptions.
-        """
-        queryset = self.safely_get_queryset(self.get_queryset())
-        subscriptions = list(queryset.filter(is_active=True))
-
-        if not subscriptions:
-            return Response({"results": []}, status=status.HTTP_200_OK)
-
-        distinct_ids = list({sub.distinct_id for sub in subscriptions})
-
-        persons_qs = get_persons_by_distinct_ids(self.team_id, distinct_ids)
-        persons = {p.id: p for p in persons_qs}
-
-        person_distinct_ids = PersonDistinctId.objects.filter(team_id=self.team_id, distinct_id__in=distinct_ids)
-
-        distinct_id_to_person = {}
-        for pdi in person_distinct_ids:
-            if pdi.distinct_id not in distinct_id_to_person and pdi.person_id in persons:
-                distinct_id_to_person[pdi.distinct_id] = persons[pdi.person_id]
-
-        team = Team.objects.get(pk=self.team_id)
-
-        results = []
-        for subscription in subscriptions:
-            person = distinct_id_to_person.get(subscription.distinct_id)
-            person_email = person.email if person else None
-            person_name = get_person_name(team, person) if person else None
-
-            results.append(
-                {
-                    "id": subscription.id,
-                    "distinct_id": subscription.distinct_id,
-                    "platform": subscription.platform,
-                    "created_at": subscription.created_at,
-                    "updated_at": subscription.updated_at,
-                    "person_email": person_email,
-                    "person_name": person_name,
-                }
-            )
-
-        return Response({"results": results}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False)
     def register(self, request: Request, *args, **kwargs) -> Response:

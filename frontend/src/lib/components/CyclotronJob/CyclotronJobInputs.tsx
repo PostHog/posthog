@@ -474,7 +474,7 @@ function CyclotronJobInputRenderer({
                     input={input}
                     onChange={disabled ? () => {} : onChange}
                     className="ph-no-capture"
-                    templating={schema.templating ?? true}
+                    templating={templating}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
