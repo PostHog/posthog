@@ -28,6 +28,8 @@ export const displayLogic = kea<displayLogicType>([
         }),
         removeGoalLine: (goalLineIndex: number) => ({ goalLineIndex }),
         setGoalLines: (goalLines: GoalLine[]) => ({ goalLines }),
+        setIsShiftPressed: (isShiftPressed: boolean) => ({ isShiftPressed }),
+        setHoveredDatasetIndex: (hoveredDatasetIndex: number | null) => ({ hoveredDatasetIndex }),
     })),
     reducers({
         goalLines: [
@@ -55,6 +57,19 @@ export const displayLogic = kea<displayLogicType>([
                 setGoalLines: (_state, { goalLines }) => {
                     return goalLines
                 },
+            },
+        ],
+        isShiftPressed: [
+            false,
+            {
+                setIsShiftPressed: (_, { isShiftPressed }) => isShiftPressed,
+            },
+        ],
+        hoveredDatasetIndex: [
+            null as number | null,
+            {
+                setHoveredDatasetIndex: (_, { hoveredDatasetIndex }) => hoveredDatasetIndex,
+                setIsShiftPressed: (state, { isShiftPressed }) => (isShiftPressed ? state : null),
             },
         ],
     }),
