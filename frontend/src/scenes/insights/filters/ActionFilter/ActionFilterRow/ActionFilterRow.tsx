@@ -15,6 +15,7 @@ import {
     LemonSelect,
     LemonSelectOption,
     LemonSelectOptions,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -387,7 +388,19 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
-                tooltipDocLink={addFilterDocLink}
+                tooltip={
+                    addFilterDocLink ? (
+                        <>
+                            Show filters
+                            <br />
+                            <Link to={addFilterDocLink} target="_blank">
+                                Read the docs
+                            </Link>
+                        </>
+                    ) : (
+                        'Show filters'
+                    )
+                }
             />
         </IconWithCount>
     )

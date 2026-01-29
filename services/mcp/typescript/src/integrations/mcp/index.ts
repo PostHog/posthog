@@ -9,12 +9,12 @@ import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import {
     CUSTOM_BASE_URL,
-    getAuthorizationServerUrl,
-    getBaseUrlForRegion,
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
+    getAuthorizationServerUrl,
+    getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
@@ -82,11 +82,10 @@ type RequestProperties = {
 
 // Define our MCP agent with tools
 export class MyMCP extends McpAgent<Env> {
-    server = new McpServer({
-        name: 'PostHog',
-        version: '1.0.0',
-        instructions: INSTRUCTIONS,
-    })
+    server = new McpServer(
+        { name: 'PostHog', version: '1.0.0' },
+        { instructions: INSTRUCTIONS }
+    )
 
     initialState: State = {
         projectId: undefined,
@@ -193,7 +192,7 @@ export class MyMCP extends McpAgent<Env> {
                 throw new Error(`Failed to get user: ${userResult.error.message}`)
             }
             await this.cache.set('distinctId', userResult.data.distinct_id)
-            _distinctId = userResult.data.distinct_id
+            _distinctId = userResult.data.distinct_id as string
         }
 
         return _distinctId
@@ -306,7 +305,7 @@ export class MyMCP extends McpAgent<Env> {
         const context = await this.getContext()
 
         // Register prompts and resources
-        await registerPrompts(this.server, context)
+        await registerPrompts(this.server)
         await registerResources(this.server, context)
 
         // Register tools
@@ -444,11 +443,11 @@ export default {
             )
         }
 
-        ctx.props = {
+        Object.assign(ctx.props, {
             apiToken: token,
             userHash: hash(token),
             sessionId: sessionId || undefined,
-        }
+        })
 
         // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
         // If features are provided, only tools matching those features will be available.
@@ -461,7 +460,7 @@ export default {
         // This is set by the wizard based on user's cloud region selection during MCP setup.
         const regionParam = url.searchParams.get('region') || undefined
 
-        ctx.props = { ...ctx.props, features, region: regionParam }
+        Object.assign(ctx.props, { features, region: regionParam })
 
         if (url.pathname.startsWith('/mcp')) {
             return MyMCP.serve('/mcp').fetch(request, env, ctx).then(responseHandler)
