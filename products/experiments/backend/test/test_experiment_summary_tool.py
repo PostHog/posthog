@@ -43,7 +43,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
             "series": [{"event": "purchase"}],
         }
         result = parse_metric_dict(metric_dict)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.metric_type, "funnel")
 
     def test_parse_metric_dict_mean(self):
@@ -52,7 +52,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
             "source": {"kind": "EventsNode", "event": "purchase"},
         }
         result = parse_metric_dict(metric_dict)
-        self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result.metric_type, "mean")
 
     def test_parse_metric_dict_unknown(self):
@@ -77,8 +77,12 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
     def test_get_chance_to_win_decrease_goal(self):
         # When goal is decrease, chance_to_win is inverted (1 - chance_to_win)
         # Use "almost" to avoid "0.15000000000000002 != 0.15"
-        self.assertAlmostEqual(get_chance_to_win(0.85, "decrease"), 0.15)
-        self.assertAlmostEqual(get_chance_to_win(0.15, "decrease"), 0.85)
+        result1 = get_chance_to_win(0.85, "decrease")
+        result2 = get_chance_to_win(0.15, "decrease")
+        assert result1 is not None
+        assert result2 is not None
+        self.assertAlmostEqual(result1, 0.15)
+        self.assertAlmostEqual(result2, 0.85)
 
     def test_get_chance_to_win_no_goal(self):
         # When goal is None, chance_to_win stays the same
@@ -102,6 +106,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
             sum_squares=2500,
         )
         result = transform_variant_for_max(variant, "bayesian")
+        assert isinstance(result, MaxExperimentVariantResultBayesian)
         self.assertEqual(result.key, "test")
         self.assertEqual(result.chance_to_win, 0.85)
         self.assertEqual(result.credible_interval, [0.1, 0.3])
@@ -120,6 +125,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
             sum_squares=2500,
         )
         result = transform_variant_for_max(variant, "frequentist")
+        assert isinstance(result, MaxExperimentVariantResultFrequentist)
         self.assertEqual(result.key, "test")
         self.assertEqual(result.p_value, 0.03)
         self.assertEqual(result.confidence_interval, [-0.1, 0.5])
@@ -139,8 +145,10 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
             sum_squares=2500,
         )
         result = transform_variant_for_max(variant, "bayesian", goal="decrease")
+        assert isinstance(result, MaxExperimentVariantResultBayesian)
         self.assertEqual(result.key, "test")
         # chance_to_win should be inverted: 1 - 0.85 = 0.15
+        assert result.chance_to_win is not None
         self.assertAlmostEqual(result.chance_to_win, 0.15)
         self.assertEqual(result.credible_interval, [0.1, 0.3])
         self.assertEqual(result.delta, 0.2)
@@ -159,6 +167,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
             sum_squares=2500,
         )
         result = transform_variant_for_max(variant, "bayesian", goal="increase")
+        assert isinstance(result, MaxExperimentVariantResultBayesian)
         self.assertEqual(result.chance_to_win, 0.85)
 
     def test_get_default_metric_title_funnel_single_event(self):
@@ -314,7 +323,7 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
         backend_refresh = datetime(2020, 1, 10, 11, 30, tzinfo=ZoneInfo("UTC"))
 
         warning = data_service.check_data_freshness(frontend_refresh, backend_refresh)
-        self.assertIsNotNone(warning)
+        assert warning is not None
         self.assertIn("data has been updated", warning)
 
     @freeze_time("2020-01-10T12:00:00Z")

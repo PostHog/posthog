@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 
 from posthoganalytics import capture_exception
+from typing_extensions import TypeIs
 
 from posthog.schema import (
     CacheMissResponse,
@@ -126,7 +127,7 @@ def get_default_metric_title(metric_dict: dict) -> str:
     return "Metric"
 
 
-def is_incomplete_response(result: Any) -> bool:
+def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatusResponse]:
     """Check if result is a cache miss or pending query status (i.e. incomplete result)."""
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
 
