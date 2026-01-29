@@ -194,7 +194,7 @@ class BaseAgentRunner(ABC):
                 self._callback_handlers.append(init_handler(get_client(region)))
                 # If we're in EU, add the US client as well, so we can see US and EU traces
                 if region == "EU":
-                    self._callback_handlers.append(init_handler(get_client("US", super_properties={"region": "EU"})))
+                    self._callback_handlers.append(init_handler(get_client("US")))
 
         self._trace_id = trace_id
         self._parent_span_id = parent_span_id
