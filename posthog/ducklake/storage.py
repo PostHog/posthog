@@ -310,9 +310,82 @@ def get_deltalake_storage_options(storage_config: DuckLakeStorageConfig | None =
     return storage_config.to_deltalake_options()
 
 
+def _get_cross_account_credentials(role_arn: str, external_id: str) -> tuple[str, str, str]:
+    """Assume an IAM role and return temporary credentials.
+
+    Used for cross-account access to customer S3 buckets.
+
+    Args:
+        role_arn: The ARN of the IAM role to assume.
+        external_id: The external ID for secure role assumption.
+
+    Returns:
+        Tuple of (access_key, secret_key, session_token).
+    """
+    import boto3
+
+    sts_client = boto3.client("sts")
+    response = sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName="duckling-backfill",
+        ExternalId=external_id,
+        DurationSeconds=3600,  # 1 hour
+    )
+    credentials = response["Credentials"]
+    return (
+        credentials["AccessKeyId"],
+        credentials["SecretAccessKey"],
+        credentials["SessionToken"],
+    )
+
+
+def configure_cross_account_connection(
+    conn: duckdb.DuckDBPyConnection,
+    role_arn: str,
+    external_id: str,
+    region: str,
+    *,
+    secret_name: str = "duckling_s3",
+    install_extensions: bool = True,
+) -> None:
+    """Configure DuckDB connection with cross-account S3 credentials.
+
+    Assumes an IAM role to get temporary credentials and creates a DuckDB
+    secret for accessing S3 buckets in another AWS account.
+
+    Args:
+        conn: DuckDB connection to configure.
+        role_arn: IAM role ARN to assume.
+        external_id: External ID for role assumption.
+        region: AWS region for the S3 bucket.
+        secret_name: Name for the DuckDB secret (default: "duckling_s3").
+        install_extensions: Whether to install extensions (default: True).
+    """
+    if install_extensions:
+        conn.execute("INSTALL ducklake")
+        conn.execute("INSTALL httpfs")
+
+    conn.execute("LOAD ducklake")
+    conn.execute("LOAD httpfs")
+
+    access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
+
+    secret_sql = f"""
+    CREATE OR REPLACE SECRET {secret_name} (
+        TYPE S3,
+        KEY_ID '{ducklake_escape(access_key)}',
+        SECRET '{ducklake_escape(secret_key)}',
+        SESSION_TOKEN '{ducklake_escape(session_token)}',
+        REGION '{ducklake_escape(region)}'
+    )
+    """
+    conn.execute(secret_sql)
+
+
 __all__ = [
     "DuckLakeStorageConfig",
     "configure_connection",
+    "configure_cross_account_connection",
     "ensure_ducklake_bucket_exists",
     "get_deltalake_storage_options",
     "normalize_endpoint",
