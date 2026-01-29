@@ -63,7 +63,7 @@ export function SceneTabs(): JSX.Element {
     }
 
     return (
-        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-primary lg:bg-surface-tertiary z-[var(--z-top-navigation)] relative">
+        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-tertiary z-[var(--z-top-navigation)] relative">
             {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive
@@ -76,7 +76,7 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div className="absolute bottom-0 w-full pl-[5px] pr-3">
+            <div className="absolute bottom-0 w-full lg:pl-[5px] lg:pr-3">
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
