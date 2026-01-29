@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCalculator, IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -446,7 +446,7 @@ export function ActionFilterRow({
     const combineInlineButton = (
         <LemonButton
             key="combine-inline"
-            icon={<IconStack />}
+            icon={<IconCalculator />}
             title="Count multiple events as a single event"
             data-attr={`show-prop-combine-${index}`}
             noPadding
