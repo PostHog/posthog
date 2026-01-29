@@ -62,12 +62,13 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
         )
 
     def get_schemas(self, config: AttioSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+        # Attio API doesn't support updatedAt filtering, so only full refresh is supported
         return [
             SourceSchema(
                 name=endpoint_config.name,
                 supports_incremental=False,
-                supports_append=len(endpoint_config.incremental_fields) > 0,
-                incremental_fields=endpoint_config.incremental_fields,
+                supports_append=False,
+                incremental_fields=[],
             )
             for endpoint_config in ATTIO_ENDPOINTS.values()
         ]

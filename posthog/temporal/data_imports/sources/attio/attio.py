@@ -1,4 +1,3 @@
-from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
@@ -9,32 +8,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-
-
-def _format_incremental_value(value: Any) -> str:
-    """Format incremental field value as ISO 8601 string for Attio API filters.
-
-    Attio only accepts timestamps with 'Z' suffix for UTC, not '+00:00'.
-    """
-    if isinstance(value, datetime):
-        # Attio expects UTC with Z suffix (not +00:00)
-        iso_str = value.isoformat()
-        # Replace +00:00 with Z for UTC timezone
-        if iso_str.endswith("+00:00"):
-            iso_str = iso_str[:-6] + "Z"
-        elif not iso_str.endswith("Z") and "+" not in iso_str:
-            iso_str += "Z"
-        return iso_str
-    if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time()).isoformat() + "Z"
-    # Assume string is already in correct format
-    str_value = str(value)
-    # Replace +00:00 with Z
-    if str_value.endswith("+00:00"):
-        str_value = str_value[:-6] + "Z"
-    elif str_value and not str_value.endswith("Z") and "+" not in str_value and "T" in str_value:
-        str_value += "Z"
-    return str_value
 
 
 class AttioJSONBodyPaginator(BasePaginator):
@@ -131,13 +104,11 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def get_resource(
-    name: str,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> EndpointResource:
-    """Build an EndpointResource from the endpoint configuration."""
+def get_resource(name: str) -> EndpointResource:
+    """Build an EndpointResource from the endpoint configuration.
+
+    Attio API doesn't support updatedAt filtering, so only full refresh is supported.
+    """
     config = ATTIO_ENDPOINTS[name]
 
     endpoint_config: dict[str, Any] = {
@@ -145,21 +116,10 @@ def get_resource(
         "data_selector": "data",
     }
 
-    # Build filter for incremental syncs
-    # Attio timestamp filters require nested "value" property
-    incremental_filter: dict[str, Any] | None = None
-    if should_use_incremental_field and db_incremental_field_last_value is not None:
-        filter_field = incremental_field or config.default_incremental_field
-        formatted_value = _format_incremental_value(db_incremental_field_last_value)
-        incremental_filter = {filter_field: {"value": {"$gt": formatted_value}}}
-
     if config.method == "POST":
         endpoint_config["method"] = "POST"
         json_body: dict[str, Any] = {"sorts": [{"attribute": "created_at", "direction": "asc"}]}
-        if incremental_filter:
-            json_body["filter"] = incremental_filter
         endpoint_config["json"] = json_body
-        # Pass the json body to paginator so it can preserve it on each request
         endpoint_config["paginator"] = AttioJSONBodyPaginator(limit=config.page_size, initial_json=json_body)
     else:
         endpoint_config["paginator"] = AttioOffsetPaginator(limit=config.page_size)
@@ -167,13 +127,7 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        **({"primary_key": config.primary_key} if should_use_incremental_field else {}),
-        "write_disposition": {
-            "disposition": "merge",
-            "strategy": "upsert",
-        }
-        if should_use_incremental_field
-        else "replace",
+        "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
@@ -204,7 +158,11 @@ def attio_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
-    """Main source function for Attio data import."""
+    """Main source function for Attio data import.
+
+    Attio API doesn't support updatedAt filtering, so only full refresh is supported.
+    The incremental parameters are kept for interface compatibility but are not used.
+    """
     endpoint_config = ATTIO_ENDPOINTS[endpoint]
 
     config: RESTAPIConfig = {
@@ -220,25 +178,12 @@ def attio_source(
             },
         },
         "resource_defaults": {
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
+            "write_disposition": "replace",
         },
-        "resources": [
-            get_resource(
-                endpoint,
-                should_use_incremental_field,
-                db_incremental_field_last_value,
-                incremental_field,
-            )
-        ],
+        "resources": [get_resource(endpoint)],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    resources = rest_api_resources(config, team_id, job_id, None)
     assert len(resources) == 1
     resource = resources[0].add_map(_flatten_item)
 
@@ -248,8 +193,8 @@ def attio_source(
         primary_keys=[endpoint_config.primary_key],
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="month" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
         sort_mode="asc",
     )
