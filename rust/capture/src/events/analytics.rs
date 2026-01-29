@@ -171,8 +171,7 @@ pub async fn process_events<'a>(
             };
 
             let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
-            let applied =
-                AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Events);
+            let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Events);
 
             if applied.should_drop {
                 report_dropped_events("event_restriction_drop", 1);

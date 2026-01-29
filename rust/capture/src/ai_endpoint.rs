@@ -220,7 +220,7 @@ pub async fn ai_handler(
         };
 
         let restrictions = service.get_restrictions(token, &event_ctx).await;
-        let applied = AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Ai);
+        let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Ai);
 
         if applied.should_drop {
             report_dropped_events("event_restriction_drop", 1);

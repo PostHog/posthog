@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +13,7 @@ use tracing::{error, info, warn};
 use crate::config::CaptureMode;
 
 use super::repository::EventRestrictionsRepository;
-use super::types::{EventContext, Restriction, RestrictionType};
+use super::types::{EventContext, Restriction, RestrictionSet, RestrictionType};
 
 /// Manages restrictions by token.
 #[derive(Debug, Clone, Default)]
@@ -27,16 +27,18 @@ impl RestrictionManager {
     }
 
     /// Get all restriction types that apply to an event.
-    pub fn get_restrictions(&self, token: &str, event: &EventContext) -> HashSet<RestrictionType> {
+    pub fn get_restrictions(&self, token: &str, event: &EventContext) -> RestrictionSet {
         let Some(restrictions) = self.restrictions.get(token) else {
-            return HashSet::new();
+            return RestrictionSet::new();
         };
 
-        restrictions
-            .iter()
-            .filter(|r| r.matches(event))
-            .map(|r| r.restriction_type)
-            .collect()
+        let mut result = RestrictionSet::new();
+        for r in restrictions {
+            if r.matches(event) {
+                result.insert(r.restriction_type);
+            }
+        }
+        result
     }
 
     /// Build a RestrictionManager from repository data for a specific pipeline.
@@ -211,18 +213,14 @@ impl EventRestrictionService {
     }
 
     /// Get restrictions for an event. Returns empty set if fail-open is active.
-    pub async fn get_restrictions(
-        &self,
-        token: &str,
-        event: &EventContext<'_>,
-    ) -> HashSet<RestrictionType> {
+    pub async fn get_restrictions(&self, token: &str, event: &EventContext<'_>) -> RestrictionSet {
         if self.is_stale_at(event.now_ts) {
             gauge!(
                 "capture_event_restrictions_stale",
                 "pipeline" => self.pipeline.as_pipeline_name().to_string()
             )
             .set(1.0);
-            return HashSet::new();
+            return RestrictionSet::new();
         }
 
         let guard = self.manager.read().await;
@@ -302,19 +300,19 @@ mod tests {
         // Each token should have exactly its restriction type
         let drop_restrictions = manager.get_restrictions("token_drop", &event);
         assert_eq!(drop_restrictions.len(), 1);
-        assert!(drop_restrictions.contains(&RestrictionType::DropEvent));
+        assert!(drop_restrictions.contains(RestrictionType::DropEvent));
 
         let overflow_restrictions = manager.get_restrictions("token_overflow", &event);
         assert_eq!(overflow_restrictions.len(), 1);
-        assert!(overflow_restrictions.contains(&RestrictionType::ForceOverflow));
+        assert!(overflow_restrictions.contains(RestrictionType::ForceOverflow));
 
         let dlq_restrictions = manager.get_restrictions("token_dlq", &event);
         assert_eq!(dlq_restrictions.len(), 1);
-        assert!(dlq_restrictions.contains(&RestrictionType::RedirectToDlq));
+        assert!(dlq_restrictions.contains(RestrictionType::RedirectToDlq));
 
         let skip_restrictions = manager.get_restrictions("token_skip", &event);
         assert_eq!(skip_restrictions.len(), 1);
-        assert!(skip_restrictions.contains(&RestrictionType::SkipPersonProcessing));
+        assert!(skip_restrictions.contains(RestrictionType::SkipPersonProcessing));
 
         // Unknown token should have no restrictions
         let unknown = manager.get_restrictions("unknown_token", &event);
@@ -347,7 +345,7 @@ mod tests {
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_match);
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        assert!(restrictions.contains(RestrictionType::DropEvent));
 
         // Should NOT match when event_name doesn't match (AND logic)
         let event_wrong_name = EventContext {
@@ -450,7 +448,7 @@ mod tests {
 
         let event = EventContext::default();
         let restrictions = manager.get_restrictions("token1", &event);
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
+        assert!(restrictions.contains(RestrictionType::ForceOverflow));
     }
 
     #[tokio::test]
@@ -487,8 +485,8 @@ mod tests {
 
         let restrictions = manager.get_restrictions("token1", &EventContext::default());
         assert_eq!(restrictions.len(), 2);
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-        assert!(restrictions.contains(&RestrictionType::SkipPersonProcessing));
+        assert!(restrictions.contains(RestrictionType::ForceOverflow));
+        assert!(restrictions.contains(RestrictionType::SkipPersonProcessing));
     }
 
     // ========================================================================
@@ -525,7 +523,7 @@ mod tests {
         service.update(manager).await;
 
         let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        assert!(restrictions.contains(RestrictionType::DropEvent));
     }
 
     #[tokio::test]
@@ -547,7 +545,7 @@ mod tests {
 
         // Immediately after update, should return restrictions
         let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        assert!(restrictions.contains(RestrictionType::DropEvent));
 
         // Manually set last_successful_refresh to 10 seconds ago
         let old_timestamp = chrono::Utc::now().timestamp() - 10;

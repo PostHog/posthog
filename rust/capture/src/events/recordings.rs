@@ -233,8 +233,7 @@ pub async fn process_replay_events<'a>(
         };
 
         let restrictions = service.get_restrictions(&context.token, &event_ctx).await;
-        let applied =
-            AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Recordings);
+        let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Recordings);
 
         if applied.should_drop {
             report_dropped_events("event_restriction_drop", 1);
