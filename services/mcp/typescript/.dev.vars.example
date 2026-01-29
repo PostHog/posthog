@@ -1,2 +1,3 @@
-POSTHOG_BASE_URL=http://localhost:8000
+POSTHOG_BASE_URL=http://localhost:8010
 INKEEP_API_KEY=your_inkeep_api_key_here
+POSTHOG_UI_APPS_TOKEN=your_posthog_ui_apps_token_here

@@ -23,6 +23,8 @@ export type State = {
 
 export type Env = {
     INKEEP_API_KEY: string | undefined
+    POSTHOG_BASE_URL: string | undefined
+    POSTHOG_UI_APPS_TOKEN: string | undefined
 }
 
 export type Context = {
@@ -46,11 +48,25 @@ export type Tool<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = {
         openWorldHint: boolean
         readOnlyHint: boolean
     }
+    _meta?: ToolMeta
 }
 
 export type ToolBase<TSchema extends z.ZodTypeAny = z.ZodTypeAny> = Omit<
     Tool<TSchema>,
     'title' | 'description' | 'scopes' | 'annotations'
->
+> & {
+    _meta?: ToolMeta
+}
 
 export type ZodObjectAny = z.ZodObject<any, any, any, any, any>
+
+export type ToolUiMeta = {
+    resourceUri: string
+    visibility?: ('model' | 'app')[]
+}
+
+export type ToolMeta = {
+    ui?: ToolUiMeta
+    // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
+    'ui/resourceUri'?: string
+}

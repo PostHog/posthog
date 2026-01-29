@@ -169,17 +169,23 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).not.toContain('insight-create-from-query')
     })
 
-    it('should return empty array when user has no matching scopes', async () => {
+    it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
         const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
 
-        expect(tools).toHaveLength(0)
+        // Only demo tool should be available since it has no required scopes
+        expect(toolNames).toContain('demo-mcp-ui-apps')
+        expect(tools).toHaveLength(1)
     })
 
-    it('should return empty array when user has empty scopes', async () => {
+    it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
         const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
 
-        expect(tools).toHaveLength(0)
+        // Only demo tool should be available since it has no required scopes
+        expect(toolNames).toContain('demo-mcp-ui-apps')
+        expect(tools).toHaveLength(1)
     })
 })
