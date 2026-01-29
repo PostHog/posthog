@@ -30,6 +30,8 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         query = self.runner.query
 
         for prop in query.properties:
+            if hasattr(prop, "type") and prop.type == "cohort":
+                return False
             if hasattr(prop, "key") and prop.key not in self.supported_props_filters:
                 return False
 
