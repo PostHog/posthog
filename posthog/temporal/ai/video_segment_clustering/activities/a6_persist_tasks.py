@@ -148,8 +148,8 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
 
         task_ids.append(str(task.id))
 
-    # 3. Create TaskReference records (idempotent - only count truly new links)
-    links_created = 0
+    # 3. Create TaskReference records in bulk (idempotent via ignore_conflicts)
+    refs_to_create: list[TaskReference] = []
 
     for segment in inputs.segments:
         cluster_id = inputs.segment_to_cluster.get(segment.document_id)
@@ -160,27 +160,27 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         if not task_id:
             continue
 
-        try:
-            task = await Task.objects.aget(id=task_id)
-        except Task.DoesNotExist:
-            continue
-
         session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
         segment_start_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.start_time))
         segment_end_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.end_time))
-        _, created = await TaskReference.objects.aget_or_create(
-            task=task,
-            session_id=segment.session_id,
-            start_time=segment_start_time,
-            end_time=segment_end_time,
-            defaults={
-                "distinct_id": segment.distinct_id,
-                "content": segment.content,
-                "distance_to_centroid": None,
-            },
+
+        refs_to_create.append(
+            TaskReference(
+                task_id=task_id,
+                session_id=segment.session_id,
+                start_time=segment_start_time,
+                end_time=segment_end_time,
+                distinct_id=segment.distinct_id,
+                content=segment.content,
+                distance_to_centroid=None,
+            )
         )
-        if created:
-            links_created += 1
+
+    if refs_to_create:
+        created_refs = await TaskReference.objects.abulk_create(refs_to_create, ignore_conflicts=True)
+        links_created = len(created_refs)
+    else:
+        links_created = 0
 
     return PersistTasksResult(
         tasks_created=tasks_created,
