@@ -304,17 +304,20 @@ export class PushSubscriptionsManagerService {
         )
     }
 
-    public async deactivateToken(teamId: number, token: string, reason: string): Promise<void> {
-        const tokenHash = this.hashToken(token)
+    public async deactivateTokens(tokens: string[], reason: string, teamId: number): Promise<void> {
+        if (tokens.length === 0) {
+            return
+        }
+        const tokenHashes = tokens.map((token) => this.hashToken(token))
         const queryString = `UPDATE workflows_pushsubscription
             SET is_active = false, disabled_reason = $1
-            WHERE team_id = $2 AND token_hash = $3 AND is_active = true`
+            WHERE team_id = $2 AND token_hash = ANY($3::text[]) AND is_active = true`
 
         await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             queryString,
-            [reason, teamId, tokenHash],
-            'deactivatePushSubscriptionToken'
+            [reason, teamId, tokenHashes],
+            'deactivatePushSubscriptionTokens'
         )
     }
 
@@ -335,7 +338,7 @@ export class PushSubscriptionsManagerService {
 
         if (status === 404) {
             try {
-                await this.deactivateToken(teamId, fcmToken, 'unregistered token')
+                await this.deactivateTokens([fcmToken], 'unregistered token', teamId)
                 logger.info('Deactivated push subscription token due to 404 (unregistered token)', { teamId })
             } catch (error) {
                 logger.warn('Failed to deactivate push subscription token', { teamId, error })
@@ -351,7 +354,7 @@ export class PushSubscriptionsManagerService {
             )
             if (isInvalidArgument) {
                 try {
-                    await this.deactivateToken(teamId, fcmToken, 'invalid token')
+                    await this.deactivateTokens([fcmToken], 'invalid token', teamId)
                     logger.info('Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)', {
                         teamId,
                     })
@@ -490,7 +493,23 @@ export class PushSubscriptionsManagerService {
                 provider,
             })
 
-            let subscription = subscriptions.length > 0 ? subscriptions[0] : null
+            let subscription = subscriptions.shift() ?? null
+
+            if (subscriptions.length > 0) {
+                try {
+                    await this.deactivateTokens(
+                        subscriptions.map((s) => s.token),
+                        'duplicate',
+                        hogFunction.team_id
+                    )
+                } catch (error) {
+                    logger.warn('Failed to deactivate duplicate push subscription tokens', {
+                        teamId: hogFunction.team_id,
+                        subscriptionIds: subscriptions.map((s) => s.id).join(','),
+                        error,
+                    })
+                }
+            }
 
             if (!subscription) {
                 const relatedDistinctIds = await this.getDistinctIdsForSamePerson(hogFunction.team_id, distinctId)

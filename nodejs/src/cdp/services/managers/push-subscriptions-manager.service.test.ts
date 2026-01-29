@@ -112,6 +112,32 @@ describe('PushSubscriptionsManagerService', () => {
             expect(result.push_subscription.value).not.toBe(nonMatchingToken)
         })
 
+        it('deactivates duplicate subscriptions with reason "duplicate" when multiple match', async () => {
+            const distinctId = 'user-123'
+            const token1 = 'fcm-token-first'
+            const token2 = 'fcm-token-second'
+            const token3 = 'fcm-token-third'
+            await insertPushSubscription(team.id, distinctId, token1, 'android', true, 'fcm', 'test-project')
+            await insertPushSubscription(team.id, distinctId, token2, 'android', true, 'fcm', 'test-project')
+            await insertPushSubscription(team.id, distinctId, token3, 'android', true, 'fcm', 'test-project')
+
+            const deactivateSpy = jest.spyOn(manager, 'deactivateTokens').mockResolvedValue(undefined)
+
+            const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
+                push_subscription: {
+                    distinctId,
+                    firebaseAppId: 'test-project',
+                    platform: 'android',
+                },
+            }
+            const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
+
+            expect(result.push_subscription.value).toBeTruthy()
+            expect(deactivateSpy).toHaveBeenCalledTimes(1)
+            expect(deactivateSpy).toHaveBeenCalledWith(expect.arrayContaining([token1, token2]), 'duplicate', team.id)
+            expect(deactivateSpy.mock.calls[0][0]).toHaveLength(2)
+        })
+
         it('returns null for inactive subscription', async () => {
             const distinctId = 'user-123'
             const token = 'fcm-token-abc123'

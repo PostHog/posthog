@@ -1211,7 +1211,7 @@ describe('Hog Executor', () => {
             beforeEach(() => {
                 pushSubscriptionsManager = executor['pushSubscriptionsManager']
                 jest.spyOn(pushSubscriptionsManager, 'updateLastSuccessfullyUsedAtByToken').mockResolvedValue(undefined)
-                jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockResolvedValue(undefined)
+                jest.spyOn(pushSubscriptionsManager, 'deactivateTokens').mockResolvedValue(undefined)
             })
 
             const createFcmInvocation = (
@@ -1296,7 +1296,7 @@ describe('Hog Executor', () => {
 
                 await executor.executeFetch(invocation)
 
-                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'unregistered token')
+                expect(pushSubscriptionsManager.deactivateTokens).toHaveBeenCalledWith([token], 'unregistered token', 1)
             })
 
             it('handles error when deactivating token fails on 404', async () => {
@@ -1304,11 +1304,11 @@ describe('Hog Executor', () => {
                 const invocation = createFcmInvocation(token, 404)
 
                 const error = new Error('Database error')
-                jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockRejectedValueOnce(error)
+                jest.spyOn(pushSubscriptionsManager, 'deactivateTokens').mockRejectedValueOnce(error)
 
                 await executor.executeFetch(invocation)
 
-                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'unregistered token')
+                expect(pushSubscriptionsManager.deactivateTokens).toHaveBeenCalledWith([token], 'unregistered token', 1)
             })
 
             it('handles 400 with INVALID_ARGUMENT and deactivates token', async () => {
@@ -1328,7 +1328,7 @@ describe('Hog Executor', () => {
 
                 await executor.executeFetch(invocation)
 
-                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'invalid token')
+                expect(pushSubscriptionsManager.deactivateTokens).toHaveBeenCalledWith([token], 'invalid token', 1)
             })
 
             it('handles 400 with empty error details and does not deactivate token', async () => {
@@ -1343,7 +1343,7 @@ describe('Hog Executor', () => {
 
                 await executor.executeFetch(invocation)
 
-                expect(pushSubscriptionsManager.deactivateToken).not.toHaveBeenCalled()
+                expect(pushSubscriptionsManager.deactivateTokens).not.toHaveBeenCalled()
             })
 
             it('handles error when deactivating token fails on 400', async () => {
@@ -1362,11 +1362,11 @@ describe('Hog Executor', () => {
                 const invocation = createFcmInvocation(token, 400, responseBody)
 
                 const error = new Error('Database error')
-                jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockRejectedValueOnce(error)
+                jest.spyOn(pushSubscriptionsManager, 'deactivateTokens').mockRejectedValueOnce(error)
 
                 await executor.executeFetch(invocation)
 
-                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'invalid token')
+                expect(pushSubscriptionsManager.deactivateTokens).toHaveBeenCalledWith([token], 'invalid token', 1)
             })
 
             it('handles other status codes without action', async () => {
@@ -1376,7 +1376,7 @@ describe('Hog Executor', () => {
                 await executor.executeFetch(invocation)
 
                 expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).not.toHaveBeenCalled()
-                expect(pushSubscriptionsManager.deactivateToken).not.toHaveBeenCalled()
+                expect(pushSubscriptionsManager.deactivateTokens).not.toHaveBeenCalled()
             })
 
             it('only processes FCM URLs', async () => {
