@@ -197,9 +197,13 @@ class SafeDateLoader(Loader):
         if s in ("infinity", "-infinity"):
             return date.max if s == "infinity" else date.min
 
+        # Handle negative years (BC dates)
+        if s.startswith("-") or "bc" in s.lower():
+            return date.min
+
         try:
             parts = s.split("-")
-            if len(parts) >= 3:
+            if len(parts) == 3:
                 year = int(parts[0])
                 month = int(parts[1])
                 day = int(parts[2])
@@ -213,6 +217,7 @@ class SafeDateLoader(Loader):
         except (ValueError, IndexError):
             pass
 
+        # Fallback: clamp to max for unparseable dates
         return date.max
 
 

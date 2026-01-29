@@ -24,6 +24,11 @@ class TestSafeDateLoader:
             # Infinity values
             (b"infinity", date.max),
             (b"-infinity", date.min),
+            # Negative years / BC dates should clamp to date.min
+            (b"-0001-01-01", date.min),
+            (b"-0044-03-15", date.min),
+            (b"0000-01-01", date.min),
+            (b"0044-03-15 BC", date.min),
             # None should return None
             (None, None),
         ],
