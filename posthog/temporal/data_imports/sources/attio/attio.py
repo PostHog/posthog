@@ -26,7 +26,16 @@ class AttioOffsetPaginator(BasePaginator):
         self._initial_json = initial_json or {}
 
     def init_request(self, request: Request) -> None:
-        if not self._use_json_body:
+        if self._use_json_body:
+            if request.json is None:
+                request.json = dict(self._initial_json)
+            else:
+                for key, value in self._initial_json.items():
+                    if key not in request.json:
+                        request.json[key] = value
+            request.json["offset"] = self._current_offset
+            request.json["limit"] = self._limit
+        else:
             if request.params is None:
                 request.params = {}
             request.params["offset"] = self._current_offset
