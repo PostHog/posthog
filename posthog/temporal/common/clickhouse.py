@@ -851,7 +851,7 @@ async def get_client(
     *,
     team_id: typing.Optional[int] = None,
     clickhouse_url: str | None = None,
-    ch_user: typing.Optional[ClickHouseUser] = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     **kwargs,
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
