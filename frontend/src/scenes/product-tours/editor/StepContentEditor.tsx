@@ -4,6 +4,7 @@ import { JSONContent } from '@tiptap/core'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Placeholder } from '@tiptap/extension-placeholder'
+import { TextAlign } from '@tiptap/extension-text-align'
 import { Underline } from '@tiptap/extension-underline'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -23,7 +24,7 @@ import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 import { CodeBlockExtension } from './CodeBlockExtension'
 import { EmbedExtension } from './EmbedExtension'
 import { SlashCommandExtension } from './SlashCommandMenu'
-import { IconListNumbers, IconUnderline } from './icons'
+import { IconAlignCenter, IconAlignLeft, IconAlignRight, IconListNumbers, IconUnderline } from './icons'
 
 export interface StepContentEditorProps {
     content: JSONContent | null
@@ -87,6 +88,9 @@ export function StepContentEditor({
                       codeBlock: false,
                   }),
                   CodeBlockExtension,
+                  TextAlign.configure({
+                      types: ['heading', 'paragraph'],
+                  }),
                   Link.configure({
                       openOnClick: false,
                       HTMLAttributes: {
@@ -317,6 +321,42 @@ export function StepContentEditor({
                             active={editor.isActive('bulletList') || editor.isActive('orderedList')}
                             icon={editor.isActive('orderedList') ? <IconListNumbers /> : <IconList />}
                             tooltip="Lists"
+                        />
+                    </LemonMenu>
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Align left',
+                                icon: <IconAlignLeft />,
+                                onClick: () => editor.chain().focus().setTextAlign('left').run(),
+                                active: editor.isActive({ textAlign: 'left' }),
+                            },
+                            {
+                                label: 'Align center',
+                                icon: <IconAlignCenter />,
+                                onClick: () => editor.chain().focus().setTextAlign('center').run(),
+                                active: editor.isActive({ textAlign: 'center' }),
+                            },
+                            {
+                                label: 'Align right',
+                                icon: <IconAlignRight />,
+                                onClick: () => editor.chain().focus().setTextAlign('right').run(),
+                                active: editor.isActive({ textAlign: 'right' }),
+                            },
+                        ]}
+                    >
+                        <LemonButton
+                            size="small"
+                            icon={
+                                editor.isActive({ textAlign: 'center' }) ? (
+                                    <IconAlignCenter />
+                                ) : editor.isActive({ textAlign: 'right' }) ? (
+                                    <IconAlignRight />
+                                ) : (
+                                    <IconAlignLeft />
+                                )
+                            }
+                            tooltip="Text alignment"
                         />
                     </LemonMenu>
                     <Popover
