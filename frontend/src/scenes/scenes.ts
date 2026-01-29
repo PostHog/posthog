@@ -535,6 +535,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
+    [Scene.Sources]: {
+        projectBased: true,
+        name: 'Sources',
+        description:
+            'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/data-warehouse',
+        iconType: 'data_pipeline',
+    },
     [Scene.Transformations]: {
         projectBased: true,
         name: 'Transformations',
@@ -812,6 +821,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
+    [urls.sources()]: [Scene.Sources, 'sources'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
     [urls.site(':url')]: [Scene.Site, 'site'],

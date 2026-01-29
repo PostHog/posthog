@@ -127,6 +127,7 @@ export enum Scene {
     Signup = 'Signup',
     Site = 'Site',
     Coupons = 'Coupons',
+    Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',

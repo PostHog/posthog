@@ -43,6 +43,7 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     models: (): string => '/models',
+    sources: (): string => '/sources',
     transformations: (): string => '/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>

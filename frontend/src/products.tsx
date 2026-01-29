@@ -1507,9 +1507,9 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Pipeline',
         type: 'hog_function/source',
         iconType: 'data_pipeline_metadata',
-        href: urls.dataPipelines('sources'),
-        sceneKey: 'DataPipelines',
-        sceneKeys: ['DataPipelines'],
+        href: urls.sources(),
+        sceneKey: 'Sources',
+        sceneKeys: ['Sources'],
     },
     {
         path: 'Support',
