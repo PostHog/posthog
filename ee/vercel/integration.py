@@ -1204,27 +1204,16 @@ class VercelIntegration:
                 resource_id=setup_result.resource_id,
                 secrets=secrets,
             )
-            if result.success:
-                logger.info(
-                    "Pushed secrets to Vercel",
-                    team_id=team.id,
-                    integration_config_id=setup_result.integration_config_id,
-                    resource_id=setup_result.resource_id,
-                    integration="vercel",
-                )
-            else:
-                logger.warning(
-                    "Failed to push secrets to Vercel",
-                    team_id=team.id,
-                    integration_config_id=setup_result.integration_config_id,
-                    resource_id=setup_result.resource_id,
-                    error=result.error,
-                    integration="vercel",
-                )
-                capture_exception(
-                    Exception(f"Failed to push secrets to Vercel: {result.error}"),
-                    {"team_id": team.id, "resource_id": setup_result.resource_id},
-                )
+            if not result.success:
+                raise Exception(f"Failed to push secrets to Vercel: {result.error}")
+
+            logger.info(
+                "Pushed secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
         except Exception as e:
             logger.exception(
                 "Error pushing secrets to Vercel",

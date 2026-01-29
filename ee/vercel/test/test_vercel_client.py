@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from ee.vercel.client import ExperimentationResult, VercelAPIClient
+from ee.vercel.client import OperationResult, VercelAPIClient
 
 
 class TestVercelAPIClient:
@@ -97,7 +97,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items",
             client.create_experimentation_items,
             (test_ids["integration_config_id"], test_ids["resource_id"], items),
-            ExperimentationResult(success=True, item_count=1),
+            OperationResult(success=True, item_count=1),
             json={"items": items},
         )
 
@@ -110,7 +110,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items/{test_ids['item_id']}",
             client.update_experimentation_item,
             (test_ids["integration_config_id"], test_ids["resource_id"], test_ids["item_id"], data),
-            ExperimentationResult(success=True, item_id=test_ids["item_id"]),
+            OperationResult(success=True, item_id=test_ids["item_id"]),
             json=data,
         )
 
@@ -122,7 +122,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/experimentation/items/{test_ids['item_id']}",
             client.delete_experimentation_item,
             (test_ids["integration_config_id"], test_ids["resource_id"], test_ids["item_id"]),
-            ExperimentationResult(success=True, item_id=test_ids["item_id"]),
+            OperationResult(success=True, item_id=test_ids["item_id"]),
         )
 
     @patch("ee.vercel.client.requests.Session.request")
@@ -134,7 +134,7 @@ class TestVercelAPIClient:
             f"{client.base_url}/installations/{test_ids['integration_config_id']}/resources/{test_ids['resource_id']}/secrets",
             client.update_resource_secrets,
             (test_ids["integration_config_id"], test_ids["resource_id"], secrets),
-            ExperimentationResult(success=True),
+            OperationResult(success=True),
             json={"secrets": secrets},
         )
 
