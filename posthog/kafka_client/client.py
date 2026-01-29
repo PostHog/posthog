@@ -140,6 +140,10 @@ class _KafkaProducer:
                 bootstrap_servers=kafka_hosts,
                 security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
                 compression_type=compression_type,
+                # Proactively recycle idle connections before NAT Gateway/NLB kills them (350s timeout)
+                connections_max_idle_ms=60000,  # 1 minute
+                reconnect_backoff_ms=50,
+                reconnect_backoff_max_ms=1000,
                 **{"max_request_size": max_request_size} if max_request_size else {},
                 **{"api_version_auto_timeout_ms": 30000}
                 if settings.DEBUG
