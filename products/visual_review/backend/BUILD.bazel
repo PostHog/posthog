@@ -25,7 +25,7 @@ py_library(
         "logic.py",
         "models.py",
         "storage.py",
-    ],
+    ] + glob(["migrations/*.py"]),  # Django migrations
     visibility = [
         "//products/visual_review:__subpackages__",
         "//products:integration_tests",  # allow integration tests from other products

@@ -1,5 +1,8 @@
 """
 Shared fixtures for visual_review tests.
+
+This conftest loads shared PostHog test fixtures (team, user, django_db_setup)
+via pytest_plugins. These fixtures handle Django/ClickHouse test database setup.
 """
 
 import re
@@ -15,6 +18,10 @@ from unittest.mock import MagicMock
 import responses
 
 from products.visual_review.backend.models import Project
+
+# Import shared PostHog test fixtures (team, user, django_db_setup, etc.)
+# This makes posthog/conftest.py fixtures available to our tests
+pytest_plugins = ["posthog.conftest"]
 
 # --- Local Git Repo Fixtures ---
 

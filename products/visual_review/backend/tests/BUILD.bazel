@@ -5,7 +5,10 @@ load("@aspect_rules_py//py:defs.bzl", "py_test")
 py_test(
     name = "tests",
     srcs = glob(["test_*.py"]) + ["conftest.py"],
+    data = ["//posthog:conftest.py"],  # posthog conftest with django_db_setup fixture
+    local = True,  # Run without sandbox - needs PostgreSQL, ClickHouse, Redis
     package_collisions = "ignore",  # Some pypi packages include tests/ dirs
+    tags = ["requires-network"],  # Metadata: needs local services
     args = [
         # Only collect from this test directory, ignore everything else
         "products/visual_review/backend/tests/",
@@ -13,11 +16,20 @@ py_test(
         "--ignore=ee/",
         "--ignore=products/data_warehouse/",
         "--ignore=products/tasks/",
+        # Reuse existing test database if available, create if not
+        "--reuse-db",
     ],
     env = {
         "DJANGO_SETTINGS_MODULE": "posthog.settings",
         "DEBUG": "1",
         "TEST": "1",
+        # Database connection - uses local test database (pytest creates test_posthog)
+        "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/test_posthog",
+        # ClickHouse connection
+        "CLICKHOUSE_HOST": "localhost",
+        "CLICKHOUSE_DATABASE": "posthog_test",
+        # Redis
+        "REDIS_URL": "redis://localhost:6379",
     },
     pytest_main = True,
     deps = [
@@ -28,9 +40,11 @@ py_test(
         "//products:non_isolated",  # Legacy products data (JSON, etc.)
         "@pypi//pytest",
         "@pypi//pytest_django",
+        "@pypi//pytest_mock",  # For mocker fixture used by posthog/conftest.py
         "@pypi//freezegun",
         "@pypi//syrupy",
         "@pypi//responses",
         "@pypi//fakeredis",
+        "@pypi//psycopg2_binary",  # For posthog URL imports (dags code)
     ],
 )
