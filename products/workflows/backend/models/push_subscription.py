@@ -30,7 +30,7 @@ class PushSubscription(UUIDModel):
     token_hash = models.CharField(max_length=64)
     platform = models.CharField(choices=PushPlatform.choices, max_length=16)
     provider = models.CharField(choices=PushProvider.choices, max_length=16)
-    is_active = models.BooleanField(db_index=True, default=True)
+    is_active = models.BooleanField(default=True)
     last_successfully_used_at = models.DateTimeField(blank=True, null=True)
     disabled_reason = models.CharField(blank=True, max_length=128, null=True)
     firebase_app_id = models.CharField(blank=True, max_length=256, null=True)
@@ -38,9 +38,12 @@ class PushSubscription(UUIDModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["team", "distinct_id", "is_active"]),
             models.Index(fields=["team", "token_hash"]),
             models.Index(fields=["team", "distinct_id", "platform", "provider", "is_active"]),
+            models.Index(
+                fields=["team", "distinct_id", "is_active", "last_successfully_used_at", "created_at"],
+                name="workflows_ps_used_created_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

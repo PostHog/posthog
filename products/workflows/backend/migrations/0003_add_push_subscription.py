@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                     "provider",
                     models.CharField(choices=[("fcm", "fcm"), ("apns", "apns")], max_length=16),
                 ),
-                ("is_active", models.BooleanField(db_index=True, default=True)),
+                ("is_active", models.BooleanField(default=True)),
                 ("last_successfully_used_at", models.DateTimeField(blank=True, null=True)),
                 ("disabled_reason", models.CharField(blank=True, max_length=128, null=True)),
                 ("firebase_app_id", models.CharField(blank=True, max_length=256, null=True)),
@@ -45,10 +45,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="pushsubscription",
-            index=models.Index(fields=["team", "distinct_id", "is_active"], name="workflows_p_team_id_98806f_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="pushsubscription",
             index=models.Index(fields=["team", "token_hash"], name="workflows_p_team_id_7c454a_idx"),
         ),
         migrations.AddIndex(
@@ -56,6 +52,13 @@ class Migration(migrations.Migration):
             index=models.Index(
                 fields=["team", "distinct_id", "platform", "provider", "is_active"],
                 name="workflows_p_team_id_90c92e_idx",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="pushsubscription",
+            index=models.Index(
+                fields=["team", "distinct_id", "is_active", "last_successfully_used_at", "created_at"],
+                name="workflows_ps_used_created_idx",
             ),
         ),
         migrations.AddConstraint(
