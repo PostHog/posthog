@@ -106,14 +106,6 @@ export type HogFunctionInvocationGlobals = {
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
 
-    push_subscriptions?: Array<{
-        id: string
-        token?: string // Optional - only populated during execution to avoid bloating cyclotron DB
-        platform?: 'android' | 'ios'
-        is_active?: boolean
-        last_successfully_used_at?: string | null
-    }> // Push notification subscriptions for the event's distinct_id (IDs stored in DB, full data loaded during execution)
-
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
 }

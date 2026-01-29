@@ -73,7 +73,6 @@ export class HogInputsService {
                 }
             })
 
-            let pushSubscriptionInputs: Record<string, { value: string | null }> = {}
             if (Object.keys(inputsToLoad).length > 0) {
                 if (!integrationInputs) {
                     throw new Error(
@@ -82,14 +81,15 @@ export class HogInputsService {
                     )
                 }
                 const firebaseAccountInput = integrationInputs['firebase_account']
-                if (!firebaseAccountInput || !firebaseAccountInput.value) {
+                if (!firebaseAccountInput?.value) {
                     throw new Error(
                         `firebase_account integration is required for push subscription inputs but was not found. ` +
                             `Please configure the firebase_account integration in your hog function.`
                     )
                 }
-                const firebaseAppIdFromIntegration = firebaseAccountInput.value.key_info?.project_id ?? undefined
-                if (!firebaseAppIdFromIntegration) {
+                const firebaseAppId = (firebaseAccountInput.value as { key_info?: { project_id?: string } })?.key_info
+                    ?.project_id
+                if (!firebaseAppId) {
                     throw new Error(
                         `Firebase app ID (project_id) not found in firebase_account integration. ` +
                             `Please ensure the Firebase service account key contains a valid project_id.`
@@ -125,23 +125,23 @@ export class HogInputsService {
                     }
                     pushSubscriptionPairs[key] = {
                         distinctId: resolvedValue,
-                        firebaseAppId: firebaseAppIdFromIntegration,
+                        firebaseAppId,
                         platform: schema.platform,
                     }
                 }
-                pushSubscriptionInputs = await this.pushSubscriptionsManager.loadPushSubscriptions(
-                    hogFunction,
-                    pushSubscriptionPairs
-                )
-            }
 
-            // Update the input values with resolved tokens
-            for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
-                const existingInput = inputs[key]
-                if (existingInput) {
-                    existingInput.value = resolvedInput.value
-                } else {
-                    inputs[key] = resolvedInput
+                const pushSubscriptionInputs =
+                    Object.keys(pushSubscriptionPairs).length > 0
+                        ? await this.pushSubscriptionsManager.loadPushSubscriptions(hogFunction, pushSubscriptionPairs)
+                        : {}
+
+                for (const [key, resolvedInput] of Object.entries(pushSubscriptionInputs)) {
+                    const existingInput = inputs[key]
+                    if (existingInput) {
+                        existingInput.value = resolvedInput.value
+                    } else {
+                        inputs[key] = resolvedInput
+                    }
                 }
             }
         }
@@ -175,8 +175,6 @@ export class HogInputsService {
                 })
             }
         }
-
-        newGlobals.push_subscriptions = []
 
         const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
             return (input1?.order ?? -1) - (input2?.order ?? -1)
