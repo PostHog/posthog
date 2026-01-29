@@ -219,7 +219,15 @@ export class LogsIngestionConsumer {
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
         await Promise.all(
-            messages.map((message) => {
+            messages.map(async (message) => {
+                // Fetch team to get logs_settings
+                const team = await this.hub.teamManager.getTeam(message.teamId)
+                const logsSettings = team?.logs_settings || {}
+
+                // Extract settings with defaults
+                const jsonParse = logsSettings.json_parse_logs ?? true
+                const retentionDays = logsSettings.retention_days ?? 15
+
                 return this.kafkaProducer!.produce({
                     topic: this.clickhouseTopic,
                     value: message.message.value,
@@ -228,6 +236,8 @@ export class LogsIngestionConsumer {
                         ...parseKafkaHeaders(message.message.headers),
                         token: message.token,
                         team_id: message.teamId.toString(),
+                        'json-parse': jsonParse.toString(),
+                        'retention-days': retentionDays.toString(),
                     },
                 })
             })

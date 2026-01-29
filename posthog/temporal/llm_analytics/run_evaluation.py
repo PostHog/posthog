@@ -9,6 +9,7 @@ from django.conf import settings
 import structlog
 import temporalio
 from pydantic import BaseModel, model_validator
+from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
@@ -16,7 +17,14 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.metrics import (
+    increment_errors,
+    increment_key_type,
+    increment_provider_model,
+    increment_tokens,
+)
 
 from products.llm_analytics.backend.llm import Client, CompletionRequest
 from products.llm_analytics.backend.llm.errors import (
@@ -34,6 +42,14 @@ logger = structlog.get_logger(__name__)
 
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+
+# Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
+LLM_JUDGE_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
 
 
 class BooleanEvalResult(BaseModel):
@@ -106,10 +122,19 @@ class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        """Properties for PostHogClientInterceptor error capture."""
+        return {
+            "evaluation_id": self.evaluation_id,
+            "team_id": self.event_data.get("team_id"),
+        }
+
 
 @temporalio.activity.defn
 async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, Any]:
     """Fetch evaluation config from Postgres"""
+    bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
 
     def _fetch():
         try:
@@ -335,19 +360,19 @@ Output: {output_data}"""
     )
 
     try:
-        # Signal that we're about to make a potentially long-running LLM call
-        if temporalio.activity.in_activity():
-            temporalio.activity.heartbeat("starting LLM judge call")
-        response = client.complete(
-            CompletionRequest(
-                model=model,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                provider=provider,
-                response_format=response_format,
+        # HeartbeaterSync sends periodic heartbeats during the potentially long-running LLM call
+        with HeartbeaterSync(details=("llm_judge", evaluation["id"])):
+            response = client.complete(
+                CompletionRequest(
+                    model=model,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    provider=provider,
+                    response_format=response_format,
+                )
             )
-        )
     except AuthenticationError:
+        increment_errors("auth_error")
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
@@ -356,6 +381,7 @@ Output: {output_data}"""
             )
         raise
     except ModelPermissionError:
+        increment_errors("permission_error")
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
@@ -364,6 +390,7 @@ Output: {output_data}"""
             )
         raise
     except QuotaExceededError:
+        increment_errors("quota_error")
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
@@ -372,13 +399,17 @@ Output: {output_data}"""
             )
         raise
     except RateLimitError:
-        # Regular rate limit - let it retry (default behavior)
+        increment_errors("rate_limit")
         raise
     except ModelNotFoundError:
+        increment_errors("model_not_found")
         raise ApplicationError(
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except Exception:
+        increment_errors("unknown_error")
+        raise
 
     # Parse structured output
     result = response.parsed
@@ -391,6 +422,16 @@ Output: {output_data}"""
 
     # Extract token usage from response
     usage = response.usage
+
+    # Record metrics
+    if temporalio.activity.in_activity():
+        increment_key_type("byok" if is_byok else "posthog")
+        increment_provider_model(provider, model)
+        if usage:
+            increment_tokens("input", usage.input_tokens)
+            increment_tokens("output", usage.output_tokens)
+            increment_tokens("total", usage.total_tokens)
+        bind_contextvars(provider=provider, model=model)
 
     # Build result dict based on allows_na config
     result_dict: dict[str, Any] = {
@@ -542,8 +583,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             result = await temporalio.workflow.execute_activity(
                 execute_llm_judge_activity,
                 args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                schedule_to_close_timeout=timedelta(minutes=6),  # > SDK timeout (300s) to allow graceful handling
+                heartbeat_timeout=timedelta(seconds=60),
+                retry_policy=LLM_JUDGE_RETRY_POLICY,
             )
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, ApplicationError) and e.cause.details:

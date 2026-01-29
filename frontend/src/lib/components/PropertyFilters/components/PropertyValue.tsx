@@ -43,6 +43,7 @@ export interface PropertyValueProps {
     editable?: boolean
     preloadValues?: boolean
     forceSingleSelect?: boolean
+    validationError?: string | null
 }
 
 export function PropertyValue({
@@ -62,6 +63,7 @@ export function PropertyValue({
     editable = true,
     preloadValues = false,
     forceSingleSelect = false,
+    validationError = null,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -243,6 +245,7 @@ export function PropertyValue({
             placeholder={placeholder}
             size={size}
             disableCommaSplitting={isUserAgentProperty}
+            status={validationError ? 'danger' : 'default'}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'

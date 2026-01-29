@@ -47,6 +47,13 @@ export interface TourForm {
     steps: TourStep[]
 }
 
+export const PRODUCT_TOURS_MIN_JS_VERSION = '1.324.0'
+
+export function hasMinProductToursVersion(version: string): boolean {
+    const [major, minor] = version.split('.').map(Number)
+    return major > 1 || (major === 1 && minor >= 324)
+}
+
 function newTour(): TourForm {
     return {
         name: '',
@@ -70,6 +77,19 @@ function isToolbarElement(element: HTMLElement): boolean {
     return toolbar?.contains(element) ?? false
 }
 
+export function hasValidSelector(step: TourStep): boolean {
+    if (step.type !== 'element') {
+        return true
+    }
+    if (step.useManualSelector && !step.selector) {
+        return false
+    }
+    if (!step.useManualSelector && !step.inferenceData) {
+        return false
+    }
+    return true
+}
+
 /** Get the DOM element for a step, checking cached ref is still valid */
 export function getStepElement(step: TourStep): HTMLElement | null {
     if (step.element && document.body.contains(step.element)) {
@@ -82,11 +102,22 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         if (!step.selector) {
             return null
         }
-        return document.querySelector(step.selector) as HTMLElement | null
+        try {
+            return document.querySelector(step.selector) as HTMLElement | null
+        } catch {
+            return null
+        }
     }
 
     if (!step.inferenceData) {
-        return step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
+        if (!step.selector) {
+            return null
+        }
+        try {
+            return document.querySelector(step.selector) as HTMLElement | null
+        } catch {
+            return null
+        }
     }
 
     return findElement(step.inferenceData)
@@ -281,7 +312,7 @@ export const productToursLogic = kea<productToursLogicType>([
     forms(({ values, actions }) => ({
         tourForm: {
             defaults: { name: '', steps: [] } as TourForm,
-            errors: ({ name, id }) => {
+            errors: ({ name, id, steps }) => {
                 if (!name || !name.length) {
                     return { name: 'Must name this tour' }
                 }
@@ -292,6 +323,12 @@ export const productToursLogic = kea<productToursLogicType>([
                 if (isDuplicate) {
                     return { name: 'A tour with this name already exists' }
                 }
+
+                const stepErrors = steps.map((s) => (hasValidSelector(s) ? {} : { selector: 'Missing selector' }))
+                if (stepErrors.some((e) => Object.keys(e).length > 0)) {
+                    return { steps: stepErrors }
+                }
+
                 return {}
             },
             submit: async (formValues) => {
@@ -401,6 +438,23 @@ export const productToursLogic = kea<productToursLogicType>([
             },
         ],
         stepCount: [(s) => [s.tourForm], (tourForm) => tourForm?.steps?.length ?? 0],
+        expandedStepRect: [
+            (s) => [s.expandedStepIndex, s.tourForm, s.rectUpdateCounter, s.editorState],
+            (expandedStepIndex, tourForm, _, editorState): ElementRect | null => {
+                if (editorState.mode === 'selecting') {
+                    return null
+                }
+                if (expandedStepIndex === null || !tourForm?.steps) {
+                    return null
+                }
+                const step = tourForm.steps[expandedStepIndex]
+                if (!step || step.type !== 'element') {
+                    return null
+                }
+                const element = getStepElement(step)
+                return element ? getRectForElement(element) : null
+            },
+        ],
     }),
 
     subscriptions(({ actions }) => ({
@@ -506,6 +560,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     useManualSelector: true,
                     inferenceData: undefined,
                     screenshotMediaId: undefined,
+                    element: undefined,
                 }
             } else {
                 // switching from manual -> auto: wipe selector data, prompt for re-selection
@@ -515,6 +570,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     selector: undefined,
                     inferenceData: undefined,
                     screenshotMediaId: undefined,
+                    element: undefined,
                 }
                 actions.setEditorState({ mode: 'selecting', stepIndex: index })
             }
@@ -529,7 +585,7 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!step || step.type !== 'element') {
                 return
             }
-            steps[index] = { ...step, selector }
+            steps[index] = { ...step, selector, element: undefined }
             actions.setTourFormValue('steps', steps)
         },
         updateStepProgressionTrigger: ({ index, trigger }) => {
@@ -560,6 +616,11 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         previewTour: () => {
             const { tourForm, posthog, selectedTourId, tours } = values
+            if (posthog?.version && !hasMinProductToursVersion(posthog.version)) {
+                lemonToast.error(`Requires posthog-js ${PRODUCT_TOURS_MIN_JS_VERSION}+`)
+                return
+            }
+
             if (!tourForm || !posthog?.productTours) {
                 lemonToast.error('Unable to preview tour')
                 return

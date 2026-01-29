@@ -202,10 +202,10 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 
 ```python
 {
-    "$ai_clustering_run_id": "1_20250123_000000",
+    "$ai_clustering_run_id": "1_trace_20250123_000000",
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
-    "$ai_total_traces_analyzed": 315,
+    "$ai_total_items_analyzed": 315,
 
     # Clustering parameters used for this run (for debugging/analysis)
     "$ai_clustering_params": {

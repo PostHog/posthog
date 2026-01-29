@@ -202,6 +202,7 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
+    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     HIPAA_BAA = 'hipaa_baa',
@@ -1973,6 +1974,10 @@ export interface BillingProductV2Type {
     usage_limit: number | null
     has_exceeded_limit: boolean
     unit: string | null
+    // Display formatting fields - for human-friendly display of usage values
+    display_unit: string | null // Display unit (e.g., "GB" when internal unit is "MB")
+    display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
+    display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
     plans: BillingPlanType[]
     contact_support: boolean | null
@@ -2001,6 +2006,10 @@ export interface BillingProductV2AddonType {
     inclusion_only: boolean | null
     contact_support: boolean | null
     unit: string | null
+    // Display formatting fields - for human-friendly display of usage values
+    display_unit: string | null // Display unit (e.g., "GB" when internal unit is "MB")
+    display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
+    display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
     current_amount_usd: string | null
     current_usage: number
@@ -5123,6 +5132,34 @@ export interface DataWarehouseSavedQueryDependencies {
     downstream_count: number
 }
 
+export type DataModelingNodeType = 'table' | 'view' | 'matview'
+
+export interface DataModelingNode {
+    /** UUID */
+    id: string
+    name: string
+    type: DataModelingNodeType
+    dag_id: string
+    saved_query_id?: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+    upstream_count: number
+    downstream_count: number
+    last_run_at?: string
+}
+
+export interface DataModelingEdge {
+    /** UUID */
+    id: string
+    source_id: string
+    target_id: string
+    dag_id: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
 export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
@@ -5740,6 +5777,7 @@ export enum SidePanelTab {
     AccessControl = 'access-control',
     SdkDoctor = 'sdk-doctor',
     Health = 'health',
+    Info = 'info',
 }
 
 export interface ProductPricingTierSubrows {
@@ -6643,6 +6681,7 @@ export interface ApprovalPolicy {
     conditions: Record<string, any>
     approver_config: Record<string, any>
     allow_self_approve: boolean
+    bypass_org_membership_levels: string[]
     bypass_roles: string[]
     expires_after: string
     enabled: boolean
