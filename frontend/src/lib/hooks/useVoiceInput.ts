@@ -147,8 +147,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
         try {
             recognition.start()
-        } catch {
-            setError('Failed to start speech recognition')
+        } catch (error) {
+            setError(`Failed to start speech recognition: ${error instanceof Error ? error.message : 'Unknown error'}`)
             setIsListening(false)
         }
     }, [SpeechRecognitionClass, continuous, lang, onTranscript])
