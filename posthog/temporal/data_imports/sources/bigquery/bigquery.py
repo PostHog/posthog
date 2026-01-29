@@ -6,7 +6,7 @@ import collections.abc
 from datetime import date, datetime
 
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -398,7 +398,7 @@ def bigquery_source(
     """
 
     project_id_for_dataset = dataset_project_id or project_id
-    name = NamingConvention().normalize_identifier(table_name)
+    name = normalize_identifier(table_name)
     fully_qualified_table_name = f"{project_id_for_dataset}.{dataset_id}.{table_name}"
 
     with bigquery_client(

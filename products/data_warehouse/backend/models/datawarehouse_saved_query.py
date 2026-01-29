@@ -9,8 +9,8 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -258,7 +258,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return normalize_identifier(self.name)
 
     @property
     def url_pattern(self):

@@ -24,12 +24,10 @@ python
 """
 
 import urllib.parse
-from collections.abc import Iterable, Iterator, Sequence
-from typing import Literal
+from collections.abc import Iterator, Sequence
+from typing import Any, Literal
 
-import dlt
-from dlt.common.typing import TDataItems
-from dlt.sources import DltResource
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from structlog.types import FilteringBoundLogger
 
 from .helpers import _get_property_names, fetch_data, fetch_property_history
@@ -40,33 +38,31 @@ THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 PROPERTY_LENGTH_LIMIT = 16_000  # This has been empirically determined to be the rough limit for the Hubspot API
 
 
-@dlt.source(name="hubspot")
 def hubspot(
     api_key: str,
     refresh_token: str,
     logger: FilteringBoundLogger,
     endpoints: Sequence[str] = ("companies", "contacts", "deals", "tickets", "quotes"),
     include_history: bool = False,
-) -> Iterable[DltResource]:
+) -> list[SourceResponse]:
     """
-    A DLT source that retrieves data from the HubSpot API using the
-    specified API key.
+    A source that retrieves data from the HubSpot API using the specified API key.
 
     This function retrieves data for several HubSpot API endpoints,
     including companies, contacts, deals, tickets and web
-    analytics events. It returns a tuple of Dlt resources, one for
+    analytics events. It returns a list of SourceResponse objects, one for
     each endpoint.
 
     Args:
-        api_key (Optional[str]):
-            The API key used to authenticate with the HubSpot API. Defaults
-            to dlt.secrets.value.
-        include_history (Optional[bool]):
-            Whether to load history of property changes along with entities.
+        api_key: The API key used to authenticate with the HubSpot API.
+        refresh_token: OAuth refresh token for refreshing the access token.
+        logger: Logger for this source.
+        endpoints: List of endpoints to fetch data from.
+        include_history: Whether to load history of property changes along with entities.
             The history entries are loaded to separate tables.
 
     Returns:
-        Sequence[DltResource]: Dlt resources, one for each HubSpot API endpoint.
+        list[SourceResponse]: Source responses, one for each HubSpot API endpoint.
 
     Notes:
         This function uses the `fetch_data` function to retrieve data from the
@@ -74,21 +70,26 @@ def hubspot(
         `api_key` argument.
     """
 
+    responses = []
     for endpoint in endpoints:
-        yield dlt.resource(
-            crm_objects,
-            name=endpoint,
-            write_disposition="replace",
-            table_format="delta",
-        )(
-            object_type=OBJECT_TYPE_SINGULAR[endpoint],
-            api_key=api_key,
-            refresh_token=refresh_token,
-            include_history=include_history,
-            props=DEFAULT_PROPS[endpoint],
-            include_custom_props=True,
-            logger=logger,
+        responses.append(
+            SourceResponse(
+                name=endpoint,
+                items=lambda obj_type=OBJECT_TYPE_SINGULAR[endpoint], props=DEFAULT_PROPS[endpoint]: crm_objects(
+                    object_type=obj_type,
+                    api_key=api_key,
+                    refresh_token=refresh_token,
+                    include_history=include_history,
+                    props=props,
+                    include_custom_props=True,
+                    logger=logger,
+                ),
+                primary_keys=["id"],
+                column_hints=None,
+                partition_count=None,
+            )
         )
+    return responses
 
 
 def _get_properties_str(
@@ -131,7 +132,7 @@ def crm_objects(
     props: Sequence[str],
     logger: FilteringBoundLogger,
     include_custom_props: bool = True,
-) -> Iterator[TDataItems]:
+) -> Iterator[list[dict[str, Any]]]:
     """Building blocks for CRM resources."""
     props_str = _get_properties_str(
         props=props,
@@ -148,12 +149,10 @@ def crm_objects(
     if include_history:
         # Get history separately, as requesting both all properties and history together
         # is likely to hit hubspot's URL length limit
+        # Note: History data is yielded directly; table naming is handled by the consumer
         for history_entries in fetch_property_history(
             CRM_OBJECT_ENDPOINTS[object_type],
             api_key,
             props_str,
         ):
-            yield dlt.mark.with_table_name(
-                history_entries,
-                OBJECT_TYPE_PLURAL[object_type] + "_property_history",
-            )
+            yield history_entries

@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Callable, Iterable
 from typing import Any, ClassVar, Literal, Optional, Protocol, TypedDict, TypeVar
 
-from dlt.common.data_types.typing import TDataType
+# TDataType removed - simplified to Any
 from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -24,7 +24,7 @@ class SourceResponse:
     name: str
     items: Callable[[], Iterable[Any]]
     primary_keys: list[str] | None
-    column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
+    column_hints: dict[str, Any | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None
     partition_size: Optional[int] = None
     partition_keys: Optional[list[str]] = None

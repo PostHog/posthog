@@ -12,7 +12,6 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
 from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
 from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
@@ -102,11 +101,11 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             else:
                 hubspot_access_code = config_hubspot_access_code
 
-        return dlt_source_to_source_response(
-            hubspot(
-                api_key=hubspot_access_code,
-                refresh_token=refresh_token,
-                endpoints=[inputs.schema_name],
-                logger=inputs.logger,
-            )
+        resources = hubspot(
+            api_key=hubspot_access_code,
+            refresh_token=refresh_token,
+            endpoints=[inputs.schema_name],
+            logger=inputs.logger,
         )
+        # hubspot returns a list with a single resource for the requested endpoint
+        return list(resources)[0]

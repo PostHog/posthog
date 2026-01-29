@@ -9,7 +9,7 @@ from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
@@ -861,7 +861,7 @@ def postgres_source(
 
                 raise
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

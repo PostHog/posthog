@@ -3,12 +3,12 @@ from typing import Any, Optional
 from django.conf import settings
 
 import requests
-from dlt.common.configuration import configspec
-from dlt.common.pendulum import pendulum
-from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
+
+import pendulum
+from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
 
-@configspec
+
 class SalesforceAuth(BearerTokenAuth):
     refresh_token: Optional[str] = None
     instance_url: Optional[str] = None

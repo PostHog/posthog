@@ -8,8 +8,8 @@ from django.db import models
 import numpy
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -76,7 +76,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return normalize_identifier(self.name)
 
     @property
     def is_incremental(self):

@@ -12,7 +12,7 @@ from django.conf import settings
 import pyarrow as pa
 import pymysql
 import pymysql.converters
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -572,7 +572,7 @@ def mysql_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests as http_requests
-from dlt.sources.helpers import requests
+import requests
 
 from .auth import hubspot_refresh_access_token
 from .settings import OBJECT_TYPE_PLURAL

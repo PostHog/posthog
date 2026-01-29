@@ -3,7 +3,7 @@ import datetime as dt
 import collections.abc
 from dataclasses import dataclass
 
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
@@ -106,7 +106,7 @@ def linkedin_ads_source(
     Uses the LinkedIn Marketing API to query for the configured resource and
     yields batches of records as list[dict].
     """
-    name = NamingConvention().normalize_identifier(resource_name)
+    name = normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
     def get_rows() -> collections.abc.Iterator[list[dict]]:

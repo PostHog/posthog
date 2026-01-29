@@ -6,17 +6,8 @@ from typing import Any, Optional
 from django.db import transaction
 from django.db.models import Prefetch
 
-import dlt
-import pyarrow
-import pendulum
-import dlt.common
-import dlt.extract
-import dlt.common.libs
-import dlt.common.libs.pyarrow
-import dlt.extract.incremental
-import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
@@ -28,21 +19,6 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
-
-
-def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
-    """Converts arrow scalar into Python type. Currently adds "UTC" to naive date times and converts all others to UTC"""
-    row_value = arrow_value.as_py()
-
-    if isinstance(row_value, date) and not isinstance(row_value, datetime):
-        return row_value
-    elif isinstance(row_value, datetime):
-        row_value = pendulum.instance(row_value).in_tz("UTC")
-    return row_value
-
-
-dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar
-dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar
 
 
 @dataclass
@@ -103,7 +79,7 @@ def validate_schema_and_update_table_sync(
     incremental_or_append = external_data_schema.should_use_incremental_field
 
     table_name = build_table_name(job.pipeline, _schema_name)
-    normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
+    normalized_schema_name = normalize_identifier(_schema_name)
     new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
     # Check

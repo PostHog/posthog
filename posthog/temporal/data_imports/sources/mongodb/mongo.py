@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import certifi
 from bson import ObjectId
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from structlog.types import FilteringBoundLogger
@@ -393,7 +393,7 @@ def mongo_source(
 
                 yield result
 
-    name = NamingConvention().normalize_identifier(collection_name)
+    name = normalize_identifier(collection_name)
 
     return SourceResponse(
         name=name,

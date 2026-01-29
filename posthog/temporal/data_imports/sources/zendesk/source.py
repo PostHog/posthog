@@ -12,7 +12,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
 from posthog.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
@@ -99,20 +98,20 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         )
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        zendesk_source_response = dlt_source_to_source_response(
-            zendesk_source(
-                subdomain=config.subdomain,
-                api_key=config.api_key,
-                email_address=config.email_address,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        resources = zendesk_source(
+            subdomain=config.subdomain,
+            api_key=config.api_key,
+            email_address=config.email_address,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
+        # zendesk_source returns a list with a single resource
+        zendesk_source_response = resources[0]
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
 

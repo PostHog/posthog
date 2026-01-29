@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 from django.conf import settings
 
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
@@ -58,7 +58,7 @@ def prepare_s3_files_for_querying(
     s3 = get_s3_client()
     s3.invalidate_cache()
 
-    normalized_table_name = NamingConvention().normalize_identifier(table_name)
+    normalized_table_name = normalize_identifier(table_name)
 
     s3_folder_for_job = f"{settings.BUCKET_URL}/{folder_path}"
 

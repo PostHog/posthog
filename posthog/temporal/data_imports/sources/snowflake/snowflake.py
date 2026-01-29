@@ -7,7 +7,7 @@ from typing import Any, Optional
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from snowflake.connector.cursor import SnowflakeCursor
 from structlog.types import FilteringBoundLogger
 
@@ -258,6 +258,6 @@ def snowflake_source(
                 # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
                 yield from cursor.fetch_arrow_batches()
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = normalize_identifier(table_name)
 
     return SourceResponse(name=name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync)

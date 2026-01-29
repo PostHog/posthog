@@ -1,6 +1,6 @@
 """Zendesk source settings and constants"""
 
-from dlt.common import pendulum
+import pendulum
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 

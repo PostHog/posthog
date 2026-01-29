@@ -5,7 +5,7 @@ from typing import Any, Optional
 import pyarrow as pa
 import requests
 from dateutil import parser
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -57,7 +57,7 @@ def doit_list_reports(config: DoItSourceConfig) -> list[tuple[str, str]]:
 
     reports = res.json()["reports"]
 
-    return [(NamingConvention().normalize_identifier(report["reportName"]), report["id"]) for report in reports]
+    return [(normalize_identifier(report["reportName"]), report["id"]) for report in reports]
 
 
 def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:

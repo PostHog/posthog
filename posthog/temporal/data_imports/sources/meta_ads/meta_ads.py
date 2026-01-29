@@ -5,7 +5,7 @@ import collections.abc
 from dataclasses import dataclass
 
 import requests
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
@@ -168,7 +168,7 @@ def meta_ads_source(
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     """A data warehouse Meta Ads source."""
-    name = NamingConvention().normalize_identifier(resource_name)
+    name = normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
     sync_lookback_days = getattr(config, "sync_lookback_days", None)

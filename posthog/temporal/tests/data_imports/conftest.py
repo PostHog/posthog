@@ -12,7 +12,6 @@ from django.test import override_settings
 import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -109,8 +108,6 @@ async def run_external_data_job_workflow(
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
-        mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(

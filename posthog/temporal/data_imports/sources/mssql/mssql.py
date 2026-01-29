@@ -8,7 +8,7 @@ from contextlib import _GeneratorContextManager
 from typing import Any
 
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.pipelines.pipeline.naming import normalize_identifier
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -549,7 +549,7 @@ def mssql_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,
