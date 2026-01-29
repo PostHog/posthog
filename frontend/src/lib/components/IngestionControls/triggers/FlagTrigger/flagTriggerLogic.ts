@@ -5,13 +5,13 @@ import api from 'lib/api'
 import { isObject } from 'lib/utils'
 import { variantKeyToIndexFeatureFlagPayloads } from 'scenes/feature-flags/featureFlagLogic'
 
-import { SDKPolicyConfig } from '../../types'
+import { LinkedFeatureFlag } from '../../types'
 import type { flagTriggerLogicType } from './flagTriggerLogicType'
 
 export type FlagTriggerLogicProps = {
     logicKey: string
-    flag: SDKPolicyConfig['linked_feature_flag']
-    onChange: (flag: SDKPolicyConfig['linked_feature_flag']) => void
+    flag: LinkedFeatureFlag | null
+    onChange: (flag: LinkedFeatureFlag) => void
 }
 
 export const flagTriggerLogic = kea<flagTriggerLogicType>([
@@ -19,7 +19,7 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
     key((props) => props.logicKey),
     path((key) => ['lib', 'components', 'IngestionControls', 'triggers', 'FlagTrigger', 'flagTriggerLogic', key]),
     actions({
-        onChange: (flag: SDKPolicyConfig['linked_feature_flag']) => ({ flag }),
+        onChange: (flag: LinkedFeatureFlag) => ({ flag }),
     }),
     loaders(({ values }) => ({
         featureFlag: {
@@ -34,6 +34,7 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
     })),
     selectors({
         linkedFeatureFlagId: [(_, p) => [p.flag], (flag) => flag?.id || null],
+        flag: [(_, p) => [p.flag], (flag) => flag],
         linkedFlag: [
             (s, p) => [s.featureFlag, p.flag],
             // an existing linked flag is loaded from the API,
