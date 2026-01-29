@@ -567,6 +567,258 @@ async fn test_multipart_parsing_with_empty_blob() {
 }
 
 // ----------------------------------------------------------------------------
+// Scenario: JSON Path Validation for Blob Properties
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_multipart_with_nested_json_path_accepted() {
+    use uuid::Uuid;
+
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "uuid": Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-nested-path"
+    });
+
+    // Use a nested JSON path: $ai_input[0].content
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input[0].content",
+            Part::bytes(b"nested blob content".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
+    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
+    assert_eq!(accepted_parts.len(), 3);
+    assert_eq!(
+        accepted_parts[2]["name"],
+        "event.properties.$ai_input[0].content"
+    );
+}
+
+#[tokio::test]
+async fn test_multipart_with_complex_json_path_accepted() {
+    use uuid::Uuid;
+
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "uuid": Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-complex-path"
+    });
+
+    // Use a complex JSON path with multiple indices and properties
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input[0].messages[1].content",
+            Part::bytes(b"deeply nested".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_multipart_with_invalid_json_path_rejected() {
+    use uuid::Uuid;
+
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "uuid": Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-invalid-path"
+    });
+
+    // Invalid path: starts with [0]
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.[0]invalid",
+            Part::bytes(b"invalid path".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_multipart_with_unclosed_bracket_rejected() {
+    use uuid::Uuid;
+
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "uuid": Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-unclosed"
+    });
+
+    // Invalid path: unclosed bracket
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input[0",
+            Part::bytes(b"unclosed bracket".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_multipart_with_hyphenated_property_accepted() {
+    use uuid::Uuid;
+
+    let router = setup_ai_test_router();
+    let test_client = TestClient::new(router);
+
+    let event_data = json!({
+        "uuid": Uuid::now_v7().to_string(),
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "test-hyphen"
+    });
+
+    // Property with hyphen should be accepted
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai-input-data",
+            Part::bytes(b"hyphenated property".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// ----------------------------------------------------------------------------
 // Scenario 1.3: Boundary Validation
 // ----------------------------------------------------------------------------
 

@@ -24,6 +24,7 @@ const AI_BLOB_SIZE_BYTES: &str = "capture_ai_blob_size_bytes";
 const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_event";
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
+use crate::ai_json_path::{insert_at_path, parse_json_path, PathSegment};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::config::CaptureMode;
 use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
@@ -53,6 +54,8 @@ pub struct AIEndpointResponse {
 #[derive(Debug)]
 struct BlobPart {
     name: String,
+    /// The parsed JSON path (property name portion, after "event.properties.")
+    parsed_path: Vec<PathSegment>,
     content_type: Option<String>,
     content_encoding: Option<String>,
     data: Bytes,
@@ -650,6 +653,7 @@ fn process_properties_part(
 /// Process a blob part
 fn process_blob_part(
     field_name: String,
+    parsed_path: Vec<PathSegment>,
     field_data: Bytes,
     content_type: Option<String>,
     content_encoding: Option<String>,
@@ -689,6 +693,7 @@ fn process_blob_part(
     // Create blob part - moves field_name, field_data, includes headers for S3 storage
     let blob_part = BlobPart {
         name: field_name,
+        parsed_path,
         content_type,
         content_encoding,
         data: field_data, // MOVE - no clone of actual blob data!
@@ -765,14 +770,9 @@ async fn retrieve_multipart_parts(
                 process_properties_part(field_data, content_type, content_encoding)?;
             properties_json = Some(properties);
             accepted_parts.push(part_info);
-        } else if let Some(property_name) = field_name.strip_prefix("event.properties.") {
-            // Extract the property name after "event.properties."
-            // Validate that the property name doesn't contain dots (enforce top-level properties only)
-            if property_name.contains('.') {
-                return Err(CaptureError::RequestParsingError(format!(
-                    "Blob property '{field_name}' contains nested properties (dots). Only top-level properties are allowed."
-                )));
-            }
+        } else if let Some(property_path) = field_name.strip_prefix("event.properties.") {
+            // Parse and validate the JSON path
+            let parsed_path = parse_json_path(property_path)?;
 
             // Check for duplicates before processing
             if seen_property_names.contains(&field_name) {
@@ -783,6 +783,7 @@ async fn retrieve_multipart_parts(
 
             let (blob_part, part_info) = process_blob_part(
                 field_name.clone(),
+                parsed_path,
                 field_data,
                 content_type,
                 content_encoding,
