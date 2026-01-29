@@ -38,6 +38,7 @@ serde_urlencoded = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { version = "0.7.16", features = ["rt"] }
 tower-http = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }

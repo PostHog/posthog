@@ -38,12 +38,12 @@ class KafkaProducerForTests:
         produce_future = FutureProduceResult(topic_partition=TopicPartition(topic, 1))
         future = FutureRecordMetadata(
             produce_future=produce_future,
-            relative_offset=0,
             timestamp_ms=0,
             checksum=0,
             serialized_key_size=0,
             serialized_value_size=0,
             serialized_header_size=0,
+            batch_index=0,
         )
 
         # NOTE: this is probably not the right response, but should do for now
@@ -140,6 +140,10 @@ class _KafkaProducer:
                 bootstrap_servers=kafka_hosts,
                 security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
                 compression_type=compression_type,
+                # Proactively recycle idle connections before NAT Gateway/NLB kills them (350s timeout)
+                connections_max_idle_ms=60000,  # 1 minute
+                reconnect_backoff_ms=50,
+                reconnect_backoff_max_ms=1000,
                 **{"max_request_size": max_request_size} if max_request_size else {},
                 **{"api_version_auto_timeout_ms": 30000}
                 if settings.DEBUG
