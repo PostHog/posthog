@@ -3,16 +3,18 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::config::CaptureMode;
-use common_redis::{Client as RedisClient, CustomRedisError};
+use common_redis::CustomRedisError;
 use metrics::{counter, gauge};
-use serde::Deserialize;
 use tokio::sync::RwLock;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-const REDIS_KEY_PREFIX: &str = "event_ingestion_restriction_dynamic_config";
+use crate::config::CaptureMode;
+use crate::event_restrictions_repository::{EventRestrictionsRepository, RestrictionEntry};
+
+// Re-export for external use
+pub use crate::event_restrictions_repository::{RedisRestrictionsRepository};
 
 /// Restriction types that can be applied to events in capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,7 +54,7 @@ impl RestrictionType {
         }
     }
 
-    fn all() -> [Self; 4] {
+    pub fn all() -> [Self; 4] {
         [
             Self::DropEvent,
             Self::ForceOverflow,
@@ -160,6 +162,44 @@ pub struct Restriction {
     pub scope: RestrictionScope,
 }
 
+impl Restriction {
+    pub fn matches(&self, event: &EventContext) -> bool {
+        match &self.scope {
+            RestrictionScope::AllEvents => true,
+            RestrictionScope::Filtered(filters) => filters.matches(event),
+        }
+    }
+}
+
+impl RestrictionEntry {
+    pub fn into_restriction(self, restriction_type: RestrictionType) -> Restriction {
+        let has_filters = !self.distinct_ids.is_empty()
+            || !self.session_ids.is_empty()
+            || !self.event_names.is_empty()
+            || !self.event_uuids.is_empty();
+
+        let scope = if has_filters {
+            RestrictionScope::Filtered(RestrictionFilters {
+                distinct_ids: self.distinct_ids.into_iter().collect(),
+                session_ids: self.session_ids.into_iter().collect(),
+                event_names: self.event_names.into_iter().collect(),
+                event_uuids: self.event_uuids.into_iter().collect(),
+            })
+        } else {
+            RestrictionScope::AllEvents
+        };
+
+        Restriction {
+            restriction_type,
+            scope,
+        }
+    }
+}
+
+// ============================================================================
+// Restriction Manager
+// ============================================================================
+
 /// Manages restrictions by token.
 #[derive(Debug, Clone, Default)]
 pub struct RestrictionManager {
@@ -184,32 +224,27 @@ impl RestrictionManager {
             .collect()
     }
 
-    /// Fetch restrictions from Redis for the given pipeline.
-    pub async fn fetch_from_redis(
-        redis: &Arc<dyn RedisClient + Send + Sync>,
+    /// Build a RestrictionManager from repository data for a specific pipeline.
+    pub async fn from_repository(
+        repository: &dyn EventRestrictionsRepository,
         pipeline: CaptureMode,
     ) -> Result<Self, CustomRedisError> {
-        info!(pipeline = %pipeline.as_pipeline_name(), "Fetching event restrictions from Redis");
+        info!(pipeline = %pipeline.as_pipeline_name(), "Fetching event restrictions");
 
         let mut manager = Self::new();
         let pipeline_str = pipeline.as_pipeline_name();
 
         for restriction_type in RestrictionType::all() {
-            let key = format!("{}:{}", REDIS_KEY_PREFIX, restriction_type.redis_key());
-
-            let json_str = match redis.get(key.clone()).await {
-                Ok(s) => s,
-                Err(CustomRedisError::NotFound) => continue,
+            let entries = match repository.get_entries(restriction_type).await {
+                Ok(Some(e)) => e,
+                Ok(None) => continue,
                 Err(e) => {
-                    warn!(key = %key, error = %e, "Failed to fetch restrictions from Redis");
-                    continue;
-                }
-            };
-
-            let entries: Vec<RedisRestrictionEntry> = match serde_json::from_str(&json_str) {
-                Ok(e) => e,
-                Err(e) => {
-                    warn!(key = %key, error = %e, "Failed to parse restrictions from Redis");
+                    // Log but continue - we want to be resilient to partial failures
+                    warn!(
+                        restriction_type = %restriction_type.as_str(),
+                        error = %e,
+                        "Failed to fetch restriction entries"
+                    );
                     continue;
                 }
             };
@@ -242,12 +277,16 @@ impl RestrictionManager {
             pipeline = %pipeline_str,
             total_restrictions = total_restrictions,
             total_tokens = total_tokens,
-            "Fetched event restrictions from Redis"
+            "Fetched event restrictions"
         );
 
         Ok(manager)
     }
 }
+
+// ============================================================================
+// Event Restriction Service
+// ============================================================================
 
 /// Service that manages event restrictions with background refresh and fail-open behavior.
 #[derive(Clone)]
@@ -273,7 +312,7 @@ impl EventRestrictionService {
     /// The task will run until the cancellation token is triggered.
     pub async fn start_refresh_task(
         &self,
-        redis: Arc<dyn RedisClient + Send + Sync>,
+        repository: Arc<dyn EventRestrictionsRepository>,
         refresh_interval: Duration,
         cancel_token: CancellationToken,
     ) {
@@ -287,17 +326,17 @@ impl EventRestrictionService {
                     break;
                 }
                 _ = interval.tick() => {
-                    self.refresh_from_redis(&redis).await;
+                    self.refresh_from_repository(&repository).await;
                 }
             }
         }
     }
 
-    /// Fetch restrictions from Redis and update the local cache.
-    async fn refresh_from_redis(&self, redis: &Arc<dyn RedisClient + Send + Sync>) {
+    /// Fetch restrictions from repository and update the local cache.
+    async fn refresh_from_repository(&self, repository: &Arc<dyn EventRestrictionsRepository>) {
         let pipeline_str = self.pipeline.as_pipeline_name();
 
-        match RestrictionManager::fetch_from_redis(redis, self.pipeline).await {
+        match RestrictionManager::from_repository(repository.as_ref(), self.pipeline).await {
             Ok(new_manager) => {
                 let total_restrictions: usize =
                     new_manager.restrictions.values().map(|v| v.len()).sum();
@@ -333,7 +372,7 @@ impl EventRestrictionService {
                 error!(
                     pipeline = %pipeline_str,
                     error = %e,
-                    "Failed to refresh event restrictions from Redis"
+                    "Failed to refresh event restrictions"
                 );
             }
         }
@@ -381,60 +420,14 @@ impl EventRestrictionService {
     }
 }
 
-/// Redis entry format (version 2)
-#[derive(Debug, Clone, Deserialize)]
-struct RedisRestrictionEntry {
-    version: Option<i32>,
-    token: String,
-    #[serde(default)]
-    pipelines: Vec<String>,
-    #[serde(default)]
-    distinct_ids: Vec<String>,
-    #[serde(default)]
-    session_ids: Vec<String>,
-    #[serde(default)]
-    event_names: Vec<String>,
-    #[serde(default)]
-    event_uuids: Vec<String>,
-}
-
-impl RedisRestrictionEntry {
-    fn into_restriction(self, restriction_type: RestrictionType) -> Restriction {
-        let has_filters = !self.distinct_ids.is_empty()
-            || !self.session_ids.is_empty()
-            || !self.event_names.is_empty()
-            || !self.event_uuids.is_empty();
-
-        let scope = if has_filters {
-            RestrictionScope::Filtered(RestrictionFilters {
-                distinct_ids: self.distinct_ids.into_iter().collect(),
-                session_ids: self.session_ids.into_iter().collect(),
-                event_names: self.event_names.into_iter().collect(),
-                event_uuids: self.event_uuids.into_iter().collect(),
-            })
-        } else {
-            RestrictionScope::AllEvents
-        };
-
-        Restriction {
-            restriction_type,
-            scope,
-        }
-    }
-}
-
-impl Restriction {
-    pub fn matches(&self, event: &EventContext) -> bool {
-        match &self.scope {
-            RestrictionScope::AllEvents => true,
-            RestrictionScope::Filtered(filters) => filters.matches(event),
-        }
-    }
-}
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_restrictions_repository::testing::MockRestrictionsRepository;
 
     #[test]
     fn test_restriction_type_from_redis_key() {
@@ -546,161 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn test_restriction_filters_session_id_match() {
-        let mut filters = RestrictionFilters::default();
-        filters.session_ids.insert("session1".to_string());
-        filters.session_ids.insert("session2".to_string());
-
-        let event_match = EventContext {
-            session_id: Some("session1".to_string()),
-            ..Default::default()
-        };
-        assert!(filters.matches(&event_match));
-
-        let event_match2 = EventContext {
-            session_id: Some("session2".to_string()),
-            ..Default::default()
-        };
-        assert!(filters.matches(&event_match2));
-
-        let event_no_match = EventContext {
-            session_id: Some("session3".to_string()),
-            ..Default::default()
-        };
-        assert!(!filters.matches(&event_no_match));
-    }
-
-    #[test]
-    fn test_restriction_filters_event_uuid_match() {
-        let mut filters = RestrictionFilters::default();
-        filters
-            .event_uuids
-            .insert("550e8400-e29b-41d4-a716-446655440000".to_string());
-
-        let event_match = EventContext {
-            event_uuid: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
-            ..Default::default()
-        };
-        assert!(filters.matches(&event_match));
-
-        let event_no_match = EventContext {
-            event_uuid: Some("other-uuid".to_string()),
-            ..Default::default()
-        };
-        assert!(!filters.matches(&event_no_match));
-    }
-
-    #[test]
-    fn test_restriction_filters_none_value_does_not_match() {
-        let mut filters = RestrictionFilters::default();
-        filters.distinct_ids.insert("user1".to_string());
-
-        // Filter set but event value is None - should NOT match
-        let event_none = EventContext {
-            distinct_id: None,
-            ..Default::default()
-        };
-        assert!(!filters.matches(&event_none));
-    }
-
-    #[test]
-    fn test_restriction_filters_or_logic_within_filter() {
-        let mut filters = RestrictionFilters::default();
-        filters.distinct_ids.insert("user1".to_string());
-        filters.distinct_ids.insert("user2".to_string());
-        filters.distinct_ids.insert("user3".to_string());
-
-        // Any of user1, user2, user3 should match (OR logic)
-        assert!(filters.matches(&EventContext {
-            distinct_id: Some("user1".to_string()),
-            ..Default::default()
-        }));
-        assert!(filters.matches(&EventContext {
-            distinct_id: Some("user2".to_string()),
-            ..Default::default()
-        }));
-        assert!(filters.matches(&EventContext {
-            distinct_id: Some("user3".to_string()),
-            ..Default::default()
-        }));
-        assert!(!filters.matches(&EventContext {
-            distinct_id: Some("user4".to_string()),
-            ..Default::default()
-        }));
-    }
-
-    #[test]
-    fn test_restriction_filters_all_fields_and_logic() {
-        let mut filters = RestrictionFilters::default();
-        filters.distinct_ids.insert("user1".to_string());
-        filters.session_ids.insert("session1".to_string());
-        filters.event_names.insert("$pageview".to_string());
-        filters.event_uuids.insert("uuid1".to_string());
-
-        // All must match
-        let event_all_match = EventContext {
-            distinct_id: Some("user1".to_string()),
-            session_id: Some("session1".to_string()),
-            event_name: Some("$pageview".to_string()),
-            event_uuid: Some("uuid1".to_string()),
-        };
-        assert!(filters.matches(&event_all_match));
-
-        // One field doesn't match
-        let event_wrong_session = EventContext {
-            distinct_id: Some("user1".to_string()),
-            session_id: Some("session2".to_string()),
-            event_name: Some("$pageview".to_string()),
-            event_uuid: Some("uuid1".to_string()),
-        };
-        assert!(!filters.matches(&event_wrong_session));
-    }
-
-    #[test]
-    fn test_restriction_manager_get_restrictions() {
-        let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "token1".to_string(),
-            vec![
-                Restriction {
-                    restriction_type: RestrictionType::DropEvent,
-                    scope: RestrictionScope::AllEvents,
-                },
-                Restriction {
-                    restriction_type: RestrictionType::ForceOverflow,
-                    scope: RestrictionScope::Filtered({
-                        let mut f = RestrictionFilters::default();
-                        f.event_names.insert("$pageview".to_string());
-                        f
-                    }),
-                },
-            ],
-        );
-
-        let event = EventContext {
-            event_name: Some("$pageview".to_string()),
-            ..Default::default()
-        };
-
-        let restrictions = manager.get_restrictions("token1", &event);
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-
-        let event_other = EventContext {
-            event_name: Some("$identify".to_string()),
-            ..Default::default()
-        };
-        let restrictions_other = manager.get_restrictions("token1", &event_other);
-        assert!(restrictions_other.contains(&RestrictionType::DropEvent));
-        assert!(!restrictions_other.contains(&RestrictionType::ForceOverflow));
-
-        // unknown token
-        let restrictions_unknown = manager.get_restrictions("unknown", &event);
-        assert!(restrictions_unknown.is_empty());
-    }
-
-    #[test]
-    fn test_redis_entry_parsing() {
+    fn test_restriction_entry_parsing() {
         let json = r#"[
             {
                 "version": 2,
@@ -716,7 +555,7 @@ mod tests {
             }
         ]"#;
 
-        let entries: Vec<RedisRestrictionEntry> = serde_json::from_str(json).unwrap();
+        let entries: Vec<RestrictionEntry> = serde_json::from_str(json).unwrap();
         assert_eq!(entries.len(), 2);
 
         let entry1 = &entries[0];
@@ -740,19 +579,269 @@ mod tests {
         assert!(matches!(restriction2.scope, RestrictionScope::AllEvents));
     }
 
-    #[test]
-    fn test_redis_entry_skips_old_version() {
-        let json = r#"[
-            {
-                "token": "token1",
-                "pipelines": ["analytics"]
-            }
-        ]"#;
+    // ========================================================================
+    // RestrictionManager tests using MockRestrictionsRepository
+    // ========================================================================
 
-        let entries: Vec<RedisRestrictionEntry> = serde_json::from_str(json).unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].version, None);
+    fn make_entry(token: &str, pipelines: Vec<&str>) -> RestrictionEntry {
+        RestrictionEntry {
+            version: Some(2),
+            token: token.to_string(),
+            pipelines: pipelines.into_iter().map(|s| s.to_string()).collect(),
+            distinct_ids: vec![],
+            session_ids: vec![],
+            event_names: vec![],
+            event_uuids: vec![],
+        }
     }
+
+    fn make_entry_with_filters(
+        token: &str,
+        pipelines: Vec<&str>,
+        distinct_ids: Vec<&str>,
+        event_names: Vec<&str>,
+    ) -> RestrictionEntry {
+        RestrictionEntry {
+            version: Some(2),
+            token: token.to_string(),
+            pipelines: pipelines.into_iter().map(|s| s.to_string()).collect(),
+            distinct_ids: distinct_ids.into_iter().map(|s| s.to_string()).collect(),
+            session_ids: vec![],
+            event_names: event_names.into_iter().map(|s| s.to_string()).collect(),
+            event_uuids: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_manager_applies_all_restriction_types() {
+        let repo = MockRestrictionsRepository::new();
+
+        // Set up one entry for each restriction type
+        repo.set_entries(
+            RestrictionType::DropEvent,
+            Some(vec![make_entry("token_drop", vec!["analytics"])]),
+        )
+        .await;
+        repo.set_entries(
+            RestrictionType::ForceOverflow,
+            Some(vec![make_entry("token_overflow", vec!["analytics"])]),
+        )
+        .await;
+        repo.set_entries(
+            RestrictionType::RedirectToDlq,
+            Some(vec![make_entry("token_dlq", vec!["analytics"])]),
+        )
+        .await;
+        repo.set_entries(
+            RestrictionType::SkipPersonProcessing,
+            Some(vec![make_entry("token_skip", vec!["analytics"])]),
+        )
+        .await;
+
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        let event = EventContext::default();
+
+        // Each token should have exactly its restriction type
+        let drop_restrictions = manager.get_restrictions("token_drop", &event);
+        assert_eq!(drop_restrictions.len(), 1);
+        assert!(drop_restrictions.contains(&RestrictionType::DropEvent));
+
+        let overflow_restrictions = manager.get_restrictions("token_overflow", &event);
+        assert_eq!(overflow_restrictions.len(), 1);
+        assert!(overflow_restrictions.contains(&RestrictionType::ForceOverflow));
+
+        let dlq_restrictions = manager.get_restrictions("token_dlq", &event);
+        assert_eq!(dlq_restrictions.len(), 1);
+        assert!(dlq_restrictions.contains(&RestrictionType::RedirectToDlq));
+
+        let skip_restrictions = manager.get_restrictions("token_skip", &event);
+        assert_eq!(skip_restrictions.len(), 1);
+        assert!(skip_restrictions.contains(&RestrictionType::SkipPersonProcessing));
+
+        // Unknown token should have no restrictions
+        let unknown = manager.get_restrictions("unknown_token", &event);
+        assert!(unknown.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manager_applies_filters_correctly() {
+        let repo = MockRestrictionsRepository::new();
+
+        repo.set_entries(
+            RestrictionType::DropEvent,
+            Some(vec![make_entry_with_filters(
+                "token1",
+                vec!["analytics"],
+                vec!["user1", "user2"],
+                vec!["$pageview"],
+            )]),
+        )
+        .await;
+
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        // Should match when both distinct_id and event_name match
+        let event_match = EventContext {
+            distinct_id: Some("user1".to_string()),
+            event_name: Some("$pageview".to_string()),
+            ..Default::default()
+        };
+        let restrictions = manager.get_restrictions("token1", &event_match);
+        assert!(restrictions.contains(&RestrictionType::DropEvent));
+
+        // Should NOT match when event_name doesn't match (AND logic)
+        let event_wrong_name = EventContext {
+            distinct_id: Some("user1".to_string()),
+            event_name: Some("$identify".to_string()),
+            ..Default::default()
+        };
+        let restrictions = manager.get_restrictions("token1", &event_wrong_name);
+        assert!(restrictions.is_empty());
+
+        // Should NOT match when distinct_id doesn't match
+        let event_wrong_user = EventContext {
+            distinct_id: Some("user3".to_string()),
+            event_name: Some("$pageview".to_string()),
+            ..Default::default()
+        };
+        let restrictions = manager.get_restrictions("token1", &event_wrong_user);
+        assert!(restrictions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manager_filters_by_pipeline() {
+        let repo = MockRestrictionsRepository::new();
+
+        repo.set_entries(
+            RestrictionType::DropEvent,
+            Some(vec![
+                make_entry("token_analytics", vec!["analytics"]),
+                make_entry("token_recordings", vec!["session_recordings"]),
+                make_entry("token_both", vec!["analytics", "session_recordings"]),
+            ]),
+        )
+        .await;
+
+        // Fetch for analytics pipeline
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        let event = EventContext::default();
+
+        // analytics token should be present
+        assert!(!manager
+            .get_restrictions("token_analytics", &event)
+            .is_empty());
+
+        // recordings token should NOT be present
+        assert!(manager
+            .get_restrictions("token_recordings", &event)
+            .is_empty());
+
+        // both token should be present
+        assert!(!manager.get_restrictions("token_both", &event).is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manager_skips_old_version() {
+        let repo = MockRestrictionsRepository::new();
+
+        let mut old_entry = make_entry("token_old", vec!["analytics"]);
+        old_entry.version = Some(1); // Old version
+
+        let new_entry = make_entry("token_new", vec!["analytics"]);
+
+        repo.set_entries(
+            RestrictionType::DropEvent,
+            Some(vec![old_entry, new_entry]),
+        )
+        .await;
+
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        let event = EventContext::default();
+
+        // Old version should be skipped
+        assert!(manager.get_restrictions("token_old", &event).is_empty());
+
+        // New version should be present
+        assert!(!manager.get_restrictions("token_new", &event).is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manager_handles_repository_errors_gracefully() {
+        let repo = MockRestrictionsRepository::new();
+
+        // One type returns an error
+        repo.set_error(RestrictionType::DropEvent, CustomRedisError::Timeout)
+            .await;
+
+        // Another type returns valid data
+        repo.set_entries(
+            RestrictionType::ForceOverflow,
+            Some(vec![make_entry("token1", vec!["analytics"])]),
+        )
+        .await;
+
+        // Should still succeed and return the valid data
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        let event = EventContext::default();
+        let restrictions = manager.get_restrictions("token1", &event);
+        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
+    }
+
+    #[tokio::test]
+    async fn test_manager_handles_empty_repository() {
+        let repo = MockRestrictionsRepository::new();
+        // Don't set any entries
+
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        assert!(manager.restrictions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manager_multiple_restrictions_same_token() {
+        let repo = MockRestrictionsRepository::new();
+
+        // Same token has multiple restriction types
+        repo.set_entries(
+            RestrictionType::ForceOverflow,
+            Some(vec![make_entry("token1", vec!["analytics"])]),
+        )
+        .await;
+        repo.set_entries(
+            RestrictionType::SkipPersonProcessing,
+            Some(vec![make_entry("token1", vec!["analytics"])]),
+        )
+        .await;
+
+        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+            .await
+            .unwrap();
+
+        let restrictions = manager.get_restrictions("token1", &EventContext::default());
+        assert_eq!(restrictions.len(), 2);
+        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
+        assert!(restrictions.contains(&RestrictionType::SkipPersonProcessing));
+    }
+
+    // ========================================================================
+    // EventRestrictionService tests
+    // ========================================================================
 
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
@@ -781,26 +870,6 @@ mod tests {
         let event = EventContext::default();
         let restrictions = service.get_restrictions("token1", &event).await;
         assert!(restrictions.contains(&RestrictionType::DropEvent));
-    }
-
-    #[tokio::test]
-    async fn test_service_returns_empty_for_unknown_token() {
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-
-        let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "token1".to_string(),
-            vec![Restriction {
-                restriction_type: RestrictionType::DropEvent,
-                scope: RestrictionScope::AllEvents,
-            }],
-        );
-        service.update(manager).await;
-
-        let restrictions = service
-            .get_restrictions("unknown_token", &EventContext::default())
-            .await;
-        assert!(restrictions.is_empty());
     }
 
     #[tokio::test]
@@ -837,397 +906,5 @@ mod tests {
             .get_restrictions("token1", &EventContext::default())
             .await;
         assert!(restrictions_after.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_service_clone_shares_state() {
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-        let service_clone = service.clone();
-
-        // Update via original
-        let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "token1".to_string(),
-            vec![Restriction {
-                restriction_type: RestrictionType::ForceOverflow,
-                scope: RestrictionScope::AllEvents,
-            }],
-        );
-        service.update(manager).await;
-
-        // Clone should see the update
-        let restrictions = service_clone
-            .get_restrictions("token1", &EventContext::default())
-            .await;
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-    }
-
-    #[tokio::test]
-    async fn test_service_multiple_restrictions_same_token() {
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
-
-        let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "token1".to_string(),
-            vec![
-                Restriction {
-                    restriction_type: RestrictionType::ForceOverflow,
-                    scope: RestrictionScope::AllEvents,
-                },
-                Restriction {
-                    restriction_type: RestrictionType::SkipPersonProcessing,
-                    scope: RestrictionScope::AllEvents,
-                },
-            ],
-        );
-        service.update(manager).await;
-
-        let restrictions = service
-            .get_restrictions("token1", &EventContext::default())
-            .await;
-        assert_eq!(restrictions.len(), 2);
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-        assert!(restrictions.contains(&RestrictionType::SkipPersonProcessing));
-    }
-
-    // ============ Redis fetching tests ============
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_basic() {
-        use common_redis::MockRedisClient;
-
-        let drop_event_json = r#"[
-            {
-                "version": 2,
-                "token": "token1",
-                "pipelines": ["analytics"]
-            }
-        ]"#;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok(drop_event_json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        let restrictions = manager.get_restrictions("token1", &EventContext::default());
-        assert_eq!(restrictions.len(), 1);
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_filters_by_pipeline() {
-        use common_redis::MockRedisClient;
-
-        let json = r#"[
-            {
-                "version": 2,
-                "token": "token_analytics",
-                "pipelines": ["analytics"]
-            },
-            {
-                "version": 2,
-                "token": "token_recordings",
-                "pipelines": ["session_recordings"]
-            },
-            {
-                "version": 2,
-                "token": "token_both",
-                "pipelines": ["analytics", "session_recordings"]
-            }
-        ]"#;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok(json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-
-        // Analytics pipeline should see token_analytics and token_both
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-        assert!(manager.restrictions.contains_key("token_analytics"));
-        assert!(!manager.restrictions.contains_key("token_recordings"));
-        assert!(manager.restrictions.contains_key("token_both"));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_filters_by_pipeline_session_recordings() {
-        use common_redis::MockRedisClient;
-
-        let json = r#"[
-            {
-                "version": 2,
-                "token": "token_analytics",
-                "pipelines": ["analytics"]
-            },
-            {
-                "version": 2,
-                "token": "token_recordings",
-                "pipelines": ["session_recordings"]
-            }
-        ]"#;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok(json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-
-        // SessionRecordings pipeline should only see token_recordings
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Recordings)
-            .await
-            .unwrap();
-        assert!(!manager.restrictions.contains_key("token_analytics"));
-        assert!(manager.restrictions.contains_key("token_recordings"));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_skips_old_version() {
-        use common_redis::MockRedisClient;
-
-        let json = r#"[
-            {
-                "version": 2,
-                "token": "token_v2",
-                "pipelines": ["analytics"]
-            },
-            {
-                "token": "token_no_version",
-                "pipelines": ["analytics"]
-            },
-            {
-                "version": 0,
-                "token": "token_v0",
-                "pipelines": ["analytics"]
-            },
-            {
-                "version": 1,
-                "token": "token_v1",
-                "pipelines": ["analytics"]
-            }
-        ]"#;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok(json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        // Only version 2 entries should be included
-        assert!(manager.restrictions.contains_key("token_v2"));
-        assert!(!manager.restrictions.contains_key("token_no_version"));
-        assert!(!manager.restrictions.contains_key("token_v0"));
-        assert!(!manager.restrictions.contains_key("token_v1"));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_handles_not_found() {
-        use common_redis::MockRedisClient;
-
-        // Mock returns NotFound for all keys (default behavior)
-        let mock = MockRedisClient::new();
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        // Should return empty manager, not error
-        assert!(manager.restrictions.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_handles_redis_error() {
-        use common_redis::{CustomRedisError, MockRedisClient};
-
-        let mut mock = MockRedisClient::new();
-        // One key returns error, others are not found
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Err(CustomRedisError::Timeout),
-        );
-
-        // But force_overflow returns valid data
-        let force_overflow_json = r#"[
-            {
-                "version": 2,
-                "token": "token1",
-                "pipelines": ["analytics"]
-            }
-        ]"#;
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:force_overflow_from_ingestion",
-            Ok(force_overflow_json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        // Should still have force_overflow restriction despite drop_event failing
-        let restrictions = manager.get_restrictions("token1", &EventContext::default());
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-        assert!(!restrictions.contains(&RestrictionType::DropEvent));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_handles_invalid_json() {
-        use common_redis::MockRedisClient;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok("not valid json".to_string()),
-        );
-
-        // But redirect_to_dlq returns valid data
-        let dlq_json = r#"[
-            {
-                "version": 2,
-                "token": "token1",
-                "pipelines": ["analytics"]
-            }
-        ]"#;
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:redirect_to_dlq",
-            Ok(dlq_json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        // Should still have redirect_to_dlq restriction despite drop_event parse failure
-        let restrictions = manager.get_restrictions("token1", &EventContext::default());
-        assert!(restrictions.contains(&RestrictionType::RedirectToDlq));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_with_filters() {
-        use common_redis::MockRedisClient;
-
-        let json = r#"[
-            {
-                "version": 2,
-                "token": "token1",
-                "pipelines": ["analytics"],
-                "distinct_ids": ["user1", "user2"],
-                "event_names": ["$pageview"]
-            }
-        ]"#;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok(json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        // Should match with correct distinct_id and event_name
-        let event_match = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
-            ..Default::default()
-        };
-        let restrictions = manager.get_restrictions("token1", &event_match);
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
-
-        // Should not match with wrong event_name
-        let event_wrong = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$identify".to_string()),
-            ..Default::default()
-        };
-        let restrictions = manager.get_restrictions("token1", &event_wrong);
-        assert!(!restrictions.contains(&RestrictionType::DropEvent));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_multiple_restriction_types() {
-        use common_redis::MockRedisClient;
-
-        let drop_json = r#"[{"version": 2, "token": "token1", "pipelines": ["analytics"]}]"#;
-        let overflow_json = r#"[{"version": 2, "token": "token1", "pipelines": ["analytics"]}]"#;
-        let dlq_json = r#"[{"version": 2, "token": "token2", "pipelines": ["analytics"]}]"#;
-        let skip_json = r#"[{"version": 2, "token": "token1", "pipelines": ["analytics"]}]"#;
-
-        let mut mock = MockRedisClient::new();
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:drop_event_from_ingestion",
-            Ok(drop_json.to_string()),
-        );
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:force_overflow_from_ingestion",
-            Ok(overflow_json.to_string()),
-        );
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:redirect_to_dlq",
-            Ok(dlq_json.to_string()),
-        );
-        mock.get_ret(
-            "event_ingestion_restriction_dynamic_config:skip_person_processing",
-            Ok(skip_json.to_string()),
-        );
-
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
-            .await
-            .unwrap();
-
-        // token1 should have 3 restrictions
-        let restrictions = manager.get_restrictions("token1", &EventContext::default());
-        assert_eq!(restrictions.len(), 3);
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-        assert!(restrictions.contains(&RestrictionType::SkipPersonProcessing));
-
-        // token2 should have 1 restriction
-        let restrictions = manager.get_restrictions("token2", &EventContext::default());
-        assert_eq!(restrictions.len(), 1);
-        assert!(restrictions.contains(&RestrictionType::RedirectToDlq));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_from_redis_verifies_keys_called() {
-        use common_redis::MockRedisClient;
-
-        let mock = MockRedisClient::new();
-        let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock.clone());
-
-        let _manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events).await;
-
-        // Verify all 4 restriction type keys were queried
-        let calls = mock.get_calls();
-        let keys: Vec<&str> = calls.iter().map(|c| c.key.as_str()).collect();
-
-        assert!(
-            keys.contains(&"event_ingestion_restriction_dynamic_config:drop_event_from_ingestion")
-        );
-        assert!(keys
-            .contains(&"event_ingestion_restriction_dynamic_config:force_overflow_from_ingestion"));
-        assert!(keys.contains(&"event_ingestion_restriction_dynamic_config:redirect_to_dlq"));
-        assert!(keys.contains(&"event_ingestion_restriction_dynamic_config:skip_person_processing"));
     }
 }

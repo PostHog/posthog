@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
-use crate::event_restrictions::EventRestrictionService;
+use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
@@ -380,7 +380,7 @@ where
                 RedisClient::with_config(
                     redis_url.clone(),
                     common_redis::CompressionConfig::disabled(),
-                    common_redis::RedisValueFormat::default(),
+                    common_redis::RedisValueFormat::Utf8, // Data is plain JSON written by Python
                     if config.redis_response_timeout_ms == 0 {
                         None
                     } else {
@@ -404,6 +404,9 @@ where
             // Create cancellation token for graceful shutdown
             let cancel_token = CancellationToken::new();
 
+            // Wrap Redis client in repository
+            let repository = Arc::new(RedisRestrictionsRepository::new(restrictions_redis));
+
             // Spawn background refresh task with cancellation support
             let service_clone = service.clone();
             let refresh_interval =
@@ -411,7 +414,7 @@ where
             let task_cancel_token = cancel_token.clone();
             let handle = tokio::spawn(async move {
                 service_clone
-                    .start_refresh_task(restrictions_redis, refresh_interval, task_cancel_token)
+                    .start_refresh_task(repository, refresh_interval, task_cancel_token)
                     .await;
             });
 
