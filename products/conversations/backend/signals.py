@@ -125,10 +125,10 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
             # Recalculate last_message from remaining non-private messages
-            # Three conditions needed to handle all cases:
-            # - is_private=False: explicit false
-            # - is_private=None: explicit null value in JSON
-            # - is_private__isnull=True: key doesn't exist OR item_context is None
+            # Use exclude + isnull to match _is_private_message() identity check:
+            # - Exclude only exact boolean True
+            # - Include everything else (False, None, missing key, weird values)
+            # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
             last_comment = (
                 Comment.objects.filter(
                     team_id=team_id,
@@ -136,11 +136,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                     item_id=item_id,
                     deleted=False,
                 )
-                .filter(
-                    Q(item_context__is_private=False)
-                    | Q(item_context__is_private=None)
-                    | Q(item_context__is_private__isnull=True)
-                )
+                .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
                 .exclude(pk=comment_pk)  # Exclude the one being deleted
                 .order_by("-created_at")
                 .first()

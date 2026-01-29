@@ -251,14 +251,12 @@ class WidgetMessagesView(APIView):
             messages_query = messages_query.filter(created_at__gt=after)
 
         # Only return non-private messages to widget
-        # Three conditions needed to handle all cases:
-        # - is_private=False: explicit false
-        # - is_private=None: explicit null value in JSON
-        # - is_private__isnull=True: key doesn't exist OR item_context is None
+        # Use exclude + isnull to match _is_private_message() identity check:
+        # - Exclude only exact boolean True
+        # - Include everything else (False, None, missing key, weird values)
+        # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
         messages_query = messages_query.filter(
-            Q(item_context__is_private=False)
-            | Q(item_context__is_private=None)
-            | Q(item_context__is_private__isnull=True)
+            ~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True)
         )
 
         # Order and limit
