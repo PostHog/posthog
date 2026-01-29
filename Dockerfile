@@ -306,7 +306,10 @@ COPY --chown=posthog:posthog products products/
 RUN ffmpeg -version
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-RUN cd /code/nodejs/src/scripts && node -e "const p = require('puppeteer'); console.log('Puppeteer version:', p.default ? 'ESM' : p.version || 'loaded')"
+RUN cd /code/nodejs/src/scripts && timeout 60s node -e "\
+  require('puppeteer'); \
+  require('puppeteer-screen-recorder'); \
+  console.log('Puppeteer and screen recorder available')"
 
 # Setup ENV.
 ENV NODE_ENV=production \
