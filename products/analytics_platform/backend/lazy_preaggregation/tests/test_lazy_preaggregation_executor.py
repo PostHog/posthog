@@ -789,7 +789,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
-            table="preaggregation_results",
+            table=PreaggregationTable.PREAGGREGATION_RESULTS,
         )
 
         # Check SQL structure
@@ -813,7 +813,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
-            table="preaggregation_results",
+            table=PreaggregationTable.PREAGGREGATION_RESULTS,
         )
 
         # Should contain the job's time range values
@@ -847,7 +847,7 @@ class TestBuildManualInsertSQL(BaseTest):
             team=self.team,
             job=job,
             insert_query=query_with_custom,
-            table="preaggregation_results",
+            table=PreaggregationTable.PREAGGREGATION_RESULTS,
             base_placeholders={"event_name": ast.Constant(value="$pageleave")},
         )
 
