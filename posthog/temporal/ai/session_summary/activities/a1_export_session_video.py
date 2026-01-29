@@ -16,6 +16,7 @@ import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.models import Team
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -29,7 +30,6 @@ from ee.hogai.session_summaries.constants import (
     EXPIRES_AFTER_DAYS,
     MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
 )
-from ee.hogai.session_summaries.session.input_data import get_team
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 
 logger = structlog.get_logger(__name__)
@@ -81,7 +81,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             return existing_asset.id
 
         # Get session duration from metadata
-        team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+        team = await Team.objects.aget(id=inputs.team_id)
         metadata = await database_sync_to_async(SessionReplayEvents().get_metadata)(
             session_id=inputs.session_id,
             team=team,
@@ -162,7 +162,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         raise
     finally:
         duration_seconds = time.monotonic() - start_time
-        team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+        team = await Team.objects.aget(id=inputs.team_id)
         capture_session_summary_timing(
             distinct_id=inputs.user_distinct_id_to_log,
             team=team,

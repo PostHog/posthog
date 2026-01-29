@@ -16,7 +16,7 @@ import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
 
-from posthog.sync import database_sync_to_async
+from posthog.models import Team
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -29,7 +29,6 @@ from posthog.temporal.ai.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
-from ee.hogai.session_summaries.session.input_data import get_team
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index, prepare_datetime

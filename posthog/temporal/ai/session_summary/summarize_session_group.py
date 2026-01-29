@@ -61,7 +61,7 @@ from ee.hogai.session_summaries.constants import (
     SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
     SESSION_SUMMARIES_SYNC_MODEL,
 )
-from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
+from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SessionSummaryDBData,
@@ -136,8 +136,7 @@ async def fetch_session_batch_events_activity(
             fetched_session_ids=fetched_session_ids, expected_skip_session_ids=expected_skip_session_ids
         )
     # Get the team
-    # Keeping thread-sensitive as getting a single team should be fast
-    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+    team = await Team.objects.aget(id=inputs.team_id)
     # Fetch metadata for all sessions at once
     # Disable thread-sensitive as we can get metadata for lots of sessions here
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata, thread_sensitive=False)(
