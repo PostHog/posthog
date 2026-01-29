@@ -126,7 +126,7 @@ export default defineConfig({
         outDir: 'ui-apps-dist',
         emptyOutDir: false, // Handled by build script
         cssCodeSplit: false,
-        chunkSizeWarningLimit: 600, // Suppress chunk size warnings (our bundles include React)
+        chunkSizeWarningLimit: 1000, // Suppress chunk size warnings (our bundles include React)
         rollupOptions: {
             input: appName
                 ? resolve(APPS_DIR, `${appName}/index.html`)

@@ -1,14 +1,14 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { McpUiResourceMeta } from '@modelcontextprotocol/ext-apps'
 import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
-import { QUERY_RESULTS_RESOURCE_URI, DEMO_RESOURCE_URI } from './ui-apps-constants'
+import { Context } from '@/tools'
 
+import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
 // Import bundled HTML at build time (wrangler Text rule)
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
-import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
-import { Context } from '@/tools'
-import { McpUiResourceMeta } from '@modelcontextprotocol/ext-apps'
+import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
 
 /**
  * Registers UI app resources with the MCP server.
@@ -23,11 +23,21 @@ export async function registerUiAppResources(server: McpServer, context: Context
 }
 
 function registerDemoApp(server: McpServer, context: Context): void {
-    registerApp(server, context, {name: 'MCP Apps Demo', uri: DEMO_RESOURCE_URI, description: 'Demo app for testing MCP Apps SDK integration - displays SDK events and tool data', html: demoHtml})
+    registerApp(server, context, {
+        name: 'MCP Apps Demo',
+        uri: DEMO_RESOURCE_URI,
+        description: 'Demo app for testing MCP Apps SDK integration - displays SDK events and tool data',
+        html: demoHtml,
+    })
 }
 
 function registerQueryResultsApp(server: McpServer, context: Context): void {
-    registerApp(server, context, {name: 'Query Results', uri: QUERY_RESULTS_RESOURCE_URI, description: 'Interactive visualization for PostHog query results (trends, funnels, tables)', html: queryResultsHtml})
+    registerApp(server, context, {
+        name: 'Query Results',
+        uri: QUERY_RESULTS_RESOURCE_URI,
+        description: 'Interactive visualization for PostHog query results (trends, funnels, tables)',
+        html: queryResultsHtml,
+    })
 }
 
 interface RegisterAppParams {
@@ -37,47 +47,30 @@ interface RegisterAppParams {
     html: string
 }
 
-function registerApp(server: McpServer, context: Context, {name, uri, description, html}: RegisterAppParams): void {
-    
-    
-    server.registerResource(
-        name,
-        uri,
-        {
-            mimeType: RESOURCE_MIME_TYPE,
-            description: description,
-            // TODO: This doesn't do anything, Claude Desktop is not respecting it and not letting us run analytics
-            // I've reported this to Claude Desktop team and I'm waiting to hear back from them.
-            // _meta: { ui: buildUiMetadataFrom(context) },
-        },
-        async (uri) => {
-            return {
-                contents: [
-                    {
-                        uri: uri.toString(),
-                        mimeType: RESOURCE_MIME_TYPE,
-                        text: html,
-                    },
-                ],
-            }
-        }
-    )
-}
-
-function buildUiMetadataFrom(context: Context): McpUiResourceMeta {
+function registerApp(server: McpServer, context: Context, { name, uri, description, html }: RegisterAppParams): void {
     const posthogBaseUrl = context.env.POSTHOG_BASE_URL
-
-    const meta: McpUiResourceMeta = {}
-
+    const uiMetadata: McpUiResourceMeta = {}
     if (posthogBaseUrl) {
-        meta.csp = {
+        uiMetadata.csp = {
             connectDomains: [posthogBaseUrl],
             resourceDomains: [posthogBaseUrl],
         }
-        meta.domain = posthogBaseUrl
     }
 
-    return meta
+    server.registerResource(name, uri, { description: description }, async (uri) => {
+        return {
+            contents: [
+                {
+                    uri: uri.toString(),
+                    mimeType: RESOURCE_MIME_TYPE,
+                    text: html,
+                    // NOTE: You can also specify _meta inside the `configuration` object
+                    // but Claude Desktop does NOT respect that if not specified in the `contents` array
+                    _meta: { ui: uiMetadata },
+                },
+            ],
+        }
+    })
 }
 
 // Re-export for tools to import
