@@ -547,10 +547,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_team_id"))?;
 
         Ok(Response::new(GroupTypeMappingsResponse {
-            mappings: mappings
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            mappings: mappings.into_iter().map(Into::into).collect(),
         }))
     }
 
@@ -602,10 +599,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_project_id"))?;
 
         Ok(Response::new(GroupTypeMappingsResponse {
-            mappings: mappings
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            mappings: mappings.into_iter().map(Into::into).collect(),
         }))
     }
 
