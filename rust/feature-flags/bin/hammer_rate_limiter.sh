@@ -21,7 +21,7 @@
 #     RUST_LOG=debug cargo run 2>&1 | grep -E "(cleanup|entries|Rate limiter)"
 #
 #   Terminal 2 - Run this script:
-#     ./scripts/hammer_rate_limiter.sh
+#     ./bin/hammer_rate_limiter.sh
 #
 #   Expected output in Terminal 1:
 #     - token_entries increases during the hammer run (e.g., 20-100+ entries)
