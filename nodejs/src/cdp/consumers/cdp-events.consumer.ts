@@ -100,7 +100,7 @@ export class CdpEventsConsumer<THub extends CdpEventsConsumerHub = CdpEventsCons
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id] || []
+                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
                     const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
                         teamHogFunctions,

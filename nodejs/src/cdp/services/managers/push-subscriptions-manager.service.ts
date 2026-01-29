@@ -11,6 +11,11 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 
 export type FcmErrorDetail = { '@type'?: string; errorCode?: string }
 
+const getDistinctIdsForSamePersonCounter = new Counter({
+    name: 'cdp_push_subscription_get_distinct_ids_for_same_person_total',
+    help: 'Total number of getDistinctIdsForSamePerson calls',
+})
+
 export type PushSubscriptionGetArgs = {
     teamId: number
     distinctId: string
@@ -29,11 +34,6 @@ const toKey = (args: PushSubscriptionGetArgs): string => {
         args.provider ?? 'all',
     ])
 }
-
-const getDistinctIdsForSamePersonCounter = new Counter({
-    name: 'cdp_push_subscription_get_distinct_ids_for_same_person_total',
-    help: 'Total number of getDistinctIdsForSamePerson calls',
-})
 
 const fromKey = (key: string): PushSubscriptionGetArgs => {
     // Parse JSON-encoded key to safely handle distinctIds containing colons or other special characters
@@ -73,6 +73,7 @@ export type PushSubscription = {
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
+    firebase_app_id: string | null
 }
 
 export type PushSubscriptionInputToLoad = {
@@ -152,99 +153,63 @@ export class PushSubscriptionsManagerService {
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            firebase_app_id: row.firebase_app_id,
         }
     }
 
     private async fetchPushSubscriptions(ids: string[]): Promise<Record<string, PushSubscription[] | undefined>> {
         const subscriptionArgs = ids.map(fromKey)
 
-        // Separate queries by platform, provider, and firebase_app_id filters for efficiency
-        const queryGroups: Array<{ indices: number[]; args: PushSubscriptionGetArgs[] }> = []
-        const grouped = new Map<string, number[]>()
+        const conditions: string[] = []
+        const params: any[] = []
+        let paramIdx = 1
 
-        subscriptionArgs.forEach((args, index) => {
-            const groupKey = JSON.stringify({
-                platform: args.platform ?? 'all',
-                provider: args.provider ?? 'all',
-                firebaseAppId: args.firebaseAppId ?? 'all',
-            })
-            if (!grouped.has(groupKey)) {
-                grouped.set(groupKey, [])
-            }
-            grouped.get(groupKey)!.push(index)
-        })
+        for (const args of subscriptionArgs) {
+            const conditionParts: string[] = [`team_id = $${paramIdx++}`, `distinct_id = $${paramIdx++}`]
+            params.push(args.teamId, args.distinctId)
 
-        grouped.forEach((indices) => {
-            const args = indices.map((idx) => subscriptionArgs[idx])
-            queryGroups.push({ indices, args })
-        })
-
-        const allResults: PushSubscriptionRow[] = []
-
-        // Execute queries for each group
-        for (const group of queryGroups) {
-            const conditions: string[] = []
-            const params: any[] = []
-            let paramIdx = 1
-
-            for (const args of group.args) {
-                const conditionParts: string[] = [`team_id = $${paramIdx++}`, `distinct_id = $${paramIdx++}`]
-                params.push(args.teamId, args.distinctId)
-
-                if (args.platform) {
-                    conditionParts.push(`platform = $${paramIdx++}`)
-                    params.push(args.platform)
-                }
-
-                if (args.provider) {
-                    conditionParts.push(`provider = $${paramIdx++}`)
-                    params.push(args.provider)
-                }
-
-                if (args.firebaseAppId) {
-                    conditionParts.push(`(firebase_app_id = $${paramIdx++} OR firebase_app_id IS NULL)`)
-                    params.push(args.firebaseAppId)
-                }
-
-                conditionParts.push('is_active = true')
-                conditions.push(`(${conditionParts.join(' AND ')})`)
+            if (args.platform) {
+                conditionParts.push(`platform = $${paramIdx++}`)
+                params.push(args.platform)
             }
 
-            const queryString = `SELECT
-                    id,
-                    team_id,
-                    distinct_id,
-                    token,
-                    platform,
-                    provider,
-                    is_active,
-                    last_successfully_used_at,
-                    created_at,
-                    updated_at,
-                    firebase_app_id
-                FROM workflows_pushsubscription
-                WHERE ${conditions.join(' OR ')}
-                ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
+            if (args.provider) {
+                conditionParts.push(`provider = $${paramIdx++}`)
+                params.push(args.provider)
+            }
 
-            const response = await this.postgres.query<PushSubscriptionRow>(
-                PostgresUse.COMMON_READ,
-                queryString,
-                params,
-                'fetchPushSubscriptions'
-            )
+            if (args.firebaseAppId) {
+                conditionParts.push(`(firebase_app_id = $${paramIdx++} OR firebase_app_id IS NULL)`)
+                params.push(args.firebaseAppId)
+            }
 
-            allResults.push(...response.rows)
+            conditionParts.push('is_active = true')
+            conditions.push(`(${conditionParts.join(' AND ')})`)
         }
 
-        // Deduplicate results by id (same subscription could appear in both queries)
-        const uniqueRows = new Map<string, PushSubscriptionRow>()
-        for (const row of allResults) {
-            if (!uniqueRows.has(row.id)) {
-                uniqueRows.set(row.id, row)
-            }
-        }
+        const queryString = `SELECT
+                id,
+                team_id,
+                distinct_id,
+                token,
+                platform,
+                provider,
+                is_active,
+                last_successfully_used_at,
+                created_at,
+                updated_at,
+                firebase_app_id
+            FROM workflows_pushsubscription
+            WHERE ${conditions.join(' OR ')}
+            ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
 
-        const subscriptionRows = Array.from(uniqueRows.values())
+        const response = await this.postgres.query<PushSubscriptionRow>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            params,
+            'fetchPushSubscriptions'
+        )
+        const subscriptionRows = response.rows
 
         // Group results by key
         const result: Record<string, PushSubscription[]> = {}
@@ -282,6 +247,7 @@ export class PushSubscriptionsManagerService {
                         last_successfully_used_at: row.last_successfully_used_at,
                         created_at: row.created_at,
                         updated_at: row.updated_at,
+                        firebase_app_id: row.firebase_app_id,
                     })
                 }
             }
@@ -459,6 +425,7 @@ export class PushSubscriptionsManagerService {
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            firebase_app_id: row.firebase_app_id,
         }
     }
 
@@ -482,16 +449,24 @@ export class PushSubscriptionsManagerService {
         const returnInputs: Record<string, { value: string | null }> = {}
         const provider = 'fcm' as const
 
-        for (const [key, { distinctId, firebaseAppId, platform }] of Object.entries(inputsToLoad)) {
-            returnInputs[key] = { value: null }
-
-            const subscriptions = await this.get({
+        const entries = Object.entries(inputsToLoad).map(([key, { distinctId, firebaseAppId, platform }]) => ({
+            inputKey: key,
+            getArgs: {
                 teamId: hogFunction.team_id,
                 distinctId,
                 platform,
                 firebaseAppId,
                 provider,
-            })
+            },
+        }))
+
+        const argsForGetMany = entries.map((e) => e.getArgs)
+        const resultsByGetKey = await this.getMany(argsForGetMany)
+
+        for (const { inputKey, getArgs } of entries) {
+            returnInputs[inputKey] = { value: null }
+
+            const subscriptions = resultsByGetKey[toKey(getArgs)] ?? []
 
             let subscription = subscriptions.shift() ?? null
 
@@ -512,14 +487,15 @@ export class PushSubscriptionsManagerService {
             }
 
             if (!subscription) {
+                const { distinctId } = getArgs
                 const relatedDistinctIds = await this.getDistinctIdsForSamePerson(hogFunction.team_id, distinctId)
 
                 if (relatedDistinctIds.length > 0) {
                     subscription = await this.findSubscriptionByPersonDistinctIds(
                         hogFunction.team_id,
                         relatedDistinctIds,
-                        platform,
-                        firebaseAppId,
+                        getArgs.platform,
+                        getArgs.firebaseAppId,
                         provider
                     )
 
@@ -533,8 +509,8 @@ export class PushSubscriptionsManagerService {
                 }
             }
 
-            if (subscription && subscription.is_active && subscription.team_id === hogFunction.team_id) {
-                returnInputs[key] = { value: subscription.token }
+            if (subscription?.is_active) {
+                returnInputs[inputKey] = { value: subscription.token }
             }
         }
 

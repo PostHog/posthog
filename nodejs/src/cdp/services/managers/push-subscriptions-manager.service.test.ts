@@ -253,7 +253,7 @@ describe('PushSubscriptionsManagerService', () => {
             })
         })
 
-        it('filters by provider when firebase_account integration is present', async () => {
+        it('filters by provider (fcm) so only FCM token is returned when user has both FCM and APNS subscriptions', async () => {
             const distinctId = 'user-123'
             const fcmToken = 'fcm-token-abc123'
             const apnsToken = 'apns-token-xyz789'
