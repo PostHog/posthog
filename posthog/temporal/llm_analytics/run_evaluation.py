@@ -17,6 +17,7 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.metrics import (
     increment_errors,
@@ -41,6 +42,14 @@ logger = structlog.get_logger(__name__)
 
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+
+# Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
+LLM_JUDGE_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
 
 
 class BooleanEvalResult(BaseModel):
@@ -351,18 +360,17 @@ Output: {output_data}"""
     )
 
     try:
-        # Signal that we're about to make a potentially long-running LLM call
-        if temporalio.activity.in_activity():
-            temporalio.activity.heartbeat("starting LLM judge call")
-        response = client.complete(
-            CompletionRequest(
-                model=model,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                provider=provider,
-                response_format=response_format,
+        # HeartbeaterSync sends periodic heartbeats during the potentially long-running LLM call
+        with HeartbeaterSync(details=("llm_judge", evaluation["id"])):
+            response = client.complete(
+                CompletionRequest(
+                    model=model,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    provider=provider,
+                    response_format=response_format,
+                )
             )
-        )
     except AuthenticationError:
         increment_errors("auth_error")
         if is_byok:
@@ -575,8 +583,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             result = await temporalio.workflow.execute_activity(
                 execute_llm_judge_activity,
                 args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                schedule_to_close_timeout=timedelta(minutes=6),  # > SDK timeout (300s) to allow graceful handling
+                heartbeat_timeout=timedelta(seconds=60),
+                retry_policy=LLM_JUDGE_RETRY_POLICY,
             )
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, ApplicationError) and e.cause.details:
