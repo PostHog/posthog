@@ -10,64 +10,27 @@ from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConf
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
-class AttioJSONBodyPaginator(BasePaginator):
-    """Paginator for Attio POST endpoints that require pagination in the JSON body."""
+class AttioOffsetPaginator(BasePaginator):
+    """Paginator for Attio endpoints using offset-based pagination.
 
-    def __init__(self, limit: int = 100, initial_json: Optional[dict[str, Any]] = None):
+    Supports both POST endpoints (pagination in JSON body) and GET endpoints (pagination in query params).
+    """
+
+    def __init__(self, limit: int = 100, use_json_body: bool = False, initial_json: Optional[dict[str, Any]] = None):
         super().__init__()
         self._limit = limit
         self._current_offset = 0
         self._next_offset: Optional[int] = 0
         self._has_next_page = False
+        self._use_json_body = use_json_body
         self._initial_json = initial_json or {}
 
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        try:
-            response_data = response.json()
-            returned_data = response_data.get("data", [])
-
-            if len(returned_data) < self._limit:
-                self._has_next_page = False
-                self._next_offset = None
-            else:
-                self._has_next_page = True
-                self._next_offset = self._current_offset + self._limit
-        except Exception:
-            self._has_next_page = False
-            self._next_offset = None
-
-    def update_request(self, request: Request) -> None:
-        # Ensure we preserve the initial json (filter, sorts) on every request
-        if request.json is None:
-            request.json = dict(self._initial_json)
-        else:
-            # Merge initial json with any existing properties
-            for key, value in self._initial_json.items():
-                if key not in request.json:
-                    request.json[key] = value
-
-        if self._next_offset is not None:
-            self._current_offset = self._next_offset
-
-        request.json["offset"] = self._current_offset
-        request.json["limit"] = self._limit
-
-
-class AttioOffsetPaginator(BasePaginator):
-    """Paginator for Attio GET endpoints using offset-based pagination."""
-
-    def __init__(self, limit: int = 100):
-        super().__init__()
-        self._limit = limit
-        self._current_offset = 0
-        self._next_offset: Optional[int] = 0
-        self._has_next_page = False
-
     def init_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-        request.params["offset"] = self._current_offset
-        request.params["limit"] = self._limit
+        if not self._use_json_body:
+            if request.params is None:
+                request.params = {}
+            request.params["offset"] = self._current_offset
+            request.params["limit"] = self._limit
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
@@ -85,14 +48,23 @@ class AttioOffsetPaginator(BasePaginator):
             self._next_offset = None
 
     def update_request(self, request: Request) -> None:
-        if request.params is None:
-            request.params = {}
-
         if self._next_offset is not None:
             self._current_offset = self._next_offset
 
-        request.params["offset"] = self._current_offset
-        request.params["limit"] = self._limit
+        if self._use_json_body:
+            if request.json is None:
+                request.json = dict(self._initial_json)
+            else:
+                for key, value in self._initial_json.items():
+                    if key not in request.json:
+                        request.json[key] = value
+            request.json["offset"] = self._current_offset
+            request.json["limit"] = self._limit
+        else:
+            if request.params is None:
+                request.params = {}
+            request.params["offset"] = self._current_offset
+            request.params["limit"] = self._limit
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -120,7 +92,9 @@ def get_resource(name: str) -> EndpointResource:
         endpoint_config["method"] = "POST"
         json_body: dict[str, Any] = {"sorts": [{"attribute": "created_at", "direction": "asc"}]}
         endpoint_config["json"] = json_body
-        endpoint_config["paginator"] = AttioJSONBodyPaginator(limit=config.page_size, initial_json=json_body)
+        endpoint_config["paginator"] = AttioOffsetPaginator(
+            limit=config.page_size, use_json_body=True, initial_json=json_body
+        )
     else:
         endpoint_config["paginator"] = AttioOffsetPaginator(limit=config.page_size)
 
