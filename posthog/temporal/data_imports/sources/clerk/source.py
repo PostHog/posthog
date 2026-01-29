@@ -37,7 +37,7 @@ class ClerkSource(SimpleSource[ClerkSourceConfig]):
 
 You can find your secret key in your [Clerk Dashboard](https://dashboard.clerk.com/) under **API Keys**.
 
-The secret key starts with `sk_live_` or `sk_test_`.
+The secret key starts with `sk_live_`.
 """,
             iconPath="/static/services/clerk.png",
             fields=cast(
