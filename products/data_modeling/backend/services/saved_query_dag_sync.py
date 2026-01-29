@@ -126,8 +126,8 @@ def sync_saved_query_to_dag(
     extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
-    query = saved_query.query.get("query") if saved_query.query else None
-    if not query:
+    model_query = saved_query.query.get("query") if saved_query.query else None
+    if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
     # determine node type based on materialization status (fk to datawarehouse table)
@@ -147,7 +147,8 @@ def sync_saved_query_to_dag(
 
     # parse query to extract dependencies
     try:
-        dependencies = get_parents_from_model_query(query, team)
+        model_name = saved_query.name
+        dependencies = get_parents_from_model_query(team, model_name, model_query)
     except QueryError as e:
         error_message = str(e)
         # handle circular dependency as a conflict edge

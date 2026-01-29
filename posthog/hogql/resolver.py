@@ -122,8 +122,6 @@ class Resolver(CloningVisitor):
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.current_view_depth: int = 0
-        # track views/matviews to detect cycles during AST resolution
-        self.resolving_views: set[str] = set()
         self.context = context
         self.dialect = dialect
         self.database = context.database
@@ -338,23 +336,17 @@ class Resolver(CloningVisitor):
             database_table = self.database.get_table(table_name_chain)  # type: ignore
 
             if isinstance(database_table, SavedQuery):
-                view_name = database_table.name
-                if view_name in self.resolving_views:
-                    raise QueryError(f"Circular dependency detected in view '{view_name}'")
-
-                self.resolving_views.add(view_name)
                 self.current_view_depth += 1
 
                 node.table = parse_select(str(database_table.query))
 
                 if isinstance(node.table, ast.SelectQuery):
-                    node.table.view_name = view_name
+                    node.table.view_name = database_table.name
 
-                node.alias = table_alias or view_name
+                node.alias = table_alias or database_table.name
                 node = self.visit(node)
 
                 self.current_view_depth -= 1
-                self.resolving_views.discard(view_name)
                 return node
 
             if isinstance(database_table, LazyTable):
