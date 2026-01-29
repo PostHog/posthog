@@ -92,12 +92,14 @@ export const autoCaptureControlsLogic = kea<autoCaptureControlsLogicType>([
                             url_triggers: values.urlTriggers,
                             url_blocklist: values.urlBlocklist,
                         }
-                        return await api.errorTracking.autoCaptureControls.update(newControls, values.controls.library)
+                        return await api.errorTracking.autoCaptureControls.update(newControls)
                     }
                     return values.controls
                 },
                 deleteControls: async () => {
-                    await api.errorTracking.autoCaptureControls.delete()
+                    if (values.controls) {
+                        await api.errorTracking.autoCaptureControls.delete(values.controls.id)
+                    }
                     return null
                 },
             },

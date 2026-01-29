@@ -1172,7 +1172,11 @@ export class ApiRequest {
     }
 
     public errorTrackingAutoCaptureControls(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).withAction('autocapture_controls')
+        return this.errorTracking(teamId).addPathComponent('autocapture_controls')
+    }
+
+    public errorTrackingAutoCaptureControl(id: ErrorTrackingAutoCaptureControls['id']): ApiRequest {
+        return this.errorTrackingAutoCaptureControls().addPathComponent(id)
     }
 
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
@@ -3387,21 +3391,11 @@ const api = {
             async create(library: string = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
                 return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).create()
             },
-            async update(
-                data: ErrorTrackingAutoCaptureControls,
-                library: string = 'web'
-            ): Promise<ErrorTrackingAutoCaptureControls> {
-                return await new ApiRequest()
-                    .errorTrackingAutoCaptureControls()
-                    .withQueryString({ library })
-                    .update({ data })
+            async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(data.id).update({ data })
             },
-            async delete(library: string = 'web'): Promise<void> {
-                return await new ApiRequest()
-                    .errorTrackingAutoCaptureControls()
-                    .withQueryString({ library })
-                    .withAction('delete_controls')
-                    .delete()
+            async delete(id: ErrorTrackingAutoCaptureControls['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(id).delete()
             },
         },
 

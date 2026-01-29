@@ -2,7 +2,6 @@ from django.db.models import QuerySet
 
 import structlog
 from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -41,10 +40,6 @@ class ErrorTrackingAutoCaptureControlsViewSet(TeamAndOrgViewSetMixin, viewsets.M
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team=self.team)
 
-    def safely_get_object(self, queryset):
-        library = self._get_library()
-        return queryset.get(library=library)
-
     def list(self, request, *args, **kwargs):
         library = self._get_library()
         try:
@@ -67,14 +62,3 @@ class ErrorTrackingAutoCaptureControlsViewSet(TeamAndOrgViewSetMixin, viewsets.M
         serializer.is_valid(raise_exception=True)
         serializer.save(team=self.team, library=library)
         return Response(serializer.data, status=201)
-
-    @action(detail=False, methods=["delete"])
-    def delete_controls(self, request, *args, **kwargs):
-        """Delete the controls for this team and library."""
-        library = self._get_library()
-        try:
-            controls = ErrorTrackingAutoCaptureControls.objects.get(team=self.team, library=library)
-            controls.delete()
-            return Response(status=204)
-        except ErrorTrackingAutoCaptureControls.DoesNotExist:
-            return Response(status=204)
