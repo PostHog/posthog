@@ -7,6 +7,8 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
     _get_flags_for_local_evaluation,
+    _get_flags_response_for_local_evaluation,
+    _get_flags_response_for_local_evaluation_batch,
     clear_flag_caches,
     flags_hypercache,
     get_flags_response_for_local_evaluation,
@@ -576,3 +578,261 @@ class TestSurveyFlagExclusion(BaseTest):
         assert flag_a.key not in flag_keys
         assert flag_b.key not in flag_keys
         assert regular_flag.key in flag_keys
+
+
+class TestBatchLocalEvaluation(BaseTest):
+    """Tests for batch loading optimization that reduces N+1 queries."""
+
+    def test_batch_loading_produces_same_results_as_individual_loading(self):
+        """
+        Demonstrates the fix: batch loading multiple teams produces identical results
+        to loading teams individually, but with far fewer database queries.
+
+        Before the fix: Loading N teams would make N+1 queries for each data type
+        After the fix: Loading N teams makes only 4 total queries (surveys, flags, cohorts, group mappings)
+        """
+        # Create multiple teams with flags and cohorts
+        teams = []
+        for i in range(3):
+            project, team = Project.objects.create_with_team(
+                initiating_user=self.user,
+                organization=self.organization,
+                name=f"Test project {i}",
+            )
+
+            # Create a cohort for each team
+            cohort = Cohort.objects.create(
+                team=team,
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": f"$team_{i}_prop",
+                                        "value": f"value_{i}",
+                                        "type": "person",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+                name=f"cohort_{i}",
+            )
+
+            # Create flags with cohort filters
+            FeatureFlag.objects.create(
+                team=team,
+                key=f"flag-{i}",
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 50 + i * 10,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                        }
+                    ],
+                },
+            )
+
+            # Create a survey flag that should be excluded
+            survey_flag = FeatureFlag.objects.create(
+                team=team,
+                key=f"survey-flag-{i}",
+                filters={"groups": [{"rollout_percentage": 100}]},
+            )
+
+            Survey.objects.create(
+                team=team,
+                name=f"Survey {i}",
+                type="popover",
+                targeting_flag=survey_flag,
+            )
+
+            # Create group type mapping
+            create_group_type_mapping_without_created_at(
+                team=team, project_id=team.project_id, group_type=f"company_{i}", group_type_index=i
+            )
+
+            teams.append(team)
+
+        # Load data using the batch function (the fix)
+        batch_results = _get_flags_response_for_local_evaluation_batch(teams, include_cohorts=True)
+
+        # Load data individually (the old way)
+        individual_results = {}
+        for team in teams:
+            individual_results[team.id] = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
+
+        # Verify batch results match individual results
+        assert len(batch_results) == len(individual_results) == 3
+
+        for team in teams:
+            batch_result = batch_results[team.id]
+            individual_result = individual_results[team.id]
+
+            # Check flags match
+            assert len(batch_result["flags"]) == len(individual_result["flags"]) == 1
+            assert batch_result["flags"][0]["key"] == individual_result["flags"][0]["key"]
+
+            # Check survey flags are excluded
+            flag_keys = [f["key"] for f in batch_result["flags"]]
+            assert f"flag-{teams.index(team)}" in flag_keys
+            assert f"survey-flag-{teams.index(team)}" not in flag_keys
+
+            # Check cohorts match
+            assert len(batch_result["cohorts"]) == len(individual_result["cohorts"]) == 1
+            assert batch_result["cohorts"] == individual_result["cohorts"]
+
+            # Check group type mappings match
+            assert batch_result["group_type_mapping"] == individual_result["group_type_mapping"]
+
+    def test_batch_loading_reduces_database_queries(self):
+        """
+        Demonstrates the N+1 query problem fix.
+
+        Before: Loading N teams individually would result in many queries per team
+        After: Loading N teams in batch results in only 4 queries total
+        """
+        # Create 5 teams with flags and cohorts
+        teams = []
+        for i in range(5):
+            project, team = Project.objects.create_with_team(
+                initiating_user=self.user,
+                organization=self.organization,
+                name=f"Batch test project {i}",
+            )
+
+            cohort = Cohort.objects.create(
+                team=team,
+                filters={"properties": {"type": "OR", "values": []}},
+                name=f"batch_cohort_{i}",
+            )
+
+            FeatureFlag.objects.create(
+                team=team,
+                key=f"batch-flag-{i}",
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                        }
+                    ],
+                },
+            )
+
+            teams.append(team)
+
+        # Test batch loading query count
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as batch_context:
+            batch_results = _get_flags_response_for_local_evaluation_batch(teams, include_cohorts=True)
+
+        # The batch function should make a fixed number of queries regardless of team count:
+        # 1. Load all survey flag IDs
+        # 2. Load all feature flags
+        # 3. Load all cohorts
+        # 4. Load all group type mappings
+        # Plus minimal serialization queries
+        batch_query_count = len(batch_context.captured_queries)
+
+        # Test individual loading query count (old approach)
+        individual_query_count = 0
+        for team in teams:
+            with CaptureQueriesContext(connection) as individual_context:
+                _get_flags_response_for_local_evaluation(team, include_cohorts=True)
+            individual_query_count += len(individual_context.captured_queries)
+
+        # Batch loading should use significantly fewer queries than individual loading
+        assert batch_query_count < individual_query_count, (
+            f"Batch loading should use fewer queries than individual loading. "
+            f"Got batch={batch_query_count}, individual={individual_query_count}"
+        )
+
+        # Batch loading should be roughly constant (not scale with number of teams)
+        # Allow some overhead for serialization and other operations
+        assert batch_query_count < 20, f"Batch loading made {batch_query_count} queries, expected < 20"
+
+        # Individual loading should use more queries (demonstrating the fix for inefficiency)
+        # With 5 teams, we expect at least 30% more queries for individual loading
+        assert individual_query_count >= batch_query_count * 1.3, (
+            f"Individual loading should make notably more queries than batch loading. "
+            f"Got individual={individual_query_count}, batch={batch_query_count}, "
+            f"ratio={individual_query_count / batch_query_count:.2f}x"
+        )
+
+        # Verify results are correct
+        assert len(batch_results) == 5
+        for team in teams:
+            assert team.id in batch_results
+            assert len(batch_results[team.id]["flags"]) >= 1
+
+    def test_batch_loading_handles_empty_teams_list(self):
+        """Batch loading should handle edge case of empty teams list."""
+        result = _get_flags_response_for_local_evaluation_batch([], include_cohorts=True)
+        assert result == {}
+
+    def test_batch_loading_with_and_without_cohorts(self):
+        """
+        Batch loading should work correctly for both cache variants
+        (with cohorts and without cohorts).
+        """
+        teams = []
+        for i in range(2):
+            project, team = Project.objects.create_with_team(
+                initiating_user=self.user,
+                organization=self.organization,
+                name=f"Variant test project {i}",
+            )
+
+            cohort = Cohort.objects.create(
+                team=team,
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [{"key": "email", "value": "test@example.com", "type": "person"}],
+                            }
+                        ],
+                    }
+                },
+                name=f"variant_cohort_{i}",
+            )
+
+            FeatureFlag.objects.create(
+                team=team,
+                key=f"variant-flag-{i}",
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                        }
+                    ],
+                },
+            )
+
+            teams.append(team)
+
+        # Test with cohorts
+        results_with_cohorts = _get_flags_response_for_local_evaluation_batch(teams, include_cohorts=True)
+
+        for team in teams:
+            result = results_with_cohorts[team.id]
+            assert len(result["cohorts"]) > 0, "Should include cohorts when include_cohorts=True"
+            assert len(result["flags"]) == 1
+
+        # Test without cohorts
+        results_without_cohorts = _get_flags_response_for_local_evaluation_batch(teams, include_cohorts=False)
+
+        for team in teams:
+            result = results_without_cohorts[team.id]
+            assert len(result["cohorts"]) == 0, "Should not include cohorts when include_cohorts=False"
+            assert len(result["flags"]) == 1
