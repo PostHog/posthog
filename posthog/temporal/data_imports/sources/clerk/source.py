@@ -62,7 +62,6 @@ The secret key starts with `sk_live_` or `sk_test_`.
                 supports_incremental=False,
                 supports_append=False,
                 incremental_fields=[],
-                default_incremental_field=None,
             )
             for endpoint in list(ENDPOINTS)
         ]
