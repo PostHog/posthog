@@ -10390,6 +10390,10 @@ class EndpointRunRequest(BaseModel):
             "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
         ),
     )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
     query_override: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -17991,6 +17995,10 @@ class EndpointRequest(BaseModel):
     sync_frequency: DataWarehouseSyncInterval | None = Field(
         default=None,
         description="How frequently should the underlying materialized view be updated",
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
     )
 
 
