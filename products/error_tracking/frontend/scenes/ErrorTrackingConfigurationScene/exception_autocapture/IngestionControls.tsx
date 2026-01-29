@@ -16,6 +16,7 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
     const logic = autoCaptureControlsLogic
 
     const {
+        controls,
         controlsLoading,
         hasControls,
         triggers,
@@ -42,7 +43,8 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
         // oxlint-disable-next-line exhaustive-deps
     }, [])
 
-    if (controlsLoading) {
+    // Only show loading state on initial load, not during saves
+    if (controlsLoading && controls === null) {
         return null
     }
 
