@@ -132,12 +132,16 @@ class TestGetMissingOverridesForPersonIds(ClickhouseTestMixin, BaseTest):
         assert len(result) == 0
 
     def test_returns_empty_for_nonexistent_person_id(self):
-        result = get_missing_overrides_for_person_ids(self.team.id, [str(uuid4())])
+        # Just call with a random UUID - no data setup needed
+        random_uuid = str(uuid4())
+        result = get_missing_overrides_for_person_ids(self.team.id, [random_uuid])
         assert len(result) == 0
 
     def test_returns_missing_overrides(self):
         person_id = uuid4()
+        person_id_str = str(person_id)
 
+        # Insert test data
         insert_pdi2_records(
             [
                 (self.team.id, "has_override", person_id, 1, 0),
@@ -146,7 +150,8 @@ class TestGetMissingOverridesForPersonIds(ClickhouseTestMixin, BaseTest):
         )
         insert_override_records([(self.team.id, "has_override", person_id, 1, 0)])
 
-        result = get_missing_overrides_for_person_ids(self.team.id, [str(person_id)])
+        # Query for missing overrides
+        result = get_missing_overrides_for_person_ids(self.team.id, [person_id_str])
 
         assert len(result) == 1
         assert result[0][0] == "no_override"

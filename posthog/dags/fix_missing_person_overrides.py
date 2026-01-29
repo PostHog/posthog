@@ -58,29 +58,41 @@ def get_missing_overrides_for_person_ids(team_id: int, person_ids: list[str]) ->
     if not person_ids:
         return []
 
-    result = sync_execute(
+    # Get all distinct_ids for the given person_ids
+    pdi2_result = sync_execute(
         """
         SELECT
             distinct_id,
-            argMax(person_id, version) as person_id,
+            argMax(person_id, version) as current_person_id,
             max(version) as max_version
         FROM person_distinct_id2
         WHERE team_id = %(team_id)s
         GROUP BY distinct_id
-        HAVING argMax(person_id, version) IN %(person_ids)s
+        HAVING current_person_id IN %(person_ids)s
           AND argMax(is_deleted, version) = 0
-          AND distinct_id NOT IN (
-              SELECT distinct_id
-              FROM person_distinct_id_overrides
-              WHERE team_id = %(team_id)s
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0
-          )
         """,
         {"team_id": team_id, "person_ids": person_ids},
-        flush=False,
     )
-    return [(row[0], str(row[1]), int(row[2])) for row in result] if result else []
+
+    if not pdi2_result:
+        return []
+
+    # Get distinct_ids that already have overrides
+    existing_overrides = sync_execute(
+        """
+        SELECT distinct_id
+        FROM person_distinct_id_overrides
+        WHERE team_id = %(team_id)s
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0
+        """,
+        {"team_id": team_id},
+    )
+
+    existing_distinct_ids = {row[0] for row in existing_overrides} if existing_overrides else set()
+
+    # Filter out distinct_ids that already have overrides
+    return [(row[0], str(row[1]), int(row[2])) for row in pdi2_result if row[0] not in existing_distinct_ids]
 
 
 def get_existing_override(team_id: int, distinct_id: str) -> Optional[tuple[str, int]]:
