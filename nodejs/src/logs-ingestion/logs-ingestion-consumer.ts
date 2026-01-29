@@ -286,14 +286,14 @@ export class LogsIngestionConsumer {
                     const logsSettings = team?.logs_settings || {}
 
                     // Extract settings with defaults
-                    const jsonParse = logsSettings.json_parse_logs ?? true
+                    const jsonParse = logsSettings.json_parse_logs ?? false
                     const retentionDays = logsSettings.retention_days ?? 15
 
-                    // If json-parse is enabled, decode the AVRO message, parse body as JSON,
-                    // add flattened attributes, and re-encode
-                    const processedValue = message.message.value
-                        ? await processLogMessageBuffer(message.message.value, jsonParse)
-                        : message.message.value
+                    // ignore empty messages
+                    if (message.message.value === null) {
+                        return Promise.resolve()
+                    }
+                    const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
 
                     return this.kafkaProducer!.produce({
                         topic: this.clickhouseTopic,
@@ -337,7 +337,7 @@ export class LogsIngestionConsumer {
             await this.kafkaProducer!.produce({
                 topic: this.dlqTopic,
                 value: message.message.value,
-                key: message.message.key,
+                key: null,
                 headers: {
                     ...parseKafkaHeaders(message.message.headers),
                     token: message.token,

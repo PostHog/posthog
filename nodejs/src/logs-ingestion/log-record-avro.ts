@@ -1,5 +1,6 @@
 import { compress, decompress } from '@mongodb-js/zstd'
 import avro from 'avsc'
+import { Readable } from 'stream'
 
 import { parseJSON } from '../utils/json-parse'
 
@@ -26,7 +27,6 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
     return new Promise((resolve, reject) => {
         try {
             const records: LogRecord[] = []
-            const { Readable } = require('stream')
 
             const decoder = new avro.streams.BlockDecoder({
                 codecs: {
@@ -39,6 +39,9 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
             })
 
             const stream = new Readable()
+            stream.on('error', (err: Error) => {
+                reject(err)
+            })
             stream.push(buffer)
             stream.push(null)
             stream.pipe(decoder)
@@ -114,7 +117,7 @@ export async function encodeLogRecords(logRecordType: avro.Type, records: LogRec
  * Flattens a JSON object into a flat key-value map with dot-notation keys.
  * Arrays are indexed with numeric keys (e.g., "items.0.name").
  */
-export function flattenJson(obj: unknown, prefix = '', result: Record<string, string> = {}): Record<string, string> {
+export function flattenJson(obj: unknown, prefix = '', result: Record<string, any> = {}): Record<string, any> {
     if (obj === null || obj === undefined) {
         if (prefix) {
             result[prefix] = String(obj)
@@ -124,7 +127,7 @@ export function flattenJson(obj: unknown, prefix = '', result: Record<string, st
 
     if (typeof obj !== 'object') {
         if (prefix) {
-            result[prefix] = String(obj)
+            result[prefix] = obj
         }
         return result
     }
@@ -173,7 +176,7 @@ export function extractJsonAttributesFromBody(body: string | null): Record<strin
             break
         }
         count++
-        newAttributes[key] = JSON.stringify(value.toString())
+        newAttributes[key] = JSON.stringify(value)
     }
 
     return newAttributes
@@ -206,8 +209,11 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord): LogRecord 
  * If json-parse is disabled it does nothing (does not decode or encode the buffer)
  * If it's enabled, it has to decode, process and re-encode the buffer
  */
-export async function processLogMessageBuffer(buffer: Buffer, jsonParse: boolean): Promise<Buffer> {
-    if (!jsonParse) {
+export async function processLogMessageBuffer(
+    buffer: Buffer,
+    settings: { json_parse_logs?: boolean | undefined }
+): Promise<Buffer> {
+    if (!settings.json_parse_logs) {
         return buffer
     }
 
