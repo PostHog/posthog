@@ -4,7 +4,6 @@
  * Uses posthog-js-lite for minimal footprint - we only need capture functionality.
  * Events are only captured if POSTHOG_UI_APPS_TOKEN is set at build time.
  */
-
 import { PostHog } from 'posthog-js-lite'
 
 // These are injected at build time by Vite
@@ -23,24 +22,18 @@ let currentDistinctId: string | null = null
  */
 export function initPostHog(appName: string, appVersion: string): void {
     if (client) {
-        console.log('[PostHog Analytics] Already initialized')
         return
     }
 
     if (!POSTHOG_TOKEN) {
-        console.log('[PostHog Analytics] No token configured, analytics disabled')
         return
     }
-
-    console.log('[PostHog Analytics] Initializing with host:', POSTHOG_HOST)
 
     client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
     client.register({
         $mcp_app_name: appName,
         $mcp_app_version: appVersion,
     })
-
-    console.log('[PostHog Analytics] Initialized successfully')
 }
 
 /**
@@ -48,16 +41,13 @@ export function initPostHog(appName: string, appVersion: string): void {
  */
 export function identifyUser(distinctId: string, toolName?: string): void {
     if (!client) {
-        console.log('[PostHog Analytics] Identify skipped (not initialized):', distinctId)
         return
     }
 
     if (currentDistinctId === distinctId) {
-        console.log('[PostHog Analytics] User already identified:', distinctId)
         return
     }
 
-    console.log('[PostHog Analytics] Identifying user:', distinctId)
     client.identify(distinctId)
     currentDistinctId = distinctId
 
@@ -71,11 +61,9 @@ export function identifyUser(distinctId: string, toolName?: string): void {
  */
 export function capture(eventName: string, properties?: { [key: string]: any }): void {
     if (client === null) {
-        console.log('[PostHog Analytics] Capture skipped (not initialized):', eventName, properties)
         return
     }
 
-    console.log('[PostHog Analytics] Capturing event:', eventName, properties)
     client.capture(eventName, properties)
 }
 
@@ -107,10 +95,7 @@ export function captureAppConnectionError(error: Error): void {
 /**
  * Capture tool input received.
  */
-export function captureToolInput(params: {
-    toolName?: string | undefined
-    hasArguments?: boolean | undefined
-}): void {
+export function captureToolInput(params: { toolName?: string | undefined; hasArguments?: boolean | undefined }): void {
     capture('mcp_ui_app_tool_input', {
         tool_name: params.toolName,
         has_arguments: params.hasArguments,
@@ -133,10 +118,7 @@ export function captureToolResult(params: {
 /**
  * Capture tool cancelled.
  */
-export function captureToolCancelled(params: {
-    toolName?: string | undefined
-    reason?: string | undefined
-}): void {
+export function captureToolCancelled(params: { toolName?: string | undefined; reason?: string | undefined }): void {
     capture('mcp_ui_app_tool_cancelled', {
         tool_name: params.toolName,
         reason: params.reason,

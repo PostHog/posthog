@@ -1,7 +1,7 @@
-import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
-import { readFileSync, writeFileSync, readdirSync, statSync, existsSync, rmSync } from 'fs'
+import { type Plugin, defineConfig } from 'vite'
 
 // PostHog configuration - injected at build time
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
@@ -68,31 +68,25 @@ function inlineAllAssets(): Plugin {
                     html = html.replace(/<link rel="modulepreload" crossorigin href="[^"]+">/g, '')
 
                     // Inline main JS module
-                    html = html.replace(
-                        /<script type="module" crossorigin src="([^"]+)"><\/script>/g,
-                        (match, src) => {
-                            const js = readAsset(src)
-                            if (js) {
-                                return `<script type="module">${js}</script>`
-                            }
-                            return match
+                    html = html.replace(/<script type="module" crossorigin src="([^"]+)"><\/script>/g, (match, src) => {
+                        const js = readAsset(src)
+                        if (js) {
+                            return `<script type="module">${js}</script>`
                         }
-                    )
+                        return match
+                    })
 
                     // Inline CSS
-                    html = html.replace(
-                        /<link rel="stylesheet" crossorigin href="([^"]+)">/g,
-                        (match, href) => {
-                            const css = readAsset(href)
-                            if (css) {
-                                return `<style>${css}</style>`
-                            }
-                            return match
+                    html = html.replace(/<link rel="stylesheet" crossorigin href="([^"]+)">/g, (match, href) => {
+                        const css = readAsset(href)
+                        if (css) {
+                            return `<style>${css}</style>`
                         }
-                    )
+                        return match
+                    })
 
                     writeFileSync(htmlPath, html)
-                    console.log(`[inline-all-assets] Inlined assets for ${app}`)
+                    console.info(`[inline-all-assets] Inlined assets for ${app}`)
                 } catch (e) {
                     // In single-app mode, only warn if the target app fails
                     if (app === appName) {
@@ -105,7 +99,7 @@ function inlineAllAssets(): Plugin {
             const assetsDir = resolve(outDir, 'assets')
             if (existsSync(assetsDir)) {
                 rmSync(assetsDir, { recursive: true })
-                console.log(`[inline-all-assets] Cleaned up assets folder`)
+                console.info(`[inline-all-assets] Cleaned up assets folder`)
             }
         },
     }
