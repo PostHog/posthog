@@ -61,6 +61,7 @@
     'posthog.tasks.hog_functions.sync_hog_function_templates_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_flags_cache_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_team_metadata_cache_task',
+    'posthog.tasks.integrations.push_vercel_secrets',
     'posthog.tasks.integrations.refresh_integration',
     'posthog.tasks.integrations.refresh_integrations',
     'posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report',
