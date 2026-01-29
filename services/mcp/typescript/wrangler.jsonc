@@ -57,6 +57,14 @@
     /**
      * Environment Variables
      * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+     *
+     * UI Apps Analytics:
+     * Set POSTHOG_UI_APPS_TOKEN as a secret for analytics in MCP UI Apps.
+     * This token is injected at build time into the UI apps bundle.
+     * To set the secret: wrangler secret put POSTHOG_UI_APPS_TOKEN
+     *
+     * For local development, set the environment variable before building:
+     * POSTHOG_UI_APPS_TOKEN=phc_xxx pnpm run build:ui-apps
      */
     // "vars": { "MY_VARIABLE": "production_value" },
     /**

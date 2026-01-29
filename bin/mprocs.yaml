@@ -147,6 +147,11 @@ procs:
         autostart: false
         # no capability - manual start
 
+    mcp-ui-apps:
+        shell: 'cd services/mcp/typescript && pnpm run build:ui-apps -- --watch'
+        autostart: false
+        # no capability - manual start, run alongside mcp for UI hot reload
+
     migrate-postgres:
         shell: 'bin/check_postgres_up && bin/check_ducklake_up && bin/migrate --scope=postgres'
         capability: core_infra

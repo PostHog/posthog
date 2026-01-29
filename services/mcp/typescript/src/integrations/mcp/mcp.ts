@@ -1,8 +1,10 @@
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
+import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
@@ -198,17 +200,30 @@ export class MCP extends McpAgent<Env> {
             await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
                 tool: tool.name,
                 valid_input: true,
-                input: params,
             })
 
             try {
                 const result = await handler(params)
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
-                    tool: tool.name,
-                    valid_input: true,
-                    input: params,
-                    output: result,
-                })
+                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, { tool: tool.name })
+
+                // For tools with UI resources, include structuredContent for better UI rendering
+                // structuredContent is not added to model context, only used by UI apps
+                const hasUiResource = tool._meta?.ui?.resourceUri
+
+                // If there's a UI resource, include analytics metadata for the UI app
+                // The structuredContent is typed as WithAnalytics<T> where T is the tool result
+                let structuredContent: WithAnalytics<typeof result> | typeof result = result
+                if (hasUiResource) {
+                    const distinctId = await this.getDistinctId()
+                    const analyticsMetadata: AnalyticsMetadata = {
+                        distinctId,
+                        toolName: tool.name,
+                    }
+                    structuredContent = {
+                        ...result,
+                        _analytics: analyticsMetadata,
+                    }
+                }
 
                 return {
                     content: [
@@ -217,6 +232,8 @@ export class MCP extends McpAgent<Env> {
                             text: formatResponse(result),
                         },
                     ],
+                    // Include raw result as structuredContent for UI apps to consume
+                    ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
@@ -231,6 +248,16 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
+        // Normalize _meta to include both new (ui.resourceUri) and legacy (ui/resourceUri) formats
+        // for compatibility with different MCP clients
+        let normalizedMeta = tool._meta
+        if (tool._meta?.ui?.resourceUri && !tool._meta[RESOURCE_URI_META_KEY]) {
+            normalizedMeta = {
+                ...tool._meta,
+                [RESOURCE_URI_META_KEY]: tool._meta.ui.resourceUri,
+            }
+        }
+
         this.server.registerTool(
             tool.name,
             {
@@ -238,7 +265,7 @@ export class MCP extends McpAgent<Env> {
                 description: tool.description,
                 inputSchema: tool.schema.shape,
                 annotations: tool.annotations,
-                ...(tool._meta ? { _meta: tool._meta } : {}),
+                ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
             wrappedHandler as unknown as ToolCallback<TSchema>
         )
@@ -261,7 +288,7 @@ export class MCP extends McpAgent<Env> {
         // Register prompts and resources
         await registerPrompts(this.server, context)
         await registerResources(this.server, context)
-        await registerUiAppResources(this.server)
+        await registerUiAppResources(this.server, context)
 
         // Register tools
         const features = this.requestProperties.features

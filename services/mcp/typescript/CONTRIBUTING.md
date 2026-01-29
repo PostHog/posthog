@@ -9,16 +9,23 @@ This guide covers local development setup for the PostHog MCP server, including 
 
 ## Project Structure
 
-```t
+```bash
 services/mcp/typescript/
 ├── src/
 │   ├── integrations/mcp/     # MCP server implementation
 │   ├── tools/                # Tool definitions and handlers
 │   ├── resources/            # MCP resources (skills, UI apps)
-│   ├── ui-apps/              # React UI app source
-│   │   ├── components/       # Visualization library (extractable)
-│   │   ├── styles/           # Base CSS with CSS variables
-│   │   └── app/              # MCP ext-apps entry point
+│   │   ├── ui-apps.ts        # Registers UI apps with MCP server
+│   │   └── ui-apps-constants.ts  # URI constants for each UI app
+│   ├── ui-apps/
+│   │   ├── apps/             # UI apps (auto-discovered, one folder per app)
+│   │   │   ├── query-results/    # For query-run & insight-query tools
+│   │   │   │   ├── index.html
+│   │   │   │   └── main.tsx
+│   │   │   └── demo/         # Demo app for testing
+│   │   ├── components/       # Shared visualization components
+│   │   ├── hooks/            # Shared React hooks (useToolResult)
+│   │   └── styles/           # Base CSS with CSS variables
 │   └── schema/               # Zod schemas for API types
 ├── ui-apps-dist/             # Built UI apps (generated, gitignored)
 ├── dist/                     # npm package output (generated)
@@ -78,18 +85,7 @@ This opens a web interface where you can call tools and see responses.
 
 Claude Desktop supports MCP servers with ext-apps UI rendering. To test the visualizations:
 
-### 1. Expose Local Server via Cloudflared
-
-Cloudflared is included in the flox environment:
-
-```bash
-# In a separate terminal
-cloudflared tunnel --url http://localhost:8787
-```
-
-Copy the generated `https://xxx.trycloudflare.com` URL.
-
-### 2. Configure Claude Desktop
+### 1. Configure Claude Desktop
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -97,20 +93,25 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "posthog-dev": {
-      "url": "https://xxx.trycloudflare.com/mcp",
-      "headers": {
-        "Authorization": "Bearer phx_your_posthog_personal_api_key"
-      }
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8787/mcp",
+        "--header",
+        "Authorization: Bearer <your_local_personal_posthog_key>"
+      ]
     }
   }
 }
 ```
 
-### 3. Restart Claude Desktop
+NOTE: Claude Desktop does not support OAuth at the moment, you'll need to use a personal key.
+
+### 2. Restart Claude Desktop
 
 Quit (Cmd+Q) and reopen Claude Desktop.
 
-### 4. Test Visualizations
+### 3. Test Visualizations
 
 Ask Claude to run a query:
 
@@ -123,6 +124,18 @@ The UI should render inline showing charts or tables with a "View in PostHog" li
 ## Development Workflow
 
 ### Hot Reload for UI Changes
+
+**Option 1: Using mprocs (Recommended)**
+
+In mprocs, start both `mcp-ui-apps` and `mcp`:
+
+1. Press `a` to see all processes
+2. Navigate to `mcp-ui-apps` and press `s` to start (builds UI apps and watches for changes)
+3. Navigate to `mcp` and press `s` to start (runs wrangler dev server)
+
+The `mcp-ui-apps` process runs vite in watch mode. Changes to `src/ui-apps/` trigger rebuilds, and wrangler automatically reloads when `ui-apps-dist/` changes.
+
+**Option 2: Manual terminals**
 
 Run the UI build in watch mode in one terminal:
 
@@ -177,10 +190,23 @@ The visualization system is designed to be extractable to a standalone `@posthog
 
 ### Components (src/ui-apps/components/)
 
-- **QueryVisualizer** - Main entry point, auto-selects visualization by query type
-- **TrendsVisualizer** - SVG line/bar charts for TrendsQuery
-- **FunnelVisualizer** - Horizontal funnel bars for FunnelsQuery
-- **TableVisualizer** - Data table for HogQLQuery results
+**Smart visualizers** - Transform structured API data into charts:
+
+- **Component** - Main entry point, infers visualization type from data structure
+- **TrendsVisualizer** - Renders TrendsQuery results as line/bar/number
+- **FunnelVisualizer** - Renders FunnelsQuery results as horizontal bars
+- **TableVisualizer** - Renders HogQLQuery results, auto-detects simple formats
+
+**Dumb chart components** (src/ui-apps/components/charts/) - Receive pre-processed data:
+
+- **LineChart** - SVG line chart
+- **BarChart** - SVG vertical bar chart
+- **HorizontalBarChart** - SVG horizontal bar chart (for funnels)
+- **BigNumber** - Large number display
+- **DataTable** - HTML table with pagination
+
+**Other**:
+
 - **PostHogLink** - "View in PostHog" button
 
 ### Theming
@@ -197,12 +223,14 @@ Chart colors are PostHog-specific (`--posthog-chart-1` through `--posthog-chart-
 
 Default values are provided for light/dark mode via `prefers-color-scheme`.
 
-### Adding UI to a Tool
+### Adding UI to an Existing Tool
 
-1. Import the resource URI:
+To add UI visualization to a tool using an existing UI app:
+
+1. Import the resource URI constant:
 
    ```typescript
-   import { QUERY_VISUALIZER_RESOURCE_URI } from '@/resources/ui-apps-constants'
+   import { QUERY_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
    ```
 
 2. Add `_meta.ui` to the tool definition:
@@ -213,12 +241,12 @@ Default values are provided for light/dark mode via `prefers-color-scheme`.
      schema,
      handler: myHandler,
      _meta: {
-       ui: { resourceUri: QUERY_VISUALIZER_RESOURCE_URI },
+       ui: { resourceUri: QUERY_RESULTS_RESOURCE_URI },
      },
    })
    ```
 
-3. Return data with `query`, `results`, and `_posthogUrl`:
+3. Return data that the UI app expects (check the UI app's `main.tsx` for expected shape):
 
    ```typescript
    return {
@@ -226,6 +254,124 @@ Default values are provided for light/dark mode via `prefers-color-scheme`.
        results: queryResult.data.results,
        _posthogUrl: buildUrl(context, params.query)
    }
+   ```
+
+### Adding a New UI App
+
+When you need a completely new visualization (not just adding a tool to an existing UI app):
+
+1. **Create the UI app folder** in `src/ui-apps/apps/`:
+
+   ```bash
+   mkdir -p src/ui-apps/apps/my-new-app
+   ```
+
+   Create `src/ui-apps/apps/my-new-app/index.html`:
+
+   ```html
+   <!DOCTYPE html>
+   <html lang="en">
+     <head>
+       <meta charset="UTF-8" />
+       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+       <title>My New App</title>
+     </head>
+     <body>
+       <div id="root"></div>
+       <script type="module" src="./main.tsx"></script>
+     </body>
+   </html>
+   ```
+
+   Create `src/ui-apps/apps/my-new-app/main.tsx`:
+
+   ```typescript
+   import { createRoot } from 'react-dom/client'
+   import { useToolResult } from '../../hooks/useToolResult'
+   import '../../styles/base.css'
+
+   function MyApp(): JSX.Element {
+       const { data, isConnected, error } = useToolResult({
+           appName: 'My New App',
+       })
+
+       if (error) return <div className="error">{error.message}</div>
+       if (!isConnected) return <div className="loading">Connecting...</div>
+       if (!data) return <div className="loading">Waiting for data</div>
+
+       // Render your visualization based on data
+       return <div>{JSON.stringify(data)}</div>
+   }
+
+   const container = document.getElementById('root')
+   if (container) {
+       createRoot(container).render(<MyApp />)
+   }
+   ```
+
+   The app is auto-discovered by the build script - no vite config changes needed.
+
+2. **Add URI constant** (`src/resources/ui-apps-constants.ts`):
+
+   ```typescript
+   /**
+    * My new app visualization.
+    * Used by: my-tool-name
+    */
+   export const MY_NEW_APP_RESOURCE_URI = 'ui://posthog/my-new-app.html'
+   ```
+
+3. **Register the resource** (`src/resources/ui-apps.ts`):
+
+   ```typescript
+   import myNewAppHtml from '../../ui-apps-dist/src/ui-apps/apps/my-new-app/index.html'
+   import { MY_NEW_APP_RESOURCE_URI } from './ui-apps-constants'
+
+   export async function registerUiAppResources(server: McpServer): Promise<void> {
+     registerQueryResultsApp(server)
+     registerMyNewApp(server) // Add this
+   }
+
+   function registerMyNewApp(server: McpServer): void {
+     server.registerResource(
+       'My New App',
+       MY_NEW_APP_RESOURCE_URI,
+       {
+         mimeType: RESOURCE_MIME_TYPE,
+         description: 'Description of what this visualizes',
+       },
+       async (uri) => ({
+         contents: [
+           {
+             uri: uri.toString(),
+             mimeType: RESOURCE_MIME_TYPE,
+             text: myNewAppHtml,
+           },
+         ],
+       })
+     )
+   }
+   ```
+
+4. **Reference from your tool**:
+
+   ```typescript
+   import { MY_NEW_APP_RESOURCE_URI } from '@/resources/ui-apps-constants'
+
+   const tool = (): ToolBase<typeof schema> => ({
+     name: 'my-tool',
+     schema,
+     handler: myHandler,
+     _meta: {
+       ui: { resourceUri: MY_NEW_APP_RESOURCE_URI },
+     },
+   })
+   ```
+
+5. **Build and test**:
+
+   ```bash
+   pnpm run build
    ```
 
 ## Deployment

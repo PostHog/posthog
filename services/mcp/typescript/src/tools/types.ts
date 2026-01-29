@@ -23,6 +23,8 @@ export type State = {
 
 export type Env = {
     INKEEP_API_KEY: string | undefined
+    POSTHOG_BASE_URL: string | undefined
+    POSTHOG_UI_APPS_TOKEN: string | undefined
 }
 
 export type Context = {
@@ -65,4 +67,6 @@ export type ToolUiMeta = {
 
 export type ToolMeta = {
     ui?: ToolUiMeta
+    // Legacy flat key for MCP Apps compatibility (ui/resourceUri)
+    'ui/resourceUri'?: string
 }

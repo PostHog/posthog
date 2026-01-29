@@ -1,15 +1,7 @@
-import type { TrendsQuery, InsightVizNode, ChartDisplayType, FunnelResult } from './types'
+import type { TrendsQuery, ChartDisplayType, FunnelResult } from './types'
 
-type TrendsQueryLike = TrendsQuery | InsightVizNode
-
-export function getDisplayType(query: TrendsQueryLike): ChartDisplayType {
-    if (query.kind === 'InsightVizNode' && query.source.kind === 'TrendsQuery') {
-        return query.source.trendsFilter?.display || 'ActionsLineGraph'
-    }
-    if (query.kind === 'TrendsQuery') {
-        return query.trendsFilter?.display || 'ActionsLineGraph'
-    }
-    return 'ActionsLineGraph'
+export function getDisplayType(query: TrendsQuery): ChartDisplayType {
+    return query.trendsFilter?.display || 'ActionsLineGraph'
 }
 
 export function isBarChart(displayType: ChartDisplayType): boolean {

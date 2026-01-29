@@ -1014,6 +1014,7 @@ export class ApiClient {
 
                 const queryResponseSchema = z.object({
                     results: z.any(),
+                    columns: z.any(),
                 })
 
                 return this.fetchWithSchema(url, queryResponseSchema, {
