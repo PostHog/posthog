@@ -1,3 +1,4 @@
+import { IconWarning } from '@posthog/icons'
 import { LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -99,8 +100,9 @@ export function openConfirmationModal({
                     </ul>
                     {isBeingDisabled && dependentFlags && dependentFlags.length > 0 && (
                         <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
-                            <p className="my-0">
-                                <strong>⚠️ Cannot disable this feature flag</strong>
+                            <p className="my-0 flex items-center gap-2">
+                                <IconWarning className="text-warning" />
+                                <strong>Cannot disable this feature flag</strong>
                             </p>
                             <p className="mb-0">
                                 This flag is referenced by {dependentFlags.length} other feature flag
