@@ -137,7 +137,6 @@ class TestQueryRunner(BaseTest):
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
                 "useMaterializedViews": True,
-                "usePresortedEventsTable": False,
             },
             "products_modifiers": {
                 "marketing_analytics": {
@@ -216,7 +215,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_10d08b5eaad18162e0e4148a88d636d94517b589c29c253770ad996196f4bbb5"
+        assert cache_key == "cache_42_33d5fd6142350d519b91d8038d1e8ffa196e7537fac2d8e7e4d5d8cec4c77914"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -230,7 +229,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_d7401ca838bc18ba5c24f0512b6e60c687f0183c55a8c6933ca769581f2e6c8f"
+        assert cache_key == "cache_42_4a1db218fb5be5dc03576db7d2f1fb8a94b8b1a0893993c4920c2dfb87110c9b"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -241,7 +240,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_2b964378e4e1ae5d050d8deddcb22266c74d8541e462103c06929e62a7549ed2"
+        assert cache_key == "cache_42_fcc00123ff03c0b10da8389d6745abb0aec8c3d99a9c8024a76823b5a23c921b"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
