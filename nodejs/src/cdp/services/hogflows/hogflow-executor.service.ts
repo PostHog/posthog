@@ -93,6 +93,7 @@ export class HogFlowExecutorService {
             trigger: new TriggerHandler(),
             conditional_branch: new ConditionalBranchHandler(),
             wait_until_condition: new ConditionalBranchHandler(),
+            wait_for_event: new ConditionalBranchHandler(),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
