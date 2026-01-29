@@ -129,6 +129,13 @@ ATTIO_ENDPOINTS: dict[str, AttioEndpointConfig] = {
             }
         ],
     ),
+    "workspace_members": AttioEndpointConfig(
+        name="workspace_members",
+        path="/v2/workspace_members",
+        method="GET",
+        primary_key="workspace_member_id",
+        incremental_fields=[],
+    ),
 }
 
 ENDPOINTS = tuple(ATTIO_ENDPOINTS.keys())
