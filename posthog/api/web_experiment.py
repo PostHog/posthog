@@ -166,7 +166,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
         # Get team's default stats method setting
         team = Team.objects.get(id=self.context["team_id"])
-        default_method = team.default_experiment_stats_method
+        default_method = team.default_experiment_stats_method or "bayesian"
         stats_config = {
             "method": default_method,
         }

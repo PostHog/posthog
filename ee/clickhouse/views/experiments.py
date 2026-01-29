@@ -298,7 +298,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         if not stats_config.get("method"):
             # Get team's default stats method setting
-            default_method = team.default_experiment_stats_method
+            default_method = team.default_experiment_stats_method or "bayesian"
             stats_config["method"] = default_method
 
         # Set default confidence level from team setting if not already set
