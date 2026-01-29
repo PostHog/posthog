@@ -5,7 +5,11 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from ee.models.rbac.role import Role, RoleMembership
+try:
+    from ee.models.rbac.role import Role, RoleMembership
+except ImportError:
+    Role = None  # type: ignore
+    RoleMembership = None  # type: ignore
 
 if TYPE_CHECKING:
     from posthog.approvals.actions.base import BaseAction

@@ -3,7 +3,10 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.approvals.models import Approval, ApprovalPolicy, ChangeRequest
 
-from ee.models.rbac.role import Role
+try:
+    from ee.models.rbac.role import Role
+except ImportError:
+    Role = None  # type: ignore
 
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
