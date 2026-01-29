@@ -43,17 +43,16 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         # Check for existing exported asset for this session
         # TODO: Find a way to attach Gemini Files API id to the asset, with an expiration date, so we can reuse it (instead of re-uploading)
         # or remove the video from Files API after processing it (so we don't hit Files API limits)
-        existing_asset = (
-            await ExportedAsset.objects.filter(
-                team_id=inputs.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
-                export_context__session_recording_id=inputs.session_id,
-            )
-            .exclude(content_location__isnull=True, content__isnull=True)
-            .afirst()
+        existing_asset = await ExportedAsset.objects.filter(
+            team_id=inputs.team_id,
+            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            export_context__session_recording_id=inputs.session_id,
+        ).afirst()
+        existing_asset_is_complete = existing_asset and (
+            existing_asset.content_location is not None or existing_asset.content is not None
         )
 
-        if existing_asset:
+        if existing_asset_is_complete:
             # Check duration from existing asset's export_context
             existing_duration_s = (
                 existing_asset.export_context.get("duration", 0) if existing_asset.export_context else 0
@@ -95,25 +94,34 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 extra={"session_id": inputs.session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
             )
             return None
-
-        # Create ExportedAsset
-        filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
-        created_at = now()
-        exported_asset = await ExportedAsset.objects.acreate(
-            team_id=inputs.team_id,
-            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
-            export_context={
-                "session_recording_id": inputs.session_id,
-                "timestamp": 0,  # Start from beginning
-                "filename": filename,
-                "duration": session_duration,
-                "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
-                "mode": "video",
-            },
-            created_by_id=inputs.user_id,
-            created_at=created_at,
-            expires_after=created_at + timedelta(days=EXPIRES_AFTER_DAYS),  # Similar to recordings TTL
-        )
+        # Reuse incomplete asset if available, otherwise create a new one
+        if existing_asset:
+            exported_asset = existing_asset
+            logger.debug(
+                f"Reusing incomplete asset {exported_asset.id} for session {inputs.session_id}",
+                session_id=inputs.session_id,
+                asset_id=exported_asset.id,
+                signals_type="session-summaries",
+            )
+        else:
+            filename = f"session-video-summary_{inputs.session_id}_{uuid.uuid4()}"
+            created_at = now()
+            exported_asset = await ExportedAsset.objects.acreate(
+                team_id=inputs.team_id,
+                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                export_context={
+                    "session_recording_id": inputs.session_id,
+                    "timestamp": 0,  # Start from beginning
+                    "filename": filename,
+                    "duration": session_duration,
+                    "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
+                    "mode": "video",
+                    "show_metadata_footer": True,
+                },
+                created_by_id=inputs.user_id,
+                created_at=created_at,
+                expires_after=created_at + timedelta(days=EXPIRES_AFTER_DAYS),  # Similar to recordings TTL
+            )
 
         # Actually export the video
         client = await async_connect()
