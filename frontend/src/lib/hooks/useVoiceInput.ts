@@ -93,65 +93,16 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
             return
         }
 
+        // Clean up existing recognition instance first
+        if (recognitionRef.current) {
+            recognitionRef.current.abort()
+            recognitionRef.current = null
+        }
+
         setError(null)
         setTranscript('')
 
         const recognition = new SpeechRecognitionClass()
-        recognition.continuous = continuous
-        recognition.interimResults = true
-        recognition.lang = lang
-
-        recognition.onstart = () => {
-            setIsListening(true)
-        }
-
-        recognition.onresult = (event: SpeechRecognitionEvent) => {
-            let finalTranscript = ''
-            let interimTranscript = ''
-
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const result = event.results[i]
-                if (result.isFinal) {
-                    finalTranscript += result[0].transcript
-                } else {
-                    interimTranscript += result[0].transcript
-                }
-            }
-
-            const currentTranscript = finalTranscript || interimTranscript
-            setTranscript(currentTranscript)
-
-            if (finalTranscript && onTranscript) {
-                onTranscript(finalTranscript)
-            }
-        }
-
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-            if (event.error === 'no-speech') {
-                setError('No speech detected. Please try again.')
-            } else if (event.error === 'audio-capture') {
-                setError('No microphone found. Please check your settings.')
-            } else if (event.error === 'not-allowed') {
-                setError('Microphone access denied. Please allow microphone access.')
-            } else {
-                setError(`Speech recognition error: ${event.error}`)
-            }
-            setIsListening(false)
-        }
-
-        recognition.onend = () => {
-            setIsListening(false)
-        }
-
-        recognitionRef.current = recognition
-
-        try {
-            recognition.start()
-        } catch (error) {
-            setError(`Failed to start speech recognition: ${error instanceof Error ? error.message : 'Unknown error'}`)
-            setIsListening(false)
-        }
-    }, [SpeechRecognitionClass, continuous, lang, onTranscript])
 
     const stopListening = useCallback(() => {
         if (recognitionRef.current) {
