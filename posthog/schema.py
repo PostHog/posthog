@@ -17997,7 +17997,8 @@ class EndpointRequest(BaseModel):
         description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
-        default=None, description="Target a specific version for updates (optional, defaults to current version)"
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
     )
 
 

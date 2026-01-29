@@ -174,8 +174,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Both return the same base fields. EndpointVersion adds version-specific fields.
         """
-        is_version = isinstance(obj, EndpointVersion)
-        if is_version:
+        if isinstance(obj, EndpointVersion):
             endpoint = obj.endpoint
             version = obj
         else:
@@ -194,7 +193,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "name": endpoint.name,
             "description": version.description,
             "query": version.query,
-            "is_active": version.is_active if is_version else endpoint.is_active,
+            "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
             "cache_age_seconds": version.cache_age_seconds,
             "endpoint_path": endpoint.endpoint_path,
             "url": url,
@@ -209,7 +208,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "materialization": self._build_materialization_info(version),
         }
 
-        if is_version:
+        if isinstance(obj, EndpointVersion):
             result["version"] = version.version
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active

@@ -3387,6 +3387,11 @@ export interface EndpointRequestApi {
         | null
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncIntervalApi | null
+    /**
+     * Target a specific version for updates (optional, defaults to current version)
+     * @nullable
+     */
+    version?: number | null
 }
 
 /**
