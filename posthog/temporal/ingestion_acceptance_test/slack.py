@@ -14,22 +14,16 @@ logger = logging.getLogger(__name__)
 def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
     """Send test results to Slack via incoming webhook.
 
-    Only sends notifications when there are test failures or errors.
-
     Args:
         config: Configuration containing the Slack webhook URL.
         result: The test suite result to report.
 
     Returns:
         True if notification was sent successfully, False otherwise.
-        Returns True if Slack is not configured or no failures (no-op).
+        Returns True if Slack is not configured (no-op).
     """
     if not config.slack_webhook_url:
         logger.debug("Slack webhook URL not configured, skipping notification")
-        return True
-
-    if result.success:
-        logger.debug("All tests passed, skipping Slack notification")
         return True
 
     blocks = _build_slack_blocks(config, result)
