@@ -1,26 +1,94 @@
 import type { ReactElement, CSSProperties } from 'react'
 import type {
-    VisualizationPayload,
-    TrendsPayload,
-    FunnelPayload,
-    TablePayload,
-    ErrorListPayload,
-    ErrorTracePayload,
+    TrendsResult,
+    FunnelResult,
+    HogQLResult,
+    TrendsQuery,
+    FunnelsQuery,
 } from './types'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { TableVisualizer } from './TableVisualizer'
-import { ErrorListVisualizer } from './ErrorListVisualizer'
-import { ErrorTraceVisualizer } from './ErrorTraceVisualizer'
 import { PostHogLink } from './PostHogLink'
 
-function isVisualizationPayload(data: unknown): data is VisualizationPayload {
+type VisualizationType = 'trends' | 'funnel' | 'table'
+
+/**
+ * Check if results look like TrendsResult (array of items with data/labels arrays).
+ */
+function isTrendsResult(results: unknown): results is TrendsResult {
+    if (!Array.isArray(results) || results.length === 0) return false
+    const first = results[0] as Record<string, unknown>
+    // TrendsResult items have: data (number[]), labels or days (string[])
     return (
-        typeof data === 'object' &&
-        data !== null &&
-        '_visualization' in data &&
-        typeof (data as VisualizationPayload)._visualization === 'string'
+        typeof first === 'object' &&
+        first !== null &&
+        (Array.isArray(first.data) || Array.isArray(first.labels) || Array.isArray(first.days))
     )
+}
+
+/**
+ * Check if results look like FunnelResult (array of steps with count/order/name).
+ */
+function isFunnelResult(results: unknown): results is FunnelResult {
+    if (!Array.isArray(results) || results.length === 0) return false
+    // Handle both flat array and nested array formats
+    const items = Array.isArray(results[0]) ? (results[0] as unknown[]) : results
+    if (items.length === 0) return false
+    const first = items[0] as Record<string, unknown>
+    // FunnelResult items have: name, count, order
+    return (
+        typeof first === 'object' &&
+        first !== null &&
+        'count' in first &&
+        ('order' in first || 'action_id' in first || 'name' in first)
+    )
+}
+
+/**
+ * Check if results look like HogQLResult (object with columns and results arrays).
+ */
+function isHogQLResult(results: unknown): results is HogQLResult {
+    if (typeof results !== 'object' || results === null) return false
+    const r = results as Record<string, unknown>
+    return 'columns' in r && 'results' in r && Array.isArray(r.columns) && Array.isArray(r.results)
+}
+
+/**
+ * Infer the visualization type from the data structure.
+ * This mimics how the main PostHog app determines visualization from query/results.
+ */
+function inferVisualizationType(data: unknown): VisualizationType | null {
+    if (typeof data !== 'object' || data === null) return null
+    const d = data as Record<string, unknown>
+
+    const results = d.results
+
+    // Infer from results structure first (most reliable)
+    if (isHogQLResult(results)) {
+        return 'table'
+    }
+    if (isTrendsResult(results)) {
+        return 'trends'
+    }
+    if (isFunnelResult(results)) {
+        return 'funnel'
+    }
+
+    // Infer from query kind as fallback
+    const query = d.query as Record<string, unknown> | undefined
+    if (query?.kind === 'TrendsQuery') return 'trends'
+    if (query?.kind === 'FunnelsQuery') return 'funnel'
+    if (query?.kind === 'HogQLQuery') return 'table'
+
+    return null
+}
+
+/** Data payload from MCP tools */
+interface DataPayload {
+    query?: TrendsQuery | FunnelsQuery | Record<string, unknown>
+    results: TrendsResult | FunnelResult | HogQLResult
+    _posthogUrl?: string
 }
 
 export interface ComponentProps {
@@ -47,77 +115,69 @@ export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
         letterSpacing: '0.05em',
     }
 
-    if (!isVisualizationPayload(data)) {
+    const payload = data as DataPayload
+    const visualizationType = inferVisualizationType(data)
+
+    if (!visualizationType) {
         return (
             <div style={containerStyle}>
+                <div style={titleStyle}>Results</div>
                 <div
                     style={{
-                        padding: '2rem',
+                        padding: '1.5rem',
                         textAlign: 'center',
                         color: 'var(--color-text-secondary, #6b7280)',
                     }}
                 >
-                    Invalid data format. Expected _visualization field.
+                    <div style={{ marginBottom: '0.5rem' }}>
+                        This visualization type isn't supported in this view yet.
+                    </div>
+                    {payload._posthogUrl && (
+                        <PostHogLink url={payload._posthogUrl} onOpen={onOpenLink} />
+                    )}
                 </div>
             </div>
         )
     }
 
-    const payload = data
-
     const renderVisualization = (): ReactElement => {
-        switch (payload._visualization) {
+        switch (visualizationType) {
             case 'trends':
                 return (
                     <TrendsVisualizer
-                        query={(payload as TrendsPayload).query}
-                        results={(payload as TrendsPayload).results}
+                        query={payload.query as TrendsQuery}
+                        results={payload.results as TrendsResult}
                     />
                 )
 
             case 'funnel':
                 return (
                     <FunnelVisualizer
-                        query={(payload as FunnelPayload).query}
-                        results={(payload as FunnelPayload).results}
+                        query={payload.query as FunnelsQuery}
+                        results={payload.results as FunnelResult}
                     />
                 )
 
             case 'table':
-                return <TableVisualizer results={(payload as TablePayload).results} />
-
-            case 'error-list':
-                return <ErrorListVisualizer issues={(payload as ErrorListPayload).issues} />
-
-            case 'error-trace':
-                return (
-                    <ErrorTraceVisualizer
-                        issue={(payload as ErrorTracePayload).issue}
-                        traces={(payload as ErrorTracePayload).traces}
-                    />
-                )
+                return <TableVisualizer results={payload.results as HogQLResult} />
 
             default:
                 return (
                     <div style={{ color: 'var(--color-text-secondary, #6b7280)' }}>
-                        Unknown visualization type: {(payload as VisualizationPayload)._visualization}
+                        Unknown visualization type: {visualizationType}
                     </div>
                 )
         }
     }
 
     const getTitle = (): string => {
-        switch (payload._visualization) {
+        switch (visualizationType) {
             case 'trends':
                 return 'Trends'
             case 'funnel':
                 return 'Funnel'
             case 'table':
                 return 'Query results'
-            case 'error-list':
-                return 'Errors'
-            case 'error-trace':
-                return 'Error trace'
             default:
                 return 'Results'
         }

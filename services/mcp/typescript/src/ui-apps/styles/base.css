@@ -65,16 +65,14 @@ html {
 }
 
 body {
+    /* Minimum height for ResizeObserver to report to host */
+    min-height: 200px;
     padding: 0;
     margin: 0;
     font-family: var(--font-sans);
     line-height: 1.5;
     color: var(--color-text-primary);
     background-color: var(--color-background-primary);
-}
-
-#root {
-    min-height: 100vh;
 }
 
 /* Loading state */

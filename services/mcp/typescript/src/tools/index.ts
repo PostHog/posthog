@@ -72,6 +72,8 @@ import getAllActions from './actions/getAll'
 import updateAction from './actions/update'
 // Search
 import entitySearch from './search/entitySearch'
+// Demo
+import demoMcpUiApps from './demo/demoMcpUiApps'
 // Misc
 import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
@@ -158,6 +160,9 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Search
     'entity-search': entitySearch,
+
+    // Demo
+    'demo-mcp-ui-apps': demoMcpUiApps,
 }
 
 export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
