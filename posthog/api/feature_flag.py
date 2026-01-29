@@ -890,6 +890,19 @@ class FeatureFlagSerializer(
                     f"Please update or disable the dependent flags first."
                 )
 
+        # Check for dependency conflicts when enabling a flag
+        if "active" in validated_data and validated_data["active"] is True and instance.active is False:
+            # Check if this flag depends on any disabled flags
+            disabled_dependencies = self._find_disabled_dependencies(instance)
+            if disabled_dependencies:
+                disabled_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in disabled_dependencies[:5]]
+                if len(disabled_dependencies) > 5:
+                    disabled_flag_names.append(f"and {len(disabled_dependencies) - 5} more")
+                raise exceptions.ValidationError(
+                    f"Cannot enable this feature flag because it depends on disabled flags: {', '.join(disabled_flag_names)}. "
+                    f"Please enable the dependency flags first."
+                )
+
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
         old_key = instance.key
@@ -1038,6 +1051,27 @@ class FeatureFlagSerializer(
                 params=[str(flag_to_check.id)],
             )
             .order_by("key")
+        )
+
+    def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
+        """Find all disabled flags that the given flag depends on."""
+        dependency_ids = []
+
+        # Extract flag dependencies from filters
+        filters = flag_to_check.filters or {}
+        for group in filters.get("groups", []):
+            for prop in group.get("properties", []):
+                if prop.get("type") == "flag":
+                    dependency_ids.append(int(prop.get("key")))
+
+        if not dependency_ids:
+            return []
+
+        # Find disabled dependency flags
+        return list(
+            FeatureFlag.objects.filter(
+                team=flag_to_check.team, id__in=dependency_ids, deleted=False, active=False
+            ).order_by("key")
         )
 
     def _update_filters(self, validated_data):

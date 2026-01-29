@@ -296,3 +296,96 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cannot_enable_dependent_flag_when_dependency_disabled(self):
+        """Test that dependent flags cannot be enabled when their dependencies are disabled."""
+        # Create base flag
+        base_flag = self.create_flag("base_flag")
+
+        # Create dependent flag that's initially inactive
+        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id], active=False)
+
+        # Disable the base flag (should work since dependent is inactive)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/",
+            {"active": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify base flag is disabled
+        base_flag.refresh_from_db()
+        self.assertFalse(base_flag.active)
+
+        # Should NOT be able to enable dependent flag when its dependency is disabled
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{dependent_flag.id}/",
+            {"active": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot enable this feature flag because it depends on disabled flags", response.json()["detail"])
+        self.assertIn(f"{base_flag.key} (ID: {base_flag.id})", response.json()["detail"])
+
+        # Verify dependent flag is still disabled
+        dependent_flag.refresh_from_db()
+        self.assertFalse(dependent_flag.active)
+
+    def test_cannot_enable_flag_with_multiple_disabled_dependencies(self):
+        """Test error message when trying to enable flag with multiple disabled dependencies."""
+        # Create base flags
+        flag_a = self.create_flag("flag_a", active=False)
+        flag_b = self.create_flag("flag_b", active=False)
+        flag_c = self.create_flag("flag_c")  # This one is active
+
+        # Create dependent flag that depends on all three
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependent_flag",
+            name="Dependent Flag",
+            active=False,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(flag_a.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            },
+                            {
+                                "key": str(flag_b.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            },
+                            {
+                                "key": str(flag_c.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "flag_evaluates_to",
+                            },
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Try to enable dependent flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{dependent_flag.id}/",
+            {"active": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+
+        # Should mention both disabled flags
+        self.assertIn(f"{flag_a.key} (ID: {flag_a.id})", error_detail)
+        self.assertIn(f"{flag_b.key} (ID: {flag_b.id})", error_detail)
+        # Should NOT mention the active flag
+        self.assertNotIn(f"{flag_c.key} (ID: {flag_c.id})", error_detail)
