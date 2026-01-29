@@ -266,7 +266,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     44: ErrorCodeMeta("ILLEGAL_COLUMN"),
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
     47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
-    48: ErrorCodeMeta("NOT_IMPLEMENTED"),
+    48: ErrorCodeMeta("NOT_IMPLEMENTED", user_safe=True),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
     50: ErrorCodeMeta("UNKNOWN_TYPE"),
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
