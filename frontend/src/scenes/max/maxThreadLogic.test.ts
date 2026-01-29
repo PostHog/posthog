@@ -5,6 +5,10 @@ import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
@@ -517,6 +521,226 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('queueing', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.unmount()
+        })
+
+        it('queues prompts while loading and omits null fields', async () => {
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            const streamSpy = mockStream()
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Queued prompt')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSpy).not.toHaveBeenCalled()
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    content: 'Queued prompt',
+                })
+            )
+
+            const queuedPayload = enqueueSpy.mock.calls[0][1]
+            expect(queuedPayload).not.toHaveProperty('agent_mode')
+            expect(queuedPayload).not.toHaveProperty('billing_context')
+            expect(queuedPayload).not.toHaveProperty('ui_context')
+        })
+
+        it('includes ui_context and agent_mode when set', async () => {
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+            mockStream()
+
+            logic.actions.setAgentMode(AgentMode.SQL)
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Queued prompt', true, { form_answers: { q1: 'answer1' } })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    content: 'Queued prompt',
+                    agent_mode: AgentMode.SQL,
+                    ui_context: { form_answers: { q1: 'answer1' } },
+                })
+            )
+        })
+
+        it('shows an error toast when the queue is full', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            const enqueueSpy = jest.spyOn(api.conversations.queue, 'enqueue')
+
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: 'first', created_at: new Date().toISOString() },
+                { id: 'queue-2', content: 'second', created_at: new Date().toISOString() },
+            ])
+            logic.actions.setQueueLimit(2)
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            logic.actions.askMax('Queued prompt')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(enqueueSpy).not.toHaveBeenCalled()
+            expect(toastSpy).toHaveBeenCalledWith('You can only queue two messages at a time.')
+        })
+
+        it('updates queued messages from the API', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Original',
+                created_at: new Date().toISOString(),
+            }
+            jest.spyOn(api.conversations.queue, 'update').mockResolvedValue({
+                messages: [{ ...queueMessage, content: 'Updated' }],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.updateQueuedMessage('queue-1', 'Updated')
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([{ ...queueMessage, content: 'Updated' }])
+        })
+
+        it('deletes queued messages from the API', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Original',
+                created_at: new Date().toISOString(),
+            }
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.deleteQueuedMessage(queueMessage.id)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([])
+        })
+
+        it('clears queued messages when approvals are pending', async () => {
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setQueuedMessages([{ id: 'queue-1', content: 'First', created_at: new Date().toISOString() }])
+            logic.actions.setQueueLimit(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation({
+                    ...MOCK_IN_PROGRESS_CONVERSATION,
+                    pending_approvals: [
+                        {
+                            proposal_id: 'proposal-1',
+                            decision_status: 'pending',
+                            tool_name: 'create_form',
+                            preview: 'Preview',
+                            payload: {},
+                        },
+                    ],
+                })
+            }).toMatchValues({
+                queuedMessages: [],
+            })
+        })
+
+        it('loads queued messages on mount', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Queued',
+                created_at: new Date().toISOString(),
+            }
+            ;(api.conversations.queue.list as jest.Mock).mockResolvedValue({
+                messages: [queueMessage],
+                max_queue_messages: 2,
+            })
+
+            logic.unmount()
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([])
+        })
+
+        it('consumes queued messages via the API', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Queued',
+                created_at: new Date().toISOString(),
+            }
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            await expectLogic(logic, () => {
+                logic.actions.consumeQueuedMessage(queueMessage)
+            }).toMatchValues({
+                queuedMessages: [],
+            })
+        })
+
+        it('clears queue state when switching conversations', async () => {
+            const queueMessage = {
+                id: 'queue-1',
+                content: 'Queued',
+                created_at: new Date().toISOString(),
+            }
+            const listSpy = jest.spyOn(api.conversations.queue, 'list').mockResolvedValue({
+                messages: [],
+                max_queue_messages: 2,
+            })
+
+            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueueLimit(2)
+
+            logic.actions.setConversation({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                id: 'new-conversation-id',
+            })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.queuedMessages).toEqual([])
+            expect(listSpy).toHaveBeenCalledWith('new-conversation-id')
         })
     })
 
