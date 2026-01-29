@@ -1,5 +1,7 @@
 """Tests for survey summarization module."""
 
+import json
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -112,8 +114,6 @@ class TestSummarizeWithGemini:
             "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
             "key_insight": "Focus on performance",
         }
-        import json
-
         mock_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
 
         result = summarize_with_gemini("What do you want?", ["Make it faster"])
