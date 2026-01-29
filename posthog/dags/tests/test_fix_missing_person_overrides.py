@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.fix_missing_person_overrides import (
+    fix_missing_person_overrides_job,
     get_existing_override,
     get_mismatched_distinct_ids,
     get_missing_overrides_for_distinct_ids,
@@ -292,3 +293,132 @@ class TestIntegration(ClickhouseTestMixin, BaseTest):
         override = get_existing_override(self.team.id, "merged_user")
         assert override is not None
         assert override[0] == str(new_person_id)
+
+
+class TestFixMissingPersonOverridesJob(ClickhouseTestMixin, BaseTest):
+    def test_inserts_overrides_for_mismatched_distinct_ids(self):
+        """Job inserts overrides for distinct_ids where event person_id != pdi2 person_id."""
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        # pdi2 says distinct_id -> NEW person_id (source of truth after merge)
+        insert_pdi2_records([(self.team.id, "job_test_user", new_person_id, 2, 0)])
+
+        # Event was written with OLD person_id (before the merge)
+        _create_event(
+            event="test_event",
+            distinct_id="job_test_user",
+            person_id=str(old_person_id),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        # Run the job with dry_run=False
+        fix_missing_person_overrides_job.execute_in_process(
+            run_config={
+                "ops": {
+                    "fix_missing_person_overrides_op": {
+                        "config": {
+                            "team_id": self.team.id,
+                            "dry_run": False,
+                        }
+                    }
+                }
+            }
+        )
+
+        # Verify override was created pointing to NEW person_id (from pdi2)
+        overrides = get_all_overrides(self.team.id)
+        override_dict = dict(overrides)
+
+        assert "job_test_user" in override_dict
+        assert override_dict["job_test_user"] == str(new_person_id)
+
+    def test_dry_run_does_not_insert(self):
+        """Job does not insert overrides when dry_run=True."""
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        # pdi2 says distinct_id -> NEW person_id
+        insert_pdi2_records([(self.team.id, "dry_run_user", new_person_id, 2, 0)])
+
+        # Event was written with OLD person_id
+        _create_event(
+            event="test_event",
+            distinct_id="dry_run_user",
+            person_id=str(old_person_id),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        # Run the job with dry_run=True
+        fix_missing_person_overrides_job.execute_in_process(
+            run_config={
+                "ops": {
+                    "fix_missing_person_overrides_op": {
+                        "config": {
+                            "team_id": self.team.id,
+                            "dry_run": True,
+                        }
+                    }
+                }
+            }
+        )
+
+        # Verify no override was created
+        overrides = get_all_overrides(self.team.id)
+        assert len(overrides) == 0
+
+    def test_skips_distinct_ids_with_existing_overrides(self):
+        """Job does not insert overrides for distinct_ids that already have one."""
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        # pdi2 says both distinct_ids -> NEW person_id
+        insert_pdi2_records(
+            [
+                (self.team.id, "has_override", new_person_id, 2, 0),
+                (self.team.id, "no_override", new_person_id, 2, 0),
+            ]
+        )
+
+        # One already has an override
+        insert_override_records([(self.team.id, "has_override", new_person_id, 2, 0)])
+
+        # Events for both were written with OLD person_id
+        _create_event(
+            event="test_event",
+            distinct_id="has_override",
+            person_id=str(old_person_id),
+            team=self.team,
+        )
+        _create_event(
+            event="test_event",
+            distinct_id="no_override",
+            person_id=str(old_person_id),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        # Run the job
+        fix_missing_person_overrides_job.execute_in_process(
+            run_config={
+                "ops": {
+                    "fix_missing_person_overrides_op": {
+                        "config": {
+                            "team_id": self.team.id,
+                            "dry_run": False,
+                        }
+                    }
+                }
+            }
+        )
+
+        # Verify only the missing override was created
+        overrides = get_all_overrides(self.team.id)
+        override_dict = dict(overrides)
+
+        assert len(overrides) == 2
+        assert "has_override" in override_dict
+        assert "no_override" in override_dict
+        assert override_dict["no_override"] == str(new_person_id)
