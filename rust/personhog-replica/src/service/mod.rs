@@ -1,30 +1,39 @@
+mod consistency;
+mod error;
+mod types;
+
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse,
-    GetExistingPersonIdsWithOverrideKeysRequest, GetExistingPersonIdsWithOverrideKeysResponse,
-    GetGroupRequest, GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonIdsAndHashKeyOverridesRequest, GetPersonIdsAndHashKeyOverridesResponse,
-    GetPersonRequest, GetPersonResponse, GetPersonsByDistinctIdsInTeamRequest,
-    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, Group, GroupKey,
-    GroupTypeMapping, GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey,
-    GroupTypeMappingsResponse, GroupWithKey, GroupsResponse, HashKeyOverride, Person,
-    PersonDistinctIds, PersonIdWithOverrideKeys, PersonIdWithOverrides, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
+    GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
+    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext, PersonDistinctIds,
+    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
-use tracing::error;
 use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
+
+use consistency::{reject_strong_consistency, to_storage_consistency};
+use error::log_and_convert_error;
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
@@ -34,88 +43,6 @@ impl PersonHogReplicaService {
     pub fn new(storage: Arc<dyn FullStorage>) -> Self {
         Self { storage }
     }
-}
-
-// ============================================================
-// Conversion functions: storage types -> proto types
-// ============================================================
-
-fn person_to_proto(person: storage::Person) -> Person {
-    Person {
-        id: person.id,
-        uuid: person.uuid.to_string(),
-        team_id: person.team_id,
-        properties: serde_json::to_vec(&person.properties).unwrap_or_default(),
-        properties_last_updated_at: person
-            .properties_last_updated_at
-            .map(|v| serde_json::to_vec(&v).unwrap_or_default())
-            .unwrap_or_default(),
-        properties_last_operation: person
-            .properties_last_operation
-            .map(|v| serde_json::to_vec(&v).unwrap_or_default())
-            .unwrap_or_default(),
-        created_at: person.created_at.timestamp_millis(),
-        version: person.version.unwrap_or(0),
-        is_identified: person.is_identified,
-        is_user_id: person.is_user_id.unwrap_or(false),
-    }
-}
-
-fn group_to_proto(group: storage::Group) -> Group {
-    Group {
-        id: group.id,
-        team_id: group.team_id,
-        group_type_index: group.group_type_index,
-        group_key: group.group_key,
-        group_properties: serde_json::to_vec(&group.group_properties).unwrap_or_default(),
-        created_at: group.created_at.timestamp_millis(),
-        properties_last_updated_at: group
-            .properties_last_updated_at
-            .map(|v| serde_json::to_vec(&v).unwrap_or_default())
-            .unwrap_or_default(),
-        properties_last_operation: group
-            .properties_last_operation
-            .map(|v| serde_json::to_vec(&v).unwrap_or_default())
-            .unwrap_or_default(),
-        version: group.version,
-    }
-}
-
-fn group_type_mapping_to_proto(mapping: storage::GroupTypeMapping) -> GroupTypeMapping {
-    GroupTypeMapping {
-        id: mapping.id,
-        team_id: mapping.team_id,
-        project_id: mapping.project_id,
-        group_type: mapping.group_type,
-        group_type_index: mapping.group_type_index,
-        name_singular: mapping.name_singular,
-        name_plural: mapping.name_plural,
-        default_columns: mapping
-            .default_columns
-            .map(|v| serde_json::to_vec(&v).unwrap_or_default()),
-        detail_dashboard_id: mapping.detail_dashboard_id,
-        created_at: mapping.created_at.map(|t| t.timestamp_millis()),
-    }
-}
-
-fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Status {
-    let status = match &err {
-        // Connection/pool errors are transient - signal client to retry
-        storage::StorageError::Connection(msg) => {
-            error!(operation, error = %msg, "Database connection error");
-            Status::unavailable(format!("Database unavailable: {msg}"))
-        }
-        storage::StorageError::PoolExhausted => {
-            error!(operation, "Database pool exhausted");
-            Status::unavailable("Database pool exhausted")
-        }
-        // Query errors are internal server errors
-        storage::StorageError::Query(msg) => {
-            error!(operation, error = %msg, "Database query error");
-            Status::internal(format!("Database error: {msg}"))
-        }
-    };
-    status
 }
 
 #[tonic::async_trait]
@@ -129,6 +56,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let person = self
             .storage
@@ -137,7 +65,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_person"))?;
 
         Ok(Response::new(GetPersonResponse {
-            person: person.map(person_to_proto),
+            person: person.map(Into::into),
         }))
     }
 
@@ -146,6 +74,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let persons = self
             .storage
@@ -161,7 +90,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(PersonsResponse {
-            persons: persons.into_iter().map(person_to_proto).collect(),
+            persons: persons.into_iter().map(Into::into).collect(),
             missing_ids,
         }))
     }
@@ -171,6 +100,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonByUuidRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let uuid = Uuid::parse_str(&req.uuid)
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
@@ -182,7 +112,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))?;
 
         Ok(Response::new(GetPersonResponse {
-            person: person.map(person_to_proto),
+            person: person.map(Into::into),
         }))
     }
 
@@ -191,6 +121,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsByUuidsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let uuids: Vec<Uuid> = req
             .uuids
@@ -206,13 +137,13 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_persons_by_uuids"))?;
 
         Ok(Response::new(PersonsResponse {
-            persons: persons.into_iter().map(person_to_proto).collect(),
+            persons: persons.into_iter().map(Into::into).collect(),
             missing_ids: Vec::new(),
         }))
     }
 
     // ============================================================
-    // Person lookups by Distinct ID (HIGHEST VOLUME)
+    // Person lookups by Distinct ID
     // ============================================================
 
     async fn get_person_by_distinct_id(
@@ -220,6 +151,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonByDistinctIdRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let person = self
             .storage
@@ -228,7 +160,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .map_err(|e| log_and_convert_error(e, "get_person_by_distinct_id"))?;
 
         Ok(Response::new(GetPersonResponse {
-            person: person.map(person_to_proto),
+            person: person.map(Into::into),
         }))
     }
 
@@ -237,6 +169,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsByDistinctIdsInTeamRequest>,
     ) -> Result<Response<PersonsByDistinctIdsInTeamResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let results = self
             .storage
@@ -249,7 +182,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .into_iter()
                 .map(|(distinct_id, person)| PersonWithDistinctIds {
                     distinct_id,
-                    person: person.map(person_to_proto),
+                    person: person.map(Into::into),
                 })
                 .collect(),
         }))
@@ -260,6 +193,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<PersonsByDistinctIdsResponse>, Status> {
         let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
 
         let team_distinct_ids: Vec<(i64, String)> = req
             .team_distinct_ids
@@ -282,7 +216,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                             team_id,
                             distinct_id,
                         }),
-                        person: person.map(person_to_proto),
+                        person: person.map(Into::into),
                     },
                 )
                 .collect(),
@@ -298,10 +232,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetDistinctIdsForPersonRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
 
@@ -321,10 +256,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetDistinctIdsForPersonsRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let mappings = self
             .storage
-            .get_distinct_ids_for_persons(req.team_id, &req.person_ids)
+            .get_distinct_ids_for_persons(req.team_id, &req.person_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_persons"))?;
 
@@ -357,22 +293,39 @@ impl PersonHogReplica for PersonHogReplicaService {
     // Feature Flag support
     // ============================================================
 
-    async fn get_person_ids_and_hash_key_overrides(
+    async fn get_hash_key_override_context(
         &self,
-        request: Request<GetPersonIdsAndHashKeyOverridesRequest>,
-    ) -> Result<Response<GetPersonIdsAndHashKeyOverridesResponse>, Status> {
+        request: Request<GetHashKeyOverrideContextRequest>,
+    ) -> Result<Response<GetHashKeyOverrideContextResponse>, Status> {
         let req = request.into_inner();
+
+        // Strong consistency routes to the primary database, which is important for this endpoint:
+        // 1. The caller has just written hash key overrides and needs to read them back
+        // 2. The caller needs the latest person existence state (e.g., for write validation)
+        //
+        // Note: This implementation queries person data on the primary database directly to attain strong consistency.
+        // When personhog-leader is implemented, person table data will be cached on leader pods.
+        // At that point, strong consistency for person data will require routing to the leader
+        // service rather than the primary database.
+        // Once that service is implemented and in use, using personhog-replica for this query will have to be
+        // re-assessed as its consistency guarantee will be broken
+        let consistency = to_storage_consistency(&req.read_options);
 
         let results = self
             .storage
-            .get_person_ids_and_hash_key_overrides(req.team_id, &req.distinct_ids)
+            .get_hash_key_override_context(
+                req.team_id,
+                &req.distinct_ids,
+                req.check_person_exists,
+                consistency,
+            )
             .await
-            .map_err(|e| log_and_convert_error(e, "get_person_ids_and_hash_key_overrides"))?;
+            .map_err(|e| log_and_convert_error(e, "get_hash_key_override_context"))?;
 
-        Ok(Response::new(GetPersonIdsAndHashKeyOverridesResponse {
+        Ok(Response::new(GetHashKeyOverrideContextResponse {
             results: results
                 .into_iter()
-                .map(|r| PersonIdWithOverrides {
+                .map(|r| ProtoHashKeyOverrideContext {
                     person_id: r.person_id,
                     distinct_id: r.distinct_id,
                     overrides: r
@@ -383,34 +336,53 @@ impl PersonHogReplica for PersonHogReplicaService {
                             hash_key: o.hash_key,
                         })
                         .collect(),
+                    existing_feature_flag_keys: r.existing_feature_flag_keys,
                 })
                 .collect(),
         }))
     }
 
-    async fn get_existing_person_ids_with_override_keys(
+    async fn upsert_hash_key_overrides(
         &self,
-        request: Request<GetExistingPersonIdsWithOverrideKeysRequest>,
-    ) -> Result<Response<GetExistingPersonIdsWithOverrideKeysResponse>, Status> {
+        request: Request<UpsertHashKeyOverridesRequest>,
+    ) -> Result<Response<UpsertHashKeyOverridesResponse>, Status> {
         let req = request.into_inner();
 
-        let results = self
-            .storage
-            .get_existing_person_ids_with_override_keys(req.team_id, &req.distinct_ids)
-            .await
-            .map_err(|e| log_and_convert_error(e, "get_existing_person_ids_with_override_keys"))?;
+        let overrides: Vec<storage::HashKeyOverrideInput> = req
+            .overrides
+            .into_iter()
+            .map(|o| storage::HashKeyOverrideInput {
+                person_id: o.person_id,
+                feature_flag_key: o.feature_flag_key,
+            })
+            .collect();
 
-        Ok(Response::new(
-            GetExistingPersonIdsWithOverrideKeysResponse {
-                results: results
-                    .into_iter()
-                    .map(|r| PersonIdWithOverrideKeys {
-                        person_id: r.person_id,
-                        existing_feature_flag_keys: r.existing_feature_flag_keys,
-                    })
-                    .collect(),
-            },
-        ))
+        let inserted_count = self
+            .storage
+            .upsert_hash_key_overrides(req.team_id, &overrides, &req.hash_key)
+            .await
+            .map_err(|e| log_and_convert_error(e, "upsert_hash_key_overrides"))?;
+
+        Ok(Response::new(UpsertHashKeyOverridesResponse {
+            inserted_count,
+        }))
+    }
+
+    async fn delete_hash_key_overrides_by_teams(
+        &self,
+        request: Request<DeleteHashKeyOverridesByTeamsRequest>,
+    ) -> Result<Response<DeleteHashKeyOverridesByTeamsResponse>, Status> {
+        let req = request.into_inner();
+
+        let deleted_count = self
+            .storage
+            .delete_hash_key_overrides_by_teams(&req.team_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_hash_key_overrides_by_teams"))?;
+
+        Ok(Response::new(DeleteHashKeyOverridesByTeamsResponse {
+            deleted_count,
+        }))
     }
 
     // ============================================================
@@ -422,10 +394,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<CheckCohortMembershipRequest>,
     ) -> Result<Response<CohortMembershipResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let memberships = self
             .storage
-            .check_cohort_membership(req.person_id, &req.cohort_ids)
+            .check_cohort_membership(req.person_id, &req.cohort_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "check_cohort_membership"))?;
 
@@ -449,15 +422,21 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupRequest>,
     ) -> Result<Response<GetGroupResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let group = self
             .storage
-            .get_group(req.team_id, req.group_type_index, &req.group_key)
+            .get_group(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key,
+                consistency,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_group"))?;
 
         Ok(Response::new(GetGroupResponse {
-            group: group.map(group_to_proto),
+            group: group.map(Into::into),
         }))
     }
 
@@ -466,6 +445,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupsRequest>,
     ) -> Result<Response<GroupsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let identifiers: Vec<storage::GroupIdentifier> = req
             .group_identifiers
@@ -478,7 +458,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let groups = self
             .storage
-            .get_groups(req.team_id, &identifiers)
+            .get_groups(req.team_id, &identifiers, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_groups"))?;
 
@@ -495,7 +475,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GroupsResponse {
-            groups: groups.into_iter().map(group_to_proto).collect(),
+            groups: groups.into_iter().map(Into::into).collect(),
             missing_groups,
         }))
     }
@@ -505,6 +485,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let keys: Vec<storage::GroupKey> = req
             .keys
@@ -518,7 +499,7 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         let results = self
             .storage
-            .get_groups_batch(&keys)
+            .get_groups_batch(&keys, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_groups_batch"))?;
 
@@ -540,7 +521,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                         group_type_index: k.group_type_index,
                         group_key: k.group_key,
                     }),
-                    group: found.get(&key).cloned().map(group_to_proto),
+                    group: found.get(&key).cloned().map(Into::into),
                 }
             })
             .collect();
@@ -557,18 +538,16 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByTeamIdRequest>,
     ) -> Result<Response<GroupTypeMappingsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let mappings = self
             .storage
-            .get_group_type_mappings_by_team_id(req.team_id)
+            .get_group_type_mappings_by_team_id(req.team_id, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_team_id"))?;
 
         Ok(Response::new(GroupTypeMappingsResponse {
-            mappings: mappings
-                .into_iter()
-                .map(group_type_mapping_to_proto)
-                .collect(),
+            mappings: mappings.into_iter().map(Into::into).collect(),
         }))
     }
 
@@ -577,10 +556,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByTeamIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let all_mappings = self
             .storage
-            .get_group_type_mappings_by_team_ids(&req.team_ids)
+            .get_group_type_mappings_by_team_ids(&req.team_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_team_ids"))?;
 
@@ -590,7 +570,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             by_team
                 .entry(mapping.team_id)
                 .or_default()
-                .push(group_type_mapping_to_proto(mapping));
+                .push(Into::into(mapping));
         }
 
         let results = req
@@ -610,18 +590,16 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByProjectIdRequest>,
     ) -> Result<Response<GroupTypeMappingsResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let mappings = self
             .storage
-            .get_group_type_mappings_by_project_id(req.project_id)
+            .get_group_type_mappings_by_project_id(req.project_id, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_project_id"))?;
 
         Ok(Response::new(GroupTypeMappingsResponse {
-            mappings: mappings
-                .into_iter()
-                .map(group_type_mapping_to_proto)
-                .collect(),
+            mappings: mappings.into_iter().map(Into::into).collect(),
         }))
     }
 
@@ -630,10 +608,11 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
 
         let all_mappings = self
             .storage
-            .get_group_type_mappings_by_project_ids(&req.project_ids)
+            .get_group_type_mappings_by_project_ids(&req.project_ids, consistency)
             .await
             .map_err(|e| log_and_convert_error(e, "get_group_type_mappings_by_project_ids"))?;
 
@@ -643,7 +622,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             by_project
                 .entry(mapping.project_id)
                 .or_default()
-                .push(group_type_mapping_to_proto(mapping));
+                .push(Into::into(mapping));
         }
 
         let results = req
@@ -656,289 +635,5 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GroupTypeMappingsBatchResponse { results }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use async_trait::async_trait;
-    use personhog_proto::personhog::types::v1::{
-        GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
-    };
-
-    /// Mock storage that returns configurable errors for unit testing error handling
-    struct FailingStorage {
-        error: storage::StorageError,
-    }
-
-    impl FailingStorage {
-        fn with_connection_error() -> Self {
-            Self {
-                error: storage::StorageError::Connection("connection refused".to_string()),
-            }
-        }
-
-        fn with_pool_exhausted() -> Self {
-            Self {
-                error: storage::StorageError::PoolExhausted,
-            }
-        }
-
-        fn with_query_error() -> Self {
-            Self {
-                error: storage::StorageError::Query("syntax error at position 42".to_string()),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl storage::PersonLookup for FailingStorage {
-        async fn get_person_by_id(
-            &self,
-            _team_id: i64,
-            _person_id: i64,
-        ) -> storage::StorageResult<Option<storage::Person>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_person_by_uuid(
-            &self,
-            _team_id: i64,
-            _uuid: Uuid,
-        ) -> storage::StorageResult<Option<storage::Person>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_persons_by_ids(
-            &self,
-            _team_id: i64,
-            _person_ids: &[i64],
-        ) -> storage::StorageResult<Vec<storage::Person>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_persons_by_uuids(
-            &self,
-            _team_id: i64,
-            _uuids: &[Uuid],
-        ) -> storage::StorageResult<Vec<storage::Person>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_person_by_distinct_id(
-            &self,
-            _team_id: i64,
-            _distinct_id: &str,
-        ) -> storage::StorageResult<Option<storage::Person>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_persons_by_distinct_ids_in_team(
-            &self,
-            _team_id: i64,
-            _distinct_ids: &[String],
-        ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_persons_by_distinct_ids_cross_team(
-            &self,
-            _team_distinct_ids: &[(i64, String)],
-        ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
-            Err(self.error.clone())
-        }
-    }
-
-    #[async_trait]
-    impl storage::DistinctIdLookup for FailingStorage {
-        async fn get_distinct_ids_for_person(
-            &self,
-            _team_id: i64,
-            _person_id: i64,
-        ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_distinct_ids_for_persons(
-            &self,
-            _team_id: i64,
-            _person_ids: &[i64],
-        ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
-            Err(self.error.clone())
-        }
-    }
-
-    #[async_trait]
-    impl storage::FeatureFlagStorage for FailingStorage {
-        async fn get_person_ids_and_hash_key_overrides(
-            &self,
-            _team_id: i64,
-            _distinct_ids: &[String],
-        ) -> storage::StorageResult<Vec<storage::PersonIdWithOverrides>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_existing_person_ids_with_override_keys(
-            &self,
-            _team_id: i64,
-            _distinct_ids: &[String],
-        ) -> storage::StorageResult<Vec<storage::PersonIdWithOverrideKeys>> {
-            Err(self.error.clone())
-        }
-    }
-
-    #[async_trait]
-    impl storage::CohortStorage for FailingStorage {
-        async fn check_cohort_membership(
-            &self,
-            _person_id: i64,
-            _cohort_ids: &[i64],
-        ) -> storage::StorageResult<Vec<storage::CohortMembership>> {
-            Err(self.error.clone())
-        }
-    }
-
-    #[async_trait]
-    impl storage::GroupStorage for FailingStorage {
-        async fn get_group(
-            &self,
-            _team_id: i64,
-            _group_type_index: i32,
-            _group_key: &str,
-        ) -> storage::StorageResult<Option<storage::Group>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_groups(
-            &self,
-            _team_id: i64,
-            _identifiers: &[storage::GroupIdentifier],
-        ) -> storage::StorageResult<Vec<storage::Group>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_groups_batch(
-            &self,
-            _keys: &[storage::GroupKey],
-        ) -> storage::StorageResult<Vec<(storage::GroupKey, storage::Group)>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_group_type_mappings_by_team_id(
-            &self,
-            _team_id: i64,
-        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_group_type_mappings_by_team_ids(
-            &self,
-            _team_ids: &[i64],
-        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_group_type_mappings_by_project_id(
-            &self,
-            _project_id: i64,
-        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
-            Err(self.error.clone())
-        }
-
-        async fn get_group_type_mappings_by_project_ids(
-            &self,
-            _project_ids: &[i64],
-        ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
-            Err(self.error.clone())
-        }
-    }
-
-    #[tokio::test]
-    async fn test_connection_error_returns_unavailable() {
-        let storage = Arc::new(FailingStorage::with_connection_error());
-        let service = PersonHogReplicaService::new(storage);
-
-        let result = service
-            .get_person(Request::new(GetPersonRequest {
-                team_id: 1,
-                person_id: 1,
-            }))
-            .await;
-
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Unavailable);
-        assert!(status.message().contains("Database unavailable"));
-        assert!(status.message().contains("connection refused"));
-    }
-
-    #[tokio::test]
-    async fn test_pool_exhausted_returns_unavailable() {
-        let storage = Arc::new(FailingStorage::with_pool_exhausted());
-        let service = PersonHogReplicaService::new(storage);
-
-        let result = service
-            .get_person(Request::new(GetPersonRequest {
-                team_id: 1,
-                person_id: 1,
-            }))
-            .await;
-
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Unavailable);
-        assert!(status.message().contains("pool exhausted"));
-    }
-
-    #[tokio::test]
-    async fn test_query_error_returns_internal() {
-        let storage = Arc::new(FailingStorage::with_query_error());
-        let service = PersonHogReplicaService::new(storage);
-
-        let result = service
-            .get_person(Request::new(GetPersonRequest {
-                team_id: 1,
-                person_id: 1,
-            }))
-            .await;
-
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Internal);
-        assert!(status.message().contains("Database error"));
-        assert!(status.message().contains("syntax error"));
-    }
-
-    #[tokio::test]
-    async fn test_connection_error_on_batch_operation_returns_unavailable() {
-        let storage = Arc::new(FailingStorage::with_connection_error());
-        let service = PersonHogReplicaService::new(storage);
-
-        let result = service
-            .get_persons_by_distinct_ids_in_team(Request::new(
-                GetPersonsByDistinctIdsInTeamRequest {
-                    team_id: 1,
-                    distinct_ids: vec!["user1".to_string(), "user2".to_string()],
-                },
-            ))
-            .await;
-
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Unavailable);
-    }
-
-    #[tokio::test]
-    async fn test_query_error_on_group_operation_returns_internal() {
-        let storage = Arc::new(FailingStorage::with_query_error());
-        let service = PersonHogReplicaService::new(storage);
-
-        let result = service
-            .get_group(Request::new(GetGroupRequest {
-                team_id: 1,
-                group_type_index: 0,
-                group_key: "test".to_string(),
-            }))
-            .await;
-
-        let status = result.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Internal);
     }
 }

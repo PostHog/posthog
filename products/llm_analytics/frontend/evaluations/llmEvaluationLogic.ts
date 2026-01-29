@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,7 +13,14 @@ import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/l
 import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationRun, ModelConfiguration } from './types'
+import {
+    EvaluationConditionSet,
+    EvaluationConfig,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+    ModelConfiguration,
+} from './types'
 
 export interface AvailableModel {
     id: string
@@ -58,6 +66,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedProvider: (provider: LLMProvider) => ({ provider }),
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
+
+        // Evaluation summary actions
+        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
+            filter,
+            previousFilter,
+        }),
+        toggleSummaryExpanded: true,
+        regenerateEvaluationSummary: true,
+        trackSummarizeClicked: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -98,6 +115,34 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         `/api/environments/${teamId}/llm_analytics/models/?${params.toString()}`
                     )
                     return response.models
+                },
+            },
+        ],
+        evaluationSummary: [
+            null as EvaluationSummary | null,
+            {
+                generateEvaluationSummary: async ({ forceRefresh }: { forceRefresh?: boolean }) => {
+                    const shouldRefresh = forceRefresh ?? false
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
+                        return null
+                    }
+
+                    const requestFilter = values.evaluationSummaryFilter
+
+                    // Backend fetches data server-side by ID - we just pass the filter
+                    const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
+                        evaluation_id: props.evaluationId,
+                        filter: requestFilter,
+                        force_refresh: shouldRefresh,
+                    })
+
+                    // Discard if the user changed the filter while the request was in flight
+                    if (values.evaluationSummaryFilter !== requestFilter) {
+                        return null
+                    }
+
+                    return response as EvaluationSummary
                 },
             },
         ],
@@ -186,6 +231,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 resetEvaluation: () => false,
             },
         ],
+        evaluationSummaryFilter: [
+            'all' as EvaluationSummaryFilter,
+            {
+                setEvaluationSummaryFilter: (_, { filter }) => filter,
+            },
+        ],
+        // Clear summary when filter changes so stale summary doesn't mismatch current filter
+        evaluationSummary: {
+            setEvaluationSummaryFilter: () => null,
+        },
+        evaluationSummaryError: [
+            false,
+            {
+                generateEvaluationSummary: () => false,
+                generateEvaluationSummarySuccess: () => false,
+                generateEvaluationSummaryFailure: () => true,
+                setEvaluationSummaryFilter: () => false,
+            },
+        ],
+        summaryExpanded: [
+            true,
+            {
+                toggleSummaryExpanded: (state) => !state,
+                generateEvaluationSummarySuccess: () => true,
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -271,6 +342,35 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
+        },
+
+        regenerateEvaluationSummary: () => {
+            posthog.capture('llma evaluation regenerate clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+            actions.generateEvaluationSummary({ forceRefresh: true })
+        },
+
+        trackSummarizeClicked: () => {
+            posthog.capture('llma evaluation summarize clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+        },
+
+        setEvaluationSummaryFilter: ({ filter, previousFilter }) => {
+            posthog.capture('llma evaluation summary filter changed', {
+                filter,
+                previous_filter: previousFilter,
+            })
+        },
+
+        toggleSummaryExpanded: () => {
+            posthog.capture('llma evaluation summary toggled', {
+                expanded: values.summaryExpanded,
+                filter: values.evaluationSummaryFilter,
+            })
         },
 
         resetEvaluation: () => {
@@ -418,6 +518,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 providerKeysByProvider[selectedProvider] || [],
         ],
 
+        runsLookup: [
+            (s) => [s.evaluationRuns],
+            (runs): Record<string, EvaluationRun> => {
+                const lookup: Record<string, EvaluationRun> = {}
+                for (const run of runs) {
+                    lookup[run.generation_id] = run
+                }
+                return lookup
+            },
+        ],
+
         runsSummary: [
             (s) => [s.evaluationRuns],
             (runs) => {
@@ -440,6 +551,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     successRate: applicableRuns > 0 ? Math.round((successfulRuns / applicableRuns) * 100) : 0,
                     applicabilityRate: completedRuns > 0 ? Math.round((applicableRuns / completedRuns) * 100) : 0,
                 }
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
+            (runs, filter) => {
+                // This is for UI display only - actual filtering happens server-side
+                let filteredRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    filteredRuns = filteredRuns.filter((r) => r.result === true)
+                } else if (filter === 'fail') {
+                    filteredRuns = filteredRuns.filter((r) => r.result === false)
+                } else if (filter === 'na') {
+                    filteredRuns = filteredRuns.filter((r) => r.result === null)
+                }
+                return Math.min(filteredRuns.length, 100)
             },
         ],
 

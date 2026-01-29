@@ -3354,7 +3354,13 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {
-    behavior: 'sticky' | 'static'
+    /**
+     * sticky: injected at top of body, fixed pos, stays visible on scroll
+     * static: injected at top of body, fixed pos, scrolls away with page
+     * custom: injected into a container from user-supplied css selector
+     */
+    behavior: 'sticky' | 'static' | 'custom'
+    selector?: string
     action?: {
         type: 'none' | 'link' | 'trigger_tour'
         link?: string

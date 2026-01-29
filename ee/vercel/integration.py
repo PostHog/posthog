@@ -1189,6 +1189,41 @@ class VercelIntegration:
         user.save()
         return resource, user, team
 
+    @staticmethod
+    def push_secrets_to_vercel(team: Team) -> None:
+        """Push updated secrets to all Vercel resources linked to this team."""
+        setup_result = VercelIntegration._setup_vercel_client_for_team(team)
+        if not setup_result:
+            return
+
+        secrets = VercelIntegration._build_secrets(team)
+
+        try:
+            result = setup_result.client.update_resource_secrets(
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                secrets=secrets,
+            )
+            if not result.success:
+                raise Exception(f"Failed to push secrets to Vercel: {result.error}")
+
+            logger.info(
+                "Pushed secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
+        except Exception as e:
+            logger.exception(
+                "Error pushing secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
+            capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
+
 
 def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:
     """

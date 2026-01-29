@@ -251,6 +251,11 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             null as TraceNeighborsQueryResponse | null,
             {
                 loadNeighbors: async ({ traceId, timestamp }, breakpoint) => {
+                    // Check if feature flag is enabled
+                    if (!values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]) {
+                        return null
+                    }
+
                     if (!traceId || !timestamp) {
                         return null
                     }
