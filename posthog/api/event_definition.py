@@ -424,6 +424,39 @@ class EventDefinitionViewSet(
             }
         )
 
+    @action(detail=False, methods=["GET"], url_path="by_name", required_scopes=["event_definition:read"])
+    def by_name(self, request, *args, **kwargs):
+        """Get event definition by exact name"""
+        event_name = request.query_params.get("name")
+
+        if not event_name:
+            return response.Response(
+                {"detail": "Query parameter 'name' is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        event_definition_object_manager: Manager
+        if EE_AVAILABLE:
+            from ee.models.event_definition import EnterpriseEventDefinition
+
+            event_definition_object_manager = EnterpriseEventDefinition.objects
+        else:
+            event_definition_object_manager = EventDefinition.objects
+
+        event_def = event_definition_object_manager.filter(
+            team__project_id=self.project_id,
+            name=event_name,
+        ).first()
+
+        if not event_def:
+            return response.Response(
+                {"detail": f"Event definition with name '{event_name}' not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(event_def)
+        return response.Response(serializer.data)
+
 
 def fetch_30day_event_queries(
     team: Team,
