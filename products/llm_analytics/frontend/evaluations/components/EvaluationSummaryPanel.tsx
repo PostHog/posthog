@@ -271,7 +271,7 @@ function PatternList({
 }
 
 const FILTER_CONFIG: Record<
-    string,
+    Exclude<EvaluationSummaryFilter, 'all'>,
     {
         patternsKey: 'pass_patterns' | 'fail_patterns' | 'na_patterns'
         icon: JSX.Element
