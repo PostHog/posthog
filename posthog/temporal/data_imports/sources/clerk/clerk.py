@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import requests
 from dlt.sources.helpers.requests import Request, Response
@@ -119,12 +119,7 @@ def clerk_source(
     endpoint: str,
     team_id: int,
     job_id: str,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
-    # Note: Incremental parameters are accepted but ignored - Clerk only supports full refresh
-    # because the API doesn't support filtering by updated_at
     endpoint_config = CLERK_ENDPOINTS[endpoint]
 
     config: RESTAPIConfig = {
