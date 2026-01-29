@@ -199,6 +199,45 @@ func GetInstallSteps() []InstallStep {
 			},
 		},
 		{
+			Name: "Restore pre-migrated schema",
+			Run: func(cfg InstallConfig) InstallResult {
+			schemaFile := "../.postgres-backups/schema-latest.sql.gz"
+			if !FileExists(schemaFile) {
+				return InstallResult{Detail: "no pre-migrated schema found, will run migrations"}
+			}
+
+			GetLogger().WriteString("Waiting for database to be ready...\n")
+			maxAttempts := 30
+			for i := 0; i < maxAttempts; i++ {
+				_, err := RunCommand("docker", "compose", "exec", "-T", "db", "pg_isready", "-U", "posthog")
+				if err == nil {
+					break
+				}
+				if i == maxAttempts-1 {
+					return InstallResult{Err: fmt.Errorf("database not ready after %d seconds", maxAttempts*2)}
+				}
+				time.Sleep(2 * time.Second)
+			}
+			GetLogger().WriteString("Restoring pre-migrated schema...\n")
+			_, err := RunCommand("sh", "-c", fmt.Sprintf("gunzip -c %s | docker compose exec -T db psql -q -U posthog posthog", schemaFile))
+			if err != nil {
+				return InstallResult{Err: fmt.Errorf("failed to restore schema: %w", err)}
+			}
+			return InstallResult{Detail: "schema restored"}
+			},
+			Skip: func(cfg InstallConfig) (bool, string) {
+				schemaFile := "../.postgres-backups/schema-latest.sql.gz"
+				if !FileExists(schemaFile) {
+					return true, "no pre-migrated schema"
+				}
+				hasPostgres, _ := CheckDockerVolumes()
+				if hasPostgres {
+					return true, "existing database"
+				}
+				return false, ""
+			},
+		},
+		{
 			Name: "Wait for PostHog to be ready",
 			Run: func(cfg InstallConfig) InstallResult {
 				if err := WaitForHealth(30 * time.Minute); err != nil {
