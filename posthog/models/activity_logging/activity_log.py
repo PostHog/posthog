@@ -413,6 +413,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "Endpoint": [
         "saved_query",
+        "current_version",
     ],
     "EndpointVersion": [
         "saved_query",

@@ -30,7 +30,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                     </div>
                     <div className="flex flex-col">
                         <LemonLabel info="Versions auto-increment when the query changes. Access older versions via the 'version' parameter in requests. Useful for gradual rollouts and rollbacks.">
-                            Current version
+                            Version
                         </LemonLabel>
                         <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold">v{endpoint.current_version}</span>
