@@ -1269,6 +1269,35 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [s.allItemsByItemType],
             (allItemsByItemType): boolean => allItemsByItemType['events']?.length > 0,
         ],
+
+        hasConsoleLogs: [
+            (s) => [s.allItemsByItemType],
+            (allItemsByItemType): boolean => (allItemsByItemType['console']?.length ?? 0) > 0,
+        ],
+
+        /**
+         * Returns a function that formats console logs for clipboard export.
+         * We return a function rather than the formatted string so it's only computed on-demand.
+         */
+        getFormattedConsoleLogs: [
+            (s) => [s.allItemsByItemType],
+            (allItemsByItemType): (() => string | null) => {
+                return () => {
+                    const consoleItems = allItemsByItemType['console'] as InspectorListItemConsole[] | undefined
+                    if (!consoleItems?.length) {
+                        return null
+                    }
+
+                    return consoleItems
+                        .map((item) => {
+                            const timestamp = item.timestamp.format('HH:mm:ss.SSS')
+                            const level = item.data.level.toUpperCase().padEnd(5)
+                            return `[${timestamp}] ${level} ${item.data.content}`
+                        })
+                        .join('\n')
+                }
+            },
+        ],
     })),
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
