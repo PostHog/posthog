@@ -133,11 +133,10 @@ def get_kafka_producer(retries=5, value_serializer=None, **kwargs) -> ConfluentP
     cert_file, key_file, ca_file = _ssl_files
 
     hosts = settings.KAFKA_HOSTS
-    if isinstance(hosts, list):
-        hosts = ",".join(hosts)
+    bootstrap_servers = ",".join(hosts) if isinstance(hosts, list) else hosts
 
     config = {
-        "bootstrap.servers": hosts,
+        "bootstrap.servers": bootstrap_servers,
         "security.protocol": "SSL",
         "ssl.certificate.location": cert_file.name,
         "ssl.key.location": key_file.name,

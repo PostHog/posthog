@@ -39,19 +39,19 @@ class ProduceResult:
     _message: Optional[Message] = field(default=None)
     _error: Optional[KafkaError] = field(default=None)
 
-    def set_result(self, error: Optional[KafkaError], message: Message):
+    def set_result(self, error: Optional[KafkaError], message: Optional[Message]):
         """Called by the delivery callback when produce completes."""
         self._error = error
         self._message = message
         self._event.set()
 
-    def get(self, timeout: Optional[float] = None) -> Message:
+    def get(self, timeout: Optional[float] = None) -> Optional[Message]:
         """
         Wait for the produce to complete and return the result.
         Raises KafkaException if the produce failed.
         """
         if not self._event.wait(timeout=timeout):
-            raise KafkaException(KafkaError._TIMED_OUT, "Timeout waiting for produce result")
+            raise TimeoutError("Timeout waiting for produce result")
         if self._error is not None:
             raise KafkaException(self._error)
         return self._message
@@ -66,7 +66,7 @@ class KafkaProducerForTests:
         topic: str,
         value: bytes,
         key: Optional[bytes] = None,
-        headers: Optional[list[tuple[str, bytes]]] = None,
+        headers: Optional[dict[str, bytes]] = None,
         on_delivery: Optional[Callable] = None,
     ):
         # Immediately trigger the delivery callback with success
@@ -275,8 +275,8 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        encoded_headers = (
-            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+        encoded_headers: dict[str, bytes] | None = (
+            {header[0]: header[1].encode("utf-8") for header in headers} if headers is not None else None
         )
 
         result = ProduceResult(topic=topic)
