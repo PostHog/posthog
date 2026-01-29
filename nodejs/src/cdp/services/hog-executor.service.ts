@@ -120,7 +120,7 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
-export const MAX_FETCH_TIMEOUT_MS = 20000
+export const MAX_FETCH_TIMEOUT_MS = 10000
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -162,7 +162,6 @@ export class HogExecutorService {
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
-        logger.info('[HogExecutorService]', 'Building inputs with globals')
         return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
     }
 
@@ -536,10 +535,7 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            const timeoutMs =
-                                fetchOptions?.timeoutMs !== undefined
-                                    ? Math.min(fetchOptions.timeoutMs, MAX_FETCH_TIMEOUT_MS)
-                                    : undefined
+                            const timeoutMs = fetchOptions?.timeoutMs ?? undefined
 
                             const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
