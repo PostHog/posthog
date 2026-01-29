@@ -1738,6 +1738,147 @@ class TestContractorDashboardAccess(BaseUserAccessControlTest):
 
 
 @pytest.mark.ee
+class TestNoProjectAccessWithObjectGrant(BaseUserAccessControlTest):
+    """
+    Test the use case where a user has NO project access at all,
+    but has been granted explicit object-level access to specific resources.
+
+    This allows contractors to access specific objects (e.g., a single dashboard)
+    without having any general project access.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Create dashboards for testing
+        self.dashboard_allowed = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Contractor Dashboard"
+        )
+        self.dashboard_blocked = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="Internal Dashboard"
+        )
+
+    def test_check_access_level_for_object_id_returns_true_with_explicit_access(self):
+        """
+        Test that check_access_level_for_object_id returns True when user has
+        explicit object-level access, even without project access.
+        """
+        # Give user explicit viewer access to one dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return True for the allowed dashboard
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "viewer"
+            )
+            is True
+        )
+
+        # Should return False for the blocked dashboard
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_blocked.id), "viewer"
+            )
+            is False
+        )
+
+    def test_check_access_level_for_object_id_respects_access_level(self):
+        """
+        Test that check_access_level_for_object_id respects the granted access level.
+        """
+        # Give user explicit viewer access (not editor)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return True for viewer level
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "viewer"
+            )
+            is True
+        )
+
+        # Should return False for higher access levels
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "editor"
+            )
+            is False
+        )
+
+    def test_check_access_level_for_object_id_with_editor_access(self):
+        """
+        Test that check_access_level_for_object_id allows editor operations
+        when editor access is granted.
+        """
+        # Give user explicit editor access
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return True for viewer and editor levels
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "viewer"
+            )
+            is True
+        )
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "editor"
+            )
+            is True
+        )
+
+        # But not manager
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "manager"
+            )
+            is False
+        )
+
+    def test_check_access_level_for_object_id_via_role(self):
+        """
+        Test that check_access_level_for_object_id works when access is granted via a role.
+        """
+        # Give role (which user belongs to) viewer access
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.dashboard_allowed.id),
+            access_level="viewer",
+            role=self.role_a,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return True for the allowed dashboard via role
+        assert (
+            self.user_access_control.check_access_level_for_object_id(
+                "dashboard", str(self.dashboard_allowed.id), "viewer"
+            )
+            is True
+        )
+
+
+@pytest.mark.ee
 class TestFieldLevelAccessControl(BaseUserAccessControlTest):
     def test_field_access_control_mapping_exists(self):
         """Test that field access control mappings are properly configured"""

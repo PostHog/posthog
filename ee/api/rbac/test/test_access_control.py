@@ -1492,3 +1492,180 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestNoProjectAccessWithObjectGrant(BaseAccessControlTest):
+    """
+    API tests for users with NO project access but explicit object-level access.
+
+    This tests the use case where a contractor has no general project access
+    but can view specific resources they've been granted access to.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Create another user who creates the dashboards
+        self.dashboard_owner = self._create_user("dashboard_owner@example.com")
+
+        # Create dashboards for testing
+        self.allowed_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.dashboard_owner, name="Contractor Dashboard"
+        )
+        self.blocked_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.dashboard_owner, name="Internal Dashboard"
+        )
+
+    def _setup_no_project_access_with_object_grant(self, access_level="viewer"):
+        """
+        Set up the scenario:
+        1. Give user explicit object-level access to specific dashboard
+        2. Set project-level access to "none" (no project membership)
+        """
+        from ee.models.rbac.access_control import AccessControl
+
+        # First grant object-level access (must be done by admin)
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Create explicit object-level access for the user
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}/access_controls",
+            {
+                "organization_member": str(self.organization_membership.id),
+                "access_level": access_level,
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Set project-level access to "none" for this user
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+
+        # Switch to member level
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+    def test_user_with_no_project_access_can_view_granted_dashboard(self):
+        """
+        Test that a user with no project access can view a dashboard
+        they have explicit object-level access to.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="viewer")
+
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["name"] == "Contractor Dashboard"
+        assert res.json()["user_access_level"] == "viewer"
+
+    def test_user_with_no_project_access_cannot_view_other_dashboard(self):
+        """
+        Test that a user with no project access cannot view dashboards
+        they don't have explicit access to.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="viewer")
+
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.blocked_dashboard.id}")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_user_with_no_project_access_can_list_granted_dashboards(self):
+        """
+        Test that a user with no project access can list dashboards
+        and only sees the ones they have explicit access to.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="viewer")
+
+        res = self.client.get("/api/projects/@current/dashboards/")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        dashboard_ids = [d["id"] for d in res.json()["results"]]
+        # Should only include the allowed dashboard
+        assert self.allowed_dashboard.id in dashboard_ids
+        # Should not include the blocked dashboard
+        assert self.blocked_dashboard.id not in dashboard_ids
+
+    def test_user_with_no_project_access_cannot_create_dashboard(self):
+        """
+        Test that a user with no project access cannot create new dashboards.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="viewer")
+
+        res = self.client.post("/api/projects/@current/dashboards/", {"name": "New Dashboard"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_user_with_no_project_access_viewer_cannot_edit_dashboard(self):
+        """
+        Test that a user with viewer access cannot edit the dashboard.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="viewer")
+
+        res = self.client.patch(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}",
+            {"name": "Updated Name"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_user_with_no_project_access_editor_can_edit_dashboard(self):
+        """
+        Test that a user with editor access can edit the dashboard.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="editor")
+
+        res = self.client.patch(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}",
+            {"name": "Updated Name"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["name"] == "Updated Name"
+
+    def test_user_with_no_project_access_cannot_access_non_access_controlled_resources(self):
+        """
+        Test that a user with no project access cannot access resources
+        that don't support object-level access control.
+        """
+        self._setup_no_project_access_with_object_grant(access_level="viewer")
+
+        # Try to access persons (not access-controlled at object level)
+        res = self.client.get("/api/projects/@current/persons/")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "don't have access to the project" in res.json()["detail"]
+
+    def test_user_with_no_project_access_via_role(self):
+        """
+        Test that a user with no project access can view a dashboard
+        they have access to via a role.
+        """
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Create a role and add user to it
+        role = Role.objects.create(name="External Contractors", organization=self.organization)
+        RoleMembership.objects.create(user=self.user, role=role)
+
+        # Give role access to specific dashboard
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}/access_controls",
+            {"role": str(role.id), "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Set project-level access to "none" for this user
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+
+        # Switch to member level
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # User should be able to access the dashboard via role
+        res = self.client.get(f"/api/projects/@current/dashboards/{self.allowed_dashboard.id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["user_access_level"] == "viewer"

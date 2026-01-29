@@ -677,6 +677,48 @@ class UserAccessControl:
 
         return False
 
+    def check_access_level_for_object_id(
+        self, resource: APIScopeObject, resource_id: str, required_level: AccessControlLevel
+    ) -> bool:
+        """
+        Check if the user has explicit access to a specific object by its ID, without loading the object.
+        This is used to check access for users who may not have project-level access but have been
+        granted specific object-level access.
+
+        Returns True if the user has at least the required level of access to the specific object.
+        """
+        org_membership = self._organization_membership
+
+        if not resource or not org_membership or not resource_id:
+            return False
+
+        # Org admins always have access
+        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+
+        # If access controls aren't supported, return False
+        if not self.access_controls_supported:
+            return False
+
+        # Get access controls for this specific object
+        filters = self._access_controls_filters_for_object(resource, resource_id)
+        access_controls = self._get_access_controls(filters)
+
+        # Filter to only explicit access controls (with role or organization_member)
+        explicit_access_controls = [
+            ac for ac in access_controls if ac.role is not None or ac.organization_member is not None
+        ]
+
+        if not explicit_access_controls:
+            return False
+
+        # Check if any explicit access control meets the required level
+        for access_control in explicit_access_controls:
+            if access_level_satisfied_for_resource(resource, access_control.access_level, required_level):
+                return True
+
+        return False
+
     def effective_access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
         Get the effective access level for a resource, considering both resource-level

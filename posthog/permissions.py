@@ -24,7 +24,12 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
+from posthog.rbac.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    AccessControlLevel,
+    UserAccessControl,
+    ordered_access_levels,
+)
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
@@ -193,7 +198,43 @@ class TeamMemberAccessPermission(BasePermission):
         # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
         # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
-        return requesting_level is not None
+        if requesting_level is not None:
+            return True
+
+        # User doesn't have project-level membership, but may have explicit object-level access
+        # This allows contractors to access specific objects without general project access
+        # The full access check is done in AccessControlPermission; here we just check if there's
+        # any possibility of object-level access to avoid rejecting the request prematurely
+        return self._check_object_level_access_possible(request, view)
+
+    def _check_object_level_access_possible(self, request, view) -> bool:
+        """
+        Check if the user might have object-level access that overrides lack of project membership.
+        This defers the detailed access check to AccessControlPermission.
+        """
+        # Only check for resources that support access control
+        scope_object = getattr(view, "scope_object", None)
+        if not scope_object or scope_object not in ACCESS_CONTROL_RESOURCES:
+            return False
+
+        # Get the user access control to check for specific object access
+        uac = getattr(view, "user_access_control", None)
+        if not uac:
+            return False
+
+        pk = view.kwargs.get("pk")
+
+        # For detail views, check if user has explicit access to the specific object
+        if pk and view.action in ["retrieve", "update", "partial_update", "destroy"]:
+            return uac.check_access_level_for_object_id(
+                cast(APIScopeObject, scope_object), str(pk), required_level="viewer"
+            )
+
+        # For list views, check if user has any specific object access
+        if view.action == "list":
+            return uac.has_any_specific_access_for_resource(cast(APIScopeObject, scope_object), required_level="viewer")
+
+        return False
 
 
 def is_authenticated_via_project_secret_api_token(request: Request) -> bool:
@@ -640,7 +681,12 @@ class AccessControlPermission(ScopeBasePermission):
         is_member = uac.check_access_level_for_object(team, required_level="member")
 
         if not is_member:
-            self.message = f"You don't have access to the project."
+            # User doesn't have project-level access, but they may have explicit object-level access
+            # This supports the use case where a contractor has access to only specific objects (e.g., one dashboard)
+            # without having general project access
+            if self._check_object_level_access_override(request, view, uac, scope_object, required_level, pk):
+                return True
+            self.message = "You don't have access to the project."
             return False
 
         # If the API doesn't have a scope object or a required level for accessing then we can simply allow access
@@ -666,6 +712,48 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         self.message = f"You do not have {required_level} access to this resource."
+        return False
+
+    def _check_object_level_access_override(
+        self,
+        request,
+        view,
+        uac: UserAccessControl,
+        scope_object: APIScopeObjectOrNotSupported,
+        required_level: Optional[AccessControlLevel],
+        pk: Optional[str],
+    ) -> bool:
+        """
+        Check if a user without project-level access has explicit object-level access to a specific resource.
+        This allows contractors to access specific objects (like a dashboard) without having general project access.
+
+        Returns True if the user should be allowed to proceed based on object-level access.
+        """
+        # Only allow object-level override for resources that support access control
+        if scope_object == "INTERNAL" or scope_object not in ACCESS_CONTROL_RESOURCES:
+            return False
+
+        # Only allow for detail views (retrieve, update, partial_update, destroy) and list views
+        # Create actions require project access
+        if view.action == "create":
+            return False
+
+        if not required_level:
+            return False
+
+        # For detail views with a specific pk, check if user has explicit access to that object
+        if pk and view.action in ["retrieve", "update", "partial_update", "destroy"]:
+            return uac.check_access_level_for_object_id(
+                cast(APIScopeObject, scope_object), str(pk), required_level=required_level
+            )
+
+        # For list views, check if user has any specific object access for this resource type
+        # The queryset will be filtered to only show objects they have access to
+        if view.action == "list":
+            return uac.has_any_specific_access_for_resource(
+                cast(APIScopeObject, scope_object), required_level=required_level
+            )
+
         return False
 
 
