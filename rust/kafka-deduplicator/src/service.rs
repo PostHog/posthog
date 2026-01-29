@@ -143,6 +143,8 @@ impl KafkaDeduplicatorService {
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
             checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            s3_multipart_part_size_bytes: 10 * 1024 * 1024, // 10MB
+            s3_multipart_concurrency: 8,
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)

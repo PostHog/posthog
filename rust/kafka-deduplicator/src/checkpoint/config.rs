@@ -63,6 +63,17 @@ pub struct CheckpointConfig {
     /// storage. A failed download or corrupt files will result in fallback
     /// to the next most recent checkpoint attempt this many times
     pub checkpoint_import_attempt_depth: usize,
+
+    /// Size of each part in multipart uploads (in bytes).
+    /// Must be at least 5MB per AWS requirements (except for the last part).
+    /// Files smaller than this size use streaming single-part upload.
+    /// Default: 10MB
+    pub s3_multipart_part_size_bytes: usize,
+
+    /// Maximum number of concurrent part uploads during multipart upload.
+    /// Higher values increase throughput but also memory usage.
+    /// With 10MB parts, 8 concurrent uploads = 80MB max memory per file,
+    pub s3_multipart_concurrency: usize,
 }
 
 impl Default for CheckpointConfig {
@@ -87,6 +98,8 @@ impl Default for CheckpointConfig {
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
             checkpoint_import_attempt_depth: 10,
+            s3_multipart_part_size_bytes: 10 * 1024 * 1024, // 10MB
+            s3_multipart_concurrency: 8,
         }
     }
 }
