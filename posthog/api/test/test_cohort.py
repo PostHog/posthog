@@ -4664,3 +4664,122 @@ Jane Smith,user456,jane@example.com
         # Verify that persons matched by email are NOT in the cohort
         self.assertNotIn(str(person_with_email1.uuid), person_uuids_in_cohort)
         self.assertNotIn(str(person_with_email2.uuid), person_uuids_in_cohort)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
+    def test_static_cohort_csv_upload_respects_email_property_key_casing(self, patch_calculate_cohort_from_list):
+        """
+        Test that CSV upload with email column respects the exact property key casing from the CSV header.
+        This test demonstrates the fix for case-insensitive email property matching.
+
+        Before the fix: Only 'email' (lowercase) property key was checked
+        After the fix: The exact property key from CSV header is used
+        """
+        # Create persons with different email property key casings
+        person_lowercase = Person.objects.create(
+            team=self.team, distinct_ids=["user_lowercase"], properties={"email": "lowercase@example.com"}
+        )
+        person_titlecase = Person.objects.create(
+            team=self.team, distinct_ids=["user_titlecase"], properties={"Email": "titlecase@example.com"}
+        )
+        person_uppercase = Person.objects.create(
+            team=self.team, distinct_ids=["user_uppercase"], properties={"EMAIL": "uppercase@example.com"}
+        )
+
+        # Test 1: CSV with lowercase 'email' header should match lowercase property
+        csv_lowercase = SimpleUploadedFile(
+            "email_lowercase.csv",
+            str.encode(
+                """email
+lowercase@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_email_lowercase", "csv": csv_lowercase, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_lowercase = Cohort.objects.get(pk=response.json()["id"])
+        people_in_cohort = Person.objects.filter(cohort__id=cohort_lowercase.pk, team_id=cohort_lowercase.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        self.assertIn(str(person_lowercase.uuid), {str(p.uuid) for p in people_in_cohort})
+
+        # Test 2: CSV with title case 'Email' header should match title case property
+        csv_titlecase = SimpleUploadedFile(
+            "email_titlecase.csv",
+            str.encode(
+                """Email
+titlecase@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_email_titlecase", "csv": csv_titlecase, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_titlecase = Cohort.objects.get(pk=response.json()["id"])
+        people_in_cohort = Person.objects.filter(cohort__id=cohort_titlecase.pk, team_id=cohort_titlecase.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        self.assertIn(str(person_titlecase.uuid), {str(p.uuid) for p in people_in_cohort})
+
+        # Test 3: CSV with uppercase 'EMAIL' header should match uppercase property
+        csv_uppercase = SimpleUploadedFile(
+            "email_uppercase.csv",
+            str.encode(
+                """EMAIL
+uppercase@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_email_uppercase", "csv": csv_uppercase, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_uppercase = Cohort.objects.get(pk=response.json()["id"])
+        people_in_cohort = Person.objects.filter(cohort__id=cohort_uppercase.pk, team_id=cohort_uppercase.team_id)
+        self.assertEqual(people_in_cohort.count(), 1)
+        self.assertIn(str(person_uppercase.uuid), {str(p.uuid) for p in people_in_cohort})
+
+        # Test 4: CSV with mixed case emails should match their respective casings in a multi-column format
+        csv_mixed = SimpleUploadedFile(
+            "email_mixed.csv",
+            str.encode(
+                """name,Email
+User 1,titlecase@example.com
+User 2,uppercase@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_email_mixed", "csv": csv_mixed, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_mixed = Cohort.objects.get(pk=response.json()["id"])
+        people_in_cohort = Person.objects.filter(cohort__id=cohort_mixed.pk, team_id=cohort_mixed.team_id)
+
+        # Should only find person_titlecase because CSV header is "Email" (title case)
+        # Before the fix, this would fail because it only looked at lowercase "email"
+        self.assertEqual(people_in_cohort.count(), 1)
+        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        self.assertIn(str(person_titlecase.uuid), person_uuids_in_cohort)
+        self.assertNotIn(str(person_uppercase.uuid), person_uuids_in_cohort)
+        self.assertNotIn(str(person_lowercase.uuid), person_uuids_in_cohort)
