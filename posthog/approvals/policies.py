@@ -293,13 +293,13 @@ class PolicyEngine:
 
         # Check bypass_roles (RBAC roles)
         if bypass_role_ids:
-            user_role_ids = set(
+            user_role_ids = {
                 str(rid)
                 for rid in RoleMembership.objects.filter(
                     user=actor,
                     role__organization=org,
                 ).values_list("role_id", flat=True)
-            )
+            }
             if user_role_ids & set(bypass_role_ids):
                 return True
 

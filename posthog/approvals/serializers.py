@@ -3,7 +3,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.approvals.models import Approval, ApprovalPolicy, ChangeRequest
 
-from ee.models.rbac.role import Role, RoleMembership
+from ee.models.rbac.role import Role
 
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
