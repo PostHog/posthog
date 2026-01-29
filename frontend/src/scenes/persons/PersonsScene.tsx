@@ -1,4 +1,5 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
@@ -19,6 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CustomerProfileScope, OnboardingStepKey } from '~/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
 import { personsSceneLogic } from './personsSceneLogic'
@@ -44,6 +46,9 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
+
+    const queryUniqueKey = `persons-query-${tabId}`
+    const [showDisplayNameNudge, setShowDisplayNameNudge] = useState(false)
 
     useOnMountEffect(() => {
         loadConfigs()
@@ -91,13 +96,20 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     </LemonMenu>
                 }
             />
-            <FeedbackBanner
-                feedbackButtonId="people-list"
-                message="We're improving the persons experience. Send us your feedback!"
+            <PersonDisplayNameNudgeBanner
+                query={query}
+                uniqueKey={queryUniqueKey}
+                onShouldShow={setShowDisplayNameNudge}
             />
+            {!showDisplayNameNudge && (
+                <FeedbackBanner
+                    feedbackButtonId="people-list"
+                    message="We're improving the persons experience. Send us your feedback!"
+                />
+            )}
 
             <Query
-                uniqueKey={`persons-query-${tabId}`}
+                uniqueKey={queryUniqueKey}
                 attachTo={personsSceneLogic({ tabId })}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
