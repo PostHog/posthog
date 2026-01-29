@@ -6,12 +6,12 @@ from posthog.clickhouse.preaggregation.sql import (
 )
 
 ADD_EXPIRES_AT_COLUMN = """
-ALTER TABLE IF EXISTS {table}
+ALTER TABLE {table}
 ADD COLUMN IF NOT EXISTS expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY AFTER time_window_start
 """
 
 ADD_TTL = """
-ALTER TABLE IF EXISTS {table}
+ALTER TABLE {table}
 MODIFY TTL expires_at
 """
 

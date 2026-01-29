@@ -855,7 +855,7 @@ class TestBuildManualInsertSQL(BaseTest):
         assert "$pageleave" in values.values()
 
 
-class TestEnsurePreaggregated(BaseTest):
+class TestEnsurePreaggregated(ClickhouseTestMixin, BaseTest):
     MANUAL_INSERT_QUERY = """
         SELECT
             toStartOfDay(timestamp) as time_window_start,
