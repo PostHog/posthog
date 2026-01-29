@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.create_snapshot.activities.setup_repository
 from products.tasks.backend.temporal.exceptions import RetryableRepositorySetupError, SandboxNotFoundError
 
 
+@pytest.mark.skip(reason="Modal spend limit exhausted - see insight 01KFJ... Re-enable once limit is increased")
 @pytest.mark.skipif(
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
