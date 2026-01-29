@@ -277,7 +277,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                         }}
                                         options={[
                                             { value: null, label: 'No override' },
-                                            ...(props.getLevelOptionsForResource(resource.key) as any[]),
+                                            ...props.getLevelOptionsForResource(resource.key),
                                         ]}
                                     />
                                 </div>

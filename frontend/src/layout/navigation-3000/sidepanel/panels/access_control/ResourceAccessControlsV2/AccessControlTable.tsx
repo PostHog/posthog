@@ -1,10 +1,12 @@
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, ProfilePicture } from '@posthog/lemon-ui'
+
+import { APIScopeObject } from '~/types'
 
 import { SummarizeAccessLevels } from '../SummarizeAccessLevels'
 import { AccessControlRow, AccessControlsTab } from './types'
 
-function getScopeColumnsForTab(activeTab: AccessControlsTab): any[] {
+function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<AccessControlRow> {
     switch (activeTab) {
         case 'roles':
             return [
@@ -81,7 +83,11 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
     )
 }
 
-function getColumns(activeTab: AccessControlsTab, canEditAny: boolean, onEdit: (row: AccessControlRow) => void): any[] {
+function getColumns(
+    activeTab: AccessControlsTab,
+    canEditAny: boolean,
+    onEdit: (row: AccessControlRow) => void
+): LemonTableColumns<AccessControlRow> {
     const scopeColumns = getScopeColumnsForTab(activeTab)
 
     return [
@@ -95,7 +101,7 @@ function getColumns(activeTab: AccessControlsTab, canEditAny: boolean, onEdit: (
                         acc[child.resourceKey] = { access_level: child.level }
                         return acc
                     },
-                    {} as Record<string, any>
+                    {} as Record<APIScopeObject, { access_level?: string | null }>
                 )
 
                 return <SummarizeAccessLevels accessControlByResource={accessControlByResource} />

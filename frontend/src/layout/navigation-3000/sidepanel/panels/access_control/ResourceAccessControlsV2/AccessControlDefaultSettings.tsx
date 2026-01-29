@@ -210,7 +210,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                         }}
                                         options={[
                                             { value: null, label: 'No override' },
-                                            ...(getLevelOptionsForResource(resource.key) as any[]),
+                                            ...getLevelOptionsForResource(resource.key),
                                         ]}
                                     />
                                 )
