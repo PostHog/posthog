@@ -104,7 +104,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
         const newWorkflowLogic = workflowLogic.findMounted({ id: 'new', tabId: props.tabId })
         newWorkflowLogic?.unmount()
-    }, [])
+    }, [props.tabId])
 
     const columns: LemonTableColumns<HogFlow> = [
         {
