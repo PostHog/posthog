@@ -251,7 +251,15 @@ class WidgetMessagesView(APIView):
             messages_query = messages_query.filter(created_at__gt=after)
 
         # Only return non-private messages to widget
-        messages_query = messages_query.filter(Q(item_context__is_private=False) | Q(item_context__is_private=None))
+        # Three conditions needed to handle all cases:
+        # - is_private=False: explicit false
+        # - is_private=None: explicit null value in JSON
+        # - is_private__isnull=True: key doesn't exist OR item_context is None
+        messages_query = messages_query.filter(
+            Q(item_context__is_private=False)
+            | Q(item_context__is_private=None)
+            | Q(item_context__is_private__isnull=True)
+        )
 
         # Order and limit
         messages = messages_query.order_by("created_at")[:limit]
@@ -278,7 +286,6 @@ class WidgetMessagesView(APIView):
                     "author_type": author_type,
                     "author_name": author_name,
                     "created_at": m.created_at.isoformat(),
-                    "is_private": m.item_context.get("is_private", False) if m.item_context else False,
                 }
             )
 
