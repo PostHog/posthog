@@ -6,10 +6,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useState } from 'react'
 
-import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { IconArrowRight, IconMicrophone, IconStopFilled } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useVoiceInput } from 'lib/hooks/useVoiceInput'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -69,8 +70,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const voiceInputEnabled = useFeatureFlag('AI_VOICE_INPUT')
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
+
+    const {
+        isListening,
+        isSupported: isVoiceSupported,
+        error: voiceError,
+        toggleListening,
+    } = useVoiceInput({
+        onTranscript: (transcript) => {
+            setQuestion(question ? `${question} ${transcript}` : transcript)
+        },
+    })
 
     // Update autocomplete visibility when question changes
     useEffect(() => {
@@ -136,6 +149,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     >
                                         {conversation && isSharedThread ? (
                                             `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        ) : isListening ? (
+                                            'Listening…'
                                         ) : threadLoading ? (
                                             'Thinking…'
                                         ) : isThreadVisible ? (
@@ -193,11 +208,24 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </label>
                     <div
                         className={clsx(
-                            'absolute flex items-center',
+                            'absolute flex items-center gap-1',
                             isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
+                        {voiceInputEnabled && isVoiceSupported && (
+                            <Tooltip title={voiceError ? voiceError : isListening ? 'Stop listening' : 'Voice input'}>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconMicrophone />}
+                                    onClick={toggleListening}
+                                    active={isListening}
+                                    className={isListening ? 'text-danger animate-pulse' : ''}
+                                    disabled={inputDisabled || threadLoading}
+                                />
+                            </Tooltip>
+                        )}
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
