@@ -41,8 +41,8 @@ function discoverApps(): string[] {
 }
 
 function buildApp(appName: string): void {
-    if (!/^[a-z_]+$/.test(appName)) {
-        throw new Error(`Invalid app name "${appName}": must only contain a-z and underscore`)
+    if (!/^[a-z_-]+$/.test(appName)) {
+        throw new Error(`Invalid app name "${appName}": must only contain a-z, underscore, or hyphen`)
     }
 
     console.info(`\n📦 Building ${appName}...`)
