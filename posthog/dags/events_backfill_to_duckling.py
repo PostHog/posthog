@@ -47,6 +47,7 @@ from dagster import (
     DagsterRunStatus,
     DynamicPartitionsDefinition,
     RunRequest,
+    RunsFilter,
     SensorEvaluationContext,
     SensorResult,
     asset,
@@ -574,9 +575,12 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
             context.log.info(f"Creating partition for team_id={catalog.team_id}, date={yesterday}")
         else:
             # Existing partition - check if the last run failed and needs retry
-            # Query for runs with this partition key
+            # Query for runs with this partition key (stored in dagster/partition tag)
             runs = context.instance.get_runs(
-                filters={"partition_key": partition_key, "job_name": "duckling_events_backfill_job"},
+                filters=RunsFilter(
+                    job_name="duckling_events_backfill_job",
+                    tags={"dagster/partition": partition_key},
+                ),
                 limit=1,
             )
             if runs:
