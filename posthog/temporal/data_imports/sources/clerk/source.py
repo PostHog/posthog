@@ -69,10 +69,7 @@ The secret key starts with `sk_live_` or `sk_test_`.
     def validate_credentials(
         self, config: ClerkSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_clerk_credentials(config.secret_key):
-            return True, None
-
-        return False, "Invalid Clerk secret key"
+        return validate_clerk_credentials(config.secret_key)
 
     def source_for_pipeline(self, config: ClerkSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return clerk_source(

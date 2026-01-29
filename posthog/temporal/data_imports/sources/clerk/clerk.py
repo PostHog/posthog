@@ -99,7 +99,7 @@ def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def validate_credentials(secret_key: str) -> bool:
+def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
     url = "https://api.clerk.com/v1/users"
     headers = {
@@ -109,9 +109,20 @@ def validate_credentials(secret_key: str) -> bool:
 
     try:
         response = requests.get(url, headers=headers, params={"limit": 1}, timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+
+        if response.status_code == 200:
+            return True, None
+
+        try:
+            error_data = response.json()
+            if error_data.get("errors"):
+                return False, error_data["errors"][0].get("message", response.text)
+        except Exception:
+            pass
+
+        return False, response.text
+    except requests.exceptions.RequestException as e:
+        return False, str(e)
 
 
 def clerk_source(
