@@ -164,6 +164,173 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    def test_filter_by_multiple_statuses(self, mock_on_commit):
+        """Test filtering tickets by multiple statuses (comma-separated)."""
+        self.ticket.status = Status.NEW
+        self.ticket.save()
+
+        open_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-session",
+            distinct_id="open-user",
+            status=Status.OPEN,
+        )
+        resolved_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="resolved-session",
+            distinct_id="resolved-user",
+            status=Status.RESOLVED,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new,open")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(open_ticket.id), ticket_ids)
+        self.assertNotIn(str(resolved_ticket.id), ticket_ids)
+
+    def test_filter_by_multiple_priorities(self, mock_on_commit):
+        """Test filtering tickets by multiple priorities (comma-separated)."""
+        self.ticket.priority = Priority.LOW
+        self.ticket.save()
+
+        high_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="high-session",
+            distinct_id="high-user",
+            priority=Priority.HIGH,
+        )
+        medium_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="medium-session",
+            distinct_id="medium-user",
+            priority=Priority.MEDIUM,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=low,high")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(high_ticket.id), ticket_ids)
+        self.assertNotIn(str(medium_ticket.id), ticket_ids)
+
+    def test_filter_multiple_statuses_and_priorities(self, mock_on_commit):
+        """Test filtering tickets by multiple statuses AND multiple priorities."""
+        self.ticket.status = Status.NEW
+        self.ticket.priority = Priority.HIGH
+        self.ticket.save()
+
+        open_low = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-low-session",
+            distinct_id="open-low-user",
+            status=Status.OPEN,
+            priority=Priority.LOW,
+        )
+        resolved_high = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="resolved-high-session",
+            distinct_id="resolved-high-user",
+            status=Status.RESOLVED,
+            priority=Priority.HIGH,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?status=new,open&priority=high,low"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(open_low.id), ticket_ids)
+        self.assertNotIn(str(resolved_high.id), ticket_ids)
+
+    def test_filter_multiple_statuses_with_invalid_value(self, mock_on_commit):
+        """Test that invalid values in comma-separated list are ignored."""
+        self.ticket.status = Status.NEW
+        self.ticket.save()
+
+        open_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-session",
+            distinct_id="open-user",
+            status=Status.OPEN,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new,invalid,open")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(open_ticket.id), ticket_ids)
+
+    def test_filter_empty_status_returns_all(self, mock_on_commit):
+        """Test that empty status param returns all tickets."""
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_filter_single_status_backward_compatible(self, mock_on_commit):
+        """Test that single status filter still works (backward compatibility)."""
+        self.ticket.status = Status.NEW
+        self.ticket.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="open-session",
+            distinct_id="open-user",
+            status=Status.OPEN,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
+        """Test that multiple priority filter excludes tickets with NULL priority."""
+        self.ticket.priority = Priority.LOW
+        self.ticket.save()
+
+        high_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="high-session",
+            distinct_id="high-user",
+            priority=Priority.HIGH,
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="null-session",
+            distinct_id="null-user",
+            priority=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?priority=low,high")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        ticket_ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), ticket_ids)
+        self.assertIn(str(high_ticket.id), ticket_ids)
+
     @parameterized.expand(
         [
             (

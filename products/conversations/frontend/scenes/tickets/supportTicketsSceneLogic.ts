@@ -17,10 +17,10 @@ import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicTyp
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     actions({
-        setStatusFilter: (status: TicketStatus | 'all') => ({ status }),
+        setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
-        setPriorityFilter: (priority: TicketPriority | 'all') => ({ priority }),
+        setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadTickets: true,
@@ -43,9 +43,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         statusFilter: [
-            'all' as TicketStatus | 'all',
+            [] as TicketStatus[],
+            { persist: true },
             {
-                setStatusFilter: (_, { status }) => status,
+                setStatusFilter: (_, { statuses }) => statuses,
             },
         ],
         channelFilter: [
@@ -61,13 +62,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         priorityFilter: [
-            'all' as TicketPriority | 'all',
+            [] as TicketPriority[],
+            { persist: true },
             {
-                setPriorityFilter: (_, { priority }) => priority,
+                setPriorityFilter: (_, { priorities }) => priorities,
             },
         ],
         assigneeFilter: [
             'all' as AssigneeFilterValue,
+            { persist: true },
             {
                 setAssigneeFilter: (_, { assignee }) => assignee,
             },
@@ -92,11 +95,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             const params: Record<string, any> = {}
-            if (values.statusFilter !== 'all') {
-                params.status = values.statusFilter
+            if (values.statusFilter.length > 0) {
+                params.status = values.statusFilter.join(',')
             }
-            if (values.priorityFilter !== 'all') {
-                params.priority = values.priorityFilter
+            if (values.priorityFilter.length > 0) {
+                params.priority = values.priorityFilter.join(',')
             }
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
