@@ -3,6 +3,7 @@ import {
     actions,
     kea,
     key,
+    listeners,
     path,
     props,
     reducers,
@@ -20,6 +21,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
@@ -29,6 +31,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
 import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
@@ -83,6 +86,21 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
             },
         ],
     }),
+    listeners(() => ({
+        setCurrentTab: ({ tab }) => {
+            const tabToContext: Record<BatchExportSceneTab, ProductIntentContext> = {
+                configuration: ProductIntentContext.BATCH_EXPORT_CONFIGURATION_VIEWED,
+                metrics: ProductIntentContext.BATCH_EXPORT_METRICS_VIEWED,
+                logs: ProductIntentContext.BATCH_EXPORT_LOGS_VIEWED,
+                runs: ProductIntentContext.BATCH_EXPORT_RUNS_VIEWED,
+                backfills: ProductIntentContext.BATCH_EXPORT_BACKFILLS_VIEWED,
+            }
+            void addProductIntent({
+                product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                intent_context: tabToContext[tab],
+            })
+        },
+    })),
     actionToUrl(({ values }) => ({
         setCurrentTab: () => {
             return [
