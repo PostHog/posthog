@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -67,9 +68,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedModel: (model: string) => ({ model }),
 
         // Evaluation summary actions
-        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter) => ({ filter }),
+        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
+            filter,
+            previousFilter,
+        }),
         toggleSummaryExpanded: true,
         regenerateEvaluationSummary: true,
+        trackSummarizeClicked: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -340,7 +345,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         regenerateEvaluationSummary: () => {
+            posthog.capture('llma evaluation regenerate clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
             actions.generateEvaluationSummary({ forceRefresh: true })
+        },
+
+        trackSummarizeClicked: () => {
+            posthog.capture('llma evaluation summarize clicked', {
+                filter: values.evaluationSummaryFilter,
+                runs_to_summarize: values.runsToSummarizeCount,
+            })
+        },
+
+        setEvaluationSummaryFilter: ({ filter, previousFilter }) => {
+            posthog.capture('llma evaluation summary filter changed', {
+                filter,
+                previous_filter: previousFilter,
+            })
+        },
+
+        toggleSummaryExpanded: () => {
+            posthog.capture('llma evaluation summary toggled', {
+                expanded: values.summaryExpanded,
+                filter: values.evaluationSummaryFilter,
+            })
         },
 
         resetEvaluation: () => {

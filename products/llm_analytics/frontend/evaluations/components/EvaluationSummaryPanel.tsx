@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
 import { IconCheck, IconChevronDown, IconMinus, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -38,8 +37,12 @@ export function EvaluationSummaryControls(): JSX.Element | null {
         evaluationSummaryLoading,
         evaluationSummaryFilter,
     } = useValues(llmEvaluationLogic)
-    const { generateEvaluationSummary, regenerateEvaluationSummary, setEvaluationSummaryFilter } =
-        useActions(llmEvaluationLogic)
+    const {
+        generateEvaluationSummary,
+        regenerateEvaluationSummary,
+        setEvaluationSummaryFilter,
+        trackSummarizeClicked,
+    } = useActions(llmEvaluationLogic)
     const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
 
     if (!showSummaryFeature || !runsSummary || runsSummary.total === 0) {
@@ -52,18 +55,10 @@ export function EvaluationSummaryControls(): JSX.Element | null {
                 <LemonButton
                     type="secondary"
                     onClick={() => {
-                        posthog.capture(
-                            evaluationSummary
-                                ? 'llma evaluation regenerate clicked'
-                                : 'llma evaluation summarize clicked',
-                            {
-                                filter: evaluationSummaryFilter,
-                                runs_to_summarize: runsToSummarizeCount,
-                            }
-                        )
                         if (evaluationSummary) {
                             regenerateEvaluationSummary()
                         } else {
+                            trackSummarizeClicked()
                             generateEvaluationSummary({})
                         }
                     }}
@@ -78,11 +73,7 @@ export function EvaluationSummaryControls(): JSX.Element | null {
             <LemonSegmentedButton
                 value={evaluationSummaryFilter}
                 onChange={(value) => {
-                    posthog.capture('llma evaluation summary filter changed', {
-                        filter: value,
-                        previous_filter: evaluationSummaryFilter,
-                    })
-                    setEvaluationSummaryFilter(value as EvaluationSummaryFilter)
+                    setEvaluationSummaryFilter(value as EvaluationSummaryFilter, evaluationSummaryFilter)
                 }}
                 options={[
                     { value: 'all', label: 'All' },
@@ -142,13 +133,7 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
         <div className="border rounded-lg bg-bg-light">
             <LemonButton
                 fullWidth
-                onClick={() => {
-                    posthog.capture('llma evaluation summary toggled', {
-                        expanded: !summaryExpanded,
-                        filter: evaluationSummaryFilter,
-                    })
-                    toggleSummaryExpanded()
-                }}
+                onClick={toggleSummaryExpanded}
                 data-attr="llma-evaluation-summary-toggle"
                 sideIcon={
                     <IconChevronDown
