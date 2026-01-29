@@ -52,6 +52,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             userLogic,
             ['hasAvailableFeature'],
         ],
+        actions: [membersLogic, ['ensureAllMembersLoaded']],
     })),
     actions({
         updateResourceAccessControls: (
@@ -312,6 +313,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
         ],
     }),
     afterMount(({ actions }) => {
+        membersLogic.actions.ensureAllMembersLoaded()
         actions.loadResourceAccessControls()
     }),
 ])
