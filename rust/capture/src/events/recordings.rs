@@ -228,6 +228,7 @@ pub async fn process_replay_events<'a>(
             session_id: Some(session_id_str.to_string()),
             event_name: Some("$snapshot_items".to_string()),
             event_uuid: Some(uuid.to_string()),
+            now_ts: context.now.timestamp(),
         };
 
         let restrictions = service.get_restrictions(&context.token, &event_ctx).await;

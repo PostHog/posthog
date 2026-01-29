@@ -132,6 +132,8 @@ pub struct EventContext {
     pub session_id: Option<String>,
     pub event_name: Option<String>,
     pub event_uuid: Option<String>,
+    /// Pre-computed timestamp to avoid syscalls per event. Use `chrono::Utc::now().timestamp()`.
+    pub now_ts: i64,
 }
 
 /// What events a restriction applies to.

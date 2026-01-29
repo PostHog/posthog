@@ -215,6 +215,7 @@ pub async fn ai_handler(
             session_id: None,
             event_name: Some(event_metadata.event_name.clone()),
             event_uuid: event_metadata.event_uuid(),
+            now_ts: state.timesource.current_time().timestamp(),
         };
 
         let restrictions = service.get_restrictions(token, &event_ctx).await;

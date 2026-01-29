@@ -199,15 +199,14 @@ impl EventRestrictionService {
     }
 
     /// Check if the cache is stale (fail-open should be active).
-    fn is_stale(&self) -> bool {
+    fn is_stale_at(&self, now_ts: i64) -> bool {
         let last_refresh = self.last_successful_refresh.load(Ordering::SeqCst);
         if last_refresh == 0 {
             return true;
         }
 
-        let now = chrono::Utc::now().timestamp();
         // Use saturating_sub to handle potential clock skew (if now < last_refresh, age = 0)
-        let age_secs = (now as u64).saturating_sub(last_refresh as u64);
+        let age_secs = (now_ts as u64).saturating_sub(last_refresh as u64);
         Duration::from_secs(age_secs) > self.fail_open_after
     }
 
@@ -217,7 +216,7 @@ impl EventRestrictionService {
         token: &str,
         event: &EventContext,
     ) -> HashSet<RestrictionType> {
-        if self.is_stale() {
+        if self.is_stale_at(event.now_ts) {
             gauge!(
                 "capture_event_restrictions_stale",
                 "pipeline" => self.pipeline.as_pipeline_name().to_string()
@@ -496,13 +495,18 @@ mod tests {
     // EventRestrictionService tests
     // ========================================================================
 
+    fn event_ctx_now() -> EventContext {
+        EventContext {
+            now_ts: chrono::Utc::now().timestamp(),
+            ..Default::default()
+        }
+    }
+
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
-        let restrictions = service
-            .get_restrictions("token", &EventContext::default())
-            .await;
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
         assert!(restrictions.is_empty());
     }
 
@@ -520,8 +524,7 @@ mod tests {
         );
         service.update(manager).await;
 
-        let event = EventContext::default();
-        let restrictions = service.get_restrictions("token1", &event).await;
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(restrictions.contains(&RestrictionType::DropEvent));
     }
 
@@ -543,9 +546,7 @@ mod tests {
         service.update(manager).await;
 
         // Immediately after update, should return restrictions
-        let restrictions = service
-            .get_restrictions("token1", &EventContext::default())
-            .await;
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(restrictions.contains(&RestrictionType::DropEvent));
 
         // Manually set last_successful_refresh to 10 seconds ago
@@ -555,9 +556,7 @@ mod tests {
             .store(old_timestamp, Ordering::SeqCst);
 
         // Now should be stale (fail-open)
-        let restrictions_after = service
-            .get_restrictions("token1", &EventContext::default())
-            .await;
+        let restrictions_after = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(restrictions_after.is_empty());
     }
 }
