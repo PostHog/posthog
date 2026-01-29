@@ -52,7 +52,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
             ) : null}
 
             <SidePanelContentContainer flagOffClassName="contents">
-                {commentsLogicProps && commentsLogicProps.disabled && !isRemovingSidePanelFlag ? (
+                {commentsLogicProps && commentsLogicProps.disabled && isRemovingSidePanelFlag ? (
                     <SidePanelPaneHeader
                         title={
                             <div className="flex deprecated-space-x-2">
