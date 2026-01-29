@@ -12,6 +12,26 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
 
+
+def _get_access_token_expires_in(request) -> int:
+    """
+    Returns the access token expiry in seconds for the given request.
+    If the application has a custom expiry set, use that. Otherwise, fall back to the default.
+    This is called by oauthlib when issuing tokens.
+
+    Workaround for clients that don't properly implement refresh token flow (e.g. Claude Code).
+    See: https://github.com/anthropics/claude-code/issues/5706
+    """
+    from oauth2_provider.settings import oauth2_settings
+
+    if hasattr(request, "client") and request.client:
+        app = request.client
+        if hasattr(app, "access_token_expire_seconds") and app.access_token_expire_seconds:
+            return app.access_token_expire_seconds
+
+    return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
+
+
 ####
 # django-axes
 
@@ -555,6 +575,12 @@ OAUTH2_PROVIDER = {
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
     "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
     "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
+    # Per-application token expiry - allows overriding ACCESS_TOKEN_EXPIRE_SECONDS per OAuth application
+    # This is useful for clients that don't properly implement refresh token flow (e.g. Claude Code)
+    # See: https://github.com/anthropics/claude-code/issues/5706
+    "OAUTH2_SERVER_KWARGS": {
+        "token_expires_in": _get_access_token_expires_in,
+    },
 }
 
 OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
