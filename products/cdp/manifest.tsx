@@ -5,6 +5,24 @@ import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'CDP',
+    scenes: {
+        Transformations: {
+            import: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
+            projectBased: true,
+            name: 'Transformations',
+            description:
+                'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
+            activityScope: 'HogFunction',
+            defaultDocsPath: '/docs/cdp/transformations',
+            iconType: 'data_pipeline',
+        },
+    },
+    routes: {
+        '/transformations': ['Transformations', 'transformations'],
+    },
+    urls: {
+        transformations: (): string => '/transformations',
+    },
     treeItemsNew: [
         {
             path: `Data/Source`,
@@ -59,9 +77,9 @@ export const manifest: ProductManifest = {
             category: 'Pipeline',
             type: 'hog_function/transformation',
             iconType: 'data_pipeline_metadata',
-            href: urls.dataPipelines('transformations'),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
+            href: urls.transformations(),
+            sceneKey: 'Transformations',
+            sceneKeys: ['Transformations'],
         },
         {
             path: `Destinations`,

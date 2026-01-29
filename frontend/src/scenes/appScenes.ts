@@ -107,6 +107,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ProductTour]: () => import('./product-tours/ProductTour'),
     [Scene.SystemStatus]: () => import('./instance/SystemStatus'),
     [Scene.ToolbarLaunch]: () => import('./toolbar-launch/ToolbarLaunch'),
+    [Scene.Transformations]: () => import('./data-pipelines/TransformationsScene'),
     [Scene.Unsubscribe]: () => import('./Unsubscribe/Unsubscribe'),
     [Scene.VercelLinkError]: () => import('./authentication/VercelLinkError'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
