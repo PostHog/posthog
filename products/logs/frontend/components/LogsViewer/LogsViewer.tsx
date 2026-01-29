@@ -312,7 +312,7 @@ function LogsViewerContent({
     )
 
     return (
-        <div className="flex flex-col gap-2 h-full">
+        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
             {newLogsFilterBar ? <LogsFilterBarV2 /> : <LogsFilterBar />}
             <LogsSparkline
                 sparklineData={sparklineData}
