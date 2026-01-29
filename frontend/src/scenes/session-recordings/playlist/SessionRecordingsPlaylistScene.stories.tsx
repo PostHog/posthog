@@ -1,10 +1,13 @@
 import { Meta, StoryFn } from '@storybook/react'
+import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -211,3 +214,26 @@ PlaylistNarrow.parameters = {
     },
 }
 PlaylistNarrow.tags = ['test-skip']
+
+const PlaylistCollapsedInner = (): JSX.Element => {
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+
+    useEffect(() => {
+        setPlaylistCollapsed(true)
+        return () => setPlaylistCollapsed(false)
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    return <App />
+}
+
+export const PlaylistCollapsed: StoryFn = () => {
+    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
+
+    return <PlaylistCollapsedInner />
+}
+PlaylistCollapsed.parameters = {
+    testOptions: {
+        viewport: { width: 1300, height: 720 },
+    },
+}
+PlaylistCollapsed.tags = ['test-skip']

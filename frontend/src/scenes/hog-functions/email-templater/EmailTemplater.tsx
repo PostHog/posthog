@@ -8,12 +8,10 @@ import { IconExternal, IconEye } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { urls } from 'scenes/urls'
 
@@ -269,9 +267,6 @@ function NativeEmailTemplaterForm({
         useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isWorkflowsProductEnabled = featureFlags[FEATURE_FLAGS.WORKFLOWS]
-
     const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
     const isPreviewClick = useRef(false)
 
@@ -327,66 +322,65 @@ function NativeEmailTemplaterForm({
 
                 {mode === 'full' ? (
                     <>
-                        {isWorkflowsProductEnabled && (
-                            <div className="flex gap-2 items-center px-2 py-1 border-b">
-                                <span className="flex-1">Start from a template (optional)</span>
-                                <LemonSelect
-                                    size="xsmall"
-                                    placeholder="Choose template"
-                                    loading={templatesLoading}
-                                    value={appliedTemplate?.id ?? null}
-                                    options={[
-                                        {
-                                            title: 'Templates',
-                                            options: templates.map((template) => ({
-                                                label: template.name,
-                                                labelInMenu: (
-                                                    <div className="flex items-center justify-between w-full gap-2">
-                                                        <span className="flex-1">{template.name}</span>
-                                                        <span
-                                                            className="cursor-pointer text-muted hover:text-default"
-                                                            onClick={() => {
-                                                                isPreviewClick.current = true
-                                                                setPreviewTemplate(template)
-                                                            }}
-                                                            title="Preview template"
-                                                        >
-                                                            <IconEye className="text-lg" />
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: template.id,
-                                            })),
-                                        },
-                                        {
-                                            options: [
-                                                {
-                                                    label: 'Save as new template',
-                                                    value: 'save-as-template',
-                                                },
-                                            ],
-                                        },
-                                    ]}
-                                    onChange={(id) => {
-                                        // Check if this was a preview click
-                                        if (isPreviewClick.current) {
-                                            isPreviewClick.current = false
-                                            return
-                                        }
+                        <div className="flex gap-2 items-center px-2 py-1 border-b">
+                            <span className="flex-1">Start from a template (optional)</span>
+                            <LemonSelect
+                                size="xsmall"
+                                placeholder="Choose template"
+                                loading={templatesLoading}
+                                value={appliedTemplate?.id ?? null}
+                                options={[
+                                    {
+                                        title: 'Templates',
+                                        options: templates.map((template) => ({
+                                            label: template.name,
+                                            labelInMenu: (
+                                                <div className="flex items-center justify-between w-full gap-2">
+                                                    <span className="flex-1">{template.name}</span>
+                                                    <span
+                                                        className="cursor-pointer text-muted hover:text-default"
+                                                        onClick={() => {
+                                                            isPreviewClick.current = true
+                                                            setPreviewTemplate(template)
+                                                        }}
+                                                        title="Preview template"
+                                                    >
+                                                        <IconEye className="text-lg" />
+                                                    </span>
+                                                </div>
+                                            ),
+                                            value: template.id,
+                                        })),
+                                    },
+                                    {
+                                        options: [
+                                            {
+                                                label: 'Save as new template',
+                                                value: 'save-as-template',
+                                            },
+                                        ],
+                                    },
+                                ]}
+                                onChange={(id) => {
+                                    // Check if this was a preview click
+                                    if (isPreviewClick.current) {
+                                        isPreviewClick.current = false
+                                        return
+                                    }
 
-                                        if (id === 'save-as-template') {
-                                            onSaveAsTemplate?.()
-                                            return
-                                        }
-                                        const template = templates.find((t) => t.id === id)
-                                        if (template) {
-                                            applyTemplate(template)
-                                        }
-                                    }}
-                                    data-attr="email-template-selector"
-                                />
-                            </div>
-                        )}
+                                    if (id === 'save-as-template') {
+                                        onSaveAsTemplate?.()
+                                        return
+                                    }
+                                    const template = templates.find((t) => t.id === id)
+                                    if (template) {
+                                        applyTemplate(template)
+                                    }
+                                }}
+                                data-attr="email-template-selector"
+                            />
+                        </div>
+
                         <EmailEditor
                             ref={(r) => setEmailEditorRef(r)}
                             onReady={() => onEmailEditorReady()}
@@ -400,7 +394,7 @@ function NativeEmailTemplaterForm({
                                     stockImages: false,
                                 },
                                 projectId: unlayerEditorProjectId,
-                                customJS: isWorkflowsProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
+                                customJS: [unsubscribeLinkToolCustomJs],
                                 fonts: unlayerEditorProjectId
                                     ? {
                                           showDefaultFonts: true,

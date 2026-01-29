@@ -18,9 +18,12 @@ from posthog.api.feature_flag import _create_usage_dashboard
 from posthog.constants import FlagRequestType
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flag_analytics import (
+    SDK_LIBRARIES,
+    _extract_sdk_breakdown_from_redis,
     capture_team_decide_usage,
     capture_usage_for_all_teams,
     find_flags_with_enriched_analytics,
+    get_team_request_library_key,
     increment_request_count,
 )
 from posthog.models.team.team import Team
@@ -555,6 +558,302 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 {b"165192620": b"8"},
             )
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
+
+
+class TestSdkBreakdown(BaseTest):
+    def setUp(self):
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
+        return super().setUp()
+
+    def test_get_team_request_library_key_decide(self):
+        self.assertEqual(
+            get_team_request_library_key(123, FlagRequestType.DECIDE, "posthog-js"),
+            "posthog:decide_requests:sdk:123:posthog-js",
+        )
+        self.assertEqual(
+            get_team_request_library_key(456, FlagRequestType.DECIDE, "posthog-node"),
+            "posthog:decide_requests:sdk:456:posthog-node",
+        )
+
+    def test_get_team_request_library_key_local_evaluation(self):
+        self.assertEqual(
+            get_team_request_library_key(123, FlagRequestType.LOCAL_EVALUATION, "posthog-python"),
+            "posthog:local_evaluation_requests:sdk:123:posthog-python",
+        )
+
+    def test_sdk_libraries_matches_rust_library_enum(self):
+        """
+        Verify SDK_LIBRARIES matches Rust Library::as_str() values.
+
+        IMPORTANT: These values must match the Rust Library enum in:
+        rust/feature-flags/src/handler/types.rs
+
+        If this test fails after adding a new SDK to Rust, update SDK_LIBRARIES
+        in posthog/models/feature_flag/flag_analytics.py to match.
+        """
+        expected_libraries = [
+            "posthog-js",
+            "posthog-node",
+            "posthog-python",
+            "posthog-php",
+            "posthog-ruby",
+            "posthog-go",
+            "posthog-java",
+            "posthog-dotnet",
+            "posthog-elixir",
+            "posthog-android",
+            "posthog-ios",
+            "posthog-react-native",
+            "posthog-flutter",
+            "other",
+        ]
+        self.assertEqual(SDK_LIBRARIES, expected_libraries)
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_extract_sdk_breakdown_from_redis_empty(self):
+        client = redis.get_client()
+        team_id = 999
+
+        with freeze_time("2022-05-07 12:23:07"):
+            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+            self.assertEqual(result, {})
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_extract_sdk_breakdown_from_redis_with_data(self):
+        client = redis.get_client()
+        team_id = 888
+
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+            # Set up SDK-specific data in Redis in first bucket
+            time_bucket_1 = "165192618"
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_1, 100)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_1, 50)
+
+            # Move to second bucket - each SDK key needs 2+ buckets for extraction
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            time_bucket_2 = "165192619"
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_2, 10)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_2, 5)
+
+            # Move time forward so bucket 2 is no longer "current"
+            frozen_datetime.tick(datetime.timedelta(seconds=15))
+
+            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+            # Only bucket 1 should be extracted (bucket 2 is skipped as it's most recent)
+            self.assertEqual(result, {"posthog-js": 100, "posthog-node": 50})
+
+            # Bucket 1 should be consumed, bucket 2 should still exist
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js"),
+                {b"165192619": b"10"},
+            )
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-node"),
+                {b"165192619": b"5"},
+            )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_capture_team_decide_usage_includes_sdk_breakdown(self):
+        mock_capture = MagicMock()
+        team_id = 777
+        team_uuid = "team-uuid-777"
+
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
+        ):
+            client = redis.get_client()
+
+            # Set up aggregate counts in first bucket
+            time_bucket_1 = "165192618"
+            client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_1, 150)
+
+            # Set up SDK-specific counts (simulating what Rust would write)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_1, 100)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_1, 50)
+
+            # Move to second bucket - each key needs 2+ buckets for extraction
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            time_bucket_2 = "165192619"
+            client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_2, 1)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_2, 1)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_2, 1)
+
+            # Move time forward so bucket 2 is no longer "current"
+            frozen_datetime.tick(datetime.timedelta(seconds=15))
+
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+
+            mock_capture.capture.assert_called_once_with(
+                distinct_id=team_id,
+                event="decide usage",
+                properties={
+                    "count": 150,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": 1651926180,
+                    "max_time": 1651926180,
+                    "token": "token",
+                    "sdk_breakdown": {"posthog-js": 100, "posthog-node": 50},
+                },
+            )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_capture_team_decide_usage_without_sdk_breakdown(self):
+        mock_capture = MagicMock()
+        team_id = 666
+        team_uuid = "team-uuid-666"
+
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
+        ):
+            client = redis.get_client()
+
+            # Set up only aggregate counts in first bucket (no SDK-specific data)
+            time_bucket_1 = "165192618"
+            client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_1, 100)
+
+            # Move to second bucket (extraction requires 2+ buckets)
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            time_bucket_2 = "165192619"
+            client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_2, 1)
+
+            frozen_datetime.tick(datetime.timedelta(seconds=15))
+
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+
+            # Should NOT include sdk_breakdown when there's no SDK data
+            mock_capture.capture.assert_called_once_with(
+                distinct_id=team_id,
+                event="decide usage",
+                properties={
+                    "count": 100,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": 1651926180,
+                    "max_time": 1651926180,
+                    "token": "token",
+                },
+            )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_capture_local_evaluation_usage_includes_sdk_breakdown(self):
+        mock_capture = MagicMock()
+        team_id = 555
+        team_uuid = "team-uuid-555"
+
+        with (
+            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
+        ):
+            client = redis.get_client()
+
+            # Set up data in first bucket
+            time_bucket_1 = "165192618"
+            client.hincrby(f"posthog:local_evaluation_requests:{team_id}", time_bucket_1, 80)
+            client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-python", time_bucket_1, 50)
+            client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-node", time_bucket_1, 30)
+
+            # Move to second bucket - each key needs 2+ buckets for extraction
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            time_bucket_2 = "165192619"
+            client.hincrby(f"posthog:local_evaluation_requests:{team_id}", time_bucket_2, 1)
+            client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-python", time_bucket_2, 1)
+            client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-node", time_bucket_2, 1)
+
+            frozen_datetime.tick(datetime.timedelta(seconds=15))
+
+            capture_team_decide_usage(mock_capture, team_id, team_uuid)
+
+            mock_capture.capture.assert_called_once_with(
+                distinct_id=team_id,
+                event="local evaluation usage",
+                properties={
+                    "count": 80,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": 1651926180,
+                    "max_time": 1651926180,
+                    "token": "token",
+                    "sdk_breakdown": {"posthog-python": 50, "posthog-node": 30},
+                },
+            )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_extract_sdk_breakdown_uses_pipelining_for_all_sdks(self):
+        """
+        Verify that SDK breakdown extraction works correctly with many SDKs.
+
+        This test exercises the pipelining path by setting up data for multiple
+        SDKs and verifying all are extracted and consumed correctly.
+        """
+        client = redis.get_client()
+        team_id = 444
+
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+            time_bucket_1 = "165192618"
+
+            # Set up data for multiple SDKs (simulating real-world usage)
+            test_sdks = {
+                "posthog-js": 1000,
+                "posthog-node": 500,
+                "posthog-python": 300,
+                "posthog-android": 200,
+                "posthog-ios": 150,
+                "other": 50,
+            }
+
+            for sdk, count in test_sdks.items():
+                client.hincrby(f"posthog:decide_requests:sdk:{team_id}:{sdk}", time_bucket_1, count)
+
+            # Move to second bucket - extraction requires 2+ buckets
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            time_bucket_2 = "165192619"
+
+            for sdk in test_sdks:
+                client.hincrby(f"posthog:decide_requests:sdk:{team_id}:{sdk}", time_bucket_2, 1)
+
+            # Move time forward so bucket 2 is no longer "current"
+            frozen_datetime.tick(datetime.timedelta(seconds=15))
+
+            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+
+            # Verify all SDKs were extracted with correct counts from bucket 1
+            self.assertEqual(result, test_sdks)
+
+            # Verify bucket 1 was consumed for all SDKs, bucket 2 remains
+            for sdk in test_sdks:
+                remaining = client.hgetall(f"posthog:decide_requests:sdk:{team_id}:{sdk}")
+                self.assertEqual(remaining, {b"165192619": b"1"}, f"SDK {sdk} should only have bucket 2 remaining")
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_extract_sdk_breakdown_handles_single_bucket_gracefully(self):
+        """
+        Verify that SDKs with only one bucket (still being filled) are not extracted.
+        """
+        client = redis.get_client()
+        team_id = 333
+
+        with freeze_time("2022-05-07 12:23:07"):
+            time_bucket = "165192618"
+
+            # Set up data with only one bucket per SDK
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket, 100)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket, 50)
+
+            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+
+            # Should return empty dict since there's only one bucket (still being filled)
+            self.assertEqual(result, {})
+
+            # Data should still be in Redis (not consumed)
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js"),
+                {b"165192618": b"100"},
+            )
 
 
 class TestEnrichedAnalytics(BaseTest):

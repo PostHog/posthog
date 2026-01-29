@@ -1,0 +1,12 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}{{ token_type }} has been revoked{% endblock %}
+{% block section %}
+<p>
+    Your {{ token_type }} with value <strong>{{ mask_value }}</strong> was publicly exposed.
+    {% if more_info %}{{ more_info }}{% endif %}
+</p>
+<p>
+    To protect your account, this token and all related tokens for this application have been revoked.
+    Any application using these tokens will need to be reauthorized.
+</p>
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}

@@ -2,8 +2,7 @@ import { ReactElement, cloneElement, isValidElement } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-
+import { RenderKeybind } from './AppShortcutMenu'
 import { AppShortcutType } from './appShortcutLogic'
 import { convertPlatformKeybind, useAppShortcut } from './useAppShortcut'
 
@@ -59,10 +58,7 @@ export function AppShortcut({
                 {keybind.map((kb, index) => (
                     <span key={index}>
                         {index > 0 && <span className="text-xs opacity-75"> or </span>}
-                        <KeyboardShortcut
-                            {...keybindToKeyboardShortcutProps(kb)}
-                            className="relative text-xs -top-px"
-                        />
+                        <RenderKeybind keybind={[kb]} className="relative text-xs -top-px" />
                     </span>
                 ))}
             </>

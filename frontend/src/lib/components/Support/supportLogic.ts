@@ -178,7 +178,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'setup-wizard',
                 'data-attr': `support-form-target-area-setup-wizard`,
-                label: 'Setup wizard',
+                label: 'Wizard',
             },
         ],
     },

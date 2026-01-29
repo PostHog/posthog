@@ -131,7 +131,7 @@ function extractScrollDepthHeatmapData(
         })
     }
 
-    let heatmapEvents: RawClickhouseHeatmapEvent[] = []
+    const heatmapEvents: RawClickhouseHeatmapEvent[] = []
 
     if (!heatmapData || Object.entries(heatmapData).length === 0) {
         return ok({ heatmapEvents: [], warnings })
@@ -152,7 +152,12 @@ function extractScrollDepthHeatmapData(
         return drop('heatmap_invalid_viewport_dimensions')
     }
 
-    Object.entries(heatmapData).forEach(([url, items]) => {
+    const eventTimestamp = castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse)
+    const sessionIdStr = String($session_id)
+    const scaledViewportHeight = Math.round($viewport_height / SCALE_FACTOR)
+    const scaledViewportWidth = Math.round($viewport_width / SCALE_FACTOR)
+
+    for (const [url, items] of Object.entries(heatmapData)) {
         if (!isValidString(url)) {
             warnings.push({
                 type: 'rejecting_heatmap_data_with_invalid_url',
@@ -162,48 +167,10 @@ function extractScrollDepthHeatmapData(
                 },
                 key: $session_id,
             })
-            return
+            continue
         }
 
-        if (Array.isArray(items)) {
-            heatmapEvents = heatmapEvents.concat(
-                (items as any[])
-                    .map(
-                        (hme: {
-                            x: number
-                            y: number
-                            target_fixed: boolean
-                            type: string
-                        }): RawClickhouseHeatmapEvent | null => {
-                            if (
-                                !isValidNumber(hme.x) ||
-                                !isValidNumber(hme.y) ||
-                                !isValidString(hme.type) ||
-                                !isValidBoolean(hme.target_fixed)
-                            ) {
-                                // TODO really we should add an ingestion warning here, but no urgency
-                                return null
-                            }
-
-                            return {
-                                type: hme.type,
-                                x: Math.round(hme.x / SCALE_FACTOR),
-                                y: Math.round(hme.y / SCALE_FACTOR),
-                                pointer_target_fixed: hme.target_fixed,
-                                viewport_height: Math.round($viewport_height / SCALE_FACTOR),
-                                viewport_width: Math.round($viewport_width / SCALE_FACTOR),
-                                current_url: String(url),
-                                session_id: String($session_id),
-                                scale_factor: SCALE_FACTOR,
-                                timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
-                                team_id: teamId,
-                                distinct_id: distinctId,
-                            }
-                        }
-                    )
-                    .filter((x): x is RawClickhouseHeatmapEvent => x !== null)
-            )
-        } else {
+        if (!Array.isArray(items)) {
             warnings.push({
                 type: 'rejecting_heatmap_data_with_invalid_items',
                 details: {
@@ -212,8 +179,37 @@ function extractScrollDepthHeatmapData(
                 },
                 key: $session_id,
             })
+            continue
         }
-    })
+
+        const urlStr = String(url)
+        for (const hme of items as any[]) {
+            if (
+                !isValidNumber(hme.x) ||
+                !isValidNumber(hme.y) ||
+                !isValidString(hme.type) ||
+                !isValidBoolean(hme.target_fixed)
+            ) {
+                // TODO really we should add an ingestion warning here, but no urgency
+                continue
+            }
+
+            heatmapEvents.push({
+                type: hme.type,
+                x: Math.round(hme.x / SCALE_FACTOR),
+                y: Math.round(hme.y / SCALE_FACTOR),
+                pointer_target_fixed: hme.target_fixed,
+                viewport_height: scaledViewportHeight,
+                viewport_width: scaledViewportWidth,
+                current_url: urlStr,
+                session_id: sessionIdStr,
+                scale_factor: SCALE_FACTOR,
+                timestamp: eventTimestamp,
+                team_id: teamId,
+                distinct_id: distinctId,
+            })
+        }
+    }
 
     return ok({ heatmapEvents, warnings })
 }

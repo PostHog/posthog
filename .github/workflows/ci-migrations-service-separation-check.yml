@@ -1,0 +1,94 @@
+name: Migration & Service Separation Check
+
+on:
+    pull_request:
+    merge_group:
+
+permissions:
+    contents: read
+
+jobs:
+    check-migration-service-separation:
+        name: Check migrations and service changes are not in same PR
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              with:
+                  filters: |
+                      migrations:
+                          - 'posthog/migrations/*.py'
+                          - 'posthog/clickhouse/migrations/*.py'
+                          - 'products/*/backend/migrations/*.py'
+                          - 'ee/migrations/*.py'
+                      sqlx_migrations:
+                          - 'rust/persons_migrations/*.sql'
+                          - 'rust/behavioral_cohorts_migrations/*.sql'
+                          - 'rust/cyclotron-core/migrations/*.sql'
+                      nodejs:
+                          - 'nodejs/**'
+
+            # Separate step with predicate-quantifier: 'every' so that the
+            # negative patterns actually exclude migration directories.
+            # The default quantifier is 'some' (OR logic), which means a file
+            # matching ANY pattern (including the positive rust/**) passes the
+            # filter — the ! patterns are silently ignored.
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: rust-filter
+              with:
+                  predicate-quantifier: 'every'
+                  filters: |
+                      rust_services:
+                          - 'rust/**'
+                          - '!rust/persons_migrations/**'
+                          - '!rust/behavioral_cohorts_migrations/**'
+                          - '!rust/cyclotron-core/migrations/**'
+
+            - name: Check for conflicting changes
+              id: check
+              run: |
+                  has_error=false
+                  error_messages=""
+
+                  # Check nodejs + Django migrations
+                  if [ "${{ steps.filter.outputs.migrations }}" == "true" ] && [ "${{ steps.filter.outputs.nodejs }}" == "true" ]; then
+                      error_messages="${error_messages}❌ Found both Django migration and nodejs changes\n"
+                      has_error=true
+                  fi
+
+                  # Check nodejs + sqlx migrations
+                  if [ "${{ steps.filter.outputs.sqlx_migrations }}" == "true" ] && [ "${{ steps.filter.outputs.nodejs }}" == "true" ]; then
+                      error_messages="${error_messages}❌ Found both sqlx migration and nodejs changes\n"
+                      has_error=true
+                  fi
+
+                  # Check rust services + sqlx migrations
+                  if [ "${{ steps.filter.outputs.sqlx_migrations }}" == "true" ] && [ "${{ steps.rust-filter.outputs.rust_services }}" == "true" ]; then
+                      error_messages="${error_messages}❌ Found both sqlx migration and rust service changes\n"
+                      has_error=true
+                  fi
+
+                  if [ "$has_error" == "true" ]; then
+                      echo "error=true" >> $GITHUB_OUTPUT
+                      echo -e "$error_messages"
+                  else
+                      echo "error=false" >> $GITHUB_OUTPUT
+                      echo "✅ No conflicting changes detected"
+                  fi
+
+            - name: Fail if conflicting changes detected
+              if: steps.check.outputs.error == 'true'
+              run: |
+                  echo "::error::This PR contains both migration files and service changes. These must be separated into different PRs."
+                  echo ""
+                  echo "Why? Migration jobs are not orchestrated with service deployments. If you merge"
+                  echo "service code that depends on new database schema alongside the migration, your"
+                  echo "service may deploy before the migration runs, causing failures."
+                  echo ""
+                  echo "Solution: Split into two PRs:"
+                  echo "  1. First PR: Migration changes only (merge and wait for it to deploy)"
+                  echo "  2. Second PR: Service code changes (merge after migration is deployed)"
+                  exit 1

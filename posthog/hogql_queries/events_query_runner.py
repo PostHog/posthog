@@ -116,7 +116,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.extend(
                             property_to_expr(property, self.team) for property in self.query.fixedProperties
                         )
-                all_events: list[str] = [e for e in [self.query.event, *(self.query.events or [])] if e is not None]
+                all_events: list[str] = [e for e in [self.query.event, *(self.query.events or [])] if e]
                 if all_events:
                     with self.timings.measure("event"):
                         if len(all_events) == 1:

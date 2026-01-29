@@ -269,6 +269,14 @@ cd posthog
 git pull --prune
 cd ../
 
+# Redis containers consolidated: redis (6.2) removed, only redis7 (7.2) remains
+if docker volume ls -q | grep -q '^redis-data$'; then
+    echo ""
+    echo "ℹ️  Redis consolidated to single container (7.2). Old 'redis-data' volume can be removed:"
+    echo "   docker volume rm redis-data"
+    echo ""
+fi
+
 # Download GeoLite2-City.mmdb if it doesn't exist
 echo "Downloading GeoIP database file"
 apt-get update && 

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.models.user import User
 
 from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentsLLMAnalyzer
+from ee.hogai.videos.utils import get_video_duration_s
 
 
 class TestSessionMomentsLLMAnalyzer(BaseTest):
@@ -120,7 +121,7 @@ class TestSessionMomentsLLMAnalyzer(BaseTest):
             video_bytes = f.read()
 
         # Extract duration
-        duration_s = SessionMomentsLLMAnalyzer._get_webm_duration(video_bytes)
+        duration_s = get_video_duration_s(video_bytes)
 
         # Assert it returns 34 seconds
         assert duration_s == 34

@@ -71,7 +71,7 @@ LIMIT
 
     // Function to open query in a new insight
     const openInInsight = (query: string): void => {
-        router.actions.push(urls.sqlEditor(query))
+        router.actions.push(urls.sqlEditor({ query: query }))
     }
 
     return (

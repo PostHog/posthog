@@ -710,6 +710,11 @@ def property_to_expr(
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
 
+        is_visited_page_property = property.type == "recording" and property.key == "visited_page"
+        if is_visited_page_property:
+            # Use the all_urls array field to filter for pages visited during recording.
+            all_urls_field = ast.Field(chain=["all_urls"])
+
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
             "$exception_values",
@@ -745,7 +750,11 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if is_exception_string_array_property else expr
+                    left = (
+                        ast.Field(chain=["v"])
+                        if (is_exception_string_array_property or is_visited_page_property)
+                        else expr
+                    )
                     compare_op = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
@@ -756,6 +765,14 @@ def property_to_expr(
                             {
                                 "compare_op": compare_op,
                                 "field": extracted_field,
+                            },
+                        )
+                    elif is_visited_page_property:
+                        return parse_expr(
+                            "arrayExists(v -> {compare_op}, {field})",
+                            {
+                                "compare_op": compare_op,
+                                "field": all_urls_field,
                             },
                         )
                     else:
@@ -785,7 +802,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if is_exception_string_array_property else expr,
+            expr=ast.Field(chain=["v"]) if (is_exception_string_array_property or is_visited_page_property) else expr,
             value=value,
             operator=operator,
             team=team,
@@ -798,6 +815,25 @@ def property_to_expr(
                 "arrayExists(v -> {expr}, {key})",
                 {"expr": expr, "key": extracted_field},
             )
+        elif is_visited_page_property:
+            # Handle IS_SET and IS_NOT_SET operators specially for arrays
+            if operator == PropertyOperator.IS_SET:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Call(name="length", args=[all_urls_field]),
+                    right=ast.Constant(value=0),
+                )
+            elif operator == PropertyOperator.IS_NOT_SET:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Call(name="length", args=[all_urls_field]),
+                    right=ast.Constant(value=0),
+                )
+            else:
+                return parse_expr(
+                    "arrayExists(v -> {expr}, {key})",
+                    {"expr": expr, "key": all_urls_field},
+                )
         else:
             return expr
     elif property.type == "element":

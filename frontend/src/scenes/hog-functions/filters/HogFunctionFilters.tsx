@@ -1,4 +1,3 @@
-import { id } from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
@@ -238,7 +237,7 @@ export function HogFunctionFilters({
                                             }
                                             onChange(newValue as CyclotronJobFiltersType)
                                         }}
-                                        pageKey={`HogFunctionPropertyFilters.${id}`}
+                                        pageKey={`HogFunctionPropertyFilters.${type}`}
                                         excludedProperties={excludedProperties}
                                     />
                                 </>

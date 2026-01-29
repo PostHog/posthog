@@ -8,7 +8,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import FR, FREQNAMES, MO, SA, SU, TH, TU, WE, rrule
+from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
@@ -108,7 +108,13 @@ class Subscription(models.Model):
 
     @property
     def rrule(self):
-        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], FREQNAMES.index(self.frequency.upper()))
+        freq_map: dict[str, int] = {
+            self.SubscriptionFrequency.DAILY: DAILY,
+            self.SubscriptionFrequency.WEEKLY: WEEKLY,
+            self.SubscriptionFrequency.MONTHLY: MONTHLY,
+            self.SubscriptionFrequency.YEARLY: YEARLY,
+        }
+        freq = cast(Literal[0, 1, 2, 3, 4, 5, 6], freq_map[self.frequency])
         return rrule(
             freq=freq,
             count=self.count,

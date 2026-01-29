@@ -71,7 +71,12 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                         <div className="flex flex-col">
                             <div className="flex flex-row items-center gap-2">
                                 {SURVEY_TYPE_LABEL_MAP[survey.type]}
-                                {isExternalSurvey && <CopySurveyLink surveyId={survey.id} className="w-fit" />}
+                                {isExternalSurvey && (
+                                    <CopySurveyLink
+                                        surveyId={survey.id}
+                                        enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                                    />
+                                )}
                             </div>
                             {isExternalSurvey && (
                                 <span>

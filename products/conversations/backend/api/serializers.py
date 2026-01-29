@@ -1,11 +1,29 @@
-"""Serializers for Conversations widget API."""
+"""Serializers for Conversations API."""
 
 from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
 
+from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
+
+
+class TicketAssignmentSerializer(serializers.ModelSerializer):
+    """Serializer for ticket assignment (user or role)."""
+
+    id = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketAssignment
+        fields = ["id", "type"]
+
+    def get_id(self, obj):
+        return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
+
+    def get_type(self, obj):
+        return "role" if obj.role_id else "user"
 
 
 class WidgetMessageSerializer(serializers.Serializer):
@@ -15,6 +33,10 @@ class WidgetMessageSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, max_length=400, help_text="PostHog distinct_id")
     message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
+    session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
+    session_context = serializers.DictField(
+        required=False, default=dict, help_text="Session context (replay URL, current URL, etc.)"
+    )
 
     def validate_message(self, value):
         """Ensure message is not empty after stripping."""
@@ -50,12 +72,40 @@ class WidgetMessageSerializer(serializers.Serializer):
 
         return validated
 
+    def validate_session_context(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("session_context must be a dictionary")
+
+        if len(value) > 20:
+            raise serializers.ValidationError(f"Too many session context fields: {len(value)} (max 20)")
+
+        validated = {}
+        for key, val in value.items():
+            # Validate key
+            if not isinstance(key, str):
+                continue
+            if len(key) > 100:
+                raise serializers.ValidationError(f"Session context key too long: '{key[:50]}...' (max 100 chars)")
+
+            # Allow simple types and validate length
+            if not isinstance(val, str | int | float | bool | type(None)):
+                continue
+
+            # Validate string length for string values
+            if isinstance(val, str) and len(val) > 2000:  # URLs can be long
+                raise serializers.ValidationError(f"Session context value too long for '{key}' (max 2000 chars)")
+
+            validated[key] = val
+
+        return validated
+
 
 class WidgetMessagesQuerySerializer(serializers.Serializer):
     """Serializer for fetching messages from a ticket."""
 
     widget_session_id = serializers.UUIDField(required=True)
     after = serializers.DateTimeField(required=False, allow_null=True)
+    limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 
 class WidgetTicketsQuerySerializer(serializers.Serializer):

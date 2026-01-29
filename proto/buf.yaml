@@ -1,0 +1,20 @@
+version: v2
+lint:
+    use:
+        - STANDARD
+    except:
+        # Relaxed naming rules for internal services
+        - SERVICE_SUFFIX
+        - RPC_REQUEST_RESPONSE_UNIQUE
+        - RPC_RESPONSE_STANDARD_NAME
+        - RPC_REQUEST_STANDARD_NAME
+        # Allow non-comment documentation for now (can enable later)
+        - COMMENT_FIELD
+        - COMMENT_MESSAGE
+        - COMMENT_RPC
+        - COMMENT_SERVICE
+        - COMMENT_ENUM
+        - COMMENT_ENUM_VALUE
+breaking:
+    use:
+        - FILE

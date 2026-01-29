@@ -33,7 +33,7 @@ pub struct DuplicateEvent {
 
     /// Type of duplication detected
     #[serde(rename = "dedup_type")]
-    pub dedup_type: String, // "timestamp" or "uuid"
+    pub dedup_type: String, // "timestamp"
 
     /// Whether this is a confirmed duplicate
     #[serde(rename = "is_confirmed", serialize_with = "serialize_bool_as_u8")]
@@ -302,7 +302,7 @@ mod tests {
         };
 
         let result = DeduplicationResult::PotentialDuplicate(
-            DeduplicationType::UUID,
+            DeduplicationType::Timestamp,
             similarity,
             result_event,
         );
@@ -310,7 +310,7 @@ mod tests {
         let duplicate_event = DuplicateEvent::from_result(&source_event, &result).unwrap();
 
         assert!(!duplicate_event.is_confirmed);
-        assert_eq!(duplicate_event.dedup_type, "uuid");
+        assert_eq!(duplicate_event.dedup_type, "timestamp");
         assert!(duplicate_event.reason.is_none());
         assert_eq!(duplicate_event.similarity_score, 0.7);
     }

@@ -156,13 +156,16 @@ export class HogFunctionMonitoringService {
             await Promise.all(
                 results.map(async (result) => {
                     const source = 'hogFunction' in result.invocation ? 'hog_function' : 'hog_flow'
+                    const logSourceId = result.invocation.parentRunId
+                        ? result.invocation.parentRunId
+                        : result.invocation.functionId
 
                     this.queueLogs(
                         result.logs.map((logEntry) => ({
                             ...logEntry,
                             team_id: result.invocation.teamId,
                             log_source: source,
-                            log_source_id: result.invocation.functionId,
+                            log_source_id: logSourceId,
                             instance_id: result.invocation.id,
                         })),
                         source

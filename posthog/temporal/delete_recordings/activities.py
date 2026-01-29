@@ -16,6 +16,7 @@ from temporalio import activity
 
 from posthog.schema import RecordingsQuery
 
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -79,6 +80,7 @@ def _parse_block_listing_response(raw_response: bytes) -> list[tuple]:
 @activity.defn(name="load-recording-blocks")
 async def load_recording_blocks(input: Recording) -> list[RecordingBlock]:
     bind_contextvars(session_id=input.session_id, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info("Loading recording blocks")
 
@@ -231,6 +233,7 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
 @activity.defn(name="load-recordings-with-person")
 async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[str]:
     bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info(f"Loading all sessions for {len(input.distinct_ids)} distinct IDs")
 
@@ -256,6 +259,7 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
 @activity.defn(name="load-recordings-with-team-id")
 async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[str]:
     bind_contextvars(team_id=input.team_id)
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info(f"Loading all sessions for team ID {input.team_id}")
 
@@ -320,6 +324,7 @@ async def delete_recording_lts_data(input: Recording) -> None:
 
 @activity.defn(name="perform-recording-metadata-deletion")
 async def perform_recording_metadata_deletion(input: DeleteRecordingMetadataInput) -> None:
+    tag_queries(product=Product.REPLAY)
     logger = LOGGER.bind()
     logger.info("Performing recording metadata deletion")
 

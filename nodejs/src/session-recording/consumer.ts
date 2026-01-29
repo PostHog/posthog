@@ -16,7 +16,7 @@ import {
 } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -38,7 +38,9 @@ import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
+import { SessionFilter } from './sessions/session-filter'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
+import { SessionTracker } from './sessions/session-tracker'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -206,6 +208,19 @@ export class SessionRecordingIngester {
               )
             : new BlackholeSessionBatchFileStorage()
 
+        const sessionTracker = new SessionTracker(
+            this.redisPool,
+            this.hub.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+        )
+        const sessionFilter = new SessionFilter({
+            redisPool: this.redisPool,
+            bucketCapacity: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            bucketReplenishRate: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
+            blockingEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
+            filterEnabled: this.hub.SESSION_RECORDING_SESSION_FILTER_ENABLED,
+            localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+        })
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.hub.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.hub.SESSION_RECORDING_MAX_BATCH_AGE_MS,
@@ -214,6 +229,8 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            sessionTracker,
+            sessionFilter,
         })
     }
 

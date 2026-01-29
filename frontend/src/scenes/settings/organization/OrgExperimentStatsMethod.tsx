@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
+import { StatsMethodSelector } from '~/scenes/experiments/components/StatsMethodSelector'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { ExperimentStatsMethod } from '~/types'
 
@@ -21,31 +21,13 @@ export function OrganizationExperimentStatsMethod(): JSX.Element {
     }
 
     return (
-        <LemonSelect
-            value={currentOrganization?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
-            onChange={handleChange}
-            options={[
-                {
-                    value: ExperimentStatsMethod.Bayesian,
-                    label: 'Bayesian',
-                    labelInMenu: (
-                        <div>
-                            <div>Bayesian</div>
-                        </div>
-                    ),
-                },
-                {
-                    value: ExperimentStatsMethod.Frequentist,
-                    label: 'Frequentist',
-                    labelInMenu: (
-                        <div>
-                            <div>Frequentist</div>
-                        </div>
-                    ),
-                },
-            ]}
-            disabledReason={restrictionReason || (currentOrganizationLoading ? 'Loading...' : undefined)}
-            data-attr="organization-experiment-stats-method"
-        />
+        <div className="mt-4">
+            <StatsMethodSelector
+                value={currentOrganization?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
+                onChange={handleChange}
+                disabled={!!restrictionReason || currentOrganizationLoading}
+                disabledReason={restrictionReason || (currentOrganizationLoading ? 'Loading...' : undefined)}
+            />
+        </div>
     )
 }

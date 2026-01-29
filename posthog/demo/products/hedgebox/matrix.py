@@ -28,7 +28,6 @@ from posthog.schema import (
     IntervalType,
     LifecycleFilter,
     LifecycleQuery,
-    MrrOrGross,
     PathsFilter,
     PathsQuery,
     PathType,
@@ -41,8 +40,6 @@ from posthog.schema import (
     RetentionPeriod,
     RetentionQuery,
     RetentionType,
-    RevenueAnalyticsEventItem,
-    RevenueAnalyticsGoal,
     TrendsFilter,
     TrendsQuery,
 )
@@ -1234,23 +1231,6 @@ class HedgeboxMatrix(Matrix):
                 experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
             )
 
-        # Configure Revenue analytics events
-        team.revenue_analytics_config.goals = [
-            RevenueAnalyticsGoal(
-                due_date=f"{dt.datetime.now().year}-12-31",
-                goal=1000,
-                mrr_or_gross=MrrOrGross.GROSS,
-                name=f"{dt.datetime.now().year} Q4",
-            )
-        ]
-        team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=EVENT_PAID_BILL,
-                revenueProperty="amount_usd",
-                productProperty="plan",
-            )
-        ]
-        team.revenue_analytics_config.save()
         self._set_up_paid_bill_data_warehouse_table(team, user)
 
         # Create File Stats property group
@@ -1344,6 +1324,7 @@ class HedgeboxMatrix(Matrix):
             )
             url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
             columns = {
+                "id": "Int64",
                 "distinct_id": "String",
                 "timestamp": "DateTime",
                 "amount_usd": "Float64",
@@ -1377,9 +1358,10 @@ class HedgeboxMatrix(Matrix):
         except Exception as err:
             capture_exception(err)
 
-    def _collect_paid_bill_rows(self, team_id: int) -> list[tuple[str, str, float, str]]:
+    def _collect_paid_bill_rows(self, team_id: int) -> list[tuple[int, str, str, float, str]]:
         if self.is_complete:
-            rows: list[tuple[str, str, float, str]] = []
+            rows: list[tuple[int, str, str, float, str]] = []
+            row_id = 1
             for person in self.people:
                 for event in person.past_events:
                     if event.event != EVENT_PAID_BILL:
@@ -1387,20 +1369,23 @@ class HedgeboxMatrix(Matrix):
                     amount_usd = event.properties.get("amount_usd")
                     rows.append(
                         (
+                            row_id,
                             event.distinct_id,
                             self._format_warehouse_timestamp(event.timestamp),
                             float(amount_usd) if amount_usd is not None else 0.0,
                             str(event.properties.get("plan") or ""),
                         )
                     )
+                    row_id += 1
             return rows
 
         query = """
             SELECT
+                toInt64(cityHash64(toString(uuid))) AS id,
                 distinct_id,
                 toString(timestamp) AS timestamp,
-                ifNull(JSONExtractFloat(properties, 'amount_usd'), 0) AS amount_usd,
-                ifNull(JSONExtractString(properties, 'plan'), '') AS plan
+                JSONExtractFloat(properties, 'amount_usd') AS amount_usd,
+                JSONExtractString(properties, 'plan') AS plan
             FROM events
             WHERE team_id = %(team_id)s
                 AND event = %(event)s
@@ -1412,19 +1397,20 @@ class HedgeboxMatrix(Matrix):
         )
         return [
             (
+                int(row["id"]),
                 row["distinct_id"],
                 row["timestamp"],
-                float(row["amount_usd"]) if row["amount_usd"] is not None else 0.0,
+                float(row["amount_usd"]),
                 row["plan"] or "",
             )
             for row in results
         ]
 
     @staticmethod
-    def _paid_bill_rows_to_csv(rows: list[tuple[str, str, float, str]]) -> str:
+    def _paid_bill_rows_to_csv(rows: list[tuple[int, str, str, float, str]]) -> str:
         output = StringIO()
         writer = csv.writer(output)
-        writer.writerow(["distinct_id", "timestamp", "amount_usd", "plan"])
+        writer.writerow(["id", "distinct_id", "timestamp", "amount_usd", "plan"])
         writer.writerows(rows)
         return output.getvalue()
 

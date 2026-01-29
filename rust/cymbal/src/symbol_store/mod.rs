@@ -18,15 +18,16 @@ use crate::{
 pub mod caching;
 pub mod chunk_id;
 pub mod concurrency;
+pub mod dart_minified_names;
 pub mod hermesmap;
 pub mod proguard;
 pub mod saving;
 pub mod sourcemap;
 
 mod s3;
+pub use s3::BlobClient;
 #[cfg(test)]
-pub use s3::MockS3Impl as S3Client;
-#[cfg(not(test))]
+pub use s3::MockBlobClient as MockS3Client;
 pub use s3::S3Impl as S3Client;
 
 #[async_trait]

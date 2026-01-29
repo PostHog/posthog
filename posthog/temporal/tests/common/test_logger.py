@@ -799,3 +799,12 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert row[4] == "Hi! This is an external info log from a workflow"
         assert row[5] == FIRST_WORKFLOW_TEAM_ID + index
         assert row[6].isoformat() == "2024-01-01T00:00:00+00:00"
+
+
+def test_resolve_log_source_dwh_cdp_producer_job():
+    source, source_id = resolve_log_source(
+        "dwh-cdp-producer-job", "dwh-cdp-producer-job-019bdc25-3569-0000-9f32-e7d02775304b"
+    )
+
+    assert source == "dwh_cdp_producer_job"
+    assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"

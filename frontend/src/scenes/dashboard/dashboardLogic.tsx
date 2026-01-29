@@ -31,7 +31,7 @@ import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uu
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
-import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -201,6 +201,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
+        cancelDashboardRefresh: true,
 
         /**
          * Auto-refresh while on page.
@@ -433,10 +434,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
 
+                        const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)
+
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                duplicate_tiles: [newTile],
+                                duplicate_tiles: [{ ...newTile, layouts: duplicateLayouts }],
+                                tiles: tilesToUpdate.length > 0 ? tilesToUpdate : undefined,
                             }
                         )
                         return getQueryBasedDashboard(dashboard)
@@ -722,6 +726,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
                 refreshDashboardItems: () => ({}),
                 abortQuery: () => ({}),
+                cancelDashboardRefresh: () => ({}),
             },
         ],
         columns: [
@@ -1602,7 +1607,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // REFRESH DONE: all insights have been refreshed
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
-                if (forceRefresh) {
+                // and all tiles were refreshed
+                if (forceRefresh && tilesAbortedCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -1786,6 +1792,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+        cancelDashboardRefresh: () => {
+            actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values

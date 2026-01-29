@@ -71,27 +71,25 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 
 const win = window as any
 
-win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog: PostHog) {
-    // If toolbarFlagsKey is present, fetch the feature flags from the backend
-    if (toolbarParams.toolbarFlagsKey && toolbarParams.apiURL) {
-        try {
-            const url = `${toolbarParams.apiURL}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`
-
-            const response = await fetch(url, {
-                credentials: 'include',
-            })
-
-            if (response.ok) {
-                const data = await response.json()
-                if (posthog && data.featureFlags) {
+win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
+    // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
+    if (posthog && toolbarParams.toolbarFlagsKey) {
+        const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
+        const trimmedHost = apiHost.replace(/\/+$/, '')
+        await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
+            credentials: 'include',
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.featureFlags) {
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
+                } else {
+                    console.error('[Toolbar Flags] Feature flags not found:', JSON.stringify(data))
                 }
-            } else {
-                console.warn('[Toolbar Flags] Failed to fetch toolbar feature flags:', response.statusText)
-            }
-        } catch (error) {
-            console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
-        }
+            })
+            .catch((error) => {
+                console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
+            })
     }
 
     initKeaInToolbar()

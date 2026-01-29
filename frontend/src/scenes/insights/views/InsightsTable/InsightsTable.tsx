@@ -15,7 +15,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
@@ -232,7 +232,7 @@ export function InsightsTable({
                         isPinned={isColumnPinned(columnKey)}
                         onTogglePin={() => toggleColumnPin(columnKey)}
                     >
-                        {extractExpressionComment(breakdown.property?.toString())}
+                        {extractDisplayLabel(breakdown.property?.toString())}
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {

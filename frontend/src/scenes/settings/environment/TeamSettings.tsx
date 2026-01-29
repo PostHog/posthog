@@ -258,14 +258,14 @@ export function TeamTimezone({ displayWarning = true }: { displayWarning?: boole
     )
 }
 
-export function TeamBusinessModel({ bare }: { bare?: boolean }): JSX.Element {
+export function TeamBusinessModel(): JSX.Element {
     return (
         <>
             <p>Set your business model if you want tailored UI, recommendations, and insights to your use case.</p>
             <div className="deprecated-space-y-2">
-                {!bare && <LemonLabel id="business-model">Business model</LemonLabel>}
+                <LemonLabel id="business-model">Business model</LemonLabel>
                 <BusinessModelConfig />
-                {!bare && <p className="text-muted text-xs">Whether this project serves B2B or B2C customers.</p>}
+                <p className="text-muted text-xs">Whether this project serves B2B or B2C customers.</p>
             </div>
         </>
     )

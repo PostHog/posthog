@@ -469,6 +469,8 @@ describe('dataNodeLogic', () => {
             cachedResults: { result: [1, 2, 3] },
         })
         logic.mount()
+
+        // Query to fetch the count will still be called
         expect(performQuery).toHaveBeenCalledTimes(0)
 
         await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })

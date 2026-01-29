@@ -78,6 +78,7 @@ import {
 } from '~/types'
 
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
@@ -129,6 +130,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // endpointLogic
+    const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
 
     // other logics
     const { tags: allExistingTags } = useValues(tagsModel)
@@ -382,7 +386,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : null}
 
                         {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
-                            <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    openCreateFromInsightModal()
+                                    setEndpointModalOpen(true)
+                                }}
+                                menuItem
+                            >
                                 <IconCode2 />
                                 Create endpoint
                             </ButtonPrimitive>
@@ -392,7 +402,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
                                 <Link
-                                    to={urls.sqlEditor(hogQL)}
+                                    to={urls.sqlEditor({ query: hogQL })}
                                     buttonProps={{
                                         'data-attr': `${RESOURCE_TYPE}-edit-sql`,
                                         menuItem: true,
@@ -574,7 +584,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
                                                 router.actions.push(
-                                                    urls.sqlEditor(undefined, undefined, insight.short_id)
+                                                    urls.sqlEditor({ insightShortId: insight.short_id })
                                                 )
                                             } else if (insight.short_id) {
                                                 const editUrl = dashboardId

@@ -32,6 +32,7 @@ import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
@@ -167,6 +168,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return userActivityDescriber
         case ActivityScope.ENDPOINT:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
+        case ActivityScope.PRODUCT_TOUR:
+            return productTourActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

@@ -1,5 +1,5 @@
 import math
-from typing import Literal, Optional, cast
+from typing import Optional, cast
 
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -27,13 +27,14 @@ from posthog.hogql.ast import (
     VariableDeclaration,
     WhileStatement,
 )
+from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 
 
-def parser_test_factory(backend: Literal["python", "cpp"]):
-    base_classes = (MemoryLeakTestMixin, BaseTest) if backend == "cpp" else (BaseTest,)
+def parser_test_factory(backend: HogQLParserBackend):
+    base_classes = (BaseTest,) if backend == "python" else (MemoryLeakTestMixin, BaseTest)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -364,6 +365,11 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(self._expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
             self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
             self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
+
+            # String literals containing special float names should remain as strings
+            self.assertEqual(self._expr("'Infinity'"), ast.Constant(value="Infinity"))
+            self.assertEqual(self._expr("'-Infinity'"), ast.Constant(value="-Infinity"))
+            self.assertEqual(self._expr("'NaN'"), ast.Constant(value="NaN"))
 
         def test_arithmetic_operations(self):
             self.assertEqual(

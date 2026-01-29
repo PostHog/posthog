@@ -1,5 +1,4 @@
 import json
-import base64
 from datetime import timedelta
 from urllib.parse import quote
 
@@ -8,7 +7,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
-from django.test.client import Client
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -408,25 +406,6 @@ class TestUserAPI(APIBaseTest):
         for _ in range(6):
             response = self.client.get(
                 "/e/?data={}".format(quote(json.dumps(data))), headers={"origin": "https://localhost"}
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
-
-    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
-    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_does_not_rate_limit_decide_endpoints(self, rate_limit_enabled_mock, incr_mock):
-        decide_client = Client(enforce_csrf_checks=True)
-        for _ in range(6):
-            response = decide_client.post(
-                f"/decide/?v=2",
-                {
-                    "data": base64.b64encode(
-                        json.dumps({"token": self.team.api_token, "distinct_id": "2"}).encode("utf-8")
-                    ).decode("utf-8")
-                },
-                HTTP_ORIGIN="https://localhost",
-                REMOTE_ADDR="0.0.0.0",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls

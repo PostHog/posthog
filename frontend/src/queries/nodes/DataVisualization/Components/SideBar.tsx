@@ -31,7 +31,9 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
         label: 'Display',
         content: <DisplayTab />,
         shouldShow: (displayType: ChartDisplayType): boolean =>
-            displayType !== ChartDisplayType.ActionsTable && displayType !== ChartDisplayType.BoldNumber,
+            displayType !== ChartDisplayType.ActionsTable &&
+            displayType !== ChartDisplayType.BoldNumber &&
+            displayType !== ChartDisplayType.TwoDimensionalHeatmap,
     },
 }
 
