@@ -58,6 +58,11 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
 
+    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
+    const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
+        ? currentTeam?.name?.replace(/^\p{Emoji}/u, '').trimStart()
+        : currentTeam?.name
+
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
             <DropdownMenuTrigger asChild>
@@ -91,7 +96,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             >
                                 {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                             </div>
-                            {!isLayoutNavCollapsed && <span className="truncate">{currentTeam.name ?? 'Project'}</span>}
+                            {!isLayoutNavCollapsed && (
+                                <span className="truncate">{projectNameWithoutFirstEmoji ?? 'Project'}</span>
+                            )}
                         </>
                     )}
                     {!isLayoutNavCollapsed && <MenuOpenIndicator />}
@@ -153,7 +160,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                                 </div>
                                 <span className="truncate font-semibold">
-                                    {currentTeam ? currentTeam.name : 'Select project'}
+                                    {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                 </span>
                                 {currentTeam && (
                                     <div className="ml-auto flex items-center gap-1">
