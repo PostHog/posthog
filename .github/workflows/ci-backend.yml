@@ -349,7 +349,10 @@ jobs:
                   restore-keys: bazel-wheels-
 
             - name: Generate requirements_lock.txt for Bazel
-              run: bazel run --config=ci //:requirements.update
+              run: |
+                  bazel run --config=ci \
+                    --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_API_KEY }} \
+                    //:requirements.update
 
             - name: Pre-build wheels for sdist-only packages
               run: |
@@ -384,7 +387,9 @@ jobs:
                   bin/check_postgres_up
 
                   echo "Running: bazel test --config=ci $TESTS"
-                  bazel test --config=ci $TESTS
+                  bazel test --config=ci \
+                    --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_API_KEY }} \
+                    $TESTS
 
     check-migrations:
         needs: [changes]

@@ -19,5 +19,13 @@ test:ci --test_output=errors
 test:ci --keep_going
 test:ci --verbose_failures
 
+# BuildBuddy remote cache + Build Event Service (CI only)
+# Requires API key via: --remote_header=x-buildbuddy-api-key=$BUILDBUDDY_API_KEY
+build:ci --remote_cache=grpcs://remote.buildbuddy.io
+build:ci --bes_backend=grpcs://remote.buildbuddy.io
+build:ci --bes_results_url=https://app.buildbuddy.io/invocation/
+build:ci --remote_upload_local_results=true
+build:ci --build_metadata=ROLE=CI
+
 # Local development (default)
 test --test_output=summary
