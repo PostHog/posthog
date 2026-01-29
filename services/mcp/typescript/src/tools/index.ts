@@ -5,6 +5,12 @@ import { hasScopes } from '@/lib/utils/api'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import { hash } from '@/lib/utils/helper-functions'
 
+// Actions
+import createAction from './actions/create'
+import deleteAction from './actions/delete'
+import getAction from './actions/get'
+import getAllActions from './actions/getAll'
+import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -53,9 +59,12 @@ import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
 import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
+import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+// Search
+import entitySearch from './search/entitySearch'
 // Surveys
 import createSurvey from './surveys/create'
 import deleteSurvey from './surveys/delete'
@@ -64,14 +73,6 @@ import getAllSurveys from './surveys/getAll'
 import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
-// Search
-import entitySearch from './search/entitySearch'
 // Misc
 import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
@@ -94,6 +95,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definitions-list': eventDefinitions,
+    'event-definition-update': updateEventDefinition,
     'properties-list': getProperties,
 
     // Documentation - handled separately due to env check

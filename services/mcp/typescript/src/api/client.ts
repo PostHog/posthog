@@ -56,6 +56,8 @@ import { type Project, ProjectSchema } from '@/schema/projects'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
+import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
+import { ActionResponseSchema } from '../schema/actions.js'
 import type {
     LogAttribute,
     LogAttributeValue,
@@ -64,8 +66,30 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
-import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
-import { ActionResponseSchema } from '../schema/actions.js'
+import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
+import type {
+    CreateSurveyInput,
+    GetSurveySpecificStatsInput,
+    GetSurveyStatsInput,
+    ListSurveysInput,
+    SurveyListItemOutput,
+    SurveyOutput,
+    SurveyResponseStatsOutput,
+    UpdateSurveyInput,
+} from '../schema/surveys.js'
+import {
+    CreateSurveyInputSchema,
+    GetSurveySpecificStatsInputSchema,
+    GetSurveyStatsInputSchema,
+    ListSurveysInputSchema,
+    SurveyListItemOutputSchema,
+    SurveyOutputSchema,
+    SurveyResponseStatsOutputSchema,
+    UpdateSurveyInputSchema,
+} from '../schema/surveys.js'
+import { buildApiFetcher } from './fetcher'
+import { type Schemas, createApiClient } from './generated'
+import { globalRateLimiter } from './rate-limiter'
 
 // Global search types
 export const SearchableEntitySchema = z.enum([
@@ -94,30 +118,6 @@ export const SearchResponseSchema = z.object({
     counts: z.record(z.number().nullable()),
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
-import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
-import type {
-    CreateSurveyInput,
-    GetSurveySpecificStatsInput,
-    GetSurveyStatsInput,
-    ListSurveysInput,
-    SurveyListItemOutput,
-    SurveyOutput,
-    SurveyResponseStatsOutput,
-    UpdateSurveyInput,
-} from '../schema/surveys.js'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    SurveyListItemOutputSchema,
-    SurveyOutputSchema,
-    SurveyResponseStatsOutputSchema,
-    UpdateSurveyInputSchema,
-} from '../schema/surveys.js'
-import { buildApiFetcher } from './fetcher'
-import { type Schemas, createApiClient } from './generated'
-import { globalRateLimiter } from './rate-limiter'
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
@@ -412,6 +412,70 @@ export class ApiClient {
                     const parsedData = responseSchema.parse(data)
 
                     return { success: true, data: parsedData.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            updateEventDefinition: async ({
+                projectId,
+                eventName,
+                data,
+            }: {
+                projectId: string
+                eventName: string
+                data: {
+                    description?: string
+                    tags?: string[]
+                    verified?: boolean
+                    hidden?: boolean
+                }
+            }): Promise<Result<ApiEventDefinition>> => {
+                try {
+                    // Fetching the event definition by name to get its ID
+                    const searchParams = new URLSearchParams({ name: eventName })
+                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+
+                    const findResponse = await fetch(findUrl, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
+
+                    if (findResponse.status === 404) {
+                        return {
+                            success: false,
+                            error: new Error(`Event definition not found: ${eventName}`),
+                        }
+                    }
+
+                    if (!findResponse.ok) {
+                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                    }
+
+                    const eventDef = await findResponse.json()
+                    const parsedEventDef = ApiEventDefinitionSchema.parse(eventDef)
+
+                    // Updating the event definition by ID
+                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${parsedEventDef.id}/`
+
+                    const updateResponse = await fetch(updateUrl, {
+                        method: 'PATCH',
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data),
+                    })
+
+                    if (!updateResponse.ok) {
+                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                    }
+
+                    const responseData = await updateResponse.json()
+                    const parsedData = ApiEventDefinitionSchema.parse(responseData)
+
+                    return { success: true, data: parsedData }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -1582,13 +1646,10 @@ export class ApiClient {
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
                     // First fetch the action to get its name (required by backend validation)
-                    const getResponse = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'GET',
-                            headers: this.buildHeaders(),
-                        }
-                    )
+                    const getResponse = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
+                        method: 'GET',
+                        headers: this.buildHeaders(),
+                    })
 
                     if (!getResponse.ok) {
                         throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
@@ -1596,14 +1657,11 @@ export class ApiClient {
 
                     const action = (await getResponse.json()) as { name: string }
 
-                    const response = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'PATCH',
-                            headers: this.buildHeaders(),
-                            body: JSON.stringify({ name: action.name, deleted: true }),
-                        }
-                    )
+                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
+                        method: 'PATCH',
+                        headers: this.buildHeaders(),
+                        body: JSON.stringify({ name: action.name, deleted: true }),
+                    })
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete action: ${response.statusText}`)
