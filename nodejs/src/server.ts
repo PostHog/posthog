@@ -66,7 +66,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = setupExpressApp()
+        this.expressApp = setupExpressApp(this.config)
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
         this.setupContinuousProfiling()
     }
