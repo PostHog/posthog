@@ -20,9 +20,8 @@ def delete_sessions_not_in_allowed_teams(
     """Delete sessions v1 rows for teams not in ALLOWED_TEAM_IDS using ALTER TABLE DELETE."""
 
     if not ALLOWED_TEAM_IDS:
-        context.log.warning("ALLOWED_TEAM_IDS is empty - this would delete all sessions")
         raise ValueError("ALLOWED_TEAM_IDS must not be empty")
-    
+
     allowed_ids_str = ", ".join(str(tid) for tid in ALLOWED_TEAM_IDS)
     delete_predicate = f"team_id NOT IN ({allowed_ids_str})"
 
