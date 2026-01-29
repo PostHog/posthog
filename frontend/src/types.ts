@@ -6681,7 +6681,6 @@ export interface ApprovalPolicy {
     conditions: Record<string, any>
     approver_config: Record<string, any>
     allow_self_approve: boolean
-    bypass_roles: string[]
     expires_after: string
     enabled: boolean
     created_by: UserBasicType
