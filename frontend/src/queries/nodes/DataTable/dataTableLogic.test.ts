@@ -345,8 +345,9 @@ describe('dataTableLogic', () => {
 
         // The key assertion: dataTableRows should contain results, not be empty
         // Even though columnsInQuery !== columnsInResponse, we should still show the results
+        // Note: Date labels are inserted between results from different days (this is expected behavior)
         await expectLogic(logic).toMatchValues({
-            dataTableRows: [{ result: results[0] }, { result: results[1] }],
+            dataTableRows: [{ result: results[0] }, { label: 'December 23, 2022' }, { result: results[1] }],
         })
     })
 })
