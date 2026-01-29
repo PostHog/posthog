@@ -25,6 +25,7 @@ export function GroupedAccessControlRuleModal(props: {
     canEdit: boolean
     memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
+    roleHasAdminAccess
 }): JSX.Element | null {
     const logic = accessControlsLogic({ projectId: props.projectId })
     const { groupedRulesForm } = useValues(logic)
@@ -94,6 +95,7 @@ export function GroupedAccessControlRuleModal(props: {
                 canEdit={props.canEdit}
                 memberIsOrgAdmin={props.memberIsOrgAdmin}
                 memberHasAdminAccess={props.memberHasAdminAccess}
+                roleHasAdminAccess={props.roleHasAdminAccess}
             />
         </LemonModal>
     )
@@ -144,6 +146,7 @@ function GroupedAccessControlRuleModalContent(props: {
     canEdit: boolean
     memberIsOrgAdmin: boolean
     memberHasAdminAccess: boolean
+    roleHasAdminAccess: boolean
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
         (prev, mapping) => {
@@ -161,7 +164,7 @@ function GroupedAccessControlRuleModalContent(props: {
             return 'Cannot edit'
         }
 
-        if (props.memberHasAdminAccess) {
+        if (props.memberHasAdminAccess || props.roleHasAdminAccess) {
             return 'Feature overrides do not apply to admins'
         }
     }, [props.loading, props.canEdit, props.memberHasAdminAccess])
@@ -176,7 +179,7 @@ function GroupedAccessControlRuleModalContent(props: {
         }
 
         if (props.memberIsOrgAdmin) {
-            return 'Project overrides do not apply to organization admins'
+            return 'Project overrides do not apply to admins'
         }
     }, [props.loading, props.canEdit, props.memberIsOrgAdmin])
 

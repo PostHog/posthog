@@ -464,6 +464,28 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 return false
             },
         ],
+
+        ruleModalRoleHasAdminAccess: [
+            (s) => [s.ruleModalState],
+            (ruleModalState): boolean => {
+                if (!ruleModalState) {
+                    return false
+                }
+
+                const row = ruleModalState.row
+                if (!row.role) {
+                    return false
+                }
+
+                // Check if row has project admin access
+                const projectLevel = row.levels.find((l) => l.resourceKey === 'project')
+                if (projectLevel?.level === AccessControlLevel.Admin) {
+                    return true
+                }
+
+                return false
+            },
+        ],
     }),
     forms(() => ({
         groupedRulesForm: {
