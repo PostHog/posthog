@@ -2,6 +2,8 @@ use crate::config::TeamIdCollection;
 
 #[cfg(test)]
 use crate::api::errors::FlagError;
+#[cfg(test)]
+use rstest::rstest;
 
 pub fn team_id_label_filter(
     team_ids_to_track: TeamIdCollection,
@@ -138,8 +140,7 @@ fn test_multiple_team_ids() {
     assert_eq!(filtered_labels, labels);
 }
 
-/// Helper to create a FlagError::DatabaseError with a specific sqlx error message and context.
-/// Uses sqlx::Error::Protocol to embed the target substring in the error's Display output.
+#[cfg(test)]
 fn make_db_error(error_msg: &str, context: Option<&str>) -> FlagError {
     FlagError::DatabaseError(
         sqlx::Error::Protocol(error_msg.to_string()),
@@ -185,8 +186,7 @@ fn test_timeout_error_evaluation_error_codes() {
     );
 }
 
-use rstest::rstest;
-
+#[cfg(test)]
 #[rstest]
 #[case::statement_timeout("statement timeout", None, "timeout", "Database statement timed out")]
 #[case::no_more_connections(
