@@ -105,6 +105,7 @@ ATTIO_ENDPOINTS: dict[str, AttioEndpointConfig] = {
         method="GET",
         primary_key="note_id",
         partition_key="created_at",
+        page_size=50,
         incremental_fields=[
             {
                 "label": "Created at",
