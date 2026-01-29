@@ -54,7 +54,7 @@ export function SessionRecordingPlayerExplorer({
         <div className="SessionRecordingPlayerExplorer flex flex-1 flex-col h-full overflow-hidden">
             <PlayerExplorerSettings iframeKey={iframeKey} setIframeKey={setIframeKey} onClose={onClose} />
             <div
-                className="flex-1 p-0.5 overflow-hidden bg-text-3000 border SessionRecordingPlayerExplorer__wrapper"
+                className="flex-1 p-0.5 overflow-hidden bg-text-3000 border SessionRecordingPlayerExplorer__wrapper flex items-center justify-center"
                 ref={elementRef}
             >
                 <iframe
@@ -63,7 +63,7 @@ export function SessionRecordingPlayerExplorer({
                     sandbox=""
                     width={width}
                     height={height}
-                    className="origin-top-left ph-no-capture"
+                    className="origin-center ph-no-capture"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ transform: `scale(${scale})` }}
                 />
