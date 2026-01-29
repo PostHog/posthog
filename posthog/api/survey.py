@@ -1556,6 +1556,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
 
+        # Get archived response UUIDs to exclude
+        archived_uuids = get_archived_response_uuids(survey_id, self.team.pk)
+
         # Fetch responses using the new module
         # For choice questions, exclude predefined choices to only get open-ended "Other" responses
         responses = fetch_responses(
@@ -1566,6 +1569,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             end_date=end_date,
             team=self.team,
             exclude_values=question_choices,
+            exclude_uuids=archived_uuids,
         )
         response_count = len(responses)
 

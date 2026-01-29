@@ -105,18 +105,15 @@ impl BatchConsumerContext {
                     // Call async setup handler (downloads checkpoints, creates stores)
                     // Note: setup_assigned_partitions was already called synchronously
                     // Note: Partitions were paused in post_rebalance, will be resumed after this completes
+                    // Note: Resume is now handled inside async_setup_assigned_partitions,
+                    // only when all overlapping rebalances are complete (counter == 0)
                     if let Err(e) = handler
                         .async_setup_assigned_partitions(&tpl, &consumer_command_tx)
                         .await
                     {
-                        // Note: This error path is rare - async_setup_assigned_partitions
-                        // returns Ok(()) for normal scenarios (cancellation, revoked partitions).
-                        // It only errors if the consumer command channel is broken.
+                        // This error only occurs if the consumer command channel is broken.
+                        // Resume is handled by async_setup_assigned_partitions when appropriate.
                         error!("Partition assignment async setup failed: {}", e);
-                        // Try to resume anyway as a fallback (will likely also fail if channel is broken)
-                        if let Err(e) = consumer_command_tx.send(ConsumerCommand::Resume(tpl)) {
-                            error!("Failed to send resume command after setup failure: {}", e);
-                        }
                     }
                 }
             }

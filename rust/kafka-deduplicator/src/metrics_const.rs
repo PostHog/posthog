@@ -124,6 +124,11 @@ pub const PARTITION_OWNERSHIP_ADDED: &str = "partition_ownership_added_total";
 /// Counter for partitions removed from ownership (REVOKE callback)
 pub const PARTITION_OWNERSHIP_REMOVED: &str = "partition_ownership_removed_total";
 
+/// Counter for partition state changes from Kafka rebalance (assign/revoke)
+/// Labels: topic, partition, op (assign|revoke)
+/// Use this to track rebalance activity per partition for debugging and alerting
+pub const REBALANCE_PARTITION_STATE_CHANGE: &str = "rebalance_partition_state_change_total";
+
 /// Counter for async setup cancellations
 /// Incremented when a new rebalance starts before async setup completes
 pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancelled_total";
@@ -138,8 +143,13 @@ pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_t
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 
 /// Counter for messages dropped because no store was registered for the partition
-/// This indicates the partition was likely revoked during a rebalance
+/// Labels: topic, partition
+/// This is expected during rebalances due to rdkafka message buffering
 pub const MESSAGES_DROPPED_NO_STORE: &str = "messages_dropped_no_store_total";
+
+/// Counter for batch processing errors (excluding expected store-not-found errors)
+/// Labels: topic, partition, error_type
+pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
 
 // ==== Rebalance Resume ====
 

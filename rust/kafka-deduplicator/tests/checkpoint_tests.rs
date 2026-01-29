@@ -11,9 +11,8 @@ use kafka_deduplicator::checkpoint::{
     CheckpointWorker,
 };
 use kafka_deduplicator::kafka::types::Partition;
-use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig, TimestampMetadata};
-
-use common_types::RawEvent;
+use kafka_deduplicator::store::TimestampMetadata;
+use kafka_deduplicator::test_utils::test_helpers::{create_test_dedup_store, TestRawEventBuilder};
 
 use anyhow::{Context, Result};
 use tempfile::TempDir;
@@ -154,33 +153,6 @@ impl CheckpointUploader for MockUploader {
     }
 }
 
-fn create_test_dedup_store(tmp_dir: &TempDir, topic: &str, partition: i32) -> DeduplicationStore {
-    let config = DeduplicationStoreConfig {
-        path: tmp_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    };
-
-    DeduplicationStore::new(config, topic.to_string(), partition).unwrap()
-}
-
-fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> RawEvent {
-    RawEvent {
-        uuid: None,
-        event: event_name.to_string(),
-        distinct_id: Some(serde_json::Value::String(distinct_id.to_string())),
-        token: Some(token.to_string()),
-        properties: std::collections::HashMap::new(),
-        timestamp: Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .to_string(),
-        ),
-        ..Default::default()
-    }
-}
-
 #[tokio::test]
 async fn test_checkpoint_exporter_creation() {
     let uploader = MockUploader::new().unwrap();
@@ -193,12 +165,22 @@ async fn test_unavailable_uploader() {
     let tmp_store_dir = TempDir::new().unwrap();
     let test_topic = "test_unavailable_uploader";
     let test_partition = 0;
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -252,12 +234,22 @@ async fn test_unpopulated_exporter() {
     let tmp_store_dir = TempDir::new().unwrap();
     let test_topic = "test_unpopulated_exporter";
     let test_partition = 0;
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -303,12 +295,22 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     let test_topic = "manual_cp_incremental";
     let test_partition = 0;
     let tmp_store_dir = TempDir::new().unwrap();
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
     let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
+        TestRawEventBuilder::new()
+            .distinct_id("user1")
+            .token("token1")
+            .event("event1")
+            .current_timestamp()
+            .build(),
+        TestRawEventBuilder::new()
+            .distinct_id("user2")
+            .token("token1")
+            .event("event2")
+            .current_timestamp()
+            .build(),
     ];
     for event in &events {
         let key = event.into();
@@ -389,13 +391,15 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     let test_topic = "test_cp_from_plan_with_prev_metadata";
     let test_partition = 0;
     let tmp_store_dir = TempDir::new().unwrap();
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
     // Add some test data
-    let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        //create_test_raw_event("user2", "token1", "event2"),
-    ];
+    let events = vec![TestRawEventBuilder::new()
+        .distinct_id("user1")
+        .token("token1")
+        .event("event1")
+        .current_timestamp()
+        .build()];
     for event in &events {
         let key = event.into();
         let metadata = TimestampMetadata::new(event);

@@ -10,12 +10,11 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
 )
 
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
-from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 # Analysis level determines whether we summarize traces or individual generations
 AnalysisLevel = Literal["trace", "generation"]
@@ -44,7 +43,6 @@ class BatchSummarizationInputs:
     batch_size: int = DEFAULT_BATCH_SIZE  # Number of items per batch
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES  # Time window to query (defaults to 60 min)
-    provider: SummarizationProvider = DEFAULT_PROVIDER
     model: str = DEFAULT_MODEL
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format

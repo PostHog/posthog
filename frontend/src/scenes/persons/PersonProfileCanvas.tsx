@@ -63,6 +63,7 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
                     editable={false}
                     shortId={shortId}
                     mode={mode}
+                    className="NotebookProfileCanvas"
                     initialContent={{
                         type: 'doc',
                         content,

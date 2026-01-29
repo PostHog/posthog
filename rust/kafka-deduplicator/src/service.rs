@@ -27,7 +27,7 @@ use crate::{
         PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
     processor_rebalance_handler::ProcessorRebalanceHandler,
-    rebalance_coordinator::RebalanceCoordinator,
+    rebalance_tracker::RebalanceTracker,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
 };
@@ -99,12 +99,12 @@ impl KafkaDeduplicatorService {
         };
 
         // Create rebalance coordinator first (other components depend on it)
-        let rebalance_coordinator = Arc::new(RebalanceCoordinator::new());
+        let rebalance_tracker = Arc::new(RebalanceTracker::new());
 
         // Create store manager for handling concurrent store creation
         let store_manager = Arc::new(StoreManager::new(
             store_config.clone(),
-            rebalance_coordinator.clone(),
+            rebalance_tracker.clone(),
         ));
 
         // Start periodic cleanup task if max_capacity is configured
@@ -318,10 +318,10 @@ impl KafkaDeduplicatorService {
         };
 
         // Get rebalance coordinator from store manager (created in new())
-        let rebalance_coordinator = self.store_manager.rebalance_coordinator().clone();
+        let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
 
         // Create offset tracker for tracking processed offsets
-        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_coordinator.clone()));
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
 
         let router = Arc::new(PartitionRouter::new(
             processor,
@@ -338,7 +338,7 @@ impl KafkaDeduplicatorService {
         // Create rebalance handler with the router for partition worker management
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
             self.store_manager.clone(),
-            rebalance_coordinator,
+            rebalance_tracker,
             router,
             offset_tracker.clone(),
             self.checkpoint_importer.clone(),

@@ -1172,10 +1172,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
                 }
 
-                // Auto-expand only parent folders, not the matching nodes themselves
-                setTimeout(() => {
-                    actions.setExpandedSearchFolders(expandedIds)
-                }, 0)
+                const expandedIdSet = new Set(expandedSearchFolders)
+                const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
+
+                if (missingRequiredExpansion) {
+                    // Auto-expand only parent folders, not the matching nodes themselves.
+                    setTimeout(() => {
+                        actions.setExpandedSearchFolders(
+                            Array.from(new Set([...expandedSearchFolders, ...expandedIds]))
+                        )
+                    }, 0)
+                }
 
                 return searchResults
             },

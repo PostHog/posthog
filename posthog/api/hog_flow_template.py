@@ -126,6 +126,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
     actions = serializers.ListField(child=HogFlowTemplateActionSerializer(), required=True)
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
     variables = HogFlowVariableSerializer(required=False)
+    tags = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
     class Meta:
         model = HogFlowTemplate
@@ -134,6 +135,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "image_url",
+            "tags",
             "scope",
             "created_at",
             "created_by",

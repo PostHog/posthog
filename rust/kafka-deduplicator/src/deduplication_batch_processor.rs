@@ -22,10 +22,10 @@ use crate::{
     metrics_const::{
         DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
         DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
-        PARTITION_BATCH_PROCESSING_DURATION_MS, ROCKSDB_MULTI_GET_DURATION_MS,
-        ROCKSDB_PUT_BATCH_DURATION_MS, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
-        TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
-        TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+        MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
+        ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
+        TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
+        TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
         TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
         UNIQUE_EVENTS_TOTAL_COUNTER,
     },
@@ -36,7 +36,7 @@ use crate::{
     store::keys::TimestampKey,
     store::metadata::TimestampMetadata,
     store::DeduplicationStoreConfig,
-    store_manager::StoreManager,
+    store_manager::{StoreError, StoreManager},
     utils::timestamp,
 };
 
@@ -367,7 +367,35 @@ impl BatchDeduplicationProcessor {
     ) -> Result<Vec<DeduplicationResult>> {
         // Get the store for this partition - must already exist (created during rebalance)
         // If store doesn't exist, partition was likely revoked and messages should be dropped
-        let store = self.store_manager.get_store(topic, partition)?;
+        let store = match self.store_manager.get_store(topic, partition) {
+            Ok(store) => store,
+            Err(StoreError::NotFound {
+                topic: t,
+                partition: p,
+            }) => {
+                let message_count = events.len();
+
+                // Log at warn level - this is expected during rebalance due to rdkafka buffering
+                warn!(
+                    topic = %t,
+                    partition = p,
+                    message_count = message_count,
+                    "No store for partition - dropping messages (expected during rebalance)"
+                );
+
+                // Record metric with tags for observability
+                metrics::counter!(
+                    MESSAGES_DROPPED_NO_STORE,
+                    "topic" => t.clone(),
+                    "partition" => p.to_string(),
+                )
+                .increment(message_count as u64);
+
+                // Return empty results - messages gracefully dropped, not an error
+                return Ok(vec![]);
+            }
+            Err(StoreError::Other(e)) => return Err(e),
+        };
 
         // Create metrics helper for this partition
         let metrics = MetricsHelper::with_partition(topic, partition)
@@ -778,7 +806,7 @@ impl BatchDeduplicationProcessor {
 mod tests {
     use super::*;
     use crate::store::DeduplicationStoreConfig;
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
     use serde_json::json;
     use std::collections::HashMap;
     use tempfile::TempDir;
@@ -832,7 +860,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -889,7 +917,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -944,7 +972,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1001,7 +1029,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1052,7 +1080,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1122,7 +1150,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1185,7 +1213,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1223,14 +1251,14 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_deduplicate_batch_returns_error_when_store_missing() {
-        // Test that deduplicate_batch returns an error when the store doesn't exist.
+    async fn test_deduplicate_batch_gracefully_drops_when_store_missing() {
+        // Test that deduplicate_batch returns Ok(vec![]) when the store doesn't exist.
         // This simulates the scenario where a partition was revoked and messages
-        // arrive for it before the consumer stops delivering them.
+        // arrive for it due to rdkafka buffering. Messages should be gracefully dropped.
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // NOTE: We intentionally do NOT pre-create a store here
@@ -1253,20 +1281,18 @@ mod tests {
 
         let event_refs: Vec<&RawEvent> = events.iter().collect();
 
-        // deduplicate_batch should return an error because no store exists
+        // deduplicate_batch should return Ok(vec![]) - graceful drop, not an error
         let result = processor
             .deduplicate_batch("test-topic", 0, event_refs)
             .await;
 
         assert!(
-            result.is_err(),
-            "deduplicate_batch should return error when store doesn't exist"
+            result.is_ok(),
+            "deduplicate_batch should return Ok when store doesn't exist (graceful drop)"
         );
-        let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("No store registered"),
-            "Error should indicate no store registered, got: {}",
-            err_msg
+            result.unwrap().is_empty(),
+            "deduplicate_batch should return empty results when store doesn't exist"
         );
     }
 }

@@ -91,6 +91,10 @@ def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).enco
         ssl_context=get_kafka_ssl_context(),
         value_serializer=value_serializer,
         acks=acks,
+        # Proactively recycle idle connections before NAT Gateway/NLB kills them (350s timeout)
+        connections_max_idle_ms=60000,  # 1 minute
+        reconnect_backoff_ms=50,
+        reconnect_backoff_max_ms=1000,
         **kwargs,
     )
 

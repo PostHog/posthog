@@ -685,7 +685,7 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('ignores events that have already used their postHogCapture', async () => {
+        it('allows events that have already used their postHogCapture a maximum of 10 times', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -696,7 +696,38 @@ describe('Hog Executor', () => {
                 groups: {},
                 event: {
                     properties: {
-                        $hog_function_execution_count: 1,
+                        $hog_function_execution_count: 9,
+                    },
+                },
+            } as any)
+            const result = await executor.execute(createExampleInvocation(fn, globals))
+            expect(result?.capturedPostHogEvents).toMatchInlineSnapshot(`
+                [
+                  {
+                    "distinct_id": "distinct_id",
+                    "event": "test (copy)",
+                    "properties": {
+                      "$hog_function_execution_count": 10,
+                    },
+                    "team_id": 1,
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                  },
+                ]
+            `)
+        })
+
+        it('ignores events that have already used their postHogCapture 10 times', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.posthog_capture,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const globals = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    properties: {
+                        $hog_function_execution_count: 10,
                     },
                 },
             } as any)
@@ -704,7 +735,7 @@ describe('Hog Executor', () => {
             expect(result?.capturedPostHogEvents).toEqual([])
             expect(cleanLogs(result?.logs.map((log) => log.message) ?? [])).toMatchInlineSnapshot(`
                 [
-                  "postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.",
+                  "postHogCapture was called from an event that already executed this function 10 times previously. To prevent unbounded infinite loops, the event was not captured.",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.1kb. Ops: 15. Event: 'http://localhost:8000/events/1'",
                 ]
             `)

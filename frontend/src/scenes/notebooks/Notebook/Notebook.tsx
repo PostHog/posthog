@@ -28,6 +28,7 @@ export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
     initialContent?: JSONContent
     editable?: boolean
+    className?: string
 }
 
 export function Notebook({
@@ -36,6 +37,7 @@ export function Notebook({
     editable = true,
     initialAutofocus = 'start',
     initialContent,
+    className,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = { shortId, mode }
     const logic = notebookLogic(logicProps)
@@ -96,7 +98,8 @@ export function Notebook({
                         !isExpanded && 'Notebook--compact',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
-                        isEditable && 'Notebook--editable'
+                        isEditable && 'Notebook--editable',
+                        className
                     )}
                     ref={ref}
                 >

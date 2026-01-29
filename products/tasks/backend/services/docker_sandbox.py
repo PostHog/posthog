@@ -4,6 +4,7 @@ import shutil
 import logging
 import tempfile
 import subprocess
+from collections.abc import Iterable
 from typing import Optional
 
 from django.conf import settings
@@ -19,7 +20,7 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +304,83 @@ class DockerSandbox:
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
                 cause=e,
             )
+
+    def execute_stream(
+        self,
+        command: str,
+        timeout_seconds: Optional[int] = None,
+    ) -> ExecutionStream:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        if timeout_seconds is None:
+            timeout_seconds = self.config.default_execution_timeout_seconds
+
+        try:
+            logger.debug(f"Streaming execution in sandbox {self.id}: {command[:100]}...")
+            process = subprocess.Popen(
+                ["docker", "exec", self._container_id, "bash", "-c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to start streaming command: {e}")
+            raise SandboxExecutionError(
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+        class _DockerExecutionStream:
+            def __init__(self, process: subprocess.Popen, timeout: int, sandbox_id: str):
+                self._process = process
+                self._timeout = timeout
+                self._sandbox_id = sandbox_id
+                self._stdout_buffer: list[str] = []
+                self._stdout_iterated = False
+
+            def iter_stdout(self) -> Iterable[str]:
+                if not self._process.stdout:
+                    return
+                self._stdout_iterated = True
+                for line in iter(self._process.stdout.readline, ""):
+                    if line == "" and self._process.poll() is not None:
+                        break
+                    self._stdout_buffer.append(line)
+                    yield line
+                self._process.stdout.close()
+
+            def wait(self) -> ExecutionResult:
+                try:
+                    self._process.wait(timeout=self._timeout)
+                except subprocess.TimeoutExpired as e:
+                    self._process.kill()
+                    raise SandboxTimeoutError(
+                        f"Execution timed out after {self._timeout} seconds",
+                        {"sandbox_id": self._sandbox_id, "timeout_seconds": self._timeout},
+                        cause=e,
+                    )
+
+                stdout = ""
+                if not self._stdout_iterated and self._process.stdout:
+                    stdout = self._process.stdout.read()
+                else:
+                    stdout = "".join(self._stdout_buffer)
+                stderr = self._process.stderr.read() if self._process.stderr else ""
+                return ExecutionResult(
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=self._process.returncode or 0,
+                    error=None,
+                )
+
+        return _DockerExecutionStream(process, timeout_seconds, self.id)
 
     def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
         if not self.is_running():

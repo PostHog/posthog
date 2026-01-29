@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 
 import { WebAnalyticsFilterPresetType } from '~/types'
 
@@ -39,6 +39,8 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         resetPresetForm: true,
         openDeleteModal: (preset: WebAnalyticsFilterPresetType) => ({ preset }),
         closeDeleteModal: true,
+        openEditModal: (preset: WebAnalyticsFilterPresetType) => ({ preset }),
+        updateAppliedPresetFilters: true,
     }),
     reducers({
         appliedPreset: [
@@ -79,6 +81,15 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                 openDeleteModal: (_, { preset }) => preset,
                 closeDeleteModal: () => null,
                 deletePreset: () => null,
+            },
+        ],
+        editingPreset: [
+            null as WebAnalyticsFilterPresetType | null,
+            {
+                openEditModal: (_, { preset }) => preset,
+                openSaveModal: () => null,
+                closeSaveModal: () => null,
+                updatePresetSuccess: () => null,
             },
         ],
     }),
@@ -145,6 +156,26 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         closeSaveModal: () => {
             actions.resetPresetForm()
         },
+        openEditModal: ({ preset }) => {
+            actions.setPresetFormName(preset.name)
+            actions.setPresetFormDescription(preset.description || '')
+        },
+        updateAppliedPresetFilters: () => {
+            if (values.appliedPreset) {
+                actions.updatePreset(values.appliedPreset.short_id, {
+                    filters: values.currentFiltersConfig,
+                })
+            }
+        },
+        updatePresetSuccess: ({ savedPreset }) => {
+            if (savedPreset) {
+                lemonToast.success(`Preset "${savedPreset.name}" updated`)
+                if (values.appliedPreset?.short_id === savedPreset.short_id) {
+                    actions.setAppliedPreset(savedPreset)
+                }
+                actions.resetPresetForm()
+            }
+        },
         saveCurrentFiltersAsPresetSuccess: ({ savedPreset }) => {
             lemonToast.success(`Preset "${savedPreset.name}" saved`)
             actions.setAppliedPreset(savedPreset)
@@ -197,6 +228,16 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
                 return appliedPreset
             },
         ],
+        hasUnsavedChanges: [
+            (s) => [s.appliedPreset, s.currentFiltersConfig],
+            (appliedPreset, currentFiltersConfig): boolean => {
+                if (!appliedPreset) {
+                    return false
+                }
+                return !objectsEqual(appliedPreset.filters, currentFiltersConfig)
+            },
+        ],
+        isEditMode: [(s) => [s.editingPreset], (editingPreset): boolean => !!editingPreset],
     }),
     afterMount(({ actions }) => {
         actions.loadPresets()

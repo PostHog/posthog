@@ -16,12 +16,7 @@ from posthog.temporal.llm_analytics.trace_summarization.models import Summarizat
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
-from products.llm_analytics.backend.summarization.models import (
-    GeminiModel,
-    OpenAIModel,
-    SummarizationMode,
-    SummarizationProvider,
-)
+from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_trace_text_repr,
@@ -43,7 +38,6 @@ async def generate_and_save_summary_activity(
     window_end: str,
     mode: str,
     batch_run_id: str,
-    provider: str,
     model: str | None = None,
     max_length: int | None = None,
 ) -> SummarizationActivityResult:
@@ -177,24 +171,17 @@ async def generate_and_save_summary_activity(
 
     _trace, hierarchy, text_repr, team = result
 
-    # Generate summary using LLM
+    # Generate summary using LLM via gateway
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
-    # Convert string inputs to enum types
     mode_enum = SummarizationMode(mode)
-    provider_enum = SummarizationProvider(provider)
-    model_enum: OpenAIModel | GeminiModel | None = None
-    if model:
-        if provider_enum == SummarizationProvider.GEMINI:
-            model_enum = GeminiModel(model)
-        else:
-            model_enum = OpenAIModel(model)
+    model_enum = OpenAIModel(model) if model else None
 
-    summary_result = await summarize(
+    summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
         text_repr=text_repr,
         team_id=team_id,
         mode=mode_enum,
-        provider=provider_enum,
         model=model_enum,
+        user_id=f"temporal-workflow-team-{team_id}",
     )
 
     # Save event to ClickHouse immediately

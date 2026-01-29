@@ -102,7 +102,7 @@ def _compare_with_cpp_json(
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> None:
     # Only compare a fraction of queries to avoid performance overhead
-    if random.random() > 0.1:
+    if random.random() > 0.25:
         return
 
     if backend == "cpp-json":

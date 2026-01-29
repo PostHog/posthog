@@ -12,6 +12,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
+from asgiref.sync import sync_to_async
 from google.genai import (
     Client as RawGenAIClient,
     types,
@@ -20,7 +21,6 @@ from google.genai import (
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
-from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.video import (
     UploadedVideo,
     UploadVideoToGeminiOutput,
@@ -52,16 +52,15 @@ async def upload_video_to_gemini_activity(
         if asset.content:
             video_bytes = bytes(asset.content)
         elif asset.content_location:
-            video_bytes = await database_sync_to_async(object_storage.read_bytes, thread_sensitive=False)(
-                asset.content_location
-            )
+            video_bytes = await sync_to_async(object_storage.read_bytes, thread_sensitive=False)(asset.content_location)
 
         if not video_bytes:
             msg = f"No video content found for asset {asset_id} for session {inputs.session_id}"
             logger.error(msg, session_id=inputs.session_id, asset_id=asset_id, signals_type="session-summaries")
             raise ValueError(msg)
 
-        duration = get_video_duration_s(video_bytes)
+        # Wrap sync MediaInfo call in thread pool to avoid blocking the event loop
+        duration = await sync_to_async(get_video_duration_s, thread_sensitive=False)(video_bytes)
 
         # Write video to temporary file for upload
         with tempfile.NamedTemporaryFile() as tmp_file:
@@ -76,7 +75,8 @@ async def upload_video_to_gemini_activity(
                 signals_type="session-summaries",
             )
             raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
-            uploaded_file = raw_client.files.upload(
+            # Wrap sync Google API call in thread pool to avoid blocking the event loop
+            uploaded_file = await sync_to_async(raw_client.files.upload, thread_sensitive=False)(
                 file=tmp_file.name, config=types.UploadFileConfig(mime_type=asset.export_format)
             )
             # Wait for file to be ready
@@ -99,7 +99,10 @@ async def upload_video_to_gemini_activity(
                 )
                 if not uploaded_file.name:
                     raise RuntimeError("Uploaded file has no name for status polling")
-                uploaded_file = raw_client.files.get(name=uploaded_file.name)
+                # Wrap sync Google API call in thread pool to avoid blocking the event loop
+                uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(
+                    name=uploaded_file.name
+                )
             final_state_name = uploaded_file.state.name if uploaded_file.state else None
             if final_state_name != "ACTIVE":
                 raise RuntimeError(f"File processing failed. State: {final_state_name}")

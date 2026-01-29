@@ -36,4 +36,33 @@ describe('workflowTemplatesLogic', () => {
             expect(router.values.searchParams).toHaveProperty('templateFilter', 'my filter')
         })
     })
+
+    describe('availableTags', () => {
+        it('includes tags from global and own-team templates', async () => {
+            const logic = workflowTemplatesLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadWorkflowTemplatesSuccess([
+                    { id: 'global-1', name: 'Official', scope: 'global', tags: ['official-a', 'official-b'] } as any,
+                    { id: 'team-1', name: 'Team', scope: 'team', tags: ['team-only'] } as any,
+                ])
+            }).toMatchValues({
+                availableTags: ['official-a', 'official-b', 'team-only'],
+            })
+        })
+
+        it('returns empty array when no templates have tags', async () => {
+            const logic = workflowTemplatesLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadWorkflowTemplatesSuccess([
+                    { id: 'global-1', name: 'Official', scope: 'global', tags: [] } as any,
+                ])
+            }).toMatchValues({
+                availableTags: [],
+            })
+        })
+    })
 })

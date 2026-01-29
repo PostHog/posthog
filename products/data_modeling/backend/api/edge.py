@@ -31,7 +31,7 @@ class EdgeSerializer(serializers.ModelSerializer):
 
 
 class EdgePagination(PageNumberPagination):
-    page_size = 500
+    page_size = 5000
 
 
 class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

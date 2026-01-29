@@ -9,7 +9,7 @@ pub mod kafka;
 pub mod metrics;
 pub mod metrics_const;
 pub mod processor_rebalance_handler;
-pub mod rebalance_coordinator;
+pub mod rebalance_tracker;
 pub mod rocksdb;
 pub mod service;
 pub mod store;

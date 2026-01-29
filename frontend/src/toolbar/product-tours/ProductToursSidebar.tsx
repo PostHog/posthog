@@ -13,6 +13,7 @@ import {
     PRODUCT_TOURS_MIN_JS_VERSION,
     TourStep,
     hasMinProductToursVersion,
+    hasValidSelector,
     productToursLogic,
 } from './productToursLogic'
 import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
@@ -80,6 +81,11 @@ export function ProductToursSidebar(): JSX.Element | null {
         if (tourFormErrors?.name) {
             return 'Enter a tour name'
         }
+
+        const hasInvalidSteps = steps.some((step) => !hasValidSelector(step))
+        if (hasInvalidSteps) {
+            return 'Some steps are missing element selection'
+        }
     }
 
     const getPreviewDisabledReason = (): string | undefined => {
@@ -93,6 +99,11 @@ export function ProductToursSidebar(): JSX.Element | null {
 
         if (stepCount === 0) {
             return 'Add at least one step'
+        }
+
+        const hasInvalidSteps = steps.some((step) => !hasValidSelector(step))
+        if (hasInvalidSteps) {
+            return 'Some steps are missing element selection'
         }
     }
 

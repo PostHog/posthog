@@ -3,10 +3,9 @@ import logging
 import functools
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import urlsplit
 
 from django.apps import apps
-from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
@@ -20,7 +19,6 @@ from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
-from webauthn import verify_authentication_response
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
@@ -32,20 +30,7 @@ from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, Perso
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
-
-
-def get_webauthn_rp_id() -> str:
-    """Get the Relying Party ID from SITE_URL."""
-    parsed = urlparse(settings.SITE_URL)
-    return parsed.hostname or "localhost"
-
-
-def get_webauthn_rp_origin() -> str:
-    """Get the Relying Party origin from SITE_URL."""
-    parsed = urlparse(settings.SITE_URL)
-    if parsed.port and parsed.port not in (80, 443):
-        return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-    return f"{parsed.scheme}://{parsed.hostname}"
+from posthog.passkey import verify_passkey_authentication_response
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -668,14 +653,11 @@ class WebauthnBackend(BaseBackend):
 
             # Verify the authentication response
             expected_challenge = base64url_to_bytes(challenge)
-            verification = verify_authentication_response(
+            verification = verify_passkey_authentication_response(
                 credential=credential_dict,
                 expected_challenge=expected_challenge,
-                expected_rp_id=get_webauthn_rp_id(),
-                expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
-                require_user_verification=True,
             )
 
             # Update sign count
