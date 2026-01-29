@@ -11,6 +11,15 @@ import { UserBasicType } from '~/types'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
+// Define the order of categories in the data management panel
+const CATEGORY_ORDER: Record<string, number> = {
+    Pipeline: 1,
+    Schema: 2,
+    Tools: 3,
+    Metadata: 4,
+    Unreleased: 5,
+}
+
 export interface ConvertProps {
     imports: (FileSystemImport | FileSystemEntry)[]
     folderStates: Record<string, FolderState>
@@ -262,6 +271,13 @@ export function convertFileSystemEntryToTreeDataItem({
         nodes.sort((a, b) => {
             // If they have a category, sort by that
             if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
+                // Use custom category order for the data management panel
+                if (root === 'data://') {
+                    const orderA = CATEGORY_ORDER[a.record.category] ?? 999
+                    const orderB = CATEGORY_ORDER[b.record.category] ?? 999
+                    return orderA - orderB
+                }
+                // For all other panels, use alphabetical sorting
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 
