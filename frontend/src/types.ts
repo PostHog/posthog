@@ -852,8 +852,6 @@ export enum PropertyOperator {
 
 export enum SavedInsightsTabs {
     All = 'all',
-    Yours = 'yours',
-    Favorites = 'favorites',
     History = 'history',
     Alerts = 'alerts',
 }

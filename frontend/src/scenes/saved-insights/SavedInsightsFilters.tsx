@@ -32,9 +32,7 @@ export function SavedInsightsFilters({
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
                     type="secondary"
-                    active={
-                        user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id) ? true : false
-                    }
+                    active={!!(user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id))}
                     onClick={() => {
                         if (user) {
                             const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []

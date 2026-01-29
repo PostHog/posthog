@@ -911,92 +911,88 @@ export function SavedInsights(): JSX.Element {
             moreIcon: <IconChevronDown />,
             moreFilterCount: filters.tags?.length || 0,
         },
-        ...(tab === SavedInsightsTabs.Yours
-            ? []
-            : [
-                  {
-                      title: 'Created by',
-                      dataIndex: 'created_by' as keyof QueryBasedInsightModel,
-                      render: function Render(_: any, item: QueryBasedInsightModel) {
-                          const { created_by } = item
-                          return (
-                              <div className="flex flex-row items-center flex-nowrap">
-                                  {created_by && <ProfilePicture user={created_by} size="md" showName />}
-                              </div>
-                          )
-                      },
-                      sorter: (a, b) =>
-                          (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
-                              b.created_by?.first_name || b.created_by?.email || ''
-                          ),
-                      more: (
-                          <div className="max-w-100 deprecated-space-y-2" onClick={() => ensureAllMembersLoaded()}>
-                              <LemonInput
-                                  type="search"
-                                  placeholder="Search"
-                                  autoFocus
-                                  value={memberSearch}
-                                  onChange={setMemberSearch}
-                                  fullWidth
-                              />
-                              <ul className="deprecated-space-y-px">
-                                  {filteredMembers.map((member) => (
-                                      <li key={member.user.uuid}>
-                                          <LemonButton
-                                              fullWidth
-                                              role="menuitem"
-                                              size="small"
-                                              icon={<ProfilePicture size="md" user={member.user} />}
-                                              onClick={() => handleMemberToggle(member.user.id)}
-                                          >
-                                              <span className="flex items-center justify-between gap-2 flex-1">
-                                                  <span className="flex items-center gap-2 max-w-full">
-                                                      <input
-                                                          type="checkbox"
-                                                          className="cursor-pointer"
-                                                          checked={
-                                                              filters.createdBy !== 'All users' &&
-                                                              (filters.createdBy as number[]).includes(member.user.id)
-                                                          }
-                                                          readOnly
-                                                      />
-                                                      <span>{fullName(member.user)}</span>
-                                                  </span>
-                                                  <span className="text-secondary">
-                                                      {meFirstMembers[0] === member && `(you)`}
-                                                  </span>
-                                              </span>
-                                          </LemonButton>
-                                      </li>
-                                  ))}
-                                  {filteredMembers.length === 0 ? (
-                                      <div className="p-2 text-secondary italic truncate border-t">
-                                          {memberSearch ? <span>No matches</span> : <span>No users</span>}
-                                      </div>
-                                  ) : null}
-                                  {filters.createdBy !== 'All users' && (filters.createdBy as number[]).length > 0 && (
-                                      <>
-                                          <div className="my-1 border-t" />
-                                          <li>
-                                              <LemonButton
-                                                  fullWidth
-                                                  role="menuitem"
-                                                  size="small"
-                                                  onClick={() => setSavedInsightsFilters({ createdBy: 'All users' })}
-                                                  type="tertiary"
-                                              >
-                                                  Clear selection
-                                              </LemonButton>
-                                          </li>
-                                      </>
-                                  )}
-                              </ul>
-                          </div>
-                      ),
-                      moreIcon: <IconChevronDown />,
-                      moreFilterCount: filters.createdBy !== 'All users' ? (filters.createdBy as number[]).length : 0,
-                  } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
-              ]),
+        {
+            title: 'Created by',
+            dataIndex: 'created_by' as keyof QueryBasedInsightModel,
+            render: function Render(_: any, item: QueryBasedInsightModel) {
+                const { created_by } = item
+                return (
+                    <div className="flex flex-row items-center flex-nowrap">
+                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                    </div>
+                )
+            },
+            sorter: (a, b) =>
+                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                    b.created_by?.first_name || b.created_by?.email || ''
+                ),
+            more: (
+                <div className="max-w-100 deprecated-space-y-2" onClick={() => ensureAllMembersLoaded()}>
+                    <LemonInput
+                        type="search"
+                        placeholder="Search"
+                        autoFocus
+                        value={memberSearch}
+                        onChange={setMemberSearch}
+                        fullWidth
+                    />
+                    <ul className="deprecated-space-y-px">
+                        {filteredMembers.map((member) => (
+                            <li key={member.user.uuid}>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    icon={<ProfilePicture size="md" user={member.user} />}
+                                    onClick={() => handleMemberToggle(member.user.id)}
+                                >
+                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                        <span className="flex items-center gap-2 max-w-full">
+                                            <input
+                                                type="checkbox"
+                                                className="cursor-pointer"
+                                                checked={
+                                                    filters.createdBy !== 'All users' &&
+                                                    (filters.createdBy as number[]).includes(member.user.id)
+                                                }
+                                                readOnly
+                                            />
+                                            <span>{fullName(member.user)}</span>
+                                        </span>
+                                        <span className="text-secondary">
+                                            {meFirstMembers[0] === member && `(you)`}
+                                        </span>
+                                    </span>
+                                </LemonButton>
+                            </li>
+                        ))}
+                        {filteredMembers.length === 0 ? (
+                            <div className="p-2 text-secondary italic truncate border-t">
+                                {memberSearch ? <span>No matches</span> : <span>No users</span>}
+                            </div>
+                        ) : null}
+                        {filters.createdBy !== 'All users' && (filters.createdBy as number[]).length > 0 && (
+                            <>
+                                <div className="my-1 border-t" />
+                                <li>
+                                    <LemonButton
+                                        fullWidth
+                                        role="menuitem"
+                                        size="small"
+                                        onClick={() => setSavedInsightsFilters({ createdBy: 'All users' })}
+                                        type="tertiary"
+                                    >
+                                        Clear selection
+                                    </LemonButton>
+                                </li>
+                            </>
+                        )}
+                    </ul>
+                </div>
+            ),
+            moreIcon: <IconChevronDown />,
+            moreFilterCount: filters.createdBy !== 'All users' ? (filters.createdBy as number[]).length : 0,
+        } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Created',
             dataIndex: 'created_at',

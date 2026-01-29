@@ -64,7 +64,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
+        createdBy: values.createdBy || 'All users',
         tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
@@ -244,8 +244,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 limit: INSIGHTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
-                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                ...((filters.tab === SavedInsightsTabs.Favorites || filters.favorited) && { favorited: true }),
+                ...(filters.favorited && { favorited: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
