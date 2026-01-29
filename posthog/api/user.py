@@ -65,6 +65,7 @@ from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -298,6 +299,25 @@ class UserSerializer(serializers.ModelSerializer):
                         code="invalid_input",
                     )
                 current_settings[key] = float(value)
+            elif key == "discussion_mention_destination_opt_outs":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        "discussion_mention_destination_opt_outs must be a dict",
+                        code="invalid_input",
+                    )
+                for _project_id, destination_ids in value.items():
+                    if not isinstance(destination_ids, list):
+                        raise serializers.ValidationError(
+                            "Values in discussion_mention_destination_opt_outs must be lists",
+                            code="invalid_input",
+                        )
+                    for dest_id in destination_ids:
+                        if not isinstance(dest_id, str):
+                            raise serializers.ValidationError(
+                                "Destination IDs must be strings",
+                                code="invalid_input",
+                            )
+                current_settings[key] = {**current_settings.get("discussion_mention_destination_opt_outs", {}), **value}
             else:
                 # For non-dict settings, validate type directly
                 if not isinstance(value, expected_type):
@@ -770,6 +790,56 @@ class UserViewSet(
         send_two_factor_auth_disabled_email.delay(user.id)
 
         return Response({"success": True})
+
+    @action(methods=["GET"], detail=True)
+    def discussion_mention_destinations(self, request, **kwargs):
+        """
+        Returns all discussion mention CDP destinations across all projects
+        the user has access to.
+        """
+        user = self.get_object()
+        accessible_teams = user.teams
+
+        projects_with_destinations = []
+
+        for team in accessible_teams:
+            destinations = HogFunction.objects.filter(
+                team=team,
+                type=HogFunctionType.INTERNAL_DESTINATION,
+                enabled=True,
+                deleted=False,
+            ).filter(filters__events__contains=[{"id": "$discussion_mention_created"}])
+
+            destination_list = []
+            for dest in destinations:
+                dest_type = self._get_destination_type(dest)
+                destination_list.append(
+                    {
+                        "id": str(dest.id),
+                        "name": dest.name,
+                        "type": dest_type,
+                        "icon_url": dest.icon_url,
+                    }
+                )
+
+            if destination_list:
+                projects_with_destinations.append(
+                    {
+                        "id": team.id,
+                        "name": team.name,
+                        "destinations": destination_list,
+                    }
+                )
+
+        return Response({"projects": projects_with_destinations})
+
+    def _get_destination_type(self, hog_function: HogFunction) -> str:
+        """Extract destination type from HogFunction template or inputs."""
+        if hog_function.template_id:
+            template_parts = hog_function.template_id.split("-")
+            if template_parts:
+                return template_parts[0]
+        return "unknown"
 
 
 @session_auth_required

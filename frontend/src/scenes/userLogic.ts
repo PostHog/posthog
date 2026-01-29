@@ -39,6 +39,20 @@ export const userLogic = kea<userLogicType>([
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        updateDiscussionMentionOptOut: (projectId: number, destinationId: string, optOut: boolean) => ({
+            projectId,
+            destinationId,
+            optOut,
+        }),
+        updateDiscussionMentionOptOutForAllDestinations: (
+            projectId: number,
+            destinationIds: string[],
+            optOut: boolean
+        ) => ({
+            projectId,
+            destinationIds,
+            optOut,
+        }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -312,6 +326,55 @@ export const userLogic = kea<userLogicType>([
                         data_pipeline_error_threshold: threshold / 100,
                     },
                 })
+        },
+        updateDiscussionMentionOptOut: ({ projectId, destinationId, optOut }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const currentOptOuts = {
+                ...values.user.notification_settings.discussion_mention_destination_opt_outs,
+            }
+
+            const projectOptOuts = [...(currentOptOuts[projectId] ?? [])]
+
+            if (optOut && !projectOptOuts.includes(destinationId)) {
+                projectOptOuts.push(destinationId)
+            } else if (!optOut && projectOptOuts.includes(destinationId)) {
+                const index = projectOptOuts.indexOf(destinationId)
+                projectOptOuts.splice(index, 1)
+            }
+
+            currentOptOuts[projectId] = projectOptOuts
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    discussion_mention_destination_opt_outs: currentOptOuts,
+                },
+            })
+        },
+        updateDiscussionMentionOptOutForAllDestinations: ({ projectId, destinationIds, optOut }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const currentOptOuts = {
+                ...values.user.notification_settings.discussion_mention_destination_opt_outs,
+            }
+
+            if (optOut) {
+                currentOptOuts[projectId] = destinationIds
+            } else {
+                currentOptOuts[projectId] = []
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    discussion_mention_destination_opt_outs: currentOptOuts,
+                },
+            })
         },
     })),
     selectors({
