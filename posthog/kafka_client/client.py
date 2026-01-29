@@ -141,6 +141,38 @@ def _kafka_python_sasl_params() -> dict[str, Any]:
     return {}
 
 
+# Mapping from kafka-python style keys to confluent-kafka style keys
+_KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
+    "client_id": "client.id",
+    "metadata_max_age_ms": "metadata.max.age.ms",
+    "batch_size": "batch.size",
+    "max_request_size": "message.max.bytes",
+    "linger_ms": "linger.ms",
+    "max_in_flight_requests_per_connection": "max.in.flight.requests.per.connection",
+    "buffer_memory": "queue.buffering.max.kbytes",
+    "max_block_ms": "queue.buffering.max.ms",
+}
+
+
+def _convert_kafka_python_settings(kafka_python_settings: dict[str, Any]) -> dict[str, Any]:
+    """Convert kafka-python style settings to confluent-kafka style."""
+    result = {}
+    for key, value in kafka_python_settings.items():
+        if key in _KAFKA_PYTHON_TO_CONFLUENT_KEYS:
+            confluent_key = _KAFKA_PYTHON_TO_CONFLUENT_KEYS[key]
+            # buffer_memory is in bytes for kafka-python but kbytes for confluent-kafka
+            if key == "buffer_memory":
+                value = value // 1024
+            result[confluent_key] = value
+        elif key == "partitioner":
+            # partitioner is handled differently in confluent-kafka, skip it
+            pass
+        else:
+            # Pass through unknown keys as-is (might already be confluent-kafka style)
+            result[key] = value
+    return result
+
+
 class _KafkaProducer:
     producer: ConfluentProducer | KafkaProducerForTests
     _test: bool
@@ -200,6 +232,7 @@ class _KafkaProducer:
                 # Delivery report callback will be called for all messages
                 "delivery.report.only.error": False,
                 **_confluent_sasl_params(),
+                **_convert_kafka_python_settings(settings.KAFKA_PRODUCER_SETTINGS),
             }
 
             if compression_type:
