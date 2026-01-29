@@ -124,6 +124,11 @@ pub const PARTITION_OWNERSHIP_ADDED: &str = "partition_ownership_added_total";
 /// Counter for partitions removed from ownership (REVOKE callback)
 pub const PARTITION_OWNERSHIP_REMOVED: &str = "partition_ownership_removed_total";
 
+/// Counter for partition state changes from Kafka rebalance (assign/revoke)
+/// Labels: topic, partition, op (assign|revoke)
+/// Use this to track rebalance activity per partition for debugging and alerting
+pub const REBALANCE_PARTITION_STATE_CHANGE: &str = "rebalance_partition_state_change_total";
+
 /// Counter for async setup cancellations
 /// Incremented when a new rebalance starts before async setup completes
 pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancelled_total";

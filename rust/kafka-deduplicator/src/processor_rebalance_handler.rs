@@ -15,7 +15,8 @@ use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
     PARTITION_STORE_FALLBACK_EMPTY, PARTITION_STORE_SETUP_SKIPPED,
-    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_RESUME_SKIPPED_NO_OWNED,
+    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_PARTITION_STATE_CHANGE,
+    REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
 use crate::rebalance_coordinator::RebalanceCoordinator;
 use crate::store_manager::StoreManager;
@@ -236,6 +237,17 @@ where
             "Setting up assigned partitions (sync)"
         );
 
+        // Record per-partition assignment metrics for observability
+        for partition in &partition_infos {
+            metrics::counter!(
+                REBALANCE_PARTITION_STATE_CHANGE,
+                "topic" => partition.topic().to_string(),
+                "partition" => partition.partition_number().to_string(),
+                "op" => "assign",
+            )
+            .increment(1);
+        }
+
         // Add to owned partitions FIRST (coordinator is the source of truth)
         // If partition was revoked then re-assigned, this adds it back
         self.rebalance_coordinator
@@ -272,6 +284,17 @@ where
             caller = "revoke_callback",
             "Setting up revoked partitions (sync)"
         );
+
+        // Record per-partition revocation metrics for observability
+        for partition in &partition_infos {
+            metrics::counter!(
+                REBALANCE_PARTITION_STATE_CHANGE,
+                "topic" => partition.topic().to_string(),
+                "partition" => partition.partition_number().to_string(),
+                "op" => "revoke",
+            )
+            .increment(1);
+        }
 
         // Remove from owned partitions (coordinator is the source of truth)
         // This happens BEFORE async cleanup, so cleanup can check ownership
