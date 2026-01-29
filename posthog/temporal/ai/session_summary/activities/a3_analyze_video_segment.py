@@ -49,7 +49,7 @@ async def analyze_video_segment_activity(
 
     Returns detailed descriptions of salient moments in the segment.
     """
-    start_time = time.time()
+    start_time = time.monotonic()
     success = False
     try:
         # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
@@ -198,7 +198,7 @@ async def analyze_video_segment_activity(
         )
         raise
     finally:
-        duration_seconds = time.time() - start_time
+        duration_seconds = time.monotonic() - start_time
         team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
         capture_session_summary_timing(
             distinct_id=inputs.user_distinct_id_to_log,
