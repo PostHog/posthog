@@ -203,7 +203,13 @@ class RedditAdsSourceConfig(config.Config):
 
 @config.config
 class RedshiftSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -221,6 +227,11 @@ class ShopifySourceConfig(config.Config):
     shopify_store_id: str
     shopify_client_id: str
     shopify_client_secret: str
+
+
+@config.config
+class SnapchatAdsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -269,11 +280,6 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
-class SnapchatAdsSourceConfig(config.Config):
-    pass
-
-
-@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -314,12 +320,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
-        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]
