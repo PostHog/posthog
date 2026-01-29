@@ -76,7 +76,7 @@ def hubspot(
         responses.append(
             SourceResponse(
                 name=endpoint,
-                items=lambda obj_type=OBJECT_TYPE_SINGULAR[endpoint], props=DEFAULT_PROPS[endpoint]: crm_objects(
+                items=lambda obj_type: str = OBJECT_TYPE_SINGULAR[endpoint], props: list[str] = DEFAULT_PROPS[endpoint]: crm_objects(  # type: ignore[misc]
                     object_type=obj_type,
                     api_key=api_key,
                     refresh_token=refresh_token,

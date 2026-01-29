@@ -415,10 +415,10 @@ def _merge_resource_endpoints(default_config: EndpointResourceBase, config: Endp
             **config_endpoint["json"],
         }
     if "params" in config_endpoint:
-        merged_endpoint["params"] = {
-            **(merged_endpoint.get("params", {})),
-            **config_endpoint["params"],
-        }
+        default_params = merged_endpoint.get("params", {})
+        config_params = config_endpoint["params"]
+        if default_params is not None and config_params is not None:
+            merged_endpoint["params"] = {**default_params, **config_params}
 
     # Simplified column merging - just override if both present
     if (default_columns := default_config.get("columns")) and (columns := config.get("columns")):

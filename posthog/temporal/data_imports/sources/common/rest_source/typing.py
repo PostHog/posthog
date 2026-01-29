@@ -6,7 +6,7 @@ Replaces DLT type imports with simplified versions that maintain compatibility.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, TypedDict, TypeVar, Union
+from typing import Any, Literal, NotRequired, Optional, TypedDict, TypeVar, Union
 
 from .auth import APIKeyAuth, AuthBase, BearerTokenAuth, HttpBasicAuth
 from .pagination import (
@@ -263,5 +263,5 @@ class RESTAPIConfig(TypedDict):
     """Main configuration for REST API source."""
 
     client: ClientConfig
-    resource_defaults: Optional[EndpointResourceBase]
+    resource_defaults: NotRequired[EndpointResourceBase]
     resources: list[str | EndpointResource]

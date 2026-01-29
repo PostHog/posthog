@@ -73,7 +73,7 @@ def rest_api_resources(
         Resource iterator yielding dicts
     """
     client_config = config["client"]
-    resource_defaults = config.get("resource_defaults", {})
+    resource_defaults: EndpointResourceBase = config.get("resource_defaults", {})
     resource_list = config["resources"]
 
     resources = create_resources(
@@ -106,7 +106,7 @@ def create_resources(
     # Process each resource
     for resource_kwargs in resource_list:
         if isinstance(resource_kwargs, dict):
-            resource_kwargs = update_dict_nested({}, resource_kwargs)
+            resource_kwargs = cast(EndpointResource, update_dict_nested({}, resource_kwargs))
 
         endpoint_resource = _make_endpoint_resource(resource_kwargs, resource_defaults)
         assert isinstance(endpoint_resource["endpoint"], dict)
@@ -147,7 +147,7 @@ def create_resources(
             data_selector: Optional[TJsonPath],
             hooks: Optional[dict[str, Any]],
             client: RESTClient,
-            columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]],
+            columns_config: Optional[dict[str, dict[str, Any]]],
             incremental_object: Optional[Incremental],
             incremental_param: Optional[IncrementalParam],
             incremental_cursor_transform: Optional[Callable[..., Any]],
@@ -180,7 +180,7 @@ def create_resources(
         resource = make_resource(
             method=endpoint_config.get("method", "GET"),  # type: ignore[arg-type]
             path=endpoint_config.get("path"),  # type: ignore[arg-type]
-            params=request_params.copy(),
+            params=request_params.copy() if request_params else {},
             json_body=request_json,
             paginator=paginator,
             data_selector=endpoint_config.get("data_selector"),

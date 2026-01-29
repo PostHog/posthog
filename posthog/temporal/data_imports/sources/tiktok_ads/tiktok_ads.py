@@ -3,6 +3,7 @@ from typing import Any, Optional, cast
 from posthog.temporal.common.utils import make_sync_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, create_resources
+from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResourceBase
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import BASE_URL, TIKTOK_ADS_CONFIG, EndpointType
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
@@ -49,7 +50,7 @@ def get_tiktok_resource(
 
     # Set write disposition based on incremental field usage
     if should_use_incremental_field and config.incremental_fields:
-        resource["write_disposition"] = {  # type: ignore[typeddict-item]
+        resource["write_disposition"] = {
             "disposition": "merge",
             "strategy": "upsert",
         }
@@ -89,7 +90,7 @@ def tiktok_ads_source(
     config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
-            "auth": TikTokAdsAuth(access_token),
+            "auth": TikTokAdsAuth(access_token=access_token),
         },
         "resource_defaults": {
             "primary_key": "id" if endpoint_type == EndpointType.ENTITY else None,
@@ -114,7 +115,7 @@ def tiktok_ads_source(
     resources_dict = make_sync_retryable_with_exponential_backoff(
         lambda: create_resources(
             config["client"],
-            config.get("resource_defaults", {}),
+            cast(EndpointResourceBase, config.get("resource_defaults", {})),
             config["resources"],
             team_id,
             job_id,

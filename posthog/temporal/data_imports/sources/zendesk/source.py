@@ -110,8 +110,8 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             if inputs.should_use_incremental_field
             else None,
         )
-        # zendesk_source returns a list with a single resource
-        zendesk_source_response = resources[0]
+        # zendesk_source returns a SourceResponse
+        zendesk_source_response = resources
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
 

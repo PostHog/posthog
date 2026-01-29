@@ -64,7 +64,7 @@ class APIKeyAuth(AuthBase):
             request.headers[self.name] = self.api_key
         elif self.location == "query":
             # Add to query params
-            if "?" in request.url:
+            if request.url and "?" in request.url:
                 request.url = f"{request.url}&{self.name}={self.api_key}"
             else:
                 request.url = f"{request.url}?{self.name}={self.api_key}"
