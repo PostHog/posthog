@@ -9,6 +9,7 @@ import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -58,6 +59,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -240,9 +242,11 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                <div className="ml-auto -mr-2">
-                    <SceneTitlePanelButton />
-                </div>
+                {isRemovingSidePanelFlag && (
+                    <div className="ml-auto -mr-2">
+                        <SceneTitlePanelButton />
+                    </div>
+                )}
             </div>
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
