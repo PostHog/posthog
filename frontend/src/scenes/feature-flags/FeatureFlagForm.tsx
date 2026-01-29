@@ -47,7 +47,6 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
-import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
@@ -88,7 +87,19 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     ): void => {
         const coercedValue = field === 'rollout_percentage' ? Number(value) || 0 : String(value)
         const currentVariants = [...variants]
+        const oldKey = currentVariants[index]?.key
         currentVariants[index] = { ...currentVariants[index], [field]: coercedValue }
+
+        // If the key is being changed, migrate any existing payload to the new key
+        let updatedPayloads = { ...featureFlag?.filters?.payloads }
+        if (field === 'key' && oldKey && oldKey !== coercedValue) {
+            const existingPayload = updatedPayloads[oldKey]
+            if (existingPayload !== undefined) {
+                delete updatedPayloads[oldKey]
+                updatedPayloads[coercedValue as string] = existingPayload
+            }
+        }
+
         setFeatureFlag({
             ...featureFlag,
             filters: {
@@ -97,6 +108,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     ...featureFlag?.filters?.multivariate,
                     variants: currentVariants,
                 },
+                payloads: updatedPayloads,
             },
         })
     }
@@ -128,73 +140,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             </div>
         )
     }
-
-    // Read-only view when not editing an existing flag
-    if (!isNewFeatureFlag && !isEditingFlag) {
-        return (
-            <>
-                <SceneTitleSection
-                    name={featureFlag.key}
-                    resourceType={{
-                        type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
-                    }}
-                    actions={
-                        <LemonButton
-                            type="primary"
-                            data-attr="edit-feature-flag"
-                            size="small"
-                            onClick={() => editFeatureFlag(true)}
-                        >
-                            Edit
-                        </LemonButton>
-                    }
-                />
-                <SceneContent>
-                    <div className="flex flex-col gap-4 mt-4">
-                        {/* Summary card */}
-                        <div className="rounded border p-4 bg-bg-light">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <LemonLabel>Flag key</LemonLabel>
-                                    <div className="font-mono text-sm">{featureFlag.key}</div>
-                                </div>
-                                <div>
-                                    <LemonLabel>Status</LemonLabel>
-                                    <div className={featureFlag.active ? 'text-success' : 'text-muted'}>
-                                        {featureFlag.active ? 'Enabled' : 'Disabled'}
-                                    </div>
-                                </div>
-                                {featureFlag.name && (
-                                    <div className="col-span-2">
-                                        <LemonLabel>Description</LemonLabel>
-                                        <div className="text-sm">{featureFlag.name}</div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Release conditions - read only */}
-                        {!featureFlag.is_remote_configuration && (
-                            <div className="rounded border p-4 bg-bg-light">
-                                <FeatureFlagReleaseConditions
-                                    id={String(props.id)}
-                                    filters={featureFlag.filters}
-                                    readOnly
-                                />
-                            </div>
-                        )}
-
-                        {/* Implementation */}
-                        <div className="rounded border p-4 bg-bg-light">
-                            <FeatureFlagCodeExample featureFlag={featureFlag} />
-                        </div>
-                    </div>
-                </SceneContent>
-            </>
-        )
-    }
-
-    // Edit mode
     return (
         <>
             <Form

@@ -187,13 +187,17 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setAggregationGroupTypeIndex,
     } = useActions(releaseConditionsLogic)
 
-    const [openConditions, setOpenConditions] = useState<string[]>(filterGroups.length === 1 ? ['condition-0'] : [])
+    // Use sort_key as the stable identifier to maintain open/closed state across reordering
+    const [openConditions, setOpenConditions] = useState<string[]>(
+        filterGroups.length === 1 ? [`condition-${filterGroups[0]?.sort_key ?? 0}`] : []
+    )
 
     const handleAddConditionSet = (): void => {
-        // Capture the index before adding so it stays correct even if addConditionSet is batched
-        const newIndex = filterGroups.length
+        // Get the next sort_key - it will be max(existing sort_keys) + 1
+        const maxSortKey = filterGroups.reduce((max, group) => Math.max(max, group.sort_key ?? 0), -1)
+        const newSortKey = maxSortKey + 1
         addConditionSet()
-        setOpenConditions((prev) => [...prev, `condition-${newIndex}`])
+        setOpenConditions((prev) => [...prev, `condition-${newSortKey}`])
     }
 
     if (readOnly) {
@@ -309,7 +313,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 activeKeys={openConditions}
                 onChange={setOpenConditions}
                 panels={filterGroups.map((group, index) => ({
-                    key: `condition-${index}`,
+                    key: `condition-${group.sort_key ?? index}`,
                     header: (
                         <ConditionHeader
                             group={group}
@@ -388,12 +392,14 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         Will match approximately{' '}
                                         <b>
                                             {`${Math.max(
-                                                computeBlastRadiusPercentage(
-                                                    Number.isNaN(group.rollout_percentage)
-                                                        ? 0
-                                                        : group.rollout_percentage,
-                                                    group.sort_key
-                                                ).toPrecision(2) * 1,
+                                                Math.round(
+                                                    computeBlastRadiusPercentage(
+                                                        Number.isNaN(group.rollout_percentage)
+                                                            ? 0
+                                                            : group.rollout_percentage,
+                                                        group.sort_key
+                                                    ) * 100
+                                                ) / 100,
                                                 0
                                             )}%`}
                                         </b>{' '}
