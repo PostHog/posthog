@@ -187,6 +187,8 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const [allowSelfApprove, setAllowSelfApprove] = useState(policy?.allow_self_approve || false)
     const [approverUserIds, setApproverUserIds] = useState<number[]>(policy?.approver_config?.users || [])
     const [approverRoleIds, setApproverRoleIds] = useState<string[]>(policy?.approver_config?.roles || [])
+    const [bypassAdminOwner, setBypassAdminOwner] = useState((policy?.bypass_org_membership_levels || []).length > 0)
+    const [bypassRoleIds, setBypassRoleIds] = useState<string[]>(policy?.bypass_roles || [])
 
     // Parse existing conditions into rules
     const parseExistingConditions = (): ConditionRule[] => {
@@ -261,7 +263,10 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             },
             allow_self_approve: allowSelfApprove,
             conditions,
-            bypass_roles: [],
+            bypass_org_membership_levels: bypassAdminOwner
+                ? [String(OrganizationMembershipLevel.Admin), String(OrganizationMembershipLevel.Owner)]
+                : [],
+            bypass_roles: bypassRoleIds,
             enabled: true,
         }
 
@@ -425,6 +430,35 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                             </div>
                         }
                     />
+                </div>
+
+                <div>
+                    <LemonSwitch
+                        checked={bypassAdminOwner}
+                        onChange={setBypassAdminOwner}
+                        label={
+                            <div className="flex items-center gap-2">
+                                <span>Allow org admins and owners to bypass</span>
+                                <Tooltip title="If enabled, organization admins and owners can execute this action without approval.">
+                                    <IconInfo className="text-muted-alt w-4 h-4" />
+                                </Tooltip>
+                            </div>
+                        }
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium mb-1">Bypass roles</label>
+                    <LemonInputSelect
+                        mode="multiple"
+                        value={bypassRoleIds}
+                        onChange={setBypassRoleIds}
+                        options={roleOptions}
+                        placeholder="Select roles that can bypass this policy"
+                    />
+                    <p className="text-xs text-secondary mt-1">
+                        Users with any of these roles can execute this action without approval
+                    </p>
                 </div>
             </div>
         </LemonModal>

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from ee.models.rbac.role import RoleMembership
+
 
 @dataclass
 class PolicyDecision:
@@ -100,7 +102,7 @@ class PolicyEngine:
         - DENY: Action not allowed
         - REQUIRE_APPROVAL: Must get approvals
         """
-        if self._has_bypass_role(actor, policy, context):
+        if self._has_bypass(actor, policy, context):
             return PolicyDecision(
                 result="ALLOW",
                 reason="User has bypass role",
@@ -136,6 +138,8 @@ class PolicyEngine:
                 "roles": approver_config.get("roles", []),
                 "allow_self_approve": policy.allow_self_approve,
                 "conditions": policy.conditions or {},
+                "bypass_org_membership_levels": policy.bypass_org_membership_levels or [],
+                "bypass_roles": [str(r.id) for r in policy.bypass_roles.all()],
             },
         )
 
@@ -273,15 +277,22 @@ class PolicyEngine:
 
         return False
 
-    def _has_bypass_role(self, actor, policy, context: dict) -> bool:
-        """Check if user has a bypass role"""
-        if not policy.bypass_roles:
+    def _has_bypass(self, actor, policy, context: dict) -> bool:
+        org = context.get("organization")
+        if not org:
             return False
 
-        org = context.get("organization")
-        if org:
+        if policy.bypass_org_membership_levels:
             membership = actor.organization_memberships.filter(organization=org).first()
-            if membership and str(membership.level) in policy.bypass_roles:
+            if membership and str(membership.level) in policy.bypass_org_membership_levels:
+                return True
+
+        if policy.bypass_roles.exists():
+            actor_role_ids = set(
+                RoleMembership.objects.filter(user=actor, role__organization=org).values_list("role_id", flat=True)
+            )
+            bypass_role_ids = set(policy.bypass_roles.values_list("id", flat=True))
+            if actor_role_ids & bypass_role_ids:
                 return True
 
         return False
@@ -300,11 +311,6 @@ class PolicyEngine:
             return True
 
         if approver_config.get("roles"):
-            try:
-                from ee.models.rbac.role import RoleMembership
-            except ImportError:
-                return False
-
             org = context.get("organization")
             if not org:
                 return False
