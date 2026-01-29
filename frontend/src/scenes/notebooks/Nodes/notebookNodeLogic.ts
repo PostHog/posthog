@@ -981,17 +981,21 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         ],
         displayedGlobals: [
             (s) => [s.exportedGlobals, s.pythonExecution],
-            (exportedGlobals, pythonExecution): { name: string; type: string }[] => {
+            (exportedGlobals, pythonExecution): { name: string; type: string; hogqlQuery?: string }[] => {
                 if (!pythonExecution?.variables?.length) {
                     return exportedGlobals
                 }
 
-                const typeByName = new Map<string, string>(
-                    pythonExecution.variables.map((variable: PythonExecutionVariable) => [variable.name, variable.type])
+                const detailsByName = new Map<string, { type: string; hogqlQuery?: string }>(
+                    pythonExecution.variables.map((variable: PythonExecutionVariable) => [
+                        variable.name,
+                        { type: variable.type, hogqlQuery: variable.hogqlQuery },
+                    ])
                 )
                 return exportedGlobals.map(({ name, type }) => ({
                     name,
-                    type: typeByName.get(name) ?? type,
+                    type: detailsByName.get(name)?.type ?? type,
+                    hogqlQuery: detailsByName.get(name)?.hogqlQuery,
                 }))
             },
         ],

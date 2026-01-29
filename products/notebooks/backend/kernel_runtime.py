@@ -244,6 +244,7 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
 
 class KernelRuntimeService:
     _TYPE_EXPRESSION_PREFIX = "__type__"
+    _HOGQL_QUERY_EXPRESSION_PREFIX = "__hogql_query__"
     _MODAL_REQUIRED_ENV_VARS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
     _SERVICE_LOCK_TIMEOUT_SECONDS = 30.0
     _HANDLE_LOCK_TIMEOUT_SECONDS = 60.0
@@ -395,6 +396,8 @@ class KernelRuntimeService:
         parsed: dict[str, Any] = {}
         type_results: dict[str, str] = {}
         type_errors: dict[str, dict[str, Any]] = {}
+        query_results: dict[str, str] = {}
+        query_errors: dict[str, dict[str, Any]] = {}
         for name, payload in user_expressions.items():
             if not isinstance(payload, dict):
                 continue
@@ -408,6 +411,22 @@ class KernelRuntimeService:
                         type_results[variable_name] = type_name
                 elif payload.get("status") == "error":
                     type_errors[variable_name] = {
+                        "status": "error",
+                        "ename": payload.get("ename"),
+                        "evalue": payload.get("evalue"),
+                        "traceback": payload.get("traceback", []),
+                    }
+                continue
+            if name.startswith(self._HOGQL_QUERY_EXPRESSION_PREFIX):
+                variable_name = name[len(self._HOGQL_QUERY_EXPRESSION_PREFIX) :]
+                if not variable_name:
+                    continue
+                if payload.get("status") == "ok":
+                    query_value = self._normalize_user_expression_string(self._extract_user_expression_text(payload))
+                    if query_value:
+                        query_results[variable_name] = query_value
+                elif payload.get("status") == "error":
+                    query_errors[variable_name] = {
                         "status": "error",
                         "ename": payload.get("ename"),
                         "evalue": payload.get("evalue"),
@@ -430,12 +449,22 @@ class KernelRuntimeService:
             type_name = type_results.get(name)
             if type_name and payload.get("status") == "ok":
                 payload["type"] = type_name
+            query_value = query_results.get(name)
+            if query_value and payload.get("status") == "ok":
+                payload["hogql_query"] = query_value
         for name, error_payload in type_errors.items():
             if name not in parsed:
                 parsed[name] = error_payload
         for name, type_name in type_results.items():
             if name not in parsed:
-                parsed[name] = {"status": "ok", "type": type_name}
+                entry: dict[str, Any] = {"status": "ok", "type": type_name}
+                query_value = query_results.get(name)
+                if query_value:
+                    entry["hogql_query"] = query_value
+                parsed[name] = entry
+        for name, error_payload in query_errors.items():
+            if name not in parsed:
+                parsed[name] = error_payload
         return parsed or None
 
     def _notebook_bridge_marker(self, handle: _KernelHandle) -> str:
@@ -557,6 +586,30 @@ class KernelRuntimeService:
         ):
             stripped = stripped[1:-1]
         return stripped or None
+
+    def _normalize_user_expression_string(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        stripped = value.strip()
+        if stripped in {"None", "null"}:
+            return None
+        if len(stripped) >= 2 and (
+            (stripped.startswith("'") and stripped.endswith("'"))
+            or (stripped.startswith('"') and stripped.endswith('"'))
+        ):
+            stripped = stripped[1:-1]
+        return stripped or None
+
+    def _build_user_expressions(self, variable_names: list[str]) -> dict[str, str] | None:
+        if not variable_names:
+            return None
+        expressions: dict[str, str] = {}
+        for name in variable_names:
+            expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
+            expressions[f"{self._HOGQL_QUERY_EXPRESSION_PREFIX}{name}"] = (
+                f"{name}._query if type({name}).__name__ == 'HogQLLazyFrame' else None"
+            )
+        return expressions
 
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:
@@ -1196,11 +1249,7 @@ class KernelRuntimeService:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
         timeout_seconds = int(timeout or self._execution_timeout)
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and variable_names:
-            user_expressions = {
-                f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names
-            }
+        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
 
         payload = {
             "connection_file": handle.runtime.connection_file,
@@ -1280,11 +1329,7 @@ class KernelRuntimeService:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
         timeout_seconds = int(timeout or self._execution_timeout)
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and variable_names:
-            user_expressions = {
-                f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names
-            }
+        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
 
         payload = {
             "connection_file": handle.runtime.connection_file,
