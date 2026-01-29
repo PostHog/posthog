@@ -119,9 +119,8 @@ def get_missing_overrides_for_person_ids(team_id: int, person_ids: list[str]) ->
         return []
 
     # Get distinct_ids that already have overrides
-    # Get distinct_ids that already have overrides
     distinct_ids_to_check = [row[0] for row in pdi2_result]
-    
+
     existing_overrides = sync_execute(
         """
         SELECT distinct_id
@@ -132,7 +131,6 @@ def get_missing_overrides_for_person_ids(team_id: int, person_ids: list[str]) ->
         HAVING argMax(is_deleted, version) = 0
         """,
         {"team_id": team_id, "distinct_ids": distinct_ids_to_check},
-    )
     )
 
     existing_distinct_ids = {row[0] for row in existing_overrides} if existing_overrides else set()
