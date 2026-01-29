@@ -254,7 +254,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         """Generate cache key for evaluation summary results.
 
         The key includes a hash of the generation_ids to detect when
-        the underlying runs have changed. Uses SHA256 for security.
+        the underlying runs have changed. Uses SHA256 for collision resistance.
         """
         # Sort generation_ids for consistent hashing
         generation_ids = sorted(r["generation_id"] for r in runs)
