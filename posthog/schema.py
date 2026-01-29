@@ -5679,6 +5679,15 @@ class QueryStatusResponse(BaseModel):
     query_status: QueryStatus
 
 
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    ts_from_s: int
+    ts_to_s: int | None = None
+
+
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 

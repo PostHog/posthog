@@ -45,7 +45,11 @@ class VideoExportWorkflow(PostHogWorkflow):
 
         await wf.execute_activity(
             persist_exported_asset_activity,
-            {"exported_asset_id": inputs.exported_asset_id, "tmp_path": rec["tmp_path"]},
+            {
+                "exported_asset_id": inputs.exported_asset_id,
+                "tmp_path": rec["tmp_path"],
+                "inactivity_periods": rec["inactivity_periods"],
+            },
             start_to_close_timeout=dt.timedelta(seconds=300),
             retry_policy=retry_policy,
         )

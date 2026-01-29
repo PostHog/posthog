@@ -2,6 +2,8 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from posthog.schema import ReplayInactivityPeriod
+
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
 
@@ -34,6 +36,8 @@ class UploadVideoToGeminiOutput(TypedDict):
 
     uploaded_video: UploadedVideo
     team_name: str
+    # Stored as list of dicts from ReplayInactivityPeriod.model_dump()
+    inactivity_periods: list[ReplayInactivityPeriod] | None
 
 
 class VideoSegmentSpec(BaseModel):
