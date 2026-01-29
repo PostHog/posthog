@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     time_window_start DateTime64(6, 'UTC'),
 
     -- TTL: rows are automatically deleted during parts merges after expires_at, prefer not to use the default and set this directly
-    expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+    expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY,
 
     -- Breakdown dimension (empty array for no breakdown)
     breakdown_value Array(String),
