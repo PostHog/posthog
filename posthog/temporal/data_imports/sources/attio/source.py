@@ -33,7 +33,7 @@ class AttioSource(SimpleSource[AttioSourceConfig]):
             name=SchemaExternalDataSourceType.ATTIO,
             caption="""Enter your Attio API key to automatically pull your Attio data into the PostHog Data warehouse.
 
-You can generate an API key in your [Attio workspace settings](https://app.attio.com/settings/developers/personal-access-tokens).
+You can generate an API key in your Attio workspace settings. Check out [this guide](https://attio.com/help/apps/other-apps/generating-an-api-key) for more details.
 
 **Required API scopes:**
 - `object_configuration:read` - To read object configurations
@@ -76,13 +76,7 @@ You can generate an API key in your [Attio workspace settings](https://app.attio
     def validate_credentials(
         self, config: AttioSourceConfig, team_id: int, schema_name: str | None = None
     ) -> tuple[bool, str | None]:
-        try:
-            if validate_attio_credentials(config.api_key):
-                return True, None
-            else:
-                return False, "Invalid Attio API key"
-        except Exception as e:
-            return False, str(e)
+        return validate_attio_credentials(config.api_key)
 
     def source_for_pipeline(self, config: AttioSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return attio_source(

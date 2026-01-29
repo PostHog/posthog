@@ -116,7 +116,7 @@ def get_resource(name: str) -> EndpointResource:
     }
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate Attio API credentials by making a test request."""
     try:
         res = requests.get(
@@ -127,9 +127,18 @@ def validate_credentials(api_key: str) -> bool:
             },
             timeout=10,
         )
-        return res.status_code == 200
-    except Exception:
-        return False
+        if res.status_code == 200:
+            return True, None
+
+        try:
+            error_data = res.json()
+            if error_data.get("code") == "missing_value":
+                return False, "Invalid Attio API key"
+        except Exception:
+            pass
+        return False, f"HTTP {res.status_code}: {res.text}"
+    except Exception as e:
+        return False, str(e)
 
 
 def attio_source(
