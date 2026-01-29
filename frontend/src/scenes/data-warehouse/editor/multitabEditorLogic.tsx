@@ -52,6 +52,13 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
+import {
+    getStateIndicators,
+    getUrlIndicators,
+    needsStateReset,
+    shouldOpenFromHashParams,
+    shouldSkipUrlAction,
+} from './editorUrlUtils'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -1157,17 +1164,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
-            if (
-                !searchParams.open_query &&
-                !searchParams.open_view &&
-                !searchParams.open_insight &&
-                !searchParams.open_draft &&
-                !searchParams.output_tab &&
-                !hashParams.q &&
-                !hashParams.view &&
-                !hashParams.insight &&
-                values.queryInput !== null
-            ) {
+            const urlParams = { searchParams, hashParams }
+            const editorState = { queryInput: values.queryInput, activeTab: values.activeTab }
+
+            const urlIndicators = getUrlIndicators(urlParams)
+            const stateIndicators = getStateIndicators(editorState)
+            const needsReset = needsStateReset(urlIndicators, stateIndicators)
+
+            if (shouldSkipUrlAction(urlParams, editorState, needsReset)) {
                 return
             }
 
@@ -1181,7 +1185,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setIsUpdateMode(true)
                     actions.setSelectedEndpointName(searchParams.endpoint_name)
                 }
-                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
+                if (
+                    searchParams.open_draft ||
+                    shouldOpenFromHashParams(hashParams.draft, values.queryInput, needsReset)
+                ) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
                         return draft.id === draftId
@@ -1206,7 +1213,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
+                } else if (
+                    searchParams.open_view ||
+                    shouldOpenFromHashParams(hashParams.view, values.queryInput, needsReset)
+                ) {
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
@@ -1235,7 +1245,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.editView(queryToOpen, view)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
+                } else if (
+                    searchParams.open_insight ||
+                    shouldOpenFromHashParams(hashParams.insight, values.queryInput, needsReset)
+                ) {
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
                         // Add new blank tab
@@ -1294,12 +1307,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && values.queryInput === null) {
-                    // only when opening the tab
+                } else if (shouldOpenFromHashParams(hashParams.q, values.queryInput, needsReset)) {
                     actions.createTab(hashParams.q)
                     tabAdded = true
-                } else if (values.queryInput === null) {
-                    actions.createTab('')
+                } else if (values.queryInput === null || needsReset) {
+                    actions.createTab(values.queryInput ?? '')
                     tabAdded = true
                 }
             }
