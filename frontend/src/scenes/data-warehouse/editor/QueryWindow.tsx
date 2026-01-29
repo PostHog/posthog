@@ -16,6 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -239,6 +240,9 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
+                <div className="ml-auto -mr-2">
+                    <SceneTitlePanelButton />
+                </div>
             </div>
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
