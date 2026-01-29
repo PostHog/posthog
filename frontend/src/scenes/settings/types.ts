@@ -50,7 +50,7 @@ export type SettingSectionId =
     | 'organization-authentication'
     | 'organization-proxy'
     | 'organization-security'
-    | 'organization-approvals'
+    | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
     | 'organization-startup-program'
