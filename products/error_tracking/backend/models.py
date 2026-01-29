@@ -359,6 +359,21 @@ def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
     return result
 
 
+def get_all_autocapture_controls(team_id: int) -> dict[str, dict]:
+    """Get all autocapture controls for a team, keyed by library."""
+    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values()
+    result: dict[str, dict] = {}
+    for control in controls:
+        library = control.get("library")
+        if library:
+            if control.get("sample_rate") is not None:
+                control["sample_rate"] = float(control["sample_rate"])
+            if control.get("id") is not None:
+                control["id"] = str(control["id"])
+            result[library] = dict(control)
+    return result
+
+
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)

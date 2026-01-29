@@ -218,7 +218,7 @@ import {
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
-import { ErrorTrackingAutoCaptureControls } from './components/IngestionControls/types'
+import { ErrorTrackingAutoCaptureControls, ErrorTrackingLibrary } from './components/IngestionControls/types'
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
@@ -3385,10 +3385,10 @@ const api = {
         },
 
         autoCaptureControls: {
-            async get(library: string = 'web'): Promise<ErrorTrackingAutoCaptureControls | null> {
+            async get(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls | null> {
                 return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).get()
             },
-            async create(library: string = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
+            async create(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
                 return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).create()
             },
             async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {

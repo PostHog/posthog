@@ -10,7 +10,7 @@ from products.error_tracking.backend.models import ErrorTrackingAutoCaptureContr
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_LIBRARY = "web"
+DEFAULT_LIBRARY = ErrorTrackingAutoCaptureControls.Library.WEB
 
 
 class ErrorTrackingAutoCaptureControlsSerializer(serializers.ModelSerializer):
