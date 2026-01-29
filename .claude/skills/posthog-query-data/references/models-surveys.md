@@ -1,6 +1,6 @@
 # Surveys
 
-## Survey (`posthog_survey`)
+## Survey (`system.surveys`)
 
 Surveys collect feedback from users through questions and forms.
 
@@ -19,7 +19,7 @@ Column | Type | Nullable | Description
 `end_date` | timestamp with tz | NULL | When survey ends
 `updated_at` | timestamp with tz | NOT NULL | Last update timestamp
 `archived` | boolean | NOT NULL | Whether archived
-`created_by_id` | integer | NULL | FK to `posthog_user.id`
+`created_by_id` | integer | NULL | Creator user ID
 `linked_flag_id` | integer | NULL | User-managed FK to feature flag
 `targeting_flag_id` | integer | NULL | Auto-managed targeting flag
 `internal_targeting_flag_id` | integer | NULL | Internal targeting flag
@@ -67,8 +67,8 @@ Column | Type | Nullable | Description
 
 ### Key Relationships
 
-- **Feature Flags**: Multiple flag relationships for targeting
-- **Insight**: `linked_insight_id` -> `posthog_dashboarditem.id`
+- **Feature Flags**: Multiple flag relationships via `system.feature_flags`
+- **Insight**: `linked_insight_id` -> `system.insights.id`
 
 ### Important Notes
 

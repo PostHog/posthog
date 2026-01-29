@@ -1,6 +1,6 @@
 # Groups
 
-## Group Type Mapping (`posthog_grouptypemapping`)
+## Group Type Mapping (`system.group_type_mappings`)
 
 Maps group types (like "company", "organization") to their numeric index for analytics.
 
@@ -24,7 +24,7 @@ Column | Type | Nullable | Description
 
 ### Key Relationships
 
-- **Detail Dashboard**: `detail_dashboard_id` -> `posthog_dashboard.id`
+- **Detail Dashboard**: `detail_dashboard_id` -> `system.dashboards.id`
 
 ### Important Notes
 
@@ -34,7 +34,7 @@ Column | Type | Nullable | Description
 
 ---
 
-## Group (`posthog_group`)
+## Group (`system.groups`)
 
 Stores group entities (companies, organizations) and their properties.
 
@@ -52,7 +52,7 @@ Column | Type | Nullable | Description
 
 ### Key Relationships
 
-- **Group Type**: `group_type_index` matches `posthog_grouptypemapping.group_type_index`
+- **Group Type**: `group_type_index` matches `system.group_type_mappings.group_type_index`
 
 ### Important Notes
 

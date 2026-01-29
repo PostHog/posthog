@@ -1,6 +1,6 @@
 # Error Tracking
 
-## ErrorTrackingIssue (`posthog_errortrackingissue`)
+## ErrorTrackingIssue (`system.error_tracking_issues`)
 
 Error tracking issues represent grouped exceptions captured by PostHog SDKs. Each issue aggregates multiple exception events that share the same fingerprint.
 
@@ -8,7 +8,7 @@ Error tracking issues represent grouped exceptions captured by PostHog SDKs. Eac
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | FK to `posthog_team.id`
+`team_id` | integer | NOT NULL | FK to `system.teams.id`
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `status` | varchar | NOT NULL | Issue status (see Status Values below)
 `name` | text | NULL | Issue name (typically the exception type/message)
@@ -25,10 +25,9 @@ Status | Description
 
 ### Key Relationships
 
-- **Fingerprints**: Issues are linked to fingerprints via `posthog_errortrackingissuefingerprintv2`
-- **Assignments**: Issues can be assigned to users/roles via `posthog_errortrackingissueassignment`
-- **Cohorts**: Issues can be linked to cohorts via `posthog_errortrackingissuecohort`
-- **External References**: Issues can link to external trackers (Jira, etc.) via `posthog_errortrackingexternalreference`
+- **Fingerprints**: Issues are linked to fingerprints (not queryable via HogQL)
+- **Cohorts**: Issues can be linked to cohorts via `system.cohorts`
+- **Exception Events**: Query via `events` table with `event = '$exception'` and `issue_id`
 
 ### Important Notes
 

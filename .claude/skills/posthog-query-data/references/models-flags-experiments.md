@@ -1,6 +1,6 @@
 # Flags & Experiments
 
-## Feature Flag (`posthog_featureflag`)
+## Feature Flag (`system.feature_flags`)
 
 Feature flags control rollouts of new features and are used for A/B testing.
 
@@ -18,12 +18,12 @@ Column | Type | Nullable | Description
 `rollback_conditions` | jsonb | NULL | Automatic rollback configuration
 `performed_rollback` | boolean | NULL | Whether rollback was triggered
 `ensure_experience_continuity` | boolean | NULL | Sticky bucketing for users
-`created_by_id` | integer | NULL | FK to `posthog_user.id`
-`usage_dashboard_id` | integer | NULL | FK to `posthog_dashboard.id`
+`created_by_id` | integer | NULL | Creator user ID
+`usage_dashboard_id` | integer | NULL | FK to `system.dashboards.id`
 `has_enriched_analytics` | boolean | NULL | Whether rich analytics enabled
 `is_remote_configuration` | boolean | NULL | Whether used as remote config
 `has_encrypted_payloads` | boolean | NULL | Whether payloads are encrypted
-`last_modified_by_id` | integer | NULL | FK to `posthog_user.id`
+`last_modified_by_id` | integer | NULL | Last modifier user ID
 `version` | integer | NULL | Version number for tracking changes
 `evaluation_runtime` | varchar(10) | NULL | `server`, `client`, or `all`
 `updated_at` | timestamp with tz | NULL | Last update timestamp
@@ -57,8 +57,8 @@ Column | Type | Nullable | Description
 
 ### Key Relationships
 
-- **Experiments**: Referenced by `posthog_experiment.feature_flag_id`
-- **Surveys**: Can be linked as `linked_flag`, `targeting_flag`, or internal flags
+- **Experiments**: Referenced by `system.experiments.feature_flag_id`
+- **Surveys**: Can be linked via `system.surveys`
 
 ### Important Notes
 
@@ -68,7 +68,7 @@ Column | Type | Nullable | Description
 
 ---
 
-## Experiment (`posthog_experiment`)
+## Experiment (`system.experiments`)
 
 Experiments are A/B tests that compare variants against a control group.
 
@@ -87,10 +87,10 @@ Column | Type | Nullable | Description
 `updated_at` | timestamp with tz | NOT NULL | Last update timestamp
 `archived` | boolean | NOT NULL | Whether experiment is archived
 `deleted` | boolean | NULL | Soft delete flag
-`created_by_id` | integer | NULL | FK to `posthog_user.id`
-`feature_flag_id` | integer | NOT NULL | FK to `posthog_featureflag.id`
-`exposure_cohort_id` | integer | NULL | FK to `posthog_cohort.id`
-`holdout_id` | integer | NULL | FK to `posthog_experimentholdout.id`
+`created_by_id` | integer | NULL | Creator user ID
+`feature_flag_id` | integer | NOT NULL | FK to `system.feature_flags.id`
+`exposure_cohort_id` | integer | NULL | FK to `system.cohorts.id`
+`holdout_id` | integer | NULL | Holdout ID
 `type` | varchar(40) | NULL | `web` or `product`
 `variants` | jsonb | NULL | Variant configuration
 `metrics` | jsonb | NULL | Primary metrics (new format)
@@ -120,9 +120,8 @@ Column | Type | Nullable | Description
 
 ### Key Relationships
 
-- **Feature Flag**: `feature_flag_id` -> `posthog_featureflag.id` (required)
-- **Exposure Cohort**: `exposure_cohort_id` -> `posthog_cohort.id`
-- **Holdout**: `holdout_id` -> `posthog_experimentholdout.id`
+- **Feature Flag**: `feature_flag_id` -> `system.feature_flags.id` (required)
+- **Exposure Cohort**: `exposure_cohort_id` -> `system.cohorts.id`
 
 ### Important Notes
 

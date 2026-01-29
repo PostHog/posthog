@@ -1,6 +1,6 @@
 # Notebooks
 
-## Notebook (`posthog_notebook`)
+## Notebook (`system.notebooks`)
 
 Notebooks are collaborative documents combining text, insights, and code.
 
@@ -17,9 +17,9 @@ Column | Type | Nullable | Description
 `version` | integer | NOT NULL | Content version number
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `last_modified_at` | timestamp with tz | NOT NULL | Last modification timestamp
-`created_by_id` | integer | NULL | FK to `posthog_user.id`
-`last_modified_by_id` | integer | NULL | FK to `posthog_user.id`
-`team_id` | integer | NOT NULL | FK to `posthog_team.id`
+`created_by_id` | integer | NULL | Creator user ID
+`last_modified_by_id` | integer | NULL | Last modifier user ID
+`team_id` | integer | NOT NULL | FK to `system.teams.id`
 `kernel_cpu_cores` | double precision | NULL | Jupyter kernel CPU allocation
 `kernel_memory_gb` | double precision | NULL | Jupyter kernel memory allocation
 `kernel_idle_timeout_seconds` | integer | NULL | Kernel idle timeout
@@ -70,10 +70,7 @@ Type | Description
 
 ### Key Relationships
 
-- **Team**: `team_id` -> `posthog_team.id` (required)
-- **Created By**: `created_by_id` -> `posthog_user.id`
-- **Last Modified By**: `last_modified_by_id` -> `posthog_user.id`
-- **Kernel Runtime**: `posthog_kernelruntime.notebook_id`
+- **Team**: `team_id` -> `system.teams.id` (required)
 
 ### Important Notes
 

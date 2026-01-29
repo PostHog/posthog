@@ -1,6 +1,6 @@
 # Actions
 
-## Action (`posthog_action`)
+## Action (`system.actions`)
 
 Actions are named combinations of events and conditions used for filtering and analysis.
 
@@ -22,7 +22,7 @@ Column | Type | Nullable | Description
 `bytecode_error` | text | NULL | Compilation error message
 `pinned_at` | timestamp with tz | NULL | When action was pinned
 `summary` | text | NULL | AI-generated summary
-`created_by_id` | integer | NULL | FK to `posthog_user.id`
+`created_by_id` | integer | NULL | Creator user ID
 
 ### Steps JSON Structure
 
@@ -58,9 +58,7 @@ Field | Description
 
 ### Key Relationships
 
-- **Created By**: `created_by_id` -> `posthog_user.id`
-- **Action Steps**: Legacy relationship via `posthog_actionstep` (deprecated, use `steps_json`)
-- **Surveys**: Many-to-many via `posthog_survey_actions`
+- **Surveys**: Actions can be linked to surveys via `system.surveys`
 
 ### Important Notes
 

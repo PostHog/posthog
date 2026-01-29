@@ -1,6 +1,6 @@
 # Data Warehouse
 
-## External Data Source (`posthog_externaldatasource`)
+## External Data Source (`system.data_warehouse_sources`)
 
 External data sources represent connections to third-party data providers (Stripe, Hubspot, Postgres, etc.) that sync data into PostHog.
 
@@ -37,12 +37,11 @@ Common source types include:
 
 ### Key Relationships
 
-- **Tables**: One source can have many `posthog_datawarehousetable` entries
-- **Schemas**: One source can have many `posthog_externaldataschema` entries
+- **Tables**: One source can have many `system.data_warehouse_tables` entries
 
 ---
 
-## Data Warehouse Table (`posthog_datawarehousetable`)
+## Data Warehouse Table (`system.data_warehouse_tables`)
 
 Individual tables synced from external sources or manually uploaded. Each table contains columns with their types and metadata.
 
@@ -85,7 +84,7 @@ The `columns` field contains column definitions with their types:
 
 ### Key Relationships
 
-- **Source**: `external_data_source_id` -> `posthog_externaldatasource.id`
+- **Source**: `external_data_source_id` -> `system.data_warehouse_sources.id`
 
 ### Important Notes
 

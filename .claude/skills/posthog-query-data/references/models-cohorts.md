@@ -1,6 +1,6 @@
 # Cohorts & Persons
 
-## Cohort (`posthog_cohort`)
+## Cohort (`system.cohorts`)
 
 Cohorts are groups of persons used for segmentation and targeting.
 
@@ -23,7 +23,7 @@ Column | Type | Nullable | Description
 `last_error_at` | timestamp with tz | NULL | Timestamp of last calculation error
 `is_static` | boolean | NOT NULL | Static (manually uploaded) vs dynamic cohort
 `cohort_type` | varchar(50) | NULL | One of: `static`, `person_property`, `behavioral`, `realtime`, `analytical`
-`created_by_id` | integer | NULL | FK to `posthog_user.id`
+`created_by_id` | integer | NULL | Creator user ID
 
 ### Cohort Types
 
@@ -96,9 +96,9 @@ Type | Description
 
 ### Key Relationships
 
-- **Persons**: Many-to-many via `raw_cohorts_people`
-- **Calculation History**: One-to-many via `posthog_cohortcalculationhistory`
-- **Experiments**: Referenced by `posthog_experiment.exposure_cohort_id`
+- **Persons**: Many-to-many via `raw_cohort_people` table
+- **Calculation History**: One-to-many via `system.cohort_calculation_history`
+- **Experiments**: Referenced by `system.experiments.exposure_cohort_id`
 
 ### Important Notes
 
@@ -109,7 +109,7 @@ Type | Description
 
 ---
 
-## Cohort Calculation History (`posthog_cohortcalculationhistory`)
+## Cohort Calculation History (`system.cohort_calculation_history`)
 
 Audit trail for cohort calculation jobs.
 
@@ -124,7 +124,7 @@ Column | Type | Nullable | Description
 `queries` | jsonb | NULL | Array of query statistics
 `error` | text | NULL | Full error message if failed
 `error_code` | varchar(64) | NULL | Categorized error code
-`cohort_id` | integer | NOT NULL | FK to `posthog_cohort.id`
+`cohort_id` | integer | NOT NULL | FK to `system.cohorts.id`
 
 ### Error Codes
 
@@ -157,12 +157,12 @@ Code | Description
 ## Entity Relationships Diagram
 
 ```text
-posthog_cohort (main cohort definition)
-├── <- posthog_cohortcalculationhistory.cohort_id
+system.cohorts (main cohort definition)
+├── <- system.cohort_calculation_history.cohort_id
 └── persons through `IN COHORT`
 
-posthog_experiment
-└── exposure_cohort_id -> posthog_cohort.id
+system.experiments
+└── exposure_cohort_id -> system.cohorts.id
 ```
 
 ---
