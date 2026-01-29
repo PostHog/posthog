@@ -7,7 +7,7 @@ const schema = InsightGetAllSchema
 
 type Params = z.infer<typeof schema>
 
-export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params): Promise<Array<any>> => {
     const { data } = params
     const projectId = await context.stateManager.getProjectId()
     const insightsResult = await context.api.insights({ projectId }).list({ params: { ...data } })
@@ -16,7 +16,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get insights: ${insightsResult.error.message}`)
     }
 
-    const insightsWithUrls = insightsResult.data.map((insight) => ({
+    const insightsWithUrls = insightsResult.data.map((insight: any) => ({
         ...insight,
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insight.short_id}`,
     }))

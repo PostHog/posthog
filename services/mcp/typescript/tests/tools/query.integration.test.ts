@@ -41,7 +41,8 @@ describe('Query Integration Tests', () => {
             insights: [],
             dashboards: [],
             surveys: [],
-        actions: [],
+            actions: [],
+            annotations: [],
         }
     })
 

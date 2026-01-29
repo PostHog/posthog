@@ -3,6 +3,16 @@ import { z } from 'zod'
 import { ErrorCode } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils/helper-functions'
 import {
+    type Annotation,
+    AnnotationSchema,
+    type CreateAnnotationInput,
+    CreateAnnotationInputSchema,
+    type ListAnnotationsData,
+    ListAnnotationsSchema,
+    type UpdateAnnotationInput,
+    UpdateAnnotationInputSchema,
+} from '@/schema/annotations'
+import {
     type ApiEventDefinition,
     ApiEventDefinitionSchema,
     ApiListResponseSchema,
@@ -1489,6 +1499,121 @@ export class ApiClient {
         }
     }
 
+    annotations({ projectId }: { projectId: string }): Endpoint {
+        return {
+            list: async ({ params }: { params?: ListAnnotationsData } = {}): Promise<Result<Annotation[]>> => {
+                const validatedParams = params ? ListAnnotationsSchema.parse(params) : undefined
+                const searchParams = new URLSearchParams()
+
+                if (validatedParams?.limit) {
+                    searchParams.append('limit', validatedParams.limit.toString())
+                }
+                if (validatedParams?.offset) {
+                    searchParams.append('offset', validatedParams.offset.toString())
+                }
+                if (validatedParams?.scope) {
+                    searchParams.append('scope', validatedParams.scope)
+                }
+                if (validatedParams?.dashboard_id) {
+                    searchParams.append('dashboard_id', validatedParams.dashboard_id.toString())
+                }
+                if (validatedParams?.dashboard_item) {
+                    searchParams.append('dashboard_item', validatedParams.dashboard_item.toString())
+                }
+                if (validatedParams?.deleted !== undefined) {
+                    searchParams.append('deleted', validatedParams.deleted.toString())
+                }
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/annotations/${searchParams.toString() ? `?${searchParams}` : ''}`
+
+                const responseSchema = z.object({
+                    results: z.array(AnnotationSchema),
+                })
+
+                const result = await this.fetchWithSchema(url, responseSchema)
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+
+                return result
+            },
+
+            get: async ({ annotationId }: { annotationId: number }): Promise<Result<Annotation>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/annotations/${annotationId}/`,
+                    AnnotationSchema
+                )
+            },
+
+            create: async ({ data }: { data: CreateAnnotationInput }): Promise<Result<Annotation>> => {
+                const validatedInput = CreateAnnotationInputSchema.parse(data)
+
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/annotations/`,
+                    AnnotationSchema,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
+            },
+
+            update: async ({
+                annotationId,
+                data,
+            }: {
+                annotationId: number
+                data: UpdateAnnotationInput
+            }): Promise<Result<Annotation>> => {
+                const validatedInput = UpdateAnnotationInputSchema.parse(data)
+
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/projects/${projectId}/annotations/${annotationId}/`,
+                    AnnotationSchema,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(validatedInput),
+                    }
+                )
+            },
+
+            delete: async ({
+                annotationId,
+            }: {
+                annotationId: number
+            }): Promise<Result<{ success: boolean; message: string }>> => {
+                try {
+                    const response = await fetch(
+                        `${this.baseUrl}/api/projects/${projectId}/annotations/${annotationId}/`,
+                        {
+                            method: 'PATCH',
+                            headers: this.buildHeaders(),
+                            body: JSON.stringify({ deleted: true }),
+                        }
+                    )
+
+                    if (response.ok) {
+                        return {
+                            success: true,
+                            data: {
+                                success: true,
+                                message: 'Annotation deleted successfully',
+                            },
+                        }
+                    }
+
+                    throw new Error(`Failed to delete annotation: ${response.statusText}`)
+                } catch (error) {
+                    return {
+                        success: false,
+                        error: error as Error,
+                    }
+                }
+            },
+        }
+    }
+
     actions({ projectId }: { projectId: string }): Endpoint {
         return {
             /**
@@ -1575,7 +1700,7 @@ export class ApiClient {
             /**
              * Soft delete an action (sets deleted=true)
              */
-            delete: async ({
+            'delete': async ({
                 actionId,
             }: {
                 actionId: number

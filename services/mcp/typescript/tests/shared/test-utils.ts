@@ -16,6 +16,7 @@ export interface CreatedResources {
     dashboards: number[]
     surveys: string[]
     actions: number[]
+    annotations: number[]
 }
 
 export function validateEnvironmentVariables(): void {
@@ -109,6 +110,15 @@ export async function cleanupResources(
         }
     }
     resources.actions = []
+
+    for (const annotationId of resources.annotations) {
+        try {
+            await client.annotations({ projectId }).delete({ annotationId })
+        } catch (error) {
+            console.warn(`Failed to cleanup annotation ${annotationId}:`, error)
+        }
+    }
+    resources.annotations = []
 }
 
 export function parseToolResponse(result: any): any {

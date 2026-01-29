@@ -1121,7 +1121,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                 feature_flag_key: options.featureFlagKey || `test-exp-${timestamp}`,
                 type: options.type || 'product',
                 primary_metrics: options.metrics
-                    ? options.metrics.map((metric) => ({
+                    ? options.metrics.map((metric: any) => ({
                           name: metric.name || 'Test Metric',
                           metric_type: metric.metric_type,
                           event_name: metric.event_name || '$pageview',
@@ -1443,7 +1443,7 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             if (updateResult.success) {
                 expect(updateResult.data.parameters?.feature_flag_variants).toHaveLength(4)
                 const variants = updateResult.data.parameters?.feature_flag_variants || []
-                expect(variants.map((v) => v.key)).toEqual(['control', 'variant_a', 'variant_b', 'variant_c'])
+                expect(variants.map((v: any) => v.key)).toEqual(['control', 'variant_a', 'variant_b', 'variant_c'])
             }
         })
 
