@@ -11,11 +11,13 @@ export interface ChatViewProps {
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
     ticket?: Ticket
-    onSendMessage: (content: string, onSuccess: () => void) => void
+    onSendMessage: (content: string, isPrivate: boolean, onSuccess: () => void) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
+    /** Whether to show the "Send as private" option in the message input */
+    showPrivateOption?: boolean
 }
 
 export function ChatView({
@@ -29,6 +31,7 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
+    showPrivateOption = false,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -47,7 +50,11 @@ export function ChatView({
                 maxHeight={listMaxHeight}
             />
             <div className="border-t pt-3">
-                <MessageInput onSendMessage={onSendMessage} messageSending={messageSending} />
+                <MessageInput
+                    onSendMessage={onSendMessage}
+                    messageSending={messageSending}
+                    showPrivateOption={showPrivateOption}
+                />
             </div>
         </LemonCard>
     )
