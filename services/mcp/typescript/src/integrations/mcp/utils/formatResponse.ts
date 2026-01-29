@@ -1,4 +1,4 @@
-import { encode } from '@byjohann/toon'
+import { encode } from '@toon-format/toon'
 
 const QUERY_PLACEHOLDER_PREFIX = '__QUERY_PLACEHOLDER_'
 
