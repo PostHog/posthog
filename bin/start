@@ -13,10 +13,63 @@ if ! flock -n 9; then
     exit 1
 fi
 
-export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
+# 1Password: auto-resolve op:// references in .env.local
+if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
+    if [ -z "$_POSTHOG_OP_RESOLVED" ]; then
+        if command -v op &>/dev/null; then
+            echo "🔐 Resolving secrets from .env.local via 1Password"
+            export _POSTHOG_OP_RESOLVED=1
+            exec op run --env-file="$REPOSITORY_ROOT/.env.local" -- "$0" "$@"
+        else
+            echo "⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found"
+            echo "   Install: brew install 1password-cli"
+        fi
+    fi
+fi
 
-export DEBUG=${DEBUG:-1}
-export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+# Environment variables are defined in:
+#   .env.development  - committed defaults (edit to change defaults for everyone)
+#   .env.local        - your overrides + 1Password secrets (gitignored)
+#
+# Source env files respecting precedence: shell env > .env.local > .env.development
+# Only set vars that aren't already in the environment
+source_env_defaults() {
+    while IFS='=' read -r name value; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        [[ -z "${!name:-}" ]] && export "$name=$value"
+    done < "$1"
+}
+# .env.local: already in env if processed by op run, otherwise source directly
+if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; then
+    source_env_defaults "$REPOSITORY_ROOT/.env.local"
+fi
+source_env_defaults "$REPOSITORY_ROOT/.env.development"
+
+# Enforce 1Password for sensitive vars
+# Check: if a secret var is set, it must have an op:// ref in .env.local
+if [[ -f "$REPOSITORY_ROOT/.env.secrets" ]]; then
+    exposed_secrets=()
+    while IFS='=' read -r name _; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        # Is this secret var set in the environment?
+        if [[ -n "${!name:-}" ]]; then
+            # Check if .env.local has an op:// reference for it
+            if ! grep -qE "^${name}=op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
+                exposed_secrets+=("$name")
+            fi
+        fi
+    done < "$REPOSITORY_ROOT/.env.secrets"
+
+    if [[ ${#exposed_secrets[@]} -gt 0 ]]; then
+        echo "🚨 Secrets detected without 1Password:"
+        printf '   %s\n' "${exposed_secrets[@]}"
+        echo ""
+        echo "These vars are listed in .env.secrets and must come from 1Password."
+        echo "Create .env.local with op:// references, e.g.:"
+        echo "   OPENAI_API_KEY=op://Private/OpenAI/api-key"
+        exit 1
+    fi
+fi
 
 # Limit Rust parallel compilation jobs to reduce CPU contention when multiple
 # services start simultaneously via mprocs (they share a build lock anyway)
@@ -32,24 +85,8 @@ if [[ "$(uname -s)" == "Darwin" ]] && [[ -z "${CARGO_TARGET_AARCH64_APPLE_DARWIN
     export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
 fi
 
-export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
-export API_QUERIES_PER_TEAM='{"1": 100}'
-
-# Dagster
+# Computed vars (need REPOSITORY_ROOT)
 export DAGSTER_HOME=$REPOSITORY_ROOT/.dagster_home
-export DAGSTER_UI_HOST=${DAGSTER_UI_HOST:-localhost}
-export DAGSTER_UI_PORT=${DAGSTER_UI_PORT:-3030}
-export DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=${DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN:-3000}
-
-# OpenTelemetry Environment Variables
-export OTEL_SERVICE_NAME="posthog-local-dev"
-export OTEL_PYTHON_LOG_LEVEL="debug"
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" # Collector's OTLP gRPC port is mapped to host
-export OTEL_TRACES_EXPORTER="otlp"
-export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
-export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
-export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
-export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 
 # Tracing is disabled by default - requires 'tracing' intent for Jaeger/otel-collector
 # Note: otel-collector uses significant CPU/memory resources
@@ -62,23 +99,6 @@ if [[ "$*" == *"--tracing"* ]]; then
 else
     export OTEL_SDK_DISABLED="true"
 fi
-
-if [ -f .env ]; then
-    set -o allexport
-    source .env
-    set +o allexport
-fi
-
-# Ducklake
-export DUCKLAKE_RDS_HOST=${DUCKLAKE_RDS_HOST:-localhost}
-export DUCKLAKE_RDS_PORT=${DUCKLAKE_RDS_PORT:-5432}
-export DUCKLAKE_RDS_DATABASE=${DUCKLAKE_RDS_DATABASE:-ducklake}
-export DUCKLAKE_RDS_USERNAME=${DUCKLAKE_RDS_USERNAME:-posthog}
-export DUCKLAKE_RDS_PASSWORD=${DUCKLAKE_RDS_PASSWORD:-posthog}
-export DUCKLAKE_BUCKET=${DUCKLAKE_BUCKET:-ducklake-dev}
-export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
-export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
-export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
 
 if ! python3 - <<'PY' >/dev/null 2>&1
 import duckdb  # noqa: F401
