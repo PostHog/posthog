@@ -33,8 +33,7 @@ from products.visual_review.backend.api.dtos import (
 from products.visual_review.backend.domain_types import SnapshotResult
 from products.visual_review.backend.models import Project
 from products.visual_review.backend.tasks.tasks import process_run_diffs
-
-from .conftest import get_head_sha
+from products.visual_review.backend.tests.conftest import get_head_sha
 
 # --- Test Data ---
 

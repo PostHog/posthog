@@ -4,7 +4,7 @@ load("@aspect_rules_py//py:defs.bzl", "py_test")
 # Combined into single target to avoid aspect_rules_py .venv.pth conflicts
 py_test(
     name = "tests",
-    srcs = glob(["test_*.py"]),
+    srcs = glob(["test_*.py"]) + ["conftest.py"],
     package_collisions = "ignore",  # Some pypi packages include tests/ dirs
     args = [
         # Only collect from this test directory, ignore everything else
@@ -17,6 +17,7 @@ py_test(
     env = {
         "DJANGO_SETTINGS_MODULE": "posthog.settings",
         "DEBUG": "1",
+        "TEST": "1",
     },
     pytest_main = True,
     deps = [
@@ -29,5 +30,7 @@ py_test(
         "@pypi//pytest_django",
         "@pypi//freezegun",
         "@pypi//syrupy",
+        "@pypi//responses",
+        "@pypi//fakeredis",
     ],
 )

@@ -21,6 +21,7 @@ py_library(
         "__init__.py",
         "api/api.py",
         "apps.py",
+        "diff.py",
         "logic.py",
         "models.py",
         "storage.py",

@@ -8,7 +8,7 @@ from time import sleep
 from typing import Optional
 
 from celery import current_task
-from prometheus_client import Counter
+from prometheus_client import REGISTRY, Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
@@ -21,13 +21,23 @@ from posthog.utils import generate_short_id
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
 DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 6
 
-CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
+
+def _get_or_create_counter(name: str, description: str, labelnames: list[str]) -> Counter:
+    """Get existing counter or create new one - avoids duplicate registration errors in tests."""
+    try:
+        return Counter(name, description, labelnames)
+    except ValueError:
+        # Already registered, get it from the registry
+        return REGISTRY._names_to_collectors[name]
+
+
+CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = _get_or_create_counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
     "Number of times a team tried to exceed concurrency limit.",
     ["task_name", "team_id", "limit", "limit_name", "result"],
 )
 
-CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
+CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = _get_or_create_counter(
     "posthog_celery_task_concurrency_limit_exceeded",
     "Number of times a Celery task exceeded the concurrency limit",
     ["task_name", "limit", "limit_name"],
