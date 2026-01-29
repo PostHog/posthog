@@ -68,24 +68,43 @@ export function BannerContentEditor({ step, appearance, onChange }: BannerConten
                 <div className="flex-1 min-w-0 space-y-4">
                     <div>
                         <label className="text-sm font-medium block mb-3">Settings</label>
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <div className="font-medium text-sm">Behavior</div>
-                                <div className="text-muted text-xs">Stays visible while scrolling</div>
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="font-medium text-sm">Position</div>
+                                    <div className="text-muted text-xs">
+                                        {behavior === 'sticky'
+                                            ? 'Top of page, stays visible while scrolling'
+                                            : behavior === 'static'
+                                              ? 'Top of page, scrolls with content'
+                                              : 'Injected into your container element'}
+                                    </div>
+                                </div>
+                                <LemonSegmentedButton
+                                    size="small"
+                                    value={behavior}
+                                    onChange={(value) =>
+                                        updateBannerConfig({
+                                            behavior: value as ProductTourBannerConfig['behavior'],
+                                            selector: value === 'custom' ? step.bannerConfig?.selector : undefined,
+                                        })
+                                    }
+                                    options={[
+                                        { value: 'sticky', label: 'Sticky' },
+                                        { value: 'static', label: 'Static' },
+                                        { value: 'custom', label: 'Custom' },
+                                    ]}
+                                />
                             </div>
-                            <LemonSegmentedButton
-                                size="small"
-                                value={behavior}
-                                onChange={(value) =>
-                                    updateBannerConfig({
-                                        behavior: value as ProductTourBannerConfig['behavior'],
-                                    })
-                                }
-                                options={[
-                                    { value: 'sticky', label: 'Sticky' },
-                                    { value: 'static', label: 'Static' },
-                                ]}
-                            />
+                            {behavior === 'custom' && (
+                                <LemonInput
+                                    value={step.bannerConfig?.selector ?? ''}
+                                    onChange={(selector) => updateBannerConfig({ selector })}
+                                    placeholder="#my-banner-container"
+                                    size="small"
+                                    fullWidth
+                                />
+                            )}
                         </div>
                     </div>
 
