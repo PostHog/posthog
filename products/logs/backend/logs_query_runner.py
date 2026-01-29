@@ -410,8 +410,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 """
             SELECT
                 uuid,
-                hex(trace_id),
-                hex(span_id),
+                hex(tryBase64Decode(trace_id)),
+                hex(tryBase64Decode(span_id)),
                 body,
                 attributes,
                 timestamp,

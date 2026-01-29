@@ -67,6 +67,7 @@ class ExternalDataSourceType(models.TextChoices):
     TIKTOKADS = "TikTokAds", "TikTokAds"
     BINGADS = "BingAds", "BingAds"
     SHOPIFY = "Shopify", "Shopify"
+    SNAPCHATADS = "SnapchatAds", "SnapchatAds"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

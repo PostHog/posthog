@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
@@ -17,7 +18,6 @@ import {
     addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProjectType, TeamPublicType, TeamType } from '~/types'
@@ -131,9 +131,8 @@ export const teamLogic = kea<teamLogicType>([
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
-                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()
-                    actions.loadUser()
 
                     /* Notify user the update was successful  */
                     const updatedAttribute =
@@ -150,14 +149,14 @@ export const teamLogic = kea<teamLogicType>([
                         message = payload.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
                             : 'Feature flag confirmation disabled'
-                    } else if (updatedAttribute === 'default_evaluation_environments_enabled') {
-                        message = payload.default_evaluation_environments_enabled
-                            ? 'Default evaluation environments enabled'
-                            : 'Default evaluation environments disabled'
-                    } else if (updatedAttribute === 'require_evaluation_environment_tags') {
-                        message = payload.require_evaluation_environment_tags
-                            ? 'Require evaluation environment tags enabled'
-                            : 'Require evaluation environment tags disabled'
+                    } else if (updatedAttribute === 'default_evaluation_contexts_enabled') {
+                        message = payload.default_evaluation_contexts_enabled
+                            ? 'Default evaluation contexts enabled'
+                            : 'Default evaluation contexts disabled'
+                    } else if (updatedAttribute === 'require_evaluation_contexts') {
+                        message = payload.require_evaluation_contexts
+                            ? 'Require evaluation contexts enabled'
+                            : 'Require evaluation contexts disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'
@@ -177,6 +176,27 @@ export const teamLogic = kea<teamLogicType>([
 
                     if (!window.location.pathname.match(/\/(onboarding|products)/) && !isUpdatingOnboardingTasks) {
                         lemonToast.success(message)
+                    }
+
+                    const setupLogic = globalSetupLogic.findMounted()
+                    if (setupLogic) {
+                        if (payload.autocapture_web_vitals_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetUpWebVitals)
+                        }
+                        if (payload.session_recording_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetupSessionRecordings)
+                        }
+                        if (payload.capture_console_log_opt_in) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.EnableConsoleLogs)
+                        }
+                        if (
+                            payload.session_recording_sample_rate ||
+                            payload.session_recording_minimum_duration_milliseconds ||
+                            payload.session_recording_linked_flag ||
+                            payload.session_recording_network_payload_capture_config
+                        ) {
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.ConfigureRecordingSettings)
+                        }
                     }
 
                     return patchedTeam
@@ -316,11 +336,15 @@ export const teamLogic = kea<teamLogicType>([
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
             }
-        },
-        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
-            if (currentTeam && !payload?.onboarding_tasks) {
-                activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
+
+            // Detect managed viewsets to mark them as completed in the product setup
+            if (currentTeam?.managed_viewsets?.['revenue_analytics']) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.EnableRevenueAnalyticsViewset)
             }
+        },
+        updateCurrentTeamSuccess: () => {
+            // Reload user after team update to keep user object in sync
+            actions.loadUser()
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {

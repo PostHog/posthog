@@ -1329,10 +1329,10 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
+     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, tuple('positively_related', 'negatively_related'))))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), notIn((prop).1, []))
+  HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
@@ -1442,10 +1442,10 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, ['positively_related', 'negatively_related'])))
+     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, tuple('positively_related', 'negatively_related'))))
   GROUP BY name,
            prop
-  HAVING and(ifNull(greater(plus(success_count, failure_count), 2), 0), notIn((prop).1, []))
+  HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,

@@ -8,10 +8,6 @@ import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { colorForString } from 'lib/utils'
 
-import { AvailableFeature } from '~/types'
-
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
-
 interface ObjectTagsPropsBase {
     tags: string[]
     saving?: boolean
@@ -60,7 +56,6 @@ export function ObjectTags({
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange })
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { editingTags } = useValues(logic)
     const { setEditingTags, setTags } = useActions(logic)
 
@@ -68,12 +63,6 @@ export function ObjectTags({
     const showPlaceholder = staticOnly && !tags?.length
     if (showPlaceholder && !style.color) {
         style.color = 'var(--color-text-secondary)'
-    }
-
-    const onGuardClick = (callback: () => void): void => {
-        guardAvailableFeature(AvailableFeature.TAGGING, () => {
-            callback()
-        })
     }
 
     const hasTags = tagsAvailable && tagsAvailable.length > 0
@@ -100,6 +89,7 @@ export function ObjectTags({
                     data-attr="new-tag-input"
                     placeholder='try "official"'
                     autoFocus
+                    popoverClassName="click-outside-block"
                 />
             ) : (
                 <>
@@ -118,11 +108,7 @@ export function ObjectTags({
                         <span className="inline-flex font-normal">
                             <LemonTag
                                 type="none"
-                                onClick={() =>
-                                    onGuardClick(() => {
-                                        setEditingTags(true)
-                                    })
-                                }
+                                onClick={() => setEditingTags(true)}
                                 data-attr="button-add-tag"
                                 icon={hasTags ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed"

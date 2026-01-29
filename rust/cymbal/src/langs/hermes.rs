@@ -238,7 +238,7 @@ mod test {
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbol_store::{
             chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
-            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, S3Client,
+            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, MockS3Client,
         },
     };
 
@@ -266,7 +266,7 @@ mod test {
 
         record.save(&db).await.unwrap();
 
-        let mut client = S3Client::default();
+        let mut client = MockS3Client::default();
 
         client
             .expect_get()
@@ -305,7 +305,6 @@ mod test {
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
             let res = raw_frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
-            println!("GOT FRAME: {}", serde_json::to_string_pretty(&res).unwrap());
             assert!(res.resolved);
             assert_eq!(res.resolved_name, expected_name)
         }

@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -22,11 +23,14 @@ import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } fr
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
+const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const BUCKET_WINDOW_MINUTES = 30
 const BATCH_FLUSH_INTERVAL_MS = 300
 const BATCH_SIZE_THRESHOLD = 10
 const INITIAL_RETRY_DELAY_MS = 1000
 const MAX_RETRY_DELAY_MS = 30000
+const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
+const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
@@ -40,6 +44,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         loadInitialData: true,
         updateConnection: true,
         tickCurrentMinute: true,
+        pauseStream: true,
+        resumeStream: true,
     })),
     reducers({
         slidingWindow: [
@@ -47,7 +53,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 setInitialData: (existingWindow, { buckets }) => {
                     for (const { timestamp, bucket } of buckets) {
-                        existingWindow.addDataPoint(timestamp / 1000, bucket)
+                        existingWindow.extendBucketData(timestamp / 1000, bucket)
                     }
                     return existingWindow
                 },
@@ -57,12 +63,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         const newerThanTs = newerThan.getTime() / 1000
 
                         if (eventTs > newerThanTs) {
+                            const pathname = event.properties?.$pathname
                             const deviceType = event.properties?.$device_type
-                            window.addDataPoint(eventTs, {
-                                pageviews: 1,
-                                devices: new Map([[deviceType, 1]]),
-                                paths: new Map([[event.properties?.$pathname, 1]]),
-                                distinctId: event.distinct_id,
+                            const deviceId = event.properties?.$device_id
+
+                            // For cookieless events, device_id isn't set before preprocessing
+                            // so we create a device key from IP + user agent
+                            let deviceKey = deviceId
+                            if (!deviceKey || deviceKey === '$posthog_cookieless') {
+                                const ip = event.properties?.$ip ?? ''
+                                const ua = event.properties?.$raw_user_agent ?? ''
+                                deviceKey = `cookieless_${hashCodeForString(ip + ua)}`
+                            }
+
+                            window.addDataPoint(eventTs, event.distinct_id, {
+                                pageviews: event.event === '$pageview' ? 1 : 0,
+                                device: deviceKey && deviceType ? { deviceId: deviceKey, deviceType } : undefined,
+                                pathname: event.event === '$pageview' ? pathname : undefined,
                             })
                         }
                     }
@@ -113,28 +130,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         ],
         deviceBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
-            (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => {
-                const totals = slidingWindow.getDeviceTotals()
-
-                // TODO: We should keep track of this data as we ingest events into the SlidingWindow
-                //  so we don't need to iterate over a bunch of data
-                let total = 0
-                for (const count of totals.values()) {
-                    total += count
-                }
-
-                if (total === 0) {
-                    return []
-                }
-
-                return [...totals.entries()]
-                    .map(([device, count]) => ({
-                        device,
-                        count,
-                        percentage: (count / total) * 100,
-                    }))
-                    .sort((a, b) => b.count - a.count)
-            },
+            (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
         ],
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
@@ -144,14 +140,38 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalPageviews(),
         ],
+        totalUniqueVisitors: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalUniqueUsers(),
+        ],
+        totalDevices: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalDeviceCount(),
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
+        pauseStream: () => {
+            cache.eventSourceController?.abort()
+            if (cache.retryTimeout) {
+                clearTimeout(cache.retryTimeout)
+                cache.retryTimeout = null
+            }
+        },
+        resumeStream: () => {
+            if (cache.hasInitialized) {
+                lemonToast.info('Refreshing live data...', {
+                    toastId: RECONNECT_TOAST_ID,
+                    autoClose: 2000,
+                })
+            }
+            actions.loadInitialData()
+        },
         loadInitialData: async () => {
             actions.setIsLoading(true)
 
             try {
                 const now = Date.now()
-                const dateFrom = new Date(now - 30 * 60 * 1000)
+                const dateFrom = new Date(now - BUCKET_WINDOW_MINUTES * 60 * 1000)
                 const handoff = new Date(now)
 
                 // The SSE stream will drop any events older than this value
@@ -173,6 +193,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 lemonToast.error('Failed to load initial data')
             } finally {
                 actions.setIsLoading(false)
+                cache.hasInitialized = true
             }
         },
         updateConnection: async () => {
@@ -192,7 +213,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            url.searchParams.append('eventType', '$pageview')
+
+            // Filter for only the columns we need
+            url.searchParams.append('columns', '$pathname,$device_type,$device_id,$ip,$raw_user_agent')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
@@ -277,21 +300,20 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date
-): Promise<[HogQLQueryResponse, TrendsQueryResponse, TrendsQueryResponse]> => {
+): Promise<[HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse]> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
-        query: `SELECT 
-                    toStartOfMinute(timestamp) AS minute_bucket, 
-                    arrayDistinct(groupArray(distinct_id)) AS distinct_users, 
-                    count() as total 
-                FROM events 
-                WHERE 
-                    event = '$pageview' AND
-                    timestamp >= toDateTime({dateFrom}) AND
-                    timestamp <= toDateTime({dateTo}) 
-                GROUP BY 
-                    minute_bucket 
-                ORDER BY 
+        query: `SELECT
+                    toStartOfMinute(timestamp) AS minute_bucket,
+                    arrayDistinct(groupArray(distinct_id)) AS distinct_ids,
+                    countIf(event = '$pageview') AS pageviews
+                FROM events
+                WHERE
+                    timestamp >= toDateTime({dateFrom})
+                    AND timestamp <= toDateTime({dateTo})
+                GROUP BY
+                    minute_bucket
+                ORDER BY
                     minute_bucket ASC`,
         values: {
             dateFrom: dateFrom.toISOString(),
@@ -299,14 +321,29 @@ const loadQueryData = async (
         },
     }
 
-    const deviceQuery: TrendsQuery = {
-        kind: NodeKind.TrendsQuery,
-        interval: 'minute',
-        series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
-        breakdownFilter: { breakdown_type: 'event', breakdown: '$device_type' },
-        dateRange: {
-            date_from: dateFrom.toISOString(),
-            date_to: dateTo.toISOString(),
+    const deviceQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    toStartOfMinute(timestamp) AS minute_bucket,
+                    ifNull(properties.$device_type, 'Unknown') AS device_type,
+                    arrayDistinct(groupArray(
+                        if(
+                            properties.$device_id IS NULL OR properties.$device_id = '$posthog_cookieless',
+                            concat('cookieless_transform|||', ifNull(properties.$ip, ''), '|||', ifNull(properties.$raw_user_agent, '')),
+                            properties.$device_id
+                        )
+                    )) AS device_ids
+                FROM events
+                WHERE
+                    timestamp >= toDateTime({dateFrom})
+                    AND timestamp <= toDateTime({dateTo})
+                GROUP BY minute_bucket, device_type
+                ORDER BY minute_bucket ASC`,
+        values: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+            cookielessPrefix: COOKIELESS_TRANSFORM_PREFIX,
+            cookielessSeparator: COOKIELESS_TRANSFORM_SEPARATOR,
         },
     }
 
@@ -344,21 +381,29 @@ const addUserDataToBuckets = (
     }
 }
 
+const transformDeviceId = (deviceId: string): string => {
+    if (deviceId.startsWith(COOKIELESS_TRANSFORM_PREFIX)) {
+        const [_, ip, userAgent] = deviceId.split(COOKIELESS_TRANSFORM_SEPARATOR)
+        return `cookieless_${hashCodeForString((ip ?? '') + (userAgent ?? ''))}`
+    }
+    return deviceId
+}
+
 const addDeviceDataToBuckets = (
-    deviceResponse: TrendsQueryResponse,
+    deviceResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
-    for (const result of deviceResponse.results) {
-        const deviceType = result.breakdown_value || 'Unknown'
+    const results = deviceResponse.results as [string, string, string[]][]
 
-        for (let i = 0; i < result.data.length; i++) {
-            const timestamp = Date.parse(result.action.days[i])
-            const bucket = getOrCreateBucket(bucketMap, timestamp)
+    for (const [timestampStr, deviceType, deviceIds] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
 
-            const currentDeviceCount = bucket.devices.get(deviceType) ?? 0
-
-            bucket.devices.set(deviceType, currentDeviceCount + (result.data[i] || 0))
+        const devices = bucket.devices.get(deviceType) ?? new Set<string>()
+        for (const id of deviceIds) {
+            devices.add(transformDeviceId(id))
         }
+        bucket.devices.set(deviceType, devices)
     }
 }
 
@@ -390,7 +435,7 @@ const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: num
 const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
-        devices: new Map<string, number>(),
+        devices: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
     }

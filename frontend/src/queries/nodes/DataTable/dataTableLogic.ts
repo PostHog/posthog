@@ -236,6 +236,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
+                        showTableViews: query.showTableViews ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:
@@ -245,6 +246,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showResultsTable: query.showResultsTable ?? true,
                         showRecordingColumn: query.showRecordingColumn ?? false,
                         showSourceQueryOptions: query.showSourceQueryOptions ?? true,
+                        showCount: query.showCount ?? false,
                     }),
                 }
             },

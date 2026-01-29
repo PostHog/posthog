@@ -8,15 +8,15 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import MaxTool from 'scenes/max/MaxTool'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { SidePanelTab, Survey } from '~/types'
+import { Survey } from '~/types'
 
 import { FeaturedTemplateCard, TemplateCard } from '../../SurveyTemplates'
 import {
@@ -37,7 +37,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { createSurveyFromTemplate, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openAi } = useOpenAi()
     const {
         data: { surveysCount },
     } = useValues(surveysLogic)
@@ -113,7 +113,6 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                 <FeaturedTemplateCard
                                     template={featuredTemplate}
                                     idx={0}
-                                    setSurveyTemplateValues={() => {}}
                                     reportSurveyTemplateClicked={() => {}}
                                     surveyAppearance={featuredTemplate.appearance ?? {}}
                                     handleTemplateClick={handleTemplateClick}
@@ -126,8 +125,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     key={template.templateType}
                                     template={template}
                                     idx={idx + 1}
-                                    setSurveyTemplateValues={() => {}} // Not used in this context
-                                    reportSurveyTemplateClicked={() => {}} // Not used in this context
+                                    reportSurveyTemplateClicked={() => {}}
                                     surveyAppearance={template.appearance ?? defaultSurveyAppearance}
                                     handleTemplateClick={handleTemplateClick}
                                 />
@@ -172,7 +170,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     <LemonButton
                                         type="primary"
                                         icon={<IconSparkles />}
-                                        onClick={() => openSidePanel(SidePanelTab.Max, 'Create a survey to collect ')}
+                                        onClick={() => openAi('Create a survey to collect ')}
                                     >
                                         Create your own custom survey with PostHog AI
                                     </LemonButton>

@@ -1,7 +1,6 @@
 import base64
-from typing import cast
+from typing import Any, cast
 
-from anthropic.types import MessageParam
 from google.genai.types import Blob, Content, ContentListUnion, Part
 
 from products.llm_analytics.backend.providers.formatters.anthropic_typeguards import (
@@ -11,7 +10,7 @@ from products.llm_analytics.backend.providers.formatters.anthropic_typeguards im
 )
 
 
-def convert_anthropic_messages_to_gemini(messages: list[MessageParam]) -> ContentListUnion:
+def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> ContentListUnion:
     contents: list[Content] = []  # Sticking to Content, as we don't support other formats yet
     for message in messages:
         parts: list[Part] = []

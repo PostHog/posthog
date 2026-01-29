@@ -1,3 +1,5 @@
+import { api } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
@@ -234,6 +236,159 @@ describe('experimentLogic', () => {
                         null,
                     ],
                 })
+        })
+    })
+
+    describe('removeSharedMetricFromExperiment', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        it('removes orphaned shared metric from metrics array', async () => {
+            const orphanedSharedMetricId = 46275
+            const experimentWithOrphan = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Orphaned Shared Metric',
+                        uuid: 'orphan-uuid',
+                        isSharedMetric: true,
+                        sharedMetricId: orphanedSharedMetricId,
+                    },
+                    experiment.metrics[0],
+                ],
+                metrics_secondary: [],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(experimentWithOrphan)
+            api.update.mockResolvedValue(experimentWithOrphan)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': experimentWithOrphan,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSharedMetricFromExperiment(orphanedSharedMetricId)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    saved_metrics_ids: [],
+                    metrics: [experiment.metrics[0]],
+                    metrics_secondary: [],
+                })
+            )
+        })
+
+        it('removes orphaned shared metric from metrics_secondary array', async () => {
+            const orphanedSharedMetricId = 99999
+            const experimentWithOrphan = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [],
+                metrics_secondary: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Orphaned Secondary Metric',
+                        uuid: 'orphan-secondary-uuid',
+                        isSharedMetric: true,
+                        sharedMetricId: orphanedSharedMetricId,
+                    },
+                ],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(experimentWithOrphan)
+            api.update.mockResolvedValue(experimentWithOrphan)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': experimentWithOrphan,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSharedMetricFromExperiment(orphanedSharedMetricId)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    saved_metrics_ids: [],
+                    metrics: [],
+                    metrics_secondary: [],
+                })
+            )
+        })
+    })
+    describe('pause and resume experiment', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            jest.spyOn(api, 'get')
+            api.update.mockClear()
+            api.get.mockClear()
+
+            const experimentWithFlag = {
+                ...experiment,
+                feature_flag: { id: 123, key: 'test-flag', active: true },
+            } as Experiment
+            logic.actions.setExperiment(experimentWithFlag)
+        })
+
+        it('should pause experiment by disabling feature flag', async () => {
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
+
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/feature_flags/123'),
+                expect.objectContaining({ active: false })
+            )
+        })
+
+        it('should resume experiment by enabling feature flag', async () => {
+            const experimentWithInactiveFlag = {
+                ...experiment,
+                feature_flag: { id: 123, key: 'test-flag', active: false },
+            } as Experiment
+            logic.actions.setExperiment(experimentWithInactiveFlag)
+
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resumeExperiment()
+            })
+                .toDispatchActions(['resumeExperiment'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/feature_flags/123'),
+                expect.objectContaining({ active: true })
+            )
+        })
+
+        it('should reload experiment after pause/resume', async () => {
+            api.update.mockResolvedValue({ id: 123, key: 'test-flag', active: false })
+
+            // The experiment will be reloaded via loadExperiment action
+            // which uses the GET endpoint already set up in useMocks
+            await expectLogic(logic, () => {
+                logic.actions.pauseExperiment()
+            })
+                .toDispatchActions(['pauseExperiment', 'loadExperiment'])
+                .toFinishAllListeners()
+
+            // Verify that loadExperiment was called which will fetch the experiment again
+            expect(logic.values.experiment).not.toBeNull()
         })
     })
 })

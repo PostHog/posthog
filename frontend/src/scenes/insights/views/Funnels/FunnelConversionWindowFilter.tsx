@@ -66,7 +66,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
                 <Tooltip
                     title={
                         <>
-                            <b>Recommended!</b> Limit to {aggregationTargetLabel.plural}{' '}
+                            Limit to {aggregationTargetLabel.plural}{' '}
                             {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
                             specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
                             {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in

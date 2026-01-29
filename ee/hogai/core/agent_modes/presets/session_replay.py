@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -73,6 +74,8 @@ The assistant used the todo list because:
 5. This approach allows for tracking progress across multiple recording queries and summaries
 """.strip()
 
+MODE_DESCRIPTION = "Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, and summarize entire sessions or a set of them."
+
 
 class SessionReplayAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -98,6 +101,15 @@ class SessionReplayAgentToolkit(AgentToolkit):
 
 session_replay_agent = AgentModeDefinition(
     mode=AgentMode.SESSION_REPLAY,
-    mode_description="Specialized mode for analyzing session recordings and user behavior. This mode allows you to filter session recordings, and summarize entire sessions or a set of them.",
+    mode_description=MODE_DESCRIPTION,
     toolkit_class=SessionReplayAgentToolkit,
+)
+
+
+chat_agent_plan_session_replay_agent = AgentModeDefinition(
+    mode=AgentMode.SESSION_REPLAY,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=SessionReplayAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

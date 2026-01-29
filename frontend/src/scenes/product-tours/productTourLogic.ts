@@ -6,16 +6,25 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { DateRange } from '~/queries/schema/schema-general'
-import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent } from '~/types'
+import {
+    Breadcrumb,
+    FeatureFlagBasicType,
+    FeatureFlagFilters,
+    ProductTour,
+    ProductTourBannerConfig,
+    ProductTourContent,
+    ProductTourStepButton,
+} from '~/types'
 
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
-import { productToursLogic } from './productToursLogic'
+import { isAnnouncement, productToursLogic } from './productToursLogic'
 
 /**
  * Builds a HogQL date filter clause from a DateRange.
@@ -116,6 +125,8 @@ export interface ProductTourForm {
     content: ProductTourContent
     auto_launch: boolean
     targeting_flag_filters: FeatureFlagFilters | null
+    linked_flag: FeatureFlagBasicType | null
+    linked_flag_id: number | null
 }
 
 const NEW_PRODUCT_TOUR: ProductTourForm = {
@@ -124,6 +135,8 @@ const NEW_PRODUCT_TOUR: ProductTourForm = {
     content: { steps: [] },
     auto_launch: false,
     targeting_flag_filters: null,
+    linked_flag: null,
+    linked_flag_id: null,
 }
 
 export const productTourLogic = kea<productTourLogicType>([
@@ -131,7 +144,7 @@ export const productTourLogic = kea<productTourLogicType>([
     props({} as ProductTourLogicProps),
     key((props) => props.id),
     connect(() => ({
-        actions: [productToursLogic, ['loadProductTours']],
+        actions: [productToursLogic, ['loadProductTours'], eventUsageLogic, ['reportProductTourViewed']],
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
@@ -140,6 +153,9 @@ export const productTourLogic = kea<productTourLogicType>([
         launchProductTour: true,
         stopProductTour: true,
         resumeProductTour: true,
+        openToolbarModal: true,
+        closeToolbarModal: true,
+        submitAndOpenToolbar: true,
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -269,9 +285,62 @@ export const productTourLogic = kea<productTourLogicType>([
     forms(({ actions, props }) => ({
         productTourForm: {
             defaults: NEW_PRODUCT_TOUR as ProductTourForm,
-            errors: ({ name }: ProductTourForm) => ({
-                name: !name ? 'Name is required' : undefined,
-            }),
+            alwaysShowErrors: true,
+            errors: ({ name, content }: ProductTourForm) => {
+                const errors: Record<string, string | undefined> = {
+                    name: !name ? 'Name is required' : undefined,
+                }
+
+                const validateButton = (
+                    button: ProductTourStepButton | undefined,
+                    errorLabel: string
+                ): string | undefined => {
+                    if (!button?.action) {
+                        return undefined
+                    }
+                    if (!button.text?.trim()) {
+                        return `${errorLabel} requires a label`
+                    }
+                    if (button.action === 'link' && !button.link?.trim()) {
+                        return `${errorLabel} requires a URL`
+                    }
+                    if (button.action === 'trigger_tour' && !button.tourId) {
+                        return `${errorLabel} requires a tour selection`
+                    }
+                    return undefined
+                }
+
+                const validateBannerAction = (
+                    action: ProductTourBannerConfig['action'] | undefined,
+                    errorLabel: string
+                ): string | undefined => {
+                    if (!action?.type) {
+                        return undefined
+                    }
+                    if (action.type === 'link' && !action.link?.trim()) {
+                        return `${errorLabel} requires a URL`
+                    }
+                    if (action.type === 'trigger_tour' && !action.tourId) {
+                        return `${errorLabel} requires a tour selection`
+                    }
+                    return undefined
+                }
+
+                for (const step of content.steps || []) {
+                    const error =
+                        step.type === 'banner'
+                            ? validateBannerAction(step.bannerConfig?.action, 'Banner click action')
+                            : validateButton(step.buttons?.primary, 'Primary button') ||
+                              validateButton(step.buttons?.secondary, 'Secondary button')
+
+                    if (error) {
+                        errors._form = error
+                        break
+                    }
+                }
+
+                return errors
+            },
             submit: async (formValues: ProductTourForm) => {
                 const processedContent: ProductTourContent = {
                     ...formValues.content,
@@ -284,6 +353,7 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: processedContent,
                     auto_launch: formValues.auto_launch,
                     targeting_flag_filters: formValues.targeting_flag_filters,
+                    linked_flag_id: formValues.linked_flag_id,
                 }
 
                 if (props.id && props.id !== 'new') {
@@ -321,13 +391,34 @@ export const productTourLogic = kea<productTourLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        pendingToolbarOpen: [
+            false,
+            {
+                submitAndOpenToolbar: () => true,
+                openToolbarModal: () => false,
+                closeToolbarModal: () => false,
+                submitProductTourFormFailure: () => false,
+            },
+        ],
+        isToolbarModalOpen: [
+            false,
+            {
+                openToolbarModal: () => true,
+                closeToolbarModal: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        submitAndOpenToolbar: () => {
+            actions.submitProductTourForm()
+        },
         submitProductTourFormSuccess: () => {
-            // don't navigate away if we're on steps page, it's a weird UX
-            if (values.editTab !== ProductTourEditTab.Steps) {
-                actions.editingProductTour(false)
+            if (values.pendingToolbarOpen) {
+                actions.openToolbarModal()
             }
+        },
+        submitProductTourFormFailure: () => {
+            lemonToast.error('Failed to save product tour')
         },
         launchProductTour: async () => {
             if (values.productTour) {
@@ -360,6 +451,9 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         loadProductTourSuccess: ({ productTour }) => {
+            if (productTour) {
+                actions.reportProductTourViewed(productTour)
+            }
             // Set date range to start from tour's start_date (or keep default -30d)
             // This will trigger loadTourStats via the setDateRange listener
             if (productTour?.start_date) {
@@ -380,12 +474,14 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: productTour.content,
                     auto_launch: productTour.auto_launch,
                     targeting_flag_filters: productTour.targeting_flag_filters,
+                    linked_flag: productTour.linked_flag,
+                    linked_flag_id: productTour.linked_flag?.id ?? null,
                 })
             }
         },
         editingProductTour: ({ editing }) => {
-            if (editing && values.productTour) {
-                // Reset form to current tour values when entering edit mode
+            // Only reset form when transitioning from not-editing to editing
+            if (editing && !values.isEditingProductTour && values.productTour) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(actions.setProductTourFormValues as any)({
                     name: values.productTour.name,
@@ -393,6 +489,8 @@ export const productTourLogic = kea<productTourLogicType>([
                     content: values.productTour.content,
                     auto_launch: values.productTour.auto_launch,
                     targeting_flag_filters: values.productTour.targeting_flag_filters,
+                    linked_flag: values.productTour.linked_flag,
+                    linked_flag_id: values.productTour.linked_flag?.id ?? null,
                 })
             }
         },
@@ -428,6 +526,12 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
                 }
                 return undefined
+            },
+        ],
+        entityKeyword: [
+            (s) => [s.productTour],
+            (productTour: ProductTour | null): string => {
+                return productTour && isAnnouncement(productTour) ? 'announcement' : 'tour'
             },
         ],
     }),

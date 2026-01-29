@@ -1,4 +1,5 @@
-import { connect, kea, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -84,6 +85,7 @@ function findEventWithParents(
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
     props({} as TraceDataLogicProps),
+    key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmAnalyticsTraceLogic,
@@ -289,6 +291,14 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ props }) => ({
+        trace: (trace: LLMTrace | undefined) => {
+            if (trace?.createdAt && props.traceId) {
+                llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+            }
+        },
+    })),
 ])
 
 export interface TraceTreeNode {
@@ -402,7 +412,16 @@ export function getInitialFocusEventId(showableEvents: LLMTraceEvent[], filtered
         return aiTraceEvent.id
     }
 
-    // If no $ai_trace event, use the first event in the tree
+    // If no $ai_trace event, look for the first $ai_generation event
+    // This provides a better default for pseudo-traces where the generation
+    // is typically what users want to see
+    const firstGenerationNode = filteredTree.find((node) => node.event.event === '$ai_generation')
+
+    if (firstGenerationNode) {
+        return firstGenerationNode.event.id
+    }
+
+    // Fall back to first event in tree
     if (filteredTree.length > 0) {
         return filteredTree[0].event.id
     }

@@ -29,6 +29,7 @@ import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ScenePanel,
@@ -49,6 +50,7 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
@@ -60,6 +62,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
+    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -175,7 +178,16 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         data-attr="edit-survey"
-                                        onClick={() => editingSurvey(true)}
+                                        onClick={
+                                            guidedEditorEnabled && survey.type === SurveyType.Popover
+                                                ? undefined
+                                                : () => editingSurvey(true)
+                                        }
+                                        to={
+                                            guidedEditorEnabled && survey.type === SurveyType.Popover
+                                                ? urls.surveyWizard(id)
+                                                : undefined
+                                        }
                                         type="secondary"
                                         size="small"
                                     >

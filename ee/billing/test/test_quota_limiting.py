@@ -204,8 +204,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     @patch("posthoganalytics.capture")
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_quota_limit_feature_flag_not_on(self, patch_feature_enabled, patch_capture) -> None:
+    def test_quota_limit_feature_flag_not_on(self, patch_capture) -> None:
         # Confirm that we don't send an event if they weren't going to be limited.
         self.organization.usage = {
             "events": {"usage": 99, "limit": 100, "todays_usage": 0},
@@ -223,9 +222,6 @@ class TestQuotaLimiting(BaseTest):
         time.sleep(1)
         with self.assertNumQueries(FuzzyInt(3, 6)):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-        # feature_enabled will be called once for AI billing check
-        assert patch_feature_enabled.call_count == 1
-        patch_feature_enabled.assert_called_with("posthog-ai-billing-usage-report", "internal_billing_events")
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["exceptions"] == {}

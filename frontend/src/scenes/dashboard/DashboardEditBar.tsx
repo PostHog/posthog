@@ -98,6 +98,8 @@ export function DashboardEditBar(): JSX.Element {
                         <DateFilter
                             showCustom
                             showExplicitDateToggle={canAccessExplicitDateToggle}
+                            allowTimePrecision
+                            allowFixedRangeWithTime
                             dateFrom={effectiveEditBarFilters.date_from}
                             dateTo={effectiveEditBarFilters.date_to}
                             explicitDate={effectiveEditBarFilters.explicitDate}

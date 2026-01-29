@@ -1,15 +1,44 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 
 
 class TestDataWarehouseAPI(APIBaseTest):
+    @patch("products.data_warehouse.backend.api.data_warehouse.execute_hogql_query")
+    def test_property_values_returns_results_with_cache_control(self, mock_execute_hogql_query):
+        table = DataWarehouseTable.objects.create(
+            name="sample_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern="s3://bucket/sample_table",
+            columns={"name": "String"},
+        )
+
+        mock_execute_hogql_query.return_value = SimpleNamespace(results=[["alpha"], [["beta", "gamma"]], [True]])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/property_values?key=name&table_name={table.name}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}, {"name": "true"}],
+        )
+        self.assertEqual(response["Cache-Control"], "max-age=10")
+
     @patch("products.data_warehouse.backend.api.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.api.data_warehouse.get_cached_instance_license")
     def test_basic_calculation_with_billing_data(self, mock_license, mock_billing_manager):

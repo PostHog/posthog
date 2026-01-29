@@ -234,6 +234,7 @@ export function CodeEditor({
         scrollbar: {
             vertical: scrollbarRendering,
             horizontal: scrollbarRendering,
+            alwaysConsumeMouseWheel: false,
             ...options?.scrollbar,
         },
     }

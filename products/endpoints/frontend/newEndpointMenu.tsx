@@ -18,7 +18,7 @@ const ENDPOINT_TYPE_OPTIONS: EndpointTypeOption[] = [
         icon: IconServer,
         name: 'HogQL endpoint',
         description: 'Create an endpoint from a HogQL query in the SQL editor.',
-        url: urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint),
+        url: urls.sqlEditor({ outputTab: OutputTab.Endpoint }),
     },
     {
         icon: IconGraph,

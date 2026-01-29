@@ -48,11 +48,16 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.FLUTTER]: FlutterInstructions,
 }
 
+export type AdvertiseMobileReplayContext =
+    | 'product-analytics-onboarding'
+    | 'flags-onboarding'
+    | 'experiments-onboarding'
+
 export function AdvertiseMobileReplay({
     context,
     sdkKey,
 }: {
-    context: 'product-analytics-onboarding' | 'flags-onboarding'
+    context: AdvertiseMobileReplayContext
     sdkKey: SDKKey
 }): JSX.Element {
     let platform = 'Mobile'

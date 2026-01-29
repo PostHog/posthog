@@ -163,10 +163,6 @@ test.describe('Quick create survey from feature flag', () => {
     })
 
     test('survey responses visible in feature flag feedback tab', async ({ page }) => {
-        await page.evaluate(() => {
-            window.posthog?.featureFlags?.override({ 'surveys-ff-cross-sell': true })
-        })
-
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
@@ -183,10 +179,6 @@ test.describe('Quick create survey from feature flag', () => {
     })
 
     test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
-        await page.evaluate(() => {
-            window.posthog?.featureFlags?.override({ 'surveys-ff-cross-sell': true })
-        })
-
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
@@ -237,12 +229,23 @@ test.describe('Quick create survey from feature flag', () => {
     test('warning shown when surveys are disabled', async ({ page }) => {
         await saveFeatureFlag(page)
 
-        await page.route('**/api/environments/@current/', async (route) => {
-            const response = await route.fetch()
-            const json = await response.json()
-            json.surveys_opt_in = false
-
-            await route.fulfill({ json })
+        // The team data comes from POSTHOG_APP_CONTEXT which is server-rendered into HTML.
+        // API mocks don't work because teamLogic uses the preloaded context directly.
+        // We need to intercept and modify the context before React hydrates.
+        await page.addInitScript(() => {
+            let _context: any = undefined
+            Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+                get() {
+                    if (_context?.current_team) {
+                        _context.current_team.surveys_opt_in = false
+                    }
+                    return _context
+                },
+                set(value) {
+                    _context = value
+                },
+                configurable: true,
+            })
         })
 
         await page.reload()

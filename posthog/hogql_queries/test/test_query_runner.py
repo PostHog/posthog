@@ -131,6 +131,7 @@ class TestQueryRunner(BaseTest):
                 "inCohortVia": InCohortVia.AUTO,
                 "materializationMode": MaterializationMode.LEGACY_NULL_AS_NULL,
                 "optimizeJoinedFilters": False,
+                "optimizeProjections": False,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionTableVersion": SessionTableVersion.AUTO,
@@ -215,7 +216,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_194d1cdb3e7a4bef74e185f7339bbf1b245e4bde0316ac641969447a2daaaea3"
+        assert cache_key == "cache_42_10d08b5eaad18162e0e4148a88d636d94517b589c29c253770ad996196f4bbb5"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -229,7 +230,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_84635471ca5a516c617c633dac5bd7dd717647f255f86eab09fb891a7cdbd828"
+        assert cache_key == "cache_42_d7401ca838bc18ba5c24f0512b6e60c687f0183c55a8c6933ca769581f2e6c8f"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -240,7 +241,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_cc74546afbbefc5454fa188e0a6146b8701f524d71f8f535c368cdaf20e220d4"
+        assert cache_key == "cache_42_2b964378e4e1ae5d050d8deddcb22266c74d8541e462103c06929e62a7549ed2"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

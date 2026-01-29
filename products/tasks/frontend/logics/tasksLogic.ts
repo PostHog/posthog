@@ -5,6 +5,9 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { addProductIntent } from 'lib/utils/product-intents'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { Task, TaskUpsertProps } from '../types'
 import type { tasksLogicType } from './tasksLogicType'
@@ -28,6 +31,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const newTask = await api.tasks.create(data)
                     lemonToast.success('Task created successfully')
+                    void addProductIntent({
+                        product_type: ProductKey.TASKS,
+                        intent_context: ProductIntentContext.TASK_CREATED,
+                    })
                     return [...values.tasks, newTask]
                 },
                 deleteTask: async ({ taskId }: { taskId: string }) => {

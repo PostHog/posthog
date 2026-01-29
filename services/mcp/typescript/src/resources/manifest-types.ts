@@ -65,3 +65,25 @@ export interface ResourceManifest {
     }
     templates?: ResourceTemplate[]
 }
+
+/**
+ * Agent Skills manifest types
+ * Skills are self-contained packages for SDK Skill tool installation
+ */
+export interface SkillResource {
+    id: string
+    name: string
+    description: string
+    tags: string[]
+    uri: string
+    file: string
+    /** Direct download URL for the skill ZIP file */
+    downloadUrl: string
+}
+
+export interface SkillsManifest {
+    version: string
+    buildVersion: string
+    buildTimestamp: string
+    skills: SkillResource[]
+}

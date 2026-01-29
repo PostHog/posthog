@@ -56,12 +56,12 @@ export const Generating: Story = {
     },
 }
 
-const iframeSaved = {
+const makeIframeSaved = (): Record<string, unknown> => ({
     id: 101,
     short_id: 'hm_iframe',
     name: 'Iframe example.com',
-    url: 'https://example.com',
-    data_url: 'https://example.com',
+    url: `${window.location.origin}/mock-page.html`,
+    data_url: `${window.location.origin}/mock-page.html`,
     target_widths: [],
     type: 'iframe',
     status: 'completed',
@@ -72,56 +72,41 @@ const iframeSaved = {
     created_at: '2024-01-03T00:00:00Z',
     updated_at: '2024-01-03T00:00:00Z',
     exception: null,
-}
+})
 
 export const IframeExample: Story = {
     parameters: {
         pageUrl: urls.heatmap('hm_iframe'),
         testOptions: {
-            waitForSelector: '#heatmap-iframe',
+            // Wait for heatmap canvas to be ready with data loaded
+            waitForSelector: '.heatmaps-ready',
+            waitForLoadersToDisappear: true,
         },
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/saved/hm_iframe/': iframeSaved,
-                'https://example.com': (_req, res, ctx) =>
+                '/api/environments/:team_id/saved/hm_iframe/': (_req, res, ctx) =>
+                    res(ctx.status(200), ctx.json(makeIframeSaved())),
+                '/api/heatmap/': (_req, res, ctx) =>
                     res(
                         ctx.status(200),
-                        ctx.set('Content-Type', 'text/html'),
-                        ctx.body(`
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                                <title>Example Domain</title>
-                                <style>
-                                    body { 
-                                        font-family: sans-serif; 
-                                        max-width: 800px; 
-                                        margin: 50px auto; 
-                                        padding: 20px;
-                                    }
-                                    h1 { color: #333; }
-                                    button { 
-                                        padding: 10px 20px; 
-                                        margin: 10px 5px; 
-                                        cursor: pointer;
-                                        background: #007bff;
-                                        color: white;
-                                        border: none;
-                                        border-radius: 4px;
-                                    }
-                                </style>
-                            </head>
-                            <body>
-                                <h1>Example Domain</h1>
-                                <p>This domain is for use in illustrative examples in documents.</p>
-                                <button id="cta-button">Click me</button>
-                                <button id="secondary-button">Learn more</button>
-                                <p>You may use this domain in literature without prior coordination or asking for permission.</p>
-                            </body>
-                            </html>
-                        `)
+                        ctx.json({
+                            results: [
+                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 355, count: 85 },
+                                { pointer_relative_x: 0.7, pointer_target_fixed: false, pointer_y: 24, count: 32 },
+                                { pointer_relative_x: 0.77, pointer_target_fixed: false, pointer_y: 24, count: 28 },
+                                { pointer_relative_x: 0.84, pointer_target_fixed: false, pointer_y: 24, count: 15 },
+                                { pointer_relative_x: 0.91, pointer_target_fixed: false, pointer_y: 24, count: 12 },
+                                { pointer_relative_x: 0.1, pointer_target_fixed: false, pointer_y: 24, count: 18 },
+                                { pointer_relative_x: 0.17, pointer_target_fixed: false, pointer_y: 395, count: 22 },
+                                { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 395, count: 19 },
+                                { pointer_relative_x: 0.83, pointer_target_fixed: false, pointer_y: 395, count: 14 },
+                            ],
+                            count: 9,
+                            next: null,
+                            previous: null,
+                        })
                     ),
             },
         }),

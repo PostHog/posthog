@@ -1,12 +1,16 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PropsWithChildren } from 'react'
 
+import { IconX } from '@posthog/icons'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from 'products/error_tracking/frontend/components/SetupPrompt/SetupPrompt'
@@ -36,7 +40,20 @@ const ContextualFilters = ({ children, logicKey }: PropsWithChildren<{ logicKey:
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttributes>): JSX.Element | null => {
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const { expanded } = useValues(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const logicKey = getLogicKey({ tabId, personId, groupKey })
+    const { removeNode } = useActions(customerProfileLogic)
+
+    useOnMountEffect(() => {
+        setMenuItems([
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.Issues),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null

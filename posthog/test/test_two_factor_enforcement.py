@@ -156,13 +156,15 @@ class TestSessionAuthenticationTwoFactor(TestCase):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (self.user, None))
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_raises_permission_denied_when_no_2fa_device(
-        self, mock_is_impersonated, mock_default_device
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
         request = self._create_drf_request()
         self._set_session_after_enforcement_date(request)
 
@@ -171,14 +173,16 @@ class TestSessionAuthenticationTwoFactor(TestCase):
                 self.auth.authenticate(request)
             self.assertEqual(str(cm.exception.detail), "2FA setup required")
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     @patch("posthog.helpers.two_factor_session.is_two_factor_verified_in_session")
     def test_authentication_raises_permission_denied_when_session_not_verified(
-        self, mock_is_two_factor_verified, mock_is_impersonated, mock_default_device
+        self, mock_is_two_factor_verified, mock_is_impersonated, mock_default_device, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = Mock()
+        mock_has_passkeys.return_value = False
         mock_is_two_factor_verified.return_value = False
         request = self._create_drf_request()
         self._set_session_after_enforcement_date(request)
@@ -211,11 +215,13 @@ class TestSessionAuthenticationTwoFactor(TestCase):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (self.user, None))
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
-    def test_authentication_skips_whitelisted_paths(self, mock_is_impersonated, mock_default_device):
+    def test_authentication_skips_whitelisted_paths(self, mock_is_impersonated, mock_default_device, mock_has_passkeys):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
 
         whitelisted_paths = [
             "/api/users/@me/two_factor_start_setup/",
@@ -234,13 +240,15 @@ class TestSessionAuthenticationTwoFactor(TestCase):
                 result = self.auth.authenticate(request)
                 self.assertEqual(result, (self.user, None))
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_enforces_two_factor_on_non_whitelisted_paths(
-        self, mock_is_impersonated, mock_default_device
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
 
         non_whitelisted_paths = [
             "/api/projects/1/insights/",
@@ -275,13 +283,15 @@ class TestSessionAuthenticationTwoFactor(TestCase):
         result = self.auth.authenticate(request)
         self.assertIsNone(result)
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_bypasses_two_factor_for_sessions_before_enforcement_date(
-        self, mock_is_impersonated, mock_default_device
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
         request = self._create_drf_request()
         self._set_session_before_enforcement_date(request)
 
@@ -289,13 +299,15 @@ class TestSessionAuthenticationTwoFactor(TestCase):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (self.user, None))
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_enforces_two_factor_for_sessions_after_enforcement_date(
-        self, mock_is_impersonated, mock_default_device
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
         request = self._create_drf_request()
         self._set_session_after_enforcement_date(request)
 
@@ -304,13 +316,15 @@ class TestSessionAuthenticationTwoFactor(TestCase):
                 self.auth.authenticate(request)
             self.assertEqual(str(cm.exception.detail), "2FA setup required")
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.default_device")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     def test_authentication_bypasses_two_factor_for_sessions_without_timestamp(
-        self, mock_is_impersonated, mock_default_device
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
         request = self._create_drf_request()
 
         if settings.SESSION_COOKIE_CREATED_AT_KEY in request._request.session:
@@ -360,13 +374,15 @@ class TestTwoFactorImpersonationIntegration(TestCase):
             result = self.auth.authenticate(request)
             self.assertEqual(result, (user, None))
 
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
     @patch("posthog.helpers.two_factor_session.is_impersonated_session")
     @patch("posthog.helpers.two_factor_session.default_device")
     def test_session_authentication_enforces_two_factor_for_non_impersonated_sessions(
-        self, mock_default_device, mock_is_impersonated
+        self, mock_default_device, mock_is_impersonated, mock_has_passkeys
     ):
         mock_is_impersonated.return_value = False
         mock_default_device.return_value = None
+        mock_has_passkeys.return_value = False
 
         user = Mock(is_authenticated=True, is_active=True)
         org = Mock(spec=Organization)
@@ -414,6 +430,7 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         with (
             patch("posthog.helpers.two_factor_session.is_impersonated_session", return_value=False),
             patch("posthog.helpers.two_factor_session.default_device", return_value=None),
+            patch("posthog.helpers.two_factor_session.has_passkeys", return_value=False),
             patch.object(auth, "enforce_csrf"),
         ):
             with self.assertRaises(PermissionDenied):
@@ -463,11 +480,87 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
         with (
             patch("posthog.helpers.two_factor_session.is_impersonated_session", return_value=False),
             patch("posthog.helpers.two_factor_session.default_device", return_value=None),
+            patch("posthog.helpers.two_factor_session.has_passkeys", return_value=False),
             patch("posthog.helpers.two_factor_session.is_sso_authentication_backend", return_value=True),
             patch.object(auth, "enforce_csrf"),
         ):
             result = auth.authenticate(request)
             self.assertEqual(result, (user, None))
+
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
+    @patch("posthog.helpers.two_factor_session.default_device")
+    @patch("posthog.helpers.two_factor_session.is_impersonated_session")
+    def test_authentication_allows_when_user_has_passkeys_but_no_totp(
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
+    ):
+        """Test that users with passkeys (but no TOTP) can authenticate after 2FA verification"""
+        auth = SessionAuthentication()
+
+        request_factory = RequestFactory()
+        http_request = request_factory.get("/api/organizations/")
+
+        user = Mock(is_authenticated=True, is_active=True)
+        org = Mock(spec=Organization)
+        org.enforce_2fa = True
+        user.organization = org
+        http_request.user = user
+
+        middleware = SessionMiddleware(lambda request: HttpResponse())
+        middleware.process_request(http_request)
+        http_request.session.save()
+        self._set_session_after_enforcement_date(http_request)
+
+        request = self.factory.get("/api/organizations/")
+        request._request = http_request
+
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
+        mock_has_passkeys.return_value = True
+
+        with (
+            patch("posthog.helpers.two_factor_session.is_two_factor_verified_in_session", return_value=True),
+            patch.object(auth, "enforce_csrf"),
+        ):
+            result = auth.authenticate(request)
+            self.assertEqual(result, (user, None))
+
+    @patch("posthog.helpers.two_factor_session.has_passkeys")
+    @patch("posthog.helpers.two_factor_session.default_device")
+    @patch("posthog.helpers.two_factor_session.is_impersonated_session")
+    def test_authentication_requires_verification_when_user_has_passkeys_but_not_verified(
+        self, mock_is_impersonated, mock_default_device, mock_has_passkeys
+    ):
+        """Test that users with passkeys must verify 2FA before accessing protected resources"""
+        auth = SessionAuthentication()
+
+        request_factory = RequestFactory()
+        http_request = request_factory.get("/api/organizations/")
+
+        user = Mock(is_authenticated=True, is_active=True)
+        org = Mock(spec=Organization)
+        org.enforce_2fa = True
+        user.organization = org
+        http_request.user = user
+
+        middleware = SessionMiddleware(lambda request: HttpResponse())
+        middleware.process_request(http_request)
+        http_request.session.save()
+        self._set_session_after_enforcement_date(http_request)
+
+        request = self.factory.get("/api/organizations/")
+        request._request = http_request
+
+        mock_is_impersonated.return_value = False
+        mock_default_device.return_value = None
+        mock_has_passkeys.return_value = True
+
+        with (
+            patch("posthog.helpers.two_factor_session.is_two_factor_verified_in_session", return_value=False),
+            patch.object(auth, "enforce_csrf"),
+        ):
+            with self.assertRaises(PermissionDenied) as cm:
+                auth.authenticate(request)
+            self.assertEqual(str(cm.exception.detail), "2FA verification required")
 
 
 class TestUserTwoFactorSessionIntegration(TestCase):
