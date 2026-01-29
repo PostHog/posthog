@@ -103,7 +103,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "list",
         "run",
         "versions",
-        "version_detail",
         "openapi_spec",
     ]
     scope_object_write_actions: list[str] = [
@@ -123,7 +122,65 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def get_throttles(self):
         return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
 
-    def _serialize_endpoint(self, endpoint: Endpoint, request: Request | None = None) -> dict:
+    def _parse_version_param(self, request: Request) -> int | None:
+        """Parse version number from request body or query params.
+
+        Priority: request.data > query param
+        Returns int or None. Raises ValidationError if invalid format.
+        """
+        body_version = request.data.get("version")
+        if body_version is not None:
+            try:
+                return int(body_version)
+            except (ValueError, TypeError):
+                raise ValidationError(f"Invalid version parameter: {body_version}")
+
+        query_version = request.query_params.get("version")
+        if query_version is not None:
+            try:
+                return int(query_version)
+            except (ValueError, TypeError):
+                raise ValidationError(f"Invalid version parameter: {query_version}")
+
+        return None
+
+    def _build_materialization_info(self, version: EndpointVersion) -> dict:
+        """Build materialization status dict for a version."""
+        if version.is_materialized and version.saved_query:
+            return {
+                "status": version.saved_query.status or "Unknown",
+                "can_materialize": True,
+                "last_materialized_at": (
+                    version.saved_query.last_run_at.isoformat() if version.saved_query.last_run_at else None
+                ),
+                "error": version.saved_query.latest_error or "",
+                "sync_frequency": sync_frequency_interval_to_sync_frequency(
+                    version.saved_query.sync_frequency_interval
+                ),
+            }
+
+        can_mat, reason = version.can_materialize()
+        return {
+            "can_materialize": can_mat,
+            "reason": reason if not can_mat else None,
+        }
+
+    def _serialize(
+        self,
+        obj: Endpoint | EndpointVersion,
+        request: Request | None = None,
+    ) -> dict:
+        """Serialize an Endpoint or EndpointVersion.
+
+        Both return the same base fields. EndpointVersion adds version-specific fields.
+        """
+        if isinstance(obj, EndpointVersion):
+            endpoint = obj.endpoint
+            version = obj
+        else:
+            endpoint = obj
+            version = endpoint.get_version()
+
         url = None
         ui_url = None
         if request:
@@ -131,58 +188,57 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             ui_path = f"/project/{endpoint.team_id}/endpoints/{endpoint.name}"
             ui_url = request.build_absolute_uri(ui_path)
 
-        # Get current version for version-specific fields
-        # Note: Every endpoint has at least version 1 (created in create())
-        current_version = endpoint.get_version()
-        is_materialized = bool(current_version.is_materialized and current_version.saved_query)
-
         result = {
             "id": str(endpoint.id),
             "name": endpoint.name,
-            "description": current_version.description,
-            "query": current_version.query,
-            "is_active": endpoint.is_active,
-            "cache_age_seconds": current_version.cache_age_seconds,
+            "description": version.description,
+            "query": version.query,
+            "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
+            "cache_age_seconds": version.cache_age_seconds,
             "endpoint_path": endpoint.endpoint_path,
             "url": url,
             "ui_url": ui_url,
             "created_at": endpoint.created_at,
             "updated_at": endpoint.updated_at,
             "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
-            "is_materialized": is_materialized,
+            "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
+            "materialization": self._build_materialization_info(version),
         }
 
-        if is_materialized and current_version and current_version.saved_query:
-            saved_query = current_version.saved_query
-            result["materialization"] = {
-                "status": saved_query.status or "Unknown",
-                "can_materialize": True,
-                "last_materialized_at": (saved_query.last_run_at.isoformat() if saved_query.last_run_at else None),
-                "error": saved_query.latest_error or "",
-                "sync_frequency": sync_frequency_interval_to_sync_frequency(saved_query.sync_frequency_interval),
-            }
-        else:
-            can_mat, reason = current_version.can_materialize() if current_version else (False, "No version exists")
-            result["materialization"] = {
-                "can_materialize": can_mat,
-                "reason": reason if not can_mat else None,
-            }
+        if isinstance(obj, EndpointVersion):
+            result["version"] = version.version
+            result["version_id"] = str(version.id)
+            result["endpoint_is_active"] = endpoint.is_active
+            result["version_created_at"] = version.created_at.isoformat()
+            result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
 
         return result
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
-        results = [self._serialize_endpoint(endpoint, request) for endpoint in queryset]
+        results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
-        """Retrieve an endpoint."""
+        """Retrieve an endpoint, or a specific endpoint version."""
         endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name)
-        return Response(self._serialize_endpoint(endpoint, request), status=status.HTTP_200_OK)
+
+        version_number = self._parse_version_param(request)
+        if version_number is not None:
+            try:
+                version = endpoint.get_version(version_number)
+                return Response(self._serialize(version), status=status.HTTP_200_OK)
+            except EndpointVersion.DoesNotExist:
+                return Response(
+                    {"error": f"Version {version_number} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        return Response(self._serialize(endpoint, request), status=status.HTTP_200_OK)
 
     def _validate_cache_age_seconds(self, cache_age_seconds: float | None) -> None:
         """Validate cache_age_seconds is within allowed range."""
@@ -295,7 +351,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
 
             return Response(
-                self._serialize_endpoint(endpoint, request),
+                self._serialize(endpoint, request),
                 status=status.HTTP_201_CREATED,
             )
 
@@ -335,49 +391,56 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         request=EndpointRequest,
-        description="Update an existing endpoint. Parameters are optional. Use ?version=N to update a specific version's is_active status.",
+        description="Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.",
     )
     def update(self, request: Request, name: str | None = None, *args, **kwargs) -> Response:
         """Update an existing endpoint.
 
-        Supports version targeting via ?version=N query param.
-        When version is specified with is_active, updates that specific version's activation status.
+        Supports version from body or query params (body takes precedence).
+        If version is specified, updates target that specific version.
+        Otherwise, the current version is used.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
-        before_update = Endpoint.objects.get(pk=endpoint.id)
-
-        # Check for version param (query param takes precedence for version-specific updates)
-        version_param = request.query_params.get("version")
-        target_version_number: int | None = None
-        if version_param is not None:
-            try:
-                target_version_number = int(version_param)
-            except (ValueError, TypeError):
-                raise ValidationError({"version": f"Invalid version parameter: {version_param}"})
+        endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
 
-        # If targeting a specific version, handle version-specific is_active update
-        if target_version_number is not None:
-            return self._update_version(endpoint, target_version_number, data, request)
-
         self.validate_update_request(data, endpoint=endpoint, strict=False)
+
+        version_number = self._parse_version_param(request)
+        target_version_override = None
+        if version_number is not None:
+            try:
+                target_version_override = endpoint.get_version(version_number)
+            except EndpointVersion.DoesNotExist:
+                raise ValidationError(f"Version {version_number} not found")
+            if data.query is not None:
+                raise ValidationError(
+                    {
+                        "query": "Cannot change query when targeting a specific version. Query changes create a new version."
+                    }
+                )
 
         try:
             current_version = endpoint.get_version()
+            target_version = target_version_override or current_version
+
+            version_before_update = EndpointVersion.objects.get(pk=target_version.pk) if target_version else None
+            version_was_created = False
             query_changed = False
             new_query_dict = None
             if data.query is not None:
                 new_query_dict = data.query.model_dump()
                 query_changed = endpoint.has_query_changed(new_query_dict)
 
-            if data.is_active is not None:
+            # Deactivates the whole endpoint - we deactivate a version later if requested
+            if data.is_active is not None and target_version_override is None:
                 endpoint.is_active = data.is_active
             endpoint.save()
 
             final_is_active = data.is_active if data.is_active is not None else endpoint.is_active
-            was_materialized = bool(current_version and current_version.is_materialized and current_version.saved_query)
+            was_materialized = bool(current_version.is_materialized and current_version.saved_query)
 
             # Step 1: Handle deactivation (disables materialization, prevents any materialization operations)
             if not final_is_active and was_materialized:
@@ -386,48 +449,104 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             # Step 2: Handle query changes and versioning (independent of active/materialization state)
             old_sync_frequency: DataWarehouseSyncInterval | None = None
             if query_changed and new_query_dict is not None:
-                if was_materialized and current_version and current_version.saved_query:
+                if was_materialized and current_version.saved_query:
                     frequency_str = sync_frequency_interval_to_sync_frequency(
                         current_version.saved_query.sync_frequency_interval
                     )
                     if frequency_str:
                         old_sync_frequency = DataWarehouseSyncInterval(frequency_str)
-                    self._disable_materialization(endpoint, current_version)
 
                 new_version = endpoint.create_new_version(query=new_query_dict, user=cast(User, request.user))
+                version_was_created = True
                 current_version = new_version
+                target_version = new_version
 
-            # Step 3: Update version-level fields on ALL versions (these are still endpoint-level settings)
-            # Using explicit kwargs to avoid semgrep ORM injection warning
-            if data.description is not None:
-                endpoint.versions.update(description=data.description)
-            if "cache_age_seconds" in request.data:
-                endpoint.versions.update(cache_age_seconds=data.cache_age_seconds)
+            # Step 3: Update version-level fields on target version
+            if target_version:
+                update_fields = []
+                if data.description is not None:
+                    target_version.description = data.description
+                    update_fields.append("description")
+                if "cache_age_seconds" in request.data:
+                    target_version.cache_age_seconds = data.cache_age_seconds
+                    update_fields.append("cache_age_seconds")
+                # When targeting a specific version, is_active updates the version
+                if data.is_active is not None and target_version_override is not None:
+                    target_version.is_active = data.is_active
+                    update_fields.append("is_active")
+                if update_fields:
+                    target_version.save(update_fields=update_fields)
 
             # Step 4: Handle materialization state (only if endpoint should be active)
-            if final_is_active and current_version:
-                should_enable = data.is_materialized is True or (data.is_materialized is None and was_materialized)
+            if final_is_active and target_version:
+                # When targeting a specific version, check that version's materialization state
+                # Otherwise use was_materialized (state before this update) to support materialization transfer
+                if target_version_override is not None:
+                    check_was_materialized = bool(target_version.is_materialized and target_version.saved_query)
+                else:
+                    check_was_materialized = was_materialized
+
+                should_enable = data.is_materialized is True or (
+                    data.is_materialized is None and check_was_materialized
+                )
                 should_disable = data.is_materialized is False
 
                 if should_enable:
                     sync_frequency = data.sync_frequency or old_sync_frequency or DataWarehouseSyncInterval.FIELD_24HOUR
-                    self._enable_materialization(endpoint, sync_frequency, request, current_version)
+                    self._enable_materialization(endpoint, sync_frequency, request, target_version)
                 elif should_disable:
-                    self._disable_materialization(endpoint, current_version)
+                    self._disable_materialization(endpoint, target_version)
 
-            changes = changes_between("Endpoint", previous=before_update, current=endpoint)
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team.id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=str(endpoint.id),
-                scope="Endpoint",
-                activity="updated",
-                detail=Detail(name=endpoint.name, changes=changes),
-            )
+            endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
+            if endpoint_changes:
+                # endpoint-level activity
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team.id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=str(endpoint.id),
+                    scope="Endpoint",
+                    activity="updated",
+                    detail=Detail(name=f"Endpoint has been updated.", changes=endpoint_changes),
+                )
 
-            return Response(self._serialize_endpoint(endpoint, request))
+            # version-level activity
+            if version_was_created:
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team.id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=str(endpoint.id),
+                    scope="Endpoint",
+                    activity="version_created",
+                    detail=Detail(name=f"New endpoint version ({target_version.version}) has been created."),
+                )
+            elif target_version and version_before_update:
+                version_changes = changes_between(
+                    "EndpointVersion", previous=version_before_update, current=target_version
+                )
+
+                if version_changes:
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team.id,
+                        user=cast(User, request.user),
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=str(endpoint.id),
+                        scope="EndpointVersion",
+                        activity="version_updated",
+                        detail=Detail(
+                            name=f"Endpoint version {target_version.version} has been updated.",
+                            changes=version_changes,
+                        ),
+                    )
+
+            # When targeting a specific version, return version data; otherwise return endpoint data
+            if target_version_override is not None:
+                return Response(self._serialize(target_version))
+            return Response(self._serialize(endpoint, request))
 
         except Exception as e:
             current_version = endpoint.get_version()
@@ -442,47 +561,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise ValidationError("Failed to update endpoint.")
 
-    def _update_version(
-        self,
-        endpoint: Endpoint,
-        version_number: int,
-        data: EndpointRequest,
-        request: Request,
-    ) -> Response:
-        """Update a specific version's properties."""
-        try:
-            version_obj = endpoint.get_version(version_number)
-        except EndpointVersion.DoesNotExist:
-            return Response(
-                {"error": f"Version {version_number} not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Capture state before update for activity logging
-        before_update = EndpointVersion.objects.get(pk=version_obj.pk)
-
-        # Update is_active if provided
-        if data.is_active is not None:
-            if not isinstance(data.is_active, bool):
-                raise ValidationError({"is_active": "Must be a boolean"})
-            version_obj.is_active = data.is_active
-            version_obj.save(update_fields=["is_active"])
-
-        changes = changes_between("EndpointVersion", previous=before_update, current=version_obj)
-        if changes:
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team.id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=str(endpoint.id),
-                scope="EndpointVersion",
-                activity="version_updated",
-                detail=Detail(name=endpoint.name, changes=changes),
-            )
-
-        return Response(self._serialize_endpoint_version(version_obj))
-
     def _enable_materialization(
         self,
         endpoint: Endpoint,
@@ -493,6 +571,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """Enable materialization for an endpoint version.
 
         If version is not specified, uses the current version.
+        Each version gets its own saved_query with naming: {endpoint_name}_v{version}
         """
         version = version or endpoint.get_version()
 
@@ -500,10 +579,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint: {reason}")
 
-        saved_query = DataWarehouseSavedQuery.objects.filter(name=endpoint.name, team=self.team, deleted=False).first()
+        # Per-version naming allows independent materialization for each version
+        saved_query_name = f"{endpoint.name}_v{version.version}"
+        saved_query = DataWarehouseSavedQuery.objects.filter(
+            name=saved_query_name, team=self.team, deleted=False
+        ).first()
         if saved_query is None:
             saved_query = DataWarehouseSavedQuery(
-                name=endpoint.name,
+                name=saved_query_name,
                 team=self.team,
                 origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
             )
@@ -1047,17 +1130,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         tag_queries(client_query_id=query_id)
 
-    def _serialize_endpoint_version(self, version: EndpointVersion) -> dict:
-        """Serialize an EndpointVersion object."""
-        return {
-            "id": str(version.id),
-            "version": version.version,
-            "query": version.query,
-            "is_active": version.is_active,
-            "created_at": version.created_at.isoformat(),
-            "created_by": UserBasicSerializer(version.created_by).data if version.created_by else None,
-        }
-
     @extend_schema(
         description="List all versions for an endpoint.",
     )
@@ -1070,26 +1142,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
         versions = endpoint.versions.all()
 
-        results = [self._serialize_endpoint_version(v) for v in versions]
+        results = [self._serialize(v) for v in versions]
         return Response(results)
-
-    @extend_schema(
-        description="Get details of a specific endpoint version.",
-    )
-    @action(methods=["GET"], detail=True, url_path=r"versions/(?P<version_number>[0-9]+)")
-    def version_detail(self, request: Request, name=None, version_number=None, *args, **kwargs) -> Response:
-        """Get details of a specific version."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
-
-        try:
-            version_obj = endpoint.get_version(int(version_number))
-        except EndpointVersion.DoesNotExist:
-            return Response(
-                {"error": f"Version {version_number} not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        return Response(self._serialize_endpoint_version(version_obj))
 
     @extend_schema(
         description="Get materialization status for an endpoint.",
@@ -1099,25 +1153,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """Get materialization status for an endpoint without fetching full endpoint data."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
         current_version = endpoint.get_version()
-        is_materialized = bool(current_version.is_materialized and current_version.saved_query)
-
-        if is_materialized and current_version and current_version.saved_query:
-            saved_query = current_version.saved_query
-            result = {
-                "status": saved_query.status or "Unknown",
-                "can_materialize": True,
-                "last_materialized_at": (saved_query.last_run_at.isoformat() if saved_query.last_run_at else None),
-                "error": saved_query.latest_error or "",
-                "sync_frequency": sync_frequency_interval_to_sync_frequency(saved_query.sync_frequency_interval),
-            }
-        else:
-            can_mat, reason = current_version.can_materialize() if current_version else (False, "No version exists")
-            result = {
-                "can_materialize": can_mat,
-                "reason": reason if not can_mat else None,
-            }
-
-        return Response(result)
+        return Response(self._build_materialization_info(current_version))
 
     @extend_schema(
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
@@ -1128,7 +1164,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Returns a spec that can be used with tools like openapi-generator,
         `@hey-api/openapi-ts`, or any other OpenAPI-compatible SDK generator.
+
+        Supports ?version=N query param to generate spec for a specific version.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
-        spec = generate_openapi_spec(endpoint, self.team.id, request)
+
+        version = None
+        version_number = self._parse_version_param(request)
+        if version_number is not None:
+            try:
+                version = endpoint.get_version(version_number)
+            except EndpointVersion.DoesNotExist:
+                return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        spec = generate_openapi_spec(endpoint, self.team.id, request, version)
         return Response(spec, content_type="application/json")
