@@ -123,7 +123,6 @@ def sync_execute(
     *,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
-    no_team_id: Optional[bool] = False,
     readonly=False,
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
