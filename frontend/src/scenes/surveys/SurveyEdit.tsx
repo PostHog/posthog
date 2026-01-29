@@ -232,7 +232,6 @@ function SurveyCompletionConditions(): JSX.Element {
     )
 }
 
-// Helper to format field names for display
 function formatFieldName(field: string): string {
     const fieldNameMap: Record<string, string> = {
         name: 'Survey name',
@@ -247,7 +246,6 @@ function formatFieldName(field: string): string {
         link: 'Link URL',
     }
 
-    // Handle choices[n] format
     const choiceMatch = field.match(/^choices\[(\d+)\]$/)
     if (choiceMatch) {
         return `Choice ${parseInt(choiceMatch[1]) + 1}`
@@ -345,7 +343,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     const [showFlowModal, setShowFlowModal] = useState(false)
 
-    // Auto-expand Steps panel when a language is selected for translation or when returning to default
     useEffect(() => {
         if (editingLanguage !== undefined) {
             setSelectedSection(SurveyEditSection.Steps)
@@ -479,7 +476,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 content: (
                                     <div className="text-sm">
                                         {(() => {
-                                            // Group errors by language
                                             const errorsByLanguage = translationValidationErrors.reduce(
                                                 (acc, error) => {
                                                     const lang = error.language
