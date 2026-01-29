@@ -671,3 +671,21 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             "The insight value (Double Pageviews) for current interval (2.0) is more than upper threshold (1.0)"
             in anomalies_descriptions[0]
         )
+
+    def test_alert_is_not_triggered_when_insight_deleted(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.set_thresholds(lower=1)
+
+        # Soft-delete the insight
+        from posthog.models.insight import Insight
+
+        insight = Insight.objects_including_soft_deleted.get(id=self.insight["id"])
+        insight.deleted = True
+        insight.save()
+
+        # Alert should be skipped without error
+        check_alert(self.alert["id"])
+        assert mock_send_notifications_for_breaches.call_count == 0
+        assert mock_send_errors.call_count == 0
+        assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0
