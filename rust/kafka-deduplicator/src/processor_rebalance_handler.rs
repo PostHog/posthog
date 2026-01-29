@@ -18,12 +18,12 @@ use crate::metrics_const::{
     REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_PARTITION_STATE_CHANGE,
     REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
-use crate::rebalance_coordinator::RebalanceCoordinator;
+use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
 
 /// Rebalance handler that coordinates store cleanup and partition workers.
 ///
-/// Partition ownership is tracked in RebalanceCoordinator (the single source of truth).
+/// Partition ownership is tracked in RebalanceTracker (the single source of truth).
 /// This handler updates ownership and uses it to determine which partitions to
 /// resume and which to cleanup.
 pub struct ProcessorRebalanceHandler<T, P>
@@ -32,7 +32,7 @@ where
     P: BatchConsumerProcessor<T> + 'static,
 {
     store_manager: Arc<StoreManager>,
-    rebalance_coordinator: Arc<RebalanceCoordinator>,
+    rebalance_tracker: Arc<RebalanceTracker>,
     router: Option<Arc<PartitionRouter<T, P>>>,
     offset_tracker: Arc<OffsetTracker>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
@@ -45,13 +45,13 @@ where
 {
     pub fn new(
         store_manager: Arc<StoreManager>,
-        rebalance_coordinator: Arc<RebalanceCoordinator>,
+        rebalance_tracker: Arc<RebalanceTracker>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
-            rebalance_coordinator,
+            rebalance_tracker,
             router: None,
             offset_tracker,
             checkpoint_importer,
@@ -60,14 +60,14 @@ where
 
     pub fn with_router(
         store_manager: Arc<StoreManager>,
-        rebalance_coordinator: Arc<RebalanceCoordinator>,
+        rebalance_tracker: Arc<RebalanceTracker>,
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
     ) -> Self {
         Self {
             store_manager,
-            rebalance_coordinator,
+            rebalance_tracker,
             router: Some(router),
             offset_tracker,
             checkpoint_importer,
@@ -91,7 +91,7 @@ where
         cancel_token: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
         let store_manager = self.store_manager.clone();
-        let coordinator = self.rebalance_coordinator.clone();
+        let coordinator = self.rebalance_tracker.clone();
         let importer = self.checkpoint_importer.clone();
 
         tokio::spawn(async move {
@@ -250,7 +250,7 @@ where
 
         // Add to owned partitions FIRST (coordinator is the source of truth)
         // If partition was revoked then re-assigned, this adds it back
-        self.rebalance_coordinator
+        self.rebalance_tracker
             .add_owned_partitions(&partition_infos);
 
         // Create partition workers BEFORE messages can arrive
@@ -266,7 +266,7 @@ where
 
         // Increment rebalancing counter SYNCHRONOUSLY before async work is queued
         // This ensures no gap where orphan cleanup could run
-        self.rebalance_coordinator.start_rebalancing();
+        self.rebalance_tracker.start_rebalancing();
 
         // NOTE: Per-partition setup tasks are spawned in async_setup_assigned_partitions,
         // not here (sync callback can't do async work like checkpoint import)
@@ -298,14 +298,13 @@ where
 
         // Remove from owned partitions (coordinator is the source of truth)
         // This happens BEFORE async cleanup, so cleanup can check ownership
-        self.rebalance_coordinator
+        self.rebalance_tracker
             .remove_owned_partitions(&partition_infos);
 
         // CANCEL and remove setup tasks for revoked partitions
         // This immediately cancels any in-flight S3 downloads to save cost/time
         // Tasks will also check is_partition_owned() as a backup
-        self.rebalance_coordinator
-            .cancel_setup_tasks(&partition_infos);
+        self.rebalance_tracker.cancel_setup_tasks(&partition_infos);
 
         // Unregister stores from DashMap BEFORE revocation completes
         // This prevents new store creation during shutdown (Step 1 of two-step cleanup)
@@ -334,7 +333,7 @@ where
     ) -> Result<()> {
         // Get ALL owned partitions (not just incremental from this rebalance)
         // This handles retained partitions across overlapping rebalances
-        let owned_partitions = self.rebalance_coordinator.get_owned_partitions();
+        let owned_partitions = self.rebalance_tracker.get_owned_partitions();
 
         debug!(
             owned_count = owned_partitions.len(),
@@ -348,13 +347,13 @@ where
             let cancel_token = CancellationToken::new();
             // Atomically claim the partition - if another rebalance already claimed it, skip
             if self
-                .rebalance_coordinator
+                .rebalance_tracker
                 .try_claim_partition_setup(partition, cancel_token.clone())
             {
                 // We claimed it - now spawn the task and finalize registration
                 let handle =
                     self.spawn_partition_setup_task(partition.clone(), cancel_token.clone());
-                self.rebalance_coordinator
+                self.rebalance_tracker
                     .finalize_partition_setup(partition, handle);
             }
             // If claim failed, another rebalance already owns this partition's setup
@@ -363,16 +362,16 @@ where
         // Wait for ALL owned partition tasks to complete
         // This ensures stores are ready before we resume
         for partition in &owned_partitions {
-            if let Some(handle) = self.rebalance_coordinator.get_setup_task(partition) {
+            if let Some(handle) = self.rebalance_tracker.get_setup_task(partition) {
                 let _ = handle.await; // Ignore panic result - task handles its own errors
-                self.rebalance_coordinator.complete_setup_task(partition);
+                self.rebalance_tracker.complete_setup_task(partition);
             }
         }
 
         // Create fallback stores for any owned partitions that don't have a registered store.
         // This handles cases where checkpoint import failed, was cancelled, or was disabled.
         // Centralizing this here ensures consistent logging/metrics and catches edge cases.
-        let current_owned = self.rebalance_coordinator.get_owned_partitions();
+        let current_owned = self.rebalance_tracker.get_owned_partitions();
         for partition in &current_owned {
             if self
                 .store_manager
@@ -406,12 +405,12 @@ where
         }
 
         // Decrement rebalancing counter
-        self.rebalance_coordinator.finish_rebalancing();
+        self.rebalance_tracker.finish_rebalancing();
 
         // Only send Resume if this is the LAST rebalance (counter == 0)
         // This ensures all overlapping rebalances complete before resuming
-        if !self.rebalance_coordinator.is_rebalancing() {
-            let owned = self.rebalance_coordinator.get_owned_partitions();
+        if !self.rebalance_tracker.is_rebalancing() {
+            let owned = self.rebalance_tracker.get_owned_partitions();
             if owned.is_empty() {
                 info!("No owned partitions to resume");
                 metrics::counter!(REBALANCE_RESUME_SKIPPED_NO_OWNED).increment(1);
@@ -448,7 +447,7 @@ where
         // Only clean up partitions that are NOT currently owned
         // If a partition was re-assigned, it's now owned and shouldn't be cleaned up
         let partitions_to_cleanup = self
-            .rebalance_coordinator
+            .rebalance_tracker
             .get_unowned_partitions(&partition_infos);
 
         let skipped_count = partition_infos.len() - partitions_to_cleanup.len();
@@ -498,17 +497,17 @@ where
     }
 
     async fn on_pre_rebalance(&self) -> Result<()> {
-        // Note: rebalance_coordinator.start_rebalancing() is called in setup_assigned_partitions()
+        // Note: rebalance_tracker.start_rebalancing() is called in setup_assigned_partitions()
         // (sync callback) to ensure no gap before async work is queued.
-        // The rebalance_coordinator's counter is the single source of truth.
+        // The rebalance_tracker's counter is the single source of truth.
         Ok(())
     }
 
     async fn on_post_rebalance(&self) -> Result<()> {
         info!("Post-rebalance: Sync callbacks complete, async cleanup may continue");
-        // Note: rebalance_coordinator counter is decremented via RebalancingGuard
+        // Note: rebalance_tracker counter is decremented via RebalancingGuard
         // at the end of async_setup_assigned_partitions (ensures panic safety).
-        // The rebalance_coordinator's rebalancing counter is the single source of truth.
+        // The rebalance_tracker's rebalancing counter is the single source of truth.
 
         // Log current stats
         let store_count = self.store_manager.stores().len();
@@ -529,7 +528,7 @@ mod tests {
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
     use crate::store::DeduplicationStoreConfig;
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
     use rdkafka::Offset;
     use tempfile::TempDir;
 
@@ -549,7 +548,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -587,7 +586,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
@@ -648,7 +647,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
@@ -716,7 +715,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store
@@ -752,7 +751,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let processor = Arc::new(TestProcessor);
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
@@ -816,7 +815,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator));
 
         // Create a store (this creates the directory)
@@ -853,7 +852,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -898,7 +897,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -959,7 +958,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1040,7 +1039,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1139,7 +1138,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1189,7 +1188,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1268,7 +1267,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -1375,7 +1374,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
         };
-        let coordinator = create_test_coordinator();
+        let coordinator = create_test_tracker();
         let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
         let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 

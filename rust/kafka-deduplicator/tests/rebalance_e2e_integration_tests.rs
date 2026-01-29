@@ -48,7 +48,7 @@ use kafka_deduplicator::kafka::{
 use kafka_deduplicator::processor_rebalance_handler::ProcessorRebalanceHandler;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
-use kafka_deduplicator::test_utils::create_test_coordinator;
+use kafka_deduplicator::test_utils::create_test_tracker;
 
 // Infrastructure configuration matching docker-compose.dev.yml
 const KAFKA_BROKERS: &str = "localhost:9092";
@@ -356,7 +356,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         path: tmp_consumer_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let coordinator = create_test_coordinator();
+    let coordinator = create_test_tracker();
     let store_manager = Arc::new(StoreManager::new(
         consumer_store_config,
         coordinator.clone(),
@@ -501,7 +501,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let coordinator = create_test_coordinator();
+    let coordinator = create_test_tracker();
     let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 
@@ -590,7 +590,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
         path: tmp_store_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
     };
-    let coordinator = create_test_coordinator();
+    let coordinator = create_test_tracker();
     let store_manager = Arc::new(StoreManager::new(store_config, coordinator.clone()));
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator.clone()));
 

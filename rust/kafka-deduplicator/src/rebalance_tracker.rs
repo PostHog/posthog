@@ -1,12 +1,12 @@
-//! Rebalance coordination for Kafka consumer group rebalances.
+//! Rebalance tracking for Kafka consumer group rebalances.
 //!
-//! This module provides a lightweight coordinator for tracking rebalance state across
-//! multiple components. It uses a counter (not a boolean) to correctly handle overlapping
-//! rebalances - a new rebalance can start before the previous one's async work completes.
+//! This module provides a lightweight tracker for rebalance state across multiple components.
+//! It uses a counter (not a boolean) to correctly handle overlapping rebalances - a new
+//! rebalance can start before the previous one's async work completes.
 //!
 //! # Usage
 //!
-//! The coordinator should be created first during service initialization and shared with
+//! The tracker should be created first during service initialization and shared with
 //! components that need to check or modify rebalance state:
 //!
 //! - `ProcessorRebalanceHandler`: Calls `start_rebalancing()` when partitions are assigned
@@ -63,13 +63,13 @@ struct PartitionSetupTask {
     cancel_token: CancellationToken,
 }
 
-/// Coordinates rebalance state across multiple components.
+/// Tracks rebalance state across multiple components.
 ///
 /// This is a lightweight struct that can be cheaply cloned via `Arc`.
 /// It provides the single source of truth for:
 /// - Whether a rebalance is in progress (counter-based for overlapping rebalances)
 /// - Which partitions are currently owned by this consumer
-pub struct RebalanceCoordinator {
+pub struct RebalanceTracker {
     /// Counter tracking the number of in-progress rebalances.
     /// Using a counter (not bool) correctly handles overlapping rebalances.
     rebalancing_count: AtomicUsize,
@@ -85,8 +85,8 @@ pub struct RebalanceCoordinator {
     partition_setup_tasks: DashMap<Partition, PartitionSetupTask>,
 }
 
-impl RebalanceCoordinator {
-    /// Create a new coordinator with the counter initialized to 0 and no owned partitions.
+impl RebalanceTracker {
+    /// Create a new tracker with the counter initialized to 0 and no owned partitions.
     pub fn new() -> Self {
         Self {
             rebalancing_count: AtomicUsize::new(0),
@@ -149,16 +149,16 @@ impl RebalanceCoordinator {
     /// # Example
     ///
     /// ```ignore
-    /// coordinator.start_rebalancing(); // Called in sync callback
+    /// tracker.start_rebalancing(); // Called in sync callback
     ///
     /// // In async work:
-    /// let _guard = coordinator.rebalancing_guard();
+    /// let _guard = tracker.rebalancing_guard();
     /// // ... do async work ...
     /// // guard drops here, calling finish_rebalancing()
     /// ```
     pub fn rebalancing_guard(self: &Arc<Self>) -> RebalancingGuard {
         RebalancingGuard {
-            coordinator: Arc::clone(self),
+            tracker: Arc::clone(self),
         }
     }
 
@@ -355,7 +355,7 @@ impl RebalanceCoordinator {
     }
 }
 
-impl Default for RebalanceCoordinator {
+impl Default for RebalanceTracker {
     fn default() -> Self {
         Self::new()
     }
@@ -364,14 +364,14 @@ impl Default for RebalanceCoordinator {
 /// RAII guard that decrements the rebalancing counter when dropped.
 ///
 /// This ensures the counter is decremented even if the async work panics or is cancelled.
-/// Create via `RebalanceCoordinator::rebalancing_guard()`.
+/// Create via `RebalanceTracker::rebalancing_guard()`.
 pub struct RebalancingGuard {
-    coordinator: Arc<RebalanceCoordinator>,
+    tracker: Arc<RebalanceTracker>,
 }
 
 impl Drop for RebalancingGuard {
     fn drop(&mut self) {
-        self.coordinator.finish_rebalancing();
+        self.tracker.finish_rebalancing();
     }
 }
 
@@ -381,92 +381,92 @@ mod tests {
     use crate::kafka::types::Partition;
 
     #[test]
-    fn test_new_coordinator_not_rebalancing() {
-        let coordinator = RebalanceCoordinator::new();
-        assert!(!coordinator.is_rebalancing());
-        assert_eq!(coordinator.rebalancing_count(), 0);
+    fn test_new_tracker_not_rebalancing() {
+        let tracker = RebalanceTracker::new();
+        assert!(!tracker.is_rebalancing());
+        assert_eq!(tracker.rebalancing_count(), 0);
     }
 
     #[test]
     fn test_start_and_finish_rebalancing() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
 
-        coordinator.start_rebalancing();
-        assert!(coordinator.is_rebalancing());
-        assert_eq!(coordinator.rebalancing_count(), 1);
+        tracker.start_rebalancing();
+        assert!(tracker.is_rebalancing());
+        assert_eq!(tracker.rebalancing_count(), 1);
 
-        coordinator.finish_rebalancing();
-        assert!(!coordinator.is_rebalancing());
-        assert_eq!(coordinator.rebalancing_count(), 0);
+        tracker.finish_rebalancing();
+        assert!(!tracker.is_rebalancing());
+        assert_eq!(tracker.rebalancing_count(), 0);
     }
 
     #[test]
     fn test_overlapping_rebalances() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
 
         // Rebalance A starts
-        coordinator.start_rebalancing();
-        assert_eq!(coordinator.rebalancing_count(), 1);
+        tracker.start_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 1);
 
         // Rebalance B starts before A finishes
-        coordinator.start_rebalancing();
-        assert_eq!(coordinator.rebalancing_count(), 2);
-        assert!(coordinator.is_rebalancing());
+        tracker.start_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 2);
+        assert!(tracker.is_rebalancing());
 
         // Rebalance A finishes
-        coordinator.finish_rebalancing();
-        assert_eq!(coordinator.rebalancing_count(), 1);
-        assert!(coordinator.is_rebalancing()); // Still rebalancing!
+        tracker.finish_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 1);
+        assert!(tracker.is_rebalancing()); // Still rebalancing!
 
         // Rebalance B finishes
-        coordinator.finish_rebalancing();
-        assert_eq!(coordinator.rebalancing_count(), 0);
-        assert!(!coordinator.is_rebalancing());
+        tracker.finish_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 0);
+        assert!(!tracker.is_rebalancing());
     }
 
     #[test]
     fn test_rebalancing_guard_decrements_on_drop() {
-        let coordinator = Arc::new(RebalanceCoordinator::new());
+        let tracker = Arc::new(RebalanceTracker::new());
 
-        coordinator.start_rebalancing();
-        assert_eq!(coordinator.rebalancing_count(), 1);
+        tracker.start_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 1);
 
         {
-            let _guard = coordinator.rebalancing_guard();
-            assert_eq!(coordinator.rebalancing_count(), 1);
+            let _guard = tracker.rebalancing_guard();
+            assert_eq!(tracker.rebalancing_count(), 1);
         } // guard drops here
 
-        assert_eq!(coordinator.rebalancing_count(), 0);
-        assert!(!coordinator.is_rebalancing());
+        assert_eq!(tracker.rebalancing_count(), 0);
+        assert!(!tracker.is_rebalancing());
     }
 
     #[test]
     fn test_guard_with_overlapping_rebalances() {
-        let coordinator = Arc::new(RebalanceCoordinator::new());
+        let tracker = Arc::new(RebalanceTracker::new());
 
         // Rebalance A
-        coordinator.start_rebalancing();
-        let _guard_a = coordinator.rebalancing_guard();
+        tracker.start_rebalancing();
+        let _guard_a = tracker.rebalancing_guard();
 
         // Rebalance B
-        coordinator.start_rebalancing();
-        let _guard_b = coordinator.rebalancing_guard();
+        tracker.start_rebalancing();
+        let _guard_b = tracker.rebalancing_guard();
 
-        assert_eq!(coordinator.rebalancing_count(), 2);
+        assert_eq!(tracker.rebalancing_count(), 2);
 
         drop(_guard_a);
-        assert_eq!(coordinator.rebalancing_count(), 1);
-        assert!(coordinator.is_rebalancing());
+        assert_eq!(tracker.rebalancing_count(), 1);
+        assert!(tracker.is_rebalancing());
 
         drop(_guard_b);
-        assert_eq!(coordinator.rebalancing_count(), 0);
-        assert!(!coordinator.is_rebalancing());
+        assert_eq!(tracker.rebalancing_count(), 0);
+        assert!(!tracker.is_rebalancing());
     }
 
     #[test]
     fn test_default_impl() {
-        let coordinator = RebalanceCoordinator::default();
-        assert!(!coordinator.is_rebalancing());
+        let tracker = RebalanceTracker::default();
+        assert!(!tracker.is_rebalancing());
     }
 
     // ============================================
@@ -475,47 +475,47 @@ mod tests {
 
     #[test]
     fn test_owned_partitions_initially_empty() {
-        let coordinator = RebalanceCoordinator::new();
-        assert!(coordinator.get_owned_partitions().is_empty());
-        assert_eq!(coordinator.owned_partition_count(), 0);
+        let tracker = RebalanceTracker::new();
+        assert!(tracker.get_owned_partitions().is_empty());
+        assert_eq!(tracker.owned_partition_count(), 0);
     }
 
     #[test]
     fn test_add_and_remove_owned_partitions() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let p1 = Partition::new("topic".to_string(), 1);
 
         // Add partitions
-        coordinator.add_owned_partitions(&[p0.clone(), p1.clone()]);
-        assert_eq!(coordinator.owned_partition_count(), 2);
-        assert!(coordinator.is_partition_owned(&p0));
-        assert!(coordinator.is_partition_owned(&p1));
+        tracker.add_owned_partitions(&[p0.clone(), p1.clone()]);
+        assert_eq!(tracker.owned_partition_count(), 2);
+        assert!(tracker.is_partition_owned(&p0));
+        assert!(tracker.is_partition_owned(&p1));
 
         // Remove one partition
-        coordinator.remove_owned_partitions(std::slice::from_ref(&p1));
-        assert_eq!(coordinator.owned_partition_count(), 1);
-        assert!(coordinator.is_partition_owned(&p0));
-        assert!(!coordinator.is_partition_owned(&p1));
+        tracker.remove_owned_partitions(std::slice::from_ref(&p1));
+        assert_eq!(tracker.owned_partition_count(), 1);
+        assert!(tracker.is_partition_owned(&p0));
+        assert!(!tracker.is_partition_owned(&p1));
 
         // Remove the other
-        coordinator.remove_owned_partitions(std::slice::from_ref(&p0));
-        assert_eq!(coordinator.owned_partition_count(), 0);
-        assert!(!coordinator.is_partition_owned(&p0));
+        tracker.remove_owned_partitions(std::slice::from_ref(&p0));
+        assert_eq!(tracker.owned_partition_count(), 0);
+        assert!(!tracker.is_partition_owned(&p0));
     }
 
     #[test]
     fn test_get_unowned_partitions() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let p1 = Partition::new("topic".to_string(), 1);
         let p2 = Partition::new("topic".to_string(), 2);
 
         // Add p0 only
-        coordinator.add_owned_partitions(std::slice::from_ref(&p0));
+        tracker.add_owned_partitions(std::slice::from_ref(&p0));
 
         // Query for unowned among [p0, p1, p2]
-        let unowned = coordinator.get_unowned_partitions(&[p0.clone(), p1.clone(), p2.clone()]);
+        let unowned = tracker.get_unowned_partitions(&[p0.clone(), p1.clone(), p2.clone()]);
         assert_eq!(unowned.len(), 2);
         assert!(!unowned.contains(&p0));
         assert!(unowned.contains(&p1));
@@ -524,54 +524,54 @@ mod tests {
 
     #[test]
     fn test_idempotent_add_remove() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
 
         // Adding twice should be idempotent
-        coordinator.add_owned_partitions(std::slice::from_ref(&p0));
-        coordinator.add_owned_partitions(std::slice::from_ref(&p0));
-        assert_eq!(coordinator.owned_partition_count(), 1);
+        tracker.add_owned_partitions(std::slice::from_ref(&p0));
+        tracker.add_owned_partitions(std::slice::from_ref(&p0));
+        assert_eq!(tracker.owned_partition_count(), 1);
 
         // Removing twice should be idempotent
-        coordinator.remove_owned_partitions(std::slice::from_ref(&p0));
-        coordinator.remove_owned_partitions(std::slice::from_ref(&p0));
-        assert!(coordinator.get_owned_partitions().is_empty());
+        tracker.remove_owned_partitions(std::slice::from_ref(&p0));
+        tracker.remove_owned_partitions(std::slice::from_ref(&p0));
+        assert!(tracker.get_owned_partitions().is_empty());
     }
 
     #[test]
     fn test_rapid_revoke_assign_ownership() {
         // Simulates rapid revoke -> assign scenario
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
 
         // Initial assignment
-        coordinator.add_owned_partitions(std::slice::from_ref(&p0));
-        assert!(coordinator.is_partition_owned(&p0));
+        tracker.add_owned_partitions(std::slice::from_ref(&p0));
+        assert!(tracker.is_partition_owned(&p0));
 
         // Revoke
-        coordinator.remove_owned_partitions(std::slice::from_ref(&p0));
-        assert!(!coordinator.is_partition_owned(&p0));
+        tracker.remove_owned_partitions(std::slice::from_ref(&p0));
+        assert!(!tracker.is_partition_owned(&p0));
 
         // Immediate re-assign
-        coordinator.add_owned_partitions(std::slice::from_ref(&p0));
-        assert!(coordinator.is_partition_owned(&p0));
+        tracker.add_owned_partitions(std::slice::from_ref(&p0));
+        assert!(tracker.is_partition_owned(&p0));
 
         // Partition should be owned and NOT in unowned list
-        let unowned = coordinator.get_unowned_partitions(std::slice::from_ref(&p0));
+        let unowned = tracker.get_unowned_partitions(std::slice::from_ref(&p0));
         assert!(unowned.is_empty());
     }
 
     #[test]
     fn test_empty_operations() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
 
         // Empty add/remove should be no-ops
-        coordinator.add_owned_partitions(&[]);
-        coordinator.remove_owned_partitions(&[]);
-        assert_eq!(coordinator.owned_partition_count(), 0);
+        tracker.add_owned_partitions(&[]);
+        tracker.remove_owned_partitions(&[]);
+        assert_eq!(tracker.owned_partition_count(), 0);
 
         // Empty unowned query
-        let unowned = coordinator.get_unowned_partitions(&[]);
+        let unowned = tracker.get_unowned_partitions(&[]);
         assert!(unowned.is_empty());
     }
 
@@ -581,120 +581,120 @@ mod tests {
 
     #[test]
     fn test_try_claim_partition_setup_success() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let token = CancellationToken::new();
 
         // First claim should succeed
-        assert!(coordinator.try_claim_partition_setup(&p0, token));
+        assert!(tracker.try_claim_partition_setup(&p0, token));
 
         // has_setup_task should return true (claimed)
-        assert!(coordinator.has_setup_task(&p0));
+        assert!(tracker.has_setup_task(&p0));
 
         // get_setup_task should return None (not yet finalized)
-        assert!(coordinator.get_setup_task(&p0).is_none());
+        assert!(tracker.get_setup_task(&p0).is_none());
     }
 
     #[test]
     fn test_try_claim_partition_setup_already_claimed() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let token1 = CancellationToken::new();
         let token2 = CancellationToken::new();
 
         // First claim succeeds
-        assert!(coordinator.try_claim_partition_setup(&p0, token1));
+        assert!(tracker.try_claim_partition_setup(&p0, token1));
 
         // Second claim fails (already claimed)
-        assert!(!coordinator.try_claim_partition_setup(&p0, token2));
+        assert!(!tracker.try_claim_partition_setup(&p0, token2));
     }
 
     #[tokio::test]
     async fn test_finalize_partition_setup() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let token = CancellationToken::new();
 
         // Claim the partition
-        assert!(coordinator.try_claim_partition_setup(&p0, token));
-        assert!(coordinator.get_setup_task(&p0).is_none()); // Not yet finalized
+        assert!(tracker.try_claim_partition_setup(&p0, token));
+        assert!(tracker.get_setup_task(&p0).is_none()); // Not yet finalized
 
         // Spawn a simple task
         let handle = tokio::spawn(async { /* do nothing */ });
 
         // Finalize with the handle
-        coordinator.finalize_partition_setup(&p0, handle);
+        tracker.finalize_partition_setup(&p0, handle);
 
         // Now get_setup_task should return Some
-        assert!(coordinator.get_setup_task(&p0).is_some());
+        assert!(tracker.get_setup_task(&p0).is_some());
 
         // Can await the task
-        let task = coordinator.get_setup_task(&p0).unwrap();
+        let task = tracker.get_setup_task(&p0).unwrap();
         task.await;
     }
 
     #[test]
     fn test_cancel_claimed_but_not_finalized_task() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let token = CancellationToken::new();
 
         // Claim but don't finalize
-        assert!(coordinator.try_claim_partition_setup(&p0, token.clone()));
+        assert!(tracker.try_claim_partition_setup(&p0, token.clone()));
         assert!(!token.is_cancelled());
 
         // Cancel should work even on claimed-but-not-finalized tasks
-        coordinator.cancel_setup_tasks(std::slice::from_ref(&p0));
+        tracker.cancel_setup_tasks(std::slice::from_ref(&p0));
 
         // Token should be cancelled
         assert!(token.is_cancelled());
 
         // Task should be removed
-        assert!(!coordinator.has_setup_task(&p0));
+        assert!(!tracker.has_setup_task(&p0));
     }
 
     #[test]
     fn test_overlapping_rebalances_cannot_claim_same_partition() {
         // Simulates the race condition we're preventing:
         // Two overlapping rebalances both try to claim the same partition
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
 
         // Rebalance A claims p0
         let token_a = CancellationToken::new();
         assert!(
-            coordinator.try_claim_partition_setup(&p0, token_a),
+            tracker.try_claim_partition_setup(&p0, token_a),
             "Rebalance A should claim p0"
         );
 
         // Rebalance B tries to claim p0 - should fail
         let token_b = CancellationToken::new();
         assert!(
-            !coordinator.try_claim_partition_setup(&p0, token_b),
+            !tracker.try_claim_partition_setup(&p0, token_b),
             "Rebalance B should NOT be able to claim p0 (already claimed by A)"
         );
 
         // Only A's claim exists
-        assert!(coordinator.has_setup_task(&p0));
+        assert!(tracker.has_setup_task(&p0));
     }
 
     #[tokio::test]
     async fn test_complete_setup_task_removes_entry() {
-        let coordinator = RebalanceCoordinator::new();
+        let tracker = RebalanceTracker::new();
         let p0 = Partition::new("topic".to_string(), 0);
         let token = CancellationToken::new();
 
         // Claim and finalize
-        assert!(coordinator.try_claim_partition_setup(&p0, token));
+        assert!(tracker.try_claim_partition_setup(&p0, token));
         let handle = tokio::spawn(async { /* do nothing */ });
-        coordinator.finalize_partition_setup(&p0, handle);
+        tracker.finalize_partition_setup(&p0, handle);
 
-        assert!(coordinator.has_setup_task(&p0));
+        assert!(tracker.has_setup_task(&p0));
 
         // Complete removes the entry
-        coordinator.complete_setup_task(&p0);
+        tracker.complete_setup_task(&p0);
 
-        assert!(!coordinator.has_setup_task(&p0));
-        assert!(coordinator.get_setup_task(&p0).is_none());
+        assert!(!tracker.has_setup_task(&p0));
+        assert!(tracker.get_setup_task(&p0).is_none());
     }
 }

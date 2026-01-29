@@ -27,7 +27,7 @@ use crate::metrics_const::{
     ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
     CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
-use crate::rebalance_coordinator::RebalanceCoordinator;
+use crate::rebalance_tracker::RebalanceTracker;
 use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
 use crate::utils::{format_partition_dir, format_store_path};
@@ -130,7 +130,7 @@ pub struct StoreManager {
     cleanup_running: AtomicBool,
 
     /// Coordinator for rebalance state (single source of truth)
-    rebalance_coordinator: Arc<RebalanceCoordinator>,
+    rebalance_tracker: Arc<RebalanceTracker>,
 }
 
 impl StoreManager {
@@ -139,7 +139,7 @@ impl StoreManager {
     /// The coordinator is used to check rebalance state during cleanup operations.
     pub fn new(
         store_config: DeduplicationStoreConfig,
-        rebalance_coordinator: Arc<RebalanceCoordinator>,
+        rebalance_tracker: Arc<RebalanceTracker>,
     ) -> Self {
         let metrics = MetricsHelper::new().with_label("service", "kafka-deduplicator");
 
@@ -148,13 +148,13 @@ impl StoreManager {
             store_config,
             metrics,
             cleanup_running: AtomicBool::new(false),
-            rebalance_coordinator,
+            rebalance_tracker,
         }
     }
 
     /// Get a reference to the rebalance coordinator.
-    pub fn rebalance_coordinator(&self) -> &Arc<RebalanceCoordinator> {
-        &self.rebalance_coordinator
+    pub fn rebalance_tracker(&self) -> &Arc<RebalanceTracker> {
+        &self.rebalance_tracker
     }
 
     /// Get an existing store for a partition, if it exists
@@ -509,7 +509,7 @@ impl StoreManager {
 
         // Skip cleanup during rebalance to avoid deleting entries from stores
         // that are being populated with imported checkpoints
-        if self.rebalance_coordinator.is_rebalancing() {
+        if self.rebalance_tracker.is_rebalancing() {
             debug!("Skipping capacity cleanup - rebalance in progress");
             return Ok(0);
         }
@@ -583,7 +583,7 @@ impl StoreManager {
         for store in &stores {
             // Check if rebalance started mid-cleanup - abort to avoid deleting
             // entries from stores being populated with imported checkpoints
-            if self.rebalance_coordinator.is_rebalancing() {
+            if self.rebalance_tracker.is_rebalancing() {
                 info!(
                     "Aborting capacity cleanup - rebalance started. Freed {} bytes so far",
                     total_bytes_freed
@@ -1070,7 +1070,7 @@ impl StoreManager {
 
         // Guard: skip cleanup during rebalance to avoid deleting directories
         // that are about to be assigned to us
-        if self.rebalance_coordinator.is_rebalancing() {
+        if self.rebalance_tracker.is_rebalancing() {
             debug!("Skipping orphan cleanup - rebalance in progress");
             return Ok(0);
         }
@@ -1089,7 +1089,7 @@ impl StoreManager {
         for (parent_dir_name, timestamp_path, is_assigned) in candidates {
             // Re-check rebalance mid-loop - abort to avoid deleting directories
             // that may be about to be assigned
-            if self.rebalance_coordinator.is_rebalancing() {
+            if self.rebalance_tracker.is_rebalancing() {
                 info!(
                     "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
                     total_freed
@@ -1189,7 +1189,7 @@ impl CleanupTaskHandle {
 #[cfg(test)]
 mod tests {
     use crate::store::{TimestampKey, TimestampMetadata};
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
 
     use super::*;
     use common_types::RawEvent;
@@ -1204,7 +1204,7 @@ mod tests {
             max_capacity: 100, // Very small capacity to test the logic
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Test that needs_cleanup works correctly
         assert!(
@@ -1242,7 +1242,7 @@ mod tests {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 0,
         };
-        let zero_manager = Arc::new(StoreManager::new(zero_config, create_test_coordinator()));
+        let zero_manager = Arc::new(StoreManager::new(zero_config, create_test_tracker()));
         assert!(
             !zero_manager.needs_cleanup(),
             "Should never need cleanup with zero capacity"
@@ -1257,7 +1257,7 @@ mod tests {
             max_capacity: 5_000, // Small capacity
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Start periodic cleanup with short interval for testing
         let cleanup_handle = manager.clone().start_periodic_cleanup(
@@ -1305,7 +1305,7 @@ mod tests {
             max_capacity: 1_000_000,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Start cleanup task
         let cleanup_handle = manager.clone().start_periodic_cleanup(
@@ -1333,7 +1333,7 @@ mod tests {
             max_capacity: 0, // Unlimited capacity
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Should never need cleanup with unlimited capacity
         assert!(!manager.needs_cleanup());
@@ -1351,7 +1351,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024, // 1GB
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // First creation should succeed
         let store1 = manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1392,7 +1392,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Spawn multiple tasks trying to create the same store
         let mut handles = vec![];
@@ -1448,7 +1448,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // Pre-create during rebalance
         let store1 = manager
@@ -1485,7 +1485,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // Step 1: Pre-create during rebalance (async_setup_assigned_partitions)
         let _store = manager
@@ -1529,7 +1529,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // Initial assignment - pre-create store
         let store1 = manager
@@ -1590,7 +1590,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // No pre-creation - messages arrive first
         // This would emit a warning in production
@@ -1630,7 +1630,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Spawn concurrent tasks: some for rebalance, some for message processing
         let mut handles = vec![];
@@ -1687,7 +1687,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1702,7 +1702,7 @@ mod tests {
         assert!(timestamp_subdir.exists());
 
         // When NOT rebalancing, cleanup should remove the orphan timestamp dir
-        assert!(!manager.rebalance_coordinator().is_rebalancing());
+        assert!(!manager.rebalance_tracker().is_rebalancing());
         let freed = manager
             .cleanup_orphaned_directories(Duration::from_secs(0))
             .unwrap();
@@ -1718,8 +1718,8 @@ mod tests {
         assert!(timestamp_subdir.exists());
 
         // Start rebalancing via coordinator
-        manager.rebalance_coordinator().start_rebalancing();
-        assert!(manager.rebalance_coordinator().is_rebalancing());
+        manager.rebalance_tracker().start_rebalancing();
+        assert!(manager.rebalance_tracker().is_rebalancing());
 
         // During rebalance, cleanup should skip and not remove the orphan
         let freed = manager
@@ -1732,8 +1732,8 @@ mod tests {
         );
 
         // Finish rebalancing via coordinator
-        manager.rebalance_coordinator().finish_rebalancing();
-        assert!(!manager.rebalance_coordinator().is_rebalancing());
+        manager.rebalance_tracker().finish_rebalancing();
+        assert!(!manager.rebalance_tracker().is_rebalancing());
 
         // Now cleanup should remove the orphan again
         let freed = manager
@@ -1754,7 +1754,7 @@ mod tests {
             max_capacity: 100, // Very small to trigger cleanup
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store and add data
         let store = manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1774,16 +1774,16 @@ mod tests {
         }
 
         // Start rebalancing via coordinator
-        manager.rebalance_coordinator().start_rebalancing();
-        assert!(manager.rebalance_coordinator().is_rebalancing());
+        manager.rebalance_tracker().start_rebalancing();
+        assert!(manager.rebalance_tracker().is_rebalancing());
 
         // During rebalance, capacity cleanup should skip
         let freed = manager.cleanup_old_entries_if_needed().unwrap();
         assert_eq!(freed, 0, "Should skip cleanup during rebalance");
 
         // Finish rebalancing via coordinator
-        manager.rebalance_coordinator().finish_rebalancing();
-        assert!(!manager.rebalance_coordinator().is_rebalancing());
+        manager.rebalance_tracker().finish_rebalancing();
+        assert!(!manager.rebalance_tracker().is_rebalancing());
 
         // Now cleanup should run (may or may not free bytes depending on actual size)
         let result = manager.cleanup_old_entries_if_needed();
@@ -1798,7 +1798,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1830,7 +1830,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0 (so stores map is not empty)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1863,7 +1863,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -1907,7 +1907,7 @@ mod tests {
             max_capacity: 1000,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // get_store() should return StoreError::NotFound when store doesn't exist
         let result = manager.get_store("test-topic", 0);
@@ -1930,7 +1930,7 @@ mod tests {
             max_capacity: 1000,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // Pre-create store (as would happen during rebalance)
         manager
@@ -1956,7 +1956,7 @@ mod tests {
             max_capacity: 1000,
         };
 
-        let manager = StoreManager::new(config, create_test_coordinator());
+        let manager = StoreManager::new(config, create_test_tracker());
 
         // Create store
         manager
@@ -1995,7 +1995,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0 (this will create a timestamp subdir)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -2062,7 +2062,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -2106,7 +2106,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create a store for partition 0
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -2162,7 +2162,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create stores for partitions 0 and 1 (assigned)
         manager.get_or_create("test-topic", 0).await.unwrap();
@@ -2241,7 +2241,7 @@ mod tests {
             max_capacity: 1024 * 1024 * 1024,
         };
 
-        let manager = Arc::new(StoreManager::new(config, create_test_coordinator()));
+        let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
 
         // Create stores for partitions 0 and 1
         // We need at least one store to remain so the cleanup doesn't skip due to empty stores

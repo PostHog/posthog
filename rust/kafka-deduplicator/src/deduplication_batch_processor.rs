@@ -806,7 +806,7 @@ impl BatchDeduplicationProcessor {
 mod tests {
     use super::*;
     use crate::store::DeduplicationStoreConfig;
-    use crate::test_utils::create_test_coordinator;
+    use crate::test_utils::create_test_tracker;
     use serde_json::json;
     use std::collections::HashMap;
     use tempfile::TempDir;
@@ -860,7 +860,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -917,7 +917,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -972,7 +972,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1029,7 +1029,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1080,7 +1080,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1150,7 +1150,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1213,7 +1213,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // Pre-create store (as would happen during rebalance)
@@ -1258,7 +1258,7 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
         let store_manager = Arc::new(StoreManager::new(
             config.store_config.clone(),
-            create_test_coordinator(),
+            create_test_tracker(),
         ));
 
         // NOTE: We intentionally do NOT pre-create a store here

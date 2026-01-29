@@ -4,13 +4,13 @@
 
 use std::sync::Arc;
 
-use crate::rebalance_coordinator::RebalanceCoordinator;
+use crate::rebalance_tracker::RebalanceTracker;
 
-/// Creates a test `RebalanceCoordinator`.
+/// Creates a test `RebalanceTracker`.
 ///
-/// This is a convenience function that wraps `RebalanceCoordinator::new()` in an `Arc`.
-pub fn create_test_coordinator() -> Arc<RebalanceCoordinator> {
-    Arc::new(RebalanceCoordinator::new())
+/// This is a convenience function that wraps `RebalanceTracker::new()` in an `Arc`.
+pub fn create_test_tracker() -> Arc<RebalanceTracker> {
+    Arc::new(RebalanceTracker::new())
 }
 
 // The store manager creation functions that require tempfile are kept in individual test
@@ -21,8 +21,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_test_coordinator() {
-        let coordinator = create_test_coordinator();
-        assert!(!coordinator.is_rebalancing());
+    fn test_create_test_tracker() {
+        let tracker = create_test_tracker();
+        assert!(!tracker.is_rebalancing());
     }
 }
