@@ -206,7 +206,7 @@ async def _run(
     schema_name: str,
     table_name: str,
     source_type: str,
-    job_inputs: dict[str, str],
+    job_inputs: dict[str, str | dict[str, str]],
     mock_data_response: Any,
     sync_type: Optional[ExternalDataSchema.SyncType] = None,
     sync_type_config: Optional[dict] = None,
