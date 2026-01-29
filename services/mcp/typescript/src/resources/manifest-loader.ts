@@ -1,6 +1,6 @@
 import { type Unzipped, strFromU8 } from 'fflate'
 
-import type { ResourceManifest, ContextMillManifest } from './manifest-types'
+import type { ContextMillManifest, ResourceManifest } from './manifest-types'
 
 const MANIFEST_FILENAME = 'manifest.json'
 
@@ -73,12 +73,18 @@ export function loadContextMillManifest(manifest: unknown): ContextMillManifest 
         if (!r.name || typeof r.name !== 'string') {
             throw new Error(`Resource "${r.id}" is missing required "name" field`)
         }
+        if (!r.uri || typeof r.uri !== 'string') {
+            throw new Error(`Resource "${r.id}" is missing required "uri" field`)
+        }
         if (!r.resource || typeof r.resource !== 'object') {
             throw new Error(`Resource "${r.id}" is missing required "resource" field`)
         }
         const res = r.resource as Record<string, unknown>
         if (!res.mimeType || typeof res.mimeType !== 'string') {
             throw new Error(`Resource "${r.id}" resource is missing required "mimeType" field`)
+        }
+        if (!res.description || typeof res.description !== 'string') {
+            throw new Error(`Resource "${r.id}" resource is missing required "description" field`)
         }
         if (!res.text || typeof res.text !== 'string') {
             throw new Error(`Resource "${r.id}" resource is missing required "text" field`)
