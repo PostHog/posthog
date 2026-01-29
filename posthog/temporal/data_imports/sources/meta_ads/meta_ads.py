@@ -93,7 +93,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
 META_TIMEOUT_ERROR_SUBCODE = 1504018
 
 # Chunk sizes for adaptive time-range pagination (in days)
-# Start with monthly, fall back to smaller chunks on timeout
+# Start with 30-day chunks, fall back to smaller chunks on timeout
 TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 
 
@@ -116,7 +116,12 @@ def _fetch_time_range_chunk(
     chunk_end: dt.datetime,
     chunk_size_days: int,
 ) -> collections.abc.Generator[list[dict], None, None]:
-    """Fetch data for a single time range chunk, with adaptive fallback to smaller chunks on timeout."""
+    """Fetch data for a single time range chunk, with adaptive fallback to smaller chunks on timeout.
+
+    Fallback only happens on the initial request for a chunk (before any data is yielded).
+    If a timeout occurs during pagination (after data has been yielded), the error is raised
+    to avoid duplicate data.
+    """
     chunk_time_range = {
         "since": chunk_start.strftime("%Y-%m-%d"),
         "until": chunk_end.strftime("%Y-%m-%d"),
@@ -125,32 +130,34 @@ def _fetch_time_range_chunk(
     chunk_params = params.copy()
     chunk_params["time_range"] = json.dumps(chunk_time_range)
 
-    next_url = url
+    # Make the initial request for this chunk
+    response = requests.get(url, params=chunk_params)
 
+    if response.status_code != 200:
+        # Only attempt fallback on the initial request (before any data is yielded)
+        if _is_timeout_error(response) and chunk_size_days in TIME_RANGE_CHUNK_SIZES:
+            current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
+            if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
+                smaller_chunk_size = TIME_RANGE_CHUNK_SIZES[current_index + 1]
+                yield from _fetch_with_chunk_size(url, params, chunk_start, chunk_end, smaller_chunk_size)
+                return
+        raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+    response_payload = response.json()
+    yield response_payload.get("data", [])
+
+    # Handle pagination for remaining pages (no fallback here to avoid duplicates)
+    next_url = response_payload.get("paging", {}).get("next")
     while next_url:
-        if next_url == url:
-            response = requests.get(next_url, params=chunk_params)
-        else:
-            response = requests.get(next_url)
+        response = requests.get(next_url)
 
         if response.status_code != 200:
-            if _is_timeout_error(response):
-                # Find the next smaller chunk size to try
-                current_index = (
-                    TIME_RANGE_CHUNK_SIZES.index(chunk_size_days) if chunk_size_days in TIME_RANGE_CHUNK_SIZES else -1
-                )
-                if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
-                    smaller_chunk_size = TIME_RANGE_CHUNK_SIZES[current_index + 1]
-                    yield from _fetch_with_chunk_size(url, params, chunk_start, chunk_end, smaller_chunk_size)
-                    return
-                # Already at smallest chunk size (1 day), can't reduce further
             raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
         response_payload = response.json()
         yield response_payload.get("data", [])
 
-        paging = response_payload.get("paging", {})
-        next_url = paging.get("next")
+        next_url = response_payload.get("paging", {}).get("next")
 
 
 def _fetch_with_chunk_size(
@@ -178,7 +185,7 @@ def _make_paginated_api_request(
     This function handles two types of pagination:
     1. Standard pagination: Uses Meta's paging.next URLs to fetch all pages of results
     2. Time-range pagination: Breaks large date ranges into chunks, with adaptive fallback
-       to smaller chunks (monthly -> weekly -> daily) if the API times out
+       to smaller chunks (30-day -> 7-day -> 1-day) if the API times out
     """
     params["access_token"] = access_token
 
