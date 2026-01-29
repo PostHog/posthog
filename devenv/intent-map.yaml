@@ -147,7 +147,7 @@ intents:
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, cyclotron]
 
     ai_features:
         description: 'AI features'
@@ -159,7 +159,7 @@ intents:
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows]
+        capabilities: [event_ingestion, property_definitions, temporal_workflows, cyclotron]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'

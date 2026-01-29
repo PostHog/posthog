@@ -20,6 +20,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpCyclotronWorkerDelay: true,
+                cdpCyclotronShadowWorker: true,
                 cdpPrecalculatedFilters: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
@@ -115,6 +116,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
+            }
+        case PluginServerMode.cdp_cyclotron_shadow_worker:
+            return {
+                cdpCyclotronShadowWorker: true,
             }
     }
 }
