@@ -14,6 +14,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
 import { ContextDisplay } from '../Context'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -64,6 +65,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         isImpersonatingExistingConversation,
         supportOverrideEnabled,
         streamingActive,
+        agentMode,
+        threadMessageCount,
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
     // Show info banner for conversations created during impersonation (marked as internal)
@@ -113,6 +116,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {/* Have to increase z-index to overlay ToolsDisplay */}
                 <div className="relative w-full flex flex-col z-1">
                     {children}
+                    {agentMode === AgentMode.Research && threadMessageCount === 0 && (
+                        <div className="flex justify-center items-center gap-1 w-full px-2 py-1.5 mb-2 bg-warning/10 text-primary text-xs rounded-lg border-primary">
+                            Research mode is a free beta feature with lower daily limits
+                        </div>
+                    )}
                     <label
                         htmlFor="question-input"
                         className={clsx(

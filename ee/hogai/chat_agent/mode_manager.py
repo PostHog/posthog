@@ -80,12 +80,8 @@ class ChatAgentModeManager(AgentModeManager):
             self._mode = AgentMode.SQL
         else:
             self._supermode = cast(AgentMode | None, state.supermode)
-            # Use the appropriate default mode based on supermode
-            if self._supermode == AgentMode.PLAN:
-                # In plan mode, validate that the mode is in the plan registry and fall back to SQL
-                self._mode = state.agent_mode if state.agent_mode in self.mode_registry else AgentMode.SQL
-            else:
-                self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
+            default_mode = AgentMode.SQL if self._supermode == AgentMode.PLAN else AgentMode.PRODUCT_ANALYTICS
+            self._mode = state.agent_mode if state.agent_mode in self.mode_registry else default_mode
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
