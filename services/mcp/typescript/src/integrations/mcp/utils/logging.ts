@@ -1,3 +1,5 @@
+const SENSITIVE_HEADERS = ['authorization', 'cookie', 'x-api-key']
+
 // Wide log class for accumulating request data and emitting a single log at the end
 export class RequestLogger {
     private data: Record<string, unknown> = {}
@@ -14,7 +16,7 @@ export class RequestLogger {
     emit(status: number): void {
         this.data.status = status
         this.data.durationMs = Date.now() - this.startTime
-        console.log('[MCP]', JSON.stringify(this.data))
+        console.info('[MCP]', JSON.stringify(this.data))
     }
 }
 
@@ -33,7 +35,7 @@ export function withLogging<Props>(handler: FetchHandler<Props>) {
         const url = new URL(request.url)
         const headers: Record<string, string> = {}
         request.headers.forEach((value, key) => {
-            headers[key] = key.toLowerCase() === 'authorization' && value.length > 20 ? value.slice(0, 20) + '...' : value
+            headers[key] = SENSITIVE_HEADERS.includes(key.toLowerCase()) ? '[REDACTED]' : value
         })
 
         log.extend({
@@ -42,10 +44,6 @@ export function withLogging<Props>(handler: FetchHandler<Props>) {
             search: url.search,
             headers,
         })
-
-        if (request.method === 'POST') {
-            log.extend({ body: await request.clone().text() })
-        }
 
         try {
             const response = await handler(request, env, ctx, log)
