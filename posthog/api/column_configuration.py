@@ -35,8 +35,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by", "team"]
 
-    @classmethod
-    def validate_filters(cls, filters):
+    def validate_filters(self, filters):
         if not filters:
             return []
         return filters
