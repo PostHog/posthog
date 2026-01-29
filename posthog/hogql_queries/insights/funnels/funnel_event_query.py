@@ -1,5 +1,6 @@
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
@@ -16,7 +17,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, UUIDDatabaseField
+from posthog.hogql.database.models import (
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    StringDatabaseField,
+    UUIDDatabaseField,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -29,7 +35,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     entity_source_mismatch,
     entity_source_or_table_mismatch,
     get_breakdown_expr,
-    get_table_name,
+    is_data_warehouse_entity,
     is_data_warehouse_source,
 )
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
@@ -38,6 +44,13 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
+
+
+@dataclass
+class TableConfigWithSteps:
+    table_name: str
+    table_config_index: int  # To differentiate multiple configurations of the same table
+    steps: list[tuple[int, EntityNode]]  # List of steps with associated index in the funnel series
 
 
 class FunnelEventQuery(DataWarehouseSchemaMixin):
@@ -80,11 +93,44 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         return result
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
-        tables_to_steps: dict[str, list[tuple[int, EntityNode]]] = defaultdict(list)
+        table_configurations_to_steps: dict[str, TableConfigWithSteps] = defaultdict(list)
+        seen_data_warehouse_table_configurations: dict[tuple[str, str, str], int] = {}
 
         for step_index, node in enumerate(self.context.query.series):
-            table_name = get_table_name(node)
-            tables_to_steps[table_name].append((step_index, node))
+            if is_data_warehouse_entity(node):
+                # we may have multiple steps using the same data warehouse table but with different configurations
+                config_key = (
+                    node.id_field,
+                    node.distinct_id_field,
+                    node.timestamp_field,
+                )
+
+                if config_key not in seen_data_warehouse_table_configurations:
+                    seen_data_warehouse_table_configurations[config_key] = len(seen_data_warehouse_table_configurations)
+
+                config_index = seen_data_warehouse_table_configurations[config_key]
+                table_key = f"{node.table_name}_{config_index}"
+
+                if table_key not in table_configurations_to_steps:
+                    table_configurations_to_steps[table_key] = TableConfigWithSteps(
+                        table_name=node.table_name,
+                        table_config_index=config_index,
+                        steps=[],
+                    )
+                table_configurations_to_steps[table_key].steps.append((step_index, node))
+            else:
+                table_key = "events"
+
+                if table_key not in table_configurations_to_steps:
+                    table_configurations_to_steps[table_key] = TableConfigWithSteps(
+                        table_name="events",
+                        table_config_index=0,
+                        base_table_name="events",
+                        config_index=0,
+                        steps=[],
+                    )
+
+                table_configurations_to_steps[table_key].steps.append((step_index, node))
 
         def _build_events_table_query(
             table_name: str, steps: Sequence[tuple[int, EventsNode | ActionsNode]]
@@ -132,7 +178,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             field = self.get_warehouse_field(node.table_name, node.timestamp_field)
 
             timestamp_expr: ast.Expr
-            if isinstance(field, DateTimeDatabaseField):
+            if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
                 timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
             elif isinstance(field, StringDatabaseField):
                 timestamp_expr = ast.Call(
@@ -181,13 +227,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         queries: list[ast.SelectQuery] = []
 
-        for table_name, steps in tables_to_steps.items():
+        for table_name, table_config_with_steps in table_configurations_to_steps.items():
             if table_name == "events":
-                event_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], steps)
+                event_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], table_config_with_steps.steps)
                 queries.append(_build_events_table_query(table_name, event_steps))
             else:
-                dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], steps)
-                queries.append(_build_data_warehouse_table_query(table_name, dwh_steps))
+                dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], table_config_with_steps.steps)
+                queries.append(_build_data_warehouse_table_query(table_config_with_steps.table_name, dwh_steps))
 
         if len(queries) == 1:
             return queries[0]
