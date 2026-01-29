@@ -112,23 +112,6 @@ def parse_partition_key(key: str) -> tuple[int, str]:
     return team_id, date_str
 
 
-def get_s3_path_for_duckling(
-    bucket: str,
-    team_id: int,
-    date: datetime,
-    run_id: str,
-) -> str:
-    """Build S3 path for a duckling partition file.
-
-    Path structure: s3://{bucket}/backfill/events/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet
-    """
-    year = date.strftime("%Y")
-    month = date.strftime("%m")
-    day = date.strftime("%d")
-
-    return f"s3://{bucket}/{BACKFILL_S3_PREFIX}/team_id={team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
-
-
 def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str) -> str:
     """Build S3 URL in the format ClickHouse expects for cross-account access.
 
