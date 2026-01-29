@@ -190,7 +190,11 @@ function TraceSceneWrapper(): JSX.Element {
                                 path: urls.llmAnalyticsTraces(),
                                 key: 'traces',
                             }}
-                            actions={<TraceNavigation />}
+                            actions={
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
+                                    <TraceNavigation />
+                                ) : undefined
+                            }
                             noBorder
                         />
                         <div className="flex items-start justify-between">
