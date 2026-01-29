@@ -72,7 +72,7 @@ def wait_for_sessions_delete_mutations(
     return True
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value})
 def sessions_v1_cleanup_job():
     """Job that deletes sessions v1 rows for teams not in ALLOWED_TEAM_IDS."""
     shard_mutations = delete_sessions_not_in_allowed_teams()
