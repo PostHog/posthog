@@ -270,7 +270,7 @@ export class PushSubscriptionsManagerService {
         )
     }
 
-    public async deactivateTokens(tokens: string[], reason: string, teamId: number): Promise<void> {
+    public async deactivateByTokens(tokens: string[], reason: string, teamId: number): Promise<void> {
         if (tokens.length === 0) {
             return
         }
@@ -284,6 +284,22 @@ export class PushSubscriptionsManagerService {
             queryString,
             [reason, teamId, tokenHashes],
             'deactivatePushSubscriptionTokens'
+        )
+    }
+
+    public async deactivateByIds(subscriptionIds: string[], reason: string, teamId: number): Promise<void> {
+        if (subscriptionIds.length === 0) {
+            return
+        }
+        const queryString = `UPDATE workflows_pushsubscription
+            SET is_active = false, disabled_reason = $1
+            WHERE team_id = $2 AND id = ANY($3::uuid[]) AND is_active = true`
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            queryString,
+            [reason, teamId, subscriptionIds],
+            'deactivatePushSubscriptionByIds'
         )
     }
 
@@ -304,7 +320,7 @@ export class PushSubscriptionsManagerService {
 
         if (status === 404) {
             try {
-                await this.deactivateTokens([fcmToken], 'unregistered token', teamId)
+                await this.deactivateByTokens([fcmToken], 'unregistered token', teamId)
                 logger.info('Deactivated push subscription token due to 404 (unregistered token)', { teamId })
             } catch (error) {
                 logger.warn('Failed to deactivate push subscription token', { teamId, error })
@@ -320,7 +336,7 @@ export class PushSubscriptionsManagerService {
             )
             if (isInvalidArgument) {
                 try {
-                    await this.deactivateTokens([fcmToken], 'invalid token', teamId)
+                    await this.deactivateByTokens([fcmToken], 'invalid token', teamId)
                     logger.info('Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)', {
                         teamId,
                     })
@@ -429,6 +445,76 @@ export class PushSubscriptionsManagerService {
         }
     }
 
+    public async findSubscriptionsByPersonDistinctIds(
+        teamId: number,
+        distinctIds: string[],
+        platform?: 'android' | 'ios',
+        firebaseAppId?: string,
+        provider?: 'fcm' | 'apns'
+    ): Promise<PushSubscription[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+
+        const placeholders = distinctIds.map((_, idx) => `$${idx + 2}`).join(', ')
+        let paramIndex = distinctIds.length + 2
+        const platformFilter = platform ? `AND platform = $${paramIndex++}` : ''
+        const providerFilter = provider ? `AND provider = $${paramIndex++}` : ''
+        const appIdFilter = firebaseAppId ? `AND (firebase_app_id = $${paramIndex++} OR firebase_app_id IS NULL)` : ''
+
+        const params: any[] = [teamId, ...distinctIds]
+        if (platform) {
+            params.push(platform)
+        }
+        if (provider) {
+            params.push(provider)
+        }
+        if (firebaseAppId) {
+            params.push(firebaseAppId)
+        }
+
+        const queryString = `SELECT
+                id,
+                team_id,
+                distinct_id,
+                token,
+                platform,
+                provider,
+                is_active,
+                last_successfully_used_at,
+                created_at,
+                updated_at,
+                firebase_app_id
+            FROM workflows_pushsubscription
+            WHERE team_id = $1 AND distinct_id IN (${placeholders}) AND is_active = true ${platformFilter} ${providerFilter} ${appIdFilter}
+            ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
+
+        const { rows } = await this.postgres.query<PushSubscriptionRow>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            params,
+            'findSubscriptionsByPersonDistinctIds'
+        )
+
+        return rows.map((row) => {
+            const decryptedToken =
+                this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
+            return {
+                id: row.id,
+                team_id: row.team_id,
+                distinct_id: row.distinct_id,
+                token: decryptedToken,
+                platform: row.platform,
+                provider: row.provider,
+                is_active: row.is_active,
+                last_successfully_used_at: row.last_successfully_used_at,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                firebase_app_id: row.firebase_app_id,
+            }
+        })
+    }
+
     public async updateDistinctId(teamId: number, subscriptionId: string, newDistinctId: string): Promise<void> {
         const queryString = `UPDATE workflows_pushsubscription
             SET distinct_id = $1, updated_at = NOW()
@@ -463,6 +549,8 @@ export class PushSubscriptionsManagerService {
         const argsForGetMany = entries.map((e) => e.getArgs)
         const resultsByGetKey = await this.getMany(argsForGetMany)
 
+        const duplicatesToDeactivate: string[] = []
+
         for (const { inputKey, getArgs } of entries) {
             returnInputs[inputKey] = { value: null }
 
@@ -470,34 +558,24 @@ export class PushSubscriptionsManagerService {
 
             let subscription = subscriptions.shift() ?? null
 
-            if (subscriptions.length > 0) {
-                try {
-                    await this.deactivateTokens(
-                        subscriptions.map((s) => s.token),
-                        'duplicate',
-                        hogFunction.team_id
-                    )
-                } catch (error) {
-                    logger.warn('Failed to deactivate duplicate push subscription tokens', {
-                        teamId: hogFunction.team_id,
-                        subscriptionIds: subscriptions.map((s) => s.id).join(','),
-                        error,
-                    })
-                }
-            }
+            duplicatesToDeactivate.push(...subscriptions.map((s) => s.id))
 
             if (!subscription) {
                 const { distinctId } = getArgs
                 const relatedDistinctIds = await this.getDistinctIdsForSamePerson(hogFunction.team_id, distinctId)
 
                 if (relatedDistinctIds.length > 0) {
-                    subscription = await this.findSubscriptionByPersonDistinctIds(
+                    const personSubscriptions = await this.findSubscriptionsByPersonDistinctIds(
                         hogFunction.team_id,
                         relatedDistinctIds,
                         getArgs.platform,
                         getArgs.firebaseAppId,
                         provider
                     )
+
+                    subscription = personSubscriptions.shift() ?? null
+
+                    duplicatesToDeactivate.push(...personSubscriptions.map((s) => s.id))
 
                     if (subscription) {
                         await this.updateDistinctId(hogFunction.team_id, subscription.id, distinctId)
@@ -512,6 +590,16 @@ export class PushSubscriptionsManagerService {
             if (subscription?.is_active) {
                 returnInputs[inputKey] = { value: subscription.token }
             }
+        }
+
+        try {
+            await this.deactivateByIds([...new Set(duplicatesToDeactivate)], 'duplicate', hogFunction.team_id)
+        } catch (error) {
+            logger.warn('Failed to deactivate duplicate push subscriptions', {
+                teamId: hogFunction.team_id,
+                duplicatesToDeactivate,
+                error,
+            })
         }
 
         return returnInputs

@@ -83,7 +83,9 @@ describe('PushSubscriptionsManagerService', () => {
         })
 
         afterEach(async () => {
-            await closeHub(hub)
+            if (hub) {
+                await closeHub(hub)
+            }
         })
 
         it('returns empty object when no inputs to load', async () => {
@@ -121,7 +123,7 @@ describe('PushSubscriptionsManagerService', () => {
             await insertPushSubscription(team.id, distinctId, token2, 'android', true, 'fcm', 'test-project')
             await insertPushSubscription(team.id, distinctId, token3, 'android', true, 'fcm', 'test-project')
 
-            const deactivateSpy = jest.spyOn(manager, 'deactivateTokens').mockResolvedValue(undefined)
+            const deactivateSpy = jest.spyOn(manager, 'deactivateByIds').mockResolvedValue(undefined)
 
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
@@ -133,9 +135,11 @@ describe('PushSubscriptionsManagerService', () => {
             const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
 
             expect(result.push_subscription.value).toBeTruthy()
+            expect([token1, token2, token3]).toContain(result.push_subscription.value)
             expect(deactivateSpy).toHaveBeenCalledTimes(1)
-            expect(deactivateSpy).toHaveBeenCalledWith(expect.arrayContaining([token1, token2]), 'duplicate', team.id)
-            expect(deactivateSpy.mock.calls[0][0]).toHaveLength(2)
+            expect(deactivateSpy).toHaveBeenCalledWith(expect.any(Array), 'duplicate', team.id)
+            const deactivatedIds = deactivateSpy.mock.calls[0][0] as string[]
+            expect(deactivatedIds).toHaveLength(2)
         })
 
         it('returns null for inactive subscription', async () => {
@@ -224,6 +228,35 @@ describe('PushSubscriptionsManagerService', () => {
                 'checkUpdatedDistinctId'
             )
             expect(updatedSub.rows[0]?.distinct_id).toBe(newDistinctId)
+        })
+
+        it('deactivates duplicate subscriptions from person-merge path', async () => {
+            const distinctIdA = 'user-a'
+            const distinctIdB = 'user-b'
+            const tokenB1 = 'fcm-token-b1'
+            const tokenB2 = 'fcm-token-b2'
+
+            const personId = await insertPerson(team.id)
+            await insertPersonDistinctId(team.id, personId, distinctIdA)
+            await insertPersonDistinctId(team.id, personId, distinctIdB)
+            await insertPushSubscription(team.id, distinctIdB, tokenB1, 'android', true, 'fcm', 'test-project')
+            await insertPushSubscription(team.id, distinctIdB, tokenB2, 'android', true, 'fcm', 'test-project')
+
+            const deactivateSpy = jest.spyOn(manager, 'deactivateByIds').mockResolvedValue(undefined)
+
+            const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
+                push_subscription: {
+                    distinctId: distinctIdA,
+                    firebaseAppId: 'test-project',
+                    platform: 'android',
+                },
+            }
+            const result = await manager.loadPushSubscriptions(hogFunction, inputsToLoad)
+
+            expect([tokenB1, tokenB2]).toContain(result.push_subscription.value)
+            expect(deactivateSpy).toHaveBeenCalledTimes(1)
+            const deactivatedIds = deactivateSpy.mock.calls[0][0] as string[]
+            expect(deactivatedIds).toHaveLength(1)
         })
 
         it('handles multiple push subscription inputs', async () => {
