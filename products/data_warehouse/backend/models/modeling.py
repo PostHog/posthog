@@ -131,12 +131,6 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
 
     The parents of a query are any names in the `FROM` clause of the query.
     Uses CycleDetectingResolver to detect circular dependencies in view references.
-
-    Args:
-        model_query: The HogQL query string to parse
-        team: The team context for database resolution
-        view_name: Optional name of the view being parsed. If provided, cycles back to
-                   this view through other views will be detected.
     """
     from posthog.hogql.context import HogQLContext
 
