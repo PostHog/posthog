@@ -5,8 +5,11 @@ import { parseJSON } from '~/utils/json-parse'
 
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
+import { logger } from '../../../utils/logger'
 import { HogFunctionType } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
+
+export type FcmErrorDetail = { '@type'?: string; errorCode?: string }
 
 export type PushSubscriptionGetArgs = {
     teamId: number
@@ -313,6 +316,50 @@ export class PushSubscriptionsManagerService {
             [reason, teamId, tokenHash],
             'deactivatePushSubscriptionToken'
         )
+    }
+
+    public async updateTokenLifecycle(
+        teamId: number,
+        fcmToken: string,
+        status: number | undefined,
+        errorDetails: FcmErrorDetail[] | undefined
+    ): Promise<void> {
+        if (status && status >= 200 && status < 300) {
+            try {
+                await this.updateLastSuccessfullyUsedAtByToken(teamId, fcmToken)
+            } catch (error) {
+                logger.warn('Failed to update last_successfully_used_at for FCM token', { teamId, error })
+            }
+            return
+        }
+
+        if (status === 404) {
+            try {
+                await this.deactivateToken(teamId, fcmToken, 'unregistered token')
+                logger.info('Deactivated push subscription token due to 404 (unregistered token)', { teamId })
+            } catch (error) {
+                logger.warn('Failed to deactivate push subscription token', { teamId, error })
+            }
+            return
+        }
+
+        if (status === 400 && errorDetails) {
+            const isInvalidArgument = errorDetails.some(
+                (d) =>
+                    d['@type'] === 'type.googleapis.com/google.firebase.fcm.v1.FcmError' &&
+                    d.errorCode === 'INVALID_ARGUMENT'
+            )
+            if (isInvalidArgument) {
+                try {
+                    await this.deactivateToken(teamId, fcmToken, 'invalid token')
+                    logger.info('Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)', {
+                        teamId,
+                    })
+                } catch (error) {
+                    logger.warn('Failed to deactivate push subscription token', { teamId, error })
+                }
+            }
+        }
     }
 
     public async getDistinctIdsForSamePerson(teamId: number, distinctId: string): Promise<string[]> {

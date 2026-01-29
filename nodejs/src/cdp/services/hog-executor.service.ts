@@ -33,7 +33,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
-import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
+import { FcmErrorDetail, PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
 import { EmailService, EmailServiceHub } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -739,7 +739,29 @@ export class HogExecutorService {
         }
 
         if (params.url.includes('fcm.googleapis.com/v1/projects/') && params.url.includes('/messages:send')) {
-            await this.updateFcmTokenLifecycle(fetchResponse?.status, body, invocation, addLog)
+            const fcmToken = this.getFcmTokenFromInvocation(invocation)
+            if (fcmToken) {
+                const status = fetchResponse?.status
+                let errorDetails: FcmErrorDetail[] | undefined
+                if (status === 400 && body && typeof body === 'object') {
+                    const errorBody = body as Record<string, unknown>
+                    const error = errorBody?.error as { details?: FcmErrorDetail[] } | undefined
+                    errorDetails = error?.details
+                }
+
+                await this.pushSubscriptionsManager.updateTokenLifecycle(
+                    invocation.teamId,
+                    fcmToken,
+                    status,
+                    errorDetails
+                )
+
+                if (status && status >= 200 && status < 300) {
+                    pushNotificationSentCounter.labels({ platform: 'android' }).inc()
+                }
+            } else {
+                addLog('warn', 'FCM token not found in inputs, skipping FCM response handling')
+            }
         }
 
         const hogVmResponse: {
@@ -765,95 +787,31 @@ export class HogExecutorService {
         return result
     }
 
-    private async updateFcmTokenLifecycle(
-        status: number | undefined,
-        responseBody: unknown,
-        invocation: CyclotronJobInvocationHogFunction,
-        addLog: (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => void
-    ): Promise<void> {
-        let fcmToken: string | null = null
-        if (invocation.state.globals?.inputs) {
-            const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
-                (schema) => schema.type === 'push_subscription'
-            )?.key
-            if (pushSubscriptionKey && invocation.state.globals.inputs[pushSubscriptionKey]) {
-                fcmToken = invocation.state.globals.inputs[pushSubscriptionKey] || null
-            }
+    private getFcmTokenFromInvocation(invocation: CyclotronJobInvocationHogFunction): string | null {
+        if (!invocation.state.globals?.inputs) {
+            return null
         }
-
-        if (!fcmToken) {
-            addLog('warn', 'FCM token not found in inputs, skipping FCM response handling')
-            return
+        const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
+            (schema) => schema.type === 'push_subscription'
+        )?.key
+        if (!pushSubscriptionKey || !invocation.state.globals.inputs[pushSubscriptionKey]) {
+            return null
         }
-
-        const teamId = invocation.teamId
-        // Handle success (200-299)
-        if (status && status >= 200 && status < 300) {
-            if (fcmToken) {
-                try {
-                    await this.pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken(teamId, fcmToken)
-                } catch (error) {
-                    addLog('warn', `Failed to update last_successfully_used_at for FCM token: ${error}`)
-                }
-            }
-            // FCM is used for Android push notifications
-            pushNotificationSentCounter.labels({ platform: 'android' }).inc()
-            return
-        }
-
-        // Handle 404 - unregistered token
-        if (status === 404) {
-            try {
-                await this.pushSubscriptionsManager.deactivateToken(teamId, fcmToken, 'unregistered token')
-                addLog('info', `Deactivated push subscription token due to 404 (unregistered token)`)
-            } catch (error) {
-                addLog('warn', `Failed to deactivate push subscription token: ${error}`)
-            }
-            return
-        }
-
-        // Handle 400 with INVALID_ARGUMENT error
-        if (status === 400) {
-            try {
-                let shouldDeactivate = false
-                if (responseBody && typeof responseBody === 'object') {
-                    const errorBody = responseBody as any
-                    const error = errorBody?.error
-                    if (error?.code === 400) {
-                        // Check for INVALID_ARGUMENT in details
-                        const details = error?.details || []
-                        for (const detail of details) {
-                            if (
-                                detail['@type'] === 'type.googleapis.com/google.firebase.fcm.v1.FcmError' &&
-                                detail.errorCode === 'INVALID_ARGUMENT'
-                            ) {
-                                shouldDeactivate = true
-                                break
-                            }
-                        }
-                    }
-                }
-
-                if (shouldDeactivate) {
-                    await this.pushSubscriptionsManager.deactivateToken(teamId, fcmToken, 'invalid token')
-                    addLog('info', `Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)`)
-                }
-            } catch (error) {
-                addLog('warn', `Failed to deactivate push subscription token: ${error}`)
-            }
-        }
+        return invocation.state.globals.inputs[pushSubscriptionKey] || null
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
         const values: string[] = []
 
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.secret || schema.type === 'integration') {
+            if (schema.secret || schema.type === 'integration' || schema.type === 'push_subscription') {
                 const value = inputs[schema.key]
                 if (typeof value === 'string') {
                     values.push(value)
                 } else if (
-                    (schema.type === 'dictionary' || schema.type === 'integration') &&
+                    (schema.type === 'dictionary' ||
+                        schema.type === 'integration' ||
+                        schema.type === 'push_subscription') &&
                     typeof value === 'object'
                 ) {
                     // Assume the values are the sensitive parts

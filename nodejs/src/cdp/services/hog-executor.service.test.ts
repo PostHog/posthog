@@ -1273,12 +1273,9 @@ describe('Hog Executor', () => {
                 const token = 'test-fcm-token-123'
                 const invocation = createFcmInvocation(token, 200)
 
-                const result = await executor.executeFetch(invocation)
+                await executor.executeFetch(invocation)
 
                 expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).toHaveBeenCalledWith(1, token)
-                expect(result.logs.map((log) => log.message)).toContain(
-                    'Updated last_successfully_used_at for FCM token'
-                )
             })
 
             it('handles error when updating token fails', async () => {
@@ -1288,23 +1285,18 @@ describe('Hog Executor', () => {
                 const error = new Error('Database error')
                 jest.spyOn(pushSubscriptionsManager, 'updateLastSuccessfullyUsedAtByToken').mockRejectedValueOnce(error)
 
-                const result = await executor.executeFetch(invocation)
+                await executor.executeFetch(invocation)
 
-                expect(result.logs.map((log) => log.message)).toContain(
-                    'Failed to update last_successfully_used_at for FCM token: Error: Database error'
-                )
+                expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).toHaveBeenCalledWith(1, token)
             })
 
             it('handles 404 response and deactivates token', async () => {
                 const token = 'test-fcm-token-123'
                 const invocation = createFcmInvocation(token, 404)
 
-                const result = await executor.executeFetch(invocation)
+                await executor.executeFetch(invocation)
 
                 expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'unregistered token')
-                expect(result.logs.map((log) => log.message)).toContain(
-                    'Deactivated push subscription token due to 404 (unregistered token)'
-                )
             })
 
             it('handles error when deactivating token fails on 404', async () => {
@@ -1314,11 +1306,9 @@ describe('Hog Executor', () => {
                 const error = new Error('Database error')
                 jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockRejectedValueOnce(error)
 
-                const result = await executor.executeFetch(invocation)
+                await executor.executeFetch(invocation)
 
-                expect(result.logs.map((log) => log.message)).toContain(
-                    'Failed to deactivate push subscription token: Error: Database error'
-                )
+                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'unregistered token')
             })
 
             it('handles 400 with INVALID_ARGUMENT and deactivates token', async () => {
@@ -1336,12 +1326,9 @@ describe('Hog Executor', () => {
                 }
                 const invocation = createFcmInvocation(token, 400, responseBody)
 
-                const result = await executor.executeFetch(invocation)
+                await executor.executeFetch(invocation)
 
                 expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'invalid token')
-                expect(result.logs.map((log) => log.message)).toContain(
-                    'Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)'
-                )
             })
 
             it('handles 400 with empty error details and does not deactivate token', async () => {
@@ -1377,11 +1364,9 @@ describe('Hog Executor', () => {
                 const error = new Error('Database error')
                 jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockRejectedValueOnce(error)
 
-                const result = await executor.executeFetch(invocation)
+                await executor.executeFetch(invocation)
 
-                expect(result.logs.map((log) => log.message)).toContain(
-                    'Failed to deactivate push subscription token: Error: Database error'
-                )
+                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'invalid token')
             })
 
             it('handles other status codes without action', async () => {
