@@ -233,9 +233,10 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 pl-4 pr-2 -mt-4 duration-300',
+                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    isRemovingSidePanelFlag && 'pl-4 pr-2',
                     className
                 )}
             >
