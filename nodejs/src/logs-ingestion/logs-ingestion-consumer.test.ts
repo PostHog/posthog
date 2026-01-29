@@ -104,6 +104,9 @@ describe('LogsIngestionConsumer', () => {
 
         await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         logMessageDroppedCounterSpy = jest.spyOn(logMessageDroppedCounter, 'inc')
+
+        // Default to not quota limited - tests can override this
+        jest.spyOn(hub.quotaLimiting, 'isTeamTokenQuotaLimited').mockResolvedValue(false)
     })
 
     afterEach(async () => {
@@ -527,7 +530,272 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('filterQuotaLimitedMessages', () => {
+        it('should allow messages when not quota limited', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
+
+            const messages = createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await consumer['filterQuotaLimitedMessages'](parsed)
+
+            expect(quotaAllowedMessages).toHaveLength(1)
+            expect(quotaDroppedMessages).toHaveLength(0)
+            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'logs_mb_ingested')
+        })
+
+        it('should drop messages when quota limited', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
+
+            const messages = createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await consumer['filterQuotaLimitedMessages'](parsed)
+
+            expect(quotaAllowedMessages).toHaveLength(0)
+            expect(quotaDroppedMessages).toHaveLength(1)
+        })
+
+        it('should check quota once per unique token', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token,
+                    bytes_uncompressed: '300',
+                    record_count: '3',
+                }),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            await consumer['filterQuotaLimitedMessages'](parsed)
+
+            // Should only call once per unique token, not once per message
+            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledTimes(2)
+        })
+
+        it('should handle mixed quota limited and non-limited teams', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((token) => {
+                return Promise.resolve(token === team.api_token) // team1 is limited, team2 is not
+            })
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { quotaAllowedMessages, quotaDroppedMessages } = await consumer['filterQuotaLimitedMessages'](parsed)
+
+            expect(quotaAllowedMessages).toHaveLength(1)
+            expect(quotaAllowedMessages[0].token).toBe(team2.api_token)
+            expect(quotaDroppedMessages).toHaveLength(1)
+            expect(quotaDroppedMessages[0].token).toBe(team.api_token)
+        })
+
+        it('should increment dropped counter when quota limited', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
+
+            const messages = createKafkaMessages([createLogMessage(), createLogMessage()], {
+                token: team.api_token,
+            })
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            await consumer['filterQuotaLimitedMessages'](parsed)
+
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'quota_limited' }, 2)
+        })
+    })
+
     describe('filterRateLimitedMessages', () => {
+        it('should return allowed messages', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
+                await consumer['filterRateLimitedMessages'](parsed)
+
+            expect(rateLimiterAllowedMessages).toHaveLength(1)
+            expect(rateLimiterDroppedMessages).toHaveLength(0)
+        })
+
+        it('should track dropped messages when rate limited', async () => {
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 1 // 1024 bytes - allows first message
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '512', // Fits in bucket
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '2048', // Exceeds remaining bucket
+                    record_count: '5',
+                }),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
+                await consumer['filterRateLimitedMessages'](parsed)
+
+            expect(rateLimiterAllowedMessages).toHaveLength(1)
+            expect(rateLimiterDroppedMessages).toHaveLength(1)
+        })
+    })
+
+    describe('quota and rate limiting integration', () => {
+        it('should apply quota limiting before rate limiting', async () => {
+            // Team1 is quota limited, team2 is not
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((token) => {
+                return Promise.resolve(token === team.api_token)
+            })
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token, // quota limited - should be dropped before rate limiter
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token, // not quota limited - goes to rate limiter
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            const result = await consumer.processKafkaBatch(messages)
+
+            // Only team2's message should be allowed through
+            expect(result.messages).toHaveLength(1)
+            expect(result.messages[0].token).toBe(team2.api_token)
+
+            // Verify quota_limited counter was incremented for team1
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'quota_limited' }, 1)
+        })
+
+        it('should drop messages from both quota and rate limiting', async () => {
+            // Set up rate limit that allows first message but not second
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 1 // 1024 bytes
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
+            // Team1 is quota limited
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((token) => {
+                return Promise.resolve(token === team.api_token)
+            })
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token, // quota limited
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token, // passes quota, fits in rate limit bucket
+                    bytes_uncompressed: '500',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token, // passes quota, but exceeds rate limit
+                    bytes_uncompressed: '2000',
+                    record_count: '2',
+                }),
+            ]
+
+            const result = await consumer.processKafkaBatch(messages)
+
+            // Only first team2 message should be allowed (quota ok + rate limit ok)
+            expect(result.messages).toHaveLength(1)
+            expect(result.messages[0].bytesUncompressed).toBe(500)
+
+            // Verify both drop reasons were recorded
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'quota_limited' }, 1)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'rate_limited' }, 1)
+        })
+
+        it('should track usage stats correctly for mixed allowed and dropped messages', async () => {
+            // Team1 is quota limited
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((token) => {
+                return Promise.resolve(token === team.api_token)
+            })
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token, // quota limited - dropped
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token, // allowed
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            // Check that app_metrics were emitted for both teams
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            // Team1 should have bytes_received and bytes_dropped
+            const team1Metrics = appMetricsMessages.filter((m) => m.value.team_id === team.id)
+            const team1BytesReceived = team1Metrics.find((m) => m.value.metric_name === 'bytes_received')
+            const team1BytesDropped = team1Metrics.find((m) => m.value.metric_name === 'bytes_dropped')
+            expect(team1BytesReceived?.value.count).toBe(100)
+            expect(team1BytesDropped?.value.count).toBe(100)
+
+            // Team2 should have bytes_received and bytes_ingested
+            const team2Metrics = appMetricsMessages.filter((m) => m.value.team_id === team2.id)
+            const team2BytesReceived = team2Metrics.find((m) => m.value.metric_name === 'bytes_received')
+            const team2BytesIngested = team2Metrics.find((m) => m.value.metric_name === 'bytes_ingested')
+            expect(team2BytesReceived?.value.count).toBe(200)
+            expect(team2BytesIngested?.value.count).toBe(200)
+        })
+    })
+
+    describe('trackOutgoingTrafficAndBuildUsageStats', () => {
         it('should return usageStats with correct structure for allowed messages', async () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
@@ -537,10 +805,7 @@ describe('LogsIngestionConsumer', () => {
             })
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { allowed, usageStats } = await consumer['filterRateLimitedMessages'](parsed)
-
-            expect(allowed).toHaveLength(1)
-            expect(usageStats.size).toBe(1)
+            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
 
             const stats = usageStats.get(team.id)
             expect(stats).toBeDefined()
@@ -567,7 +832,7 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { usageStats } = await consumer['filterRateLimitedMessages'](parsed)
+            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
 
             const stats = usageStats.get(team.id)
             expect(stats!.bytesReceived).toBe(300)
@@ -591,38 +856,29 @@ describe('LogsIngestionConsumer', () => {
             ]
 
             const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { usageStats } = await consumer['filterRateLimitedMessages'](parsed)
+            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
 
             expect(usageStats.size).toBe(2)
             expect(usageStats.get(team.id)!.bytesAllowed).toBe(100)
             expect(usageStats.get(team2.id)!.bytesAllowed).toBe(200)
         })
 
-        it('should track dropped stats when rate limited', async () => {
-            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 1 // 1024 bytes - allows first message
-            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
-            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+        it('should track dropped stats correctly', async () => {
+            const allowedMessages = createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '512',
+                record_count: '1',
+            })
+            const droppedMessages = createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '2048',
+                record_count: '5',
+            })
 
-            await consumer.stop()
-            consumer = await createLogsIngestionConsumer(hub)
+            const parsedAllowed = await consumer['_parseKafkaBatch'](allowedMessages)
+            const parsedDropped = await consumer['_parseKafkaBatch'](droppedMessages)
+            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsedAllowed, parsedDropped)
 
-            const messages = [
-                ...createKafkaMessages([createLogMessage()], {
-                    token: team.api_token,
-                    bytes_uncompressed: '512', // Fits in bucket
-                    record_count: '1',
-                }),
-                ...createKafkaMessages([createLogMessage()], {
-                    token: team.api_token,
-                    bytes_uncompressed: '2048', // Exceeds remaining bucket
-                    record_count: '5',
-                }),
-            ]
-
-            const parsed = await consumer['_parseKafkaBatch'](messages)
-            const { allowed, usageStats } = await consumer['filterRateLimitedMessages'](parsed)
-
-            expect(allowed).toHaveLength(1)
             const stats = usageStats.get(team.id)
             expect(stats!.bytesReceived).toBe(2560)
             expect(stats!.bytesAllowed).toBe(512)
