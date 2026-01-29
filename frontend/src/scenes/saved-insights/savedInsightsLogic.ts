@@ -55,6 +55,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
     events: string[] | undefined | null
     hideFeatureFlagInsights: boolean | undefined | null
+    favorited: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -75,6 +76,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         dashboardId: values.dashboardId,
         events: values.events,
         hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
+        favorited: values.favorited || false,
     }
 }
 
@@ -243,7 +245,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
                 ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                ...((filters.tab === SavedInsightsTabs.Favorites || filters.favorited) && { favorited: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),

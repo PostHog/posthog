@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconFlag } from '@posthog/icons'
+import { IconFlag, IconStar } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -18,7 +18,7 @@ export function SavedInsightsFilters({
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
     const { user } = useValues(userLogic)
-    const { search, hideFeatureFlagInsights, createdBy } = filters
+    const { search, hideFeatureFlagInsights, createdBy, favorited } = filters
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -31,10 +31,9 @@ export function SavedInsightsFilters({
             />
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
-                    type={
-                        user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id)
-                            ? 'primary'
-                            : 'secondary'
+                    type="secondary"
+                    active={
+                        user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id) ? true : false
                     }
                     onClick={() => {
                         if (user) {
@@ -52,6 +51,15 @@ export function SavedInsightsFilters({
                     size="small"
                 >
                     Created by me
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    active={favorited || false}
+                    onClick={() => setFilters({ favorited: !favorited })}
+                    size="small"
+                    icon={<IconStar />}
+                >
+                    Favorites
                 </LemonButton>
                 <FeatureFlagInsightsToggle
                     hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}

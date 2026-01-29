@@ -1140,12 +1140,11 @@ export function SavedInsights(): JSX.Element {
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
-                    { key: SavedInsightsTabs.History, label: 'History' },
                     {
                         key: SavedInsightsTabs.Alerts,
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
+                    { key: SavedInsightsTabs.History, label: 'History' },
                 ]}
                 sceneInset
             />
