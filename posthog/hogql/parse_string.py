@@ -47,6 +47,15 @@ def parse_string_literal_ctx(ctx: ParserRuleContext) -> str:
     return parse_string_literal_text(text)
 
 
+def parse_escape_string_literal_ctx(ctx: ParserRuleContext) -> str:
+    """Converts an ESCAPE_STRING_LITERAL received from antlr via ctx.getText() into a Python string"""
+    text = ctx.getText()
+    if text.startswith("E'") and text.endswith("'"):
+        return parse_string_literal_text(text[1:])
+
+    raise SyntaxError(f"Invalid escape string literal, must start with E and be enclosed in single quotes: {text}")
+
+
 def parse_string_text_ctx(ctx: ParserRuleContext, escape_quotes=True) -> str:
     """Converts a STRING_TEXT received from antlr via ctx.getText() into a Python string"""
     text = ctx.getText()
