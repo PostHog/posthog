@@ -194,7 +194,7 @@ def check_alert_task(alert_id: str) -> None:
 
 def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
-        alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
+        alert = AlertConfiguration.objects.select_related("insight").get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
