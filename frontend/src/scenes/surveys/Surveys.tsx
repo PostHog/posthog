@@ -7,7 +7,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
@@ -157,12 +156,7 @@ function Surveys(): JSX.Element {
 
             {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 
-            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
-                <>
-                    <VersionCheckerBanner />
-                    <SurveysTable />
-                </>
-            )}
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && <SurveysTable />}
             <DuplicateToProjectModal />
         </SceneContent>
     )
