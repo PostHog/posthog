@@ -78,7 +78,12 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
                                 saveFirst
                             />
-                            <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => editingProductTour(false)}
+                                data-attr="product-tour-action-btn__cancel"
+                            >
                                 Cancel
                             </LemonButton>
                             <LemonButton
@@ -86,6 +91,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 size="small"
                                 onClick={() => submitProductTourForm()}
                                 loading={isProductTourFormSubmitting && !pendingToolbarOpen}
+                                data-attr="product-tour-action-btn__save"
                             >
                                 Save
                             </LemonButton>

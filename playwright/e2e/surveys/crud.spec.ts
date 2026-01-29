@@ -39,9 +39,6 @@ async function launchSurveyEvenIfDisabled(page: Page): Promise<void> {
     await launchResponsePromise
 }
 
-// CI is too slow, these all fail when run in parallel, will try to find a better solution soon
-test.describe.configure({ mode: 'serial' })
-
 test.describe('CRUD Survey', () => {
     let name: string
 

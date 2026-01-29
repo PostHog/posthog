@@ -99,6 +99,7 @@ function TypeSelectionStep({ onSelect }: { onSelect: (type: ProductTourType) => 
         <div className="flex gap-3 mt-2">
             <button
                 type="button"
+                data-attr="tour-type-selection-button__tour"
                 onClick={() => onSelect('tour')}
                 className="flex-1 flex flex-col items-center gap-3 p-6 rounded-lg border border-border hover:border-primary hover:bg-fill-button-tertiary-hover cursor-pointer transition-colors text-left"
             >
@@ -112,6 +113,7 @@ function TypeSelectionStep({ onSelect }: { onSelect: (type: ProductTourType) => 
             </button>
             <button
                 type="button"
+                data-attr="tour-type-selection-button__announcement"
                 onClick={() => onSelect('announcement')}
                 className="flex-1 flex flex-col items-center gap-3 p-6 rounded-lg border border-border hover:border-primary hover:bg-fill-button-tertiary-hover cursor-pointer transition-colors text-left"
             >
@@ -171,6 +173,7 @@ function AnnouncementConfigStep({
                                     Modal
                                 </span>
                             ),
+                            'data-attr': 'announcement-presentation-select__modal',
                         },
                         {
                             value: 'banner',
@@ -180,6 +183,7 @@ function AnnouncementConfigStep({
                                     Banner
                                 </span>
                             ),
+                            'data-attr': 'announcement-presentation-select__banner',
                         },
                     ]}
                 />
@@ -202,6 +206,7 @@ function AnnouncementConfigStep({
                             onCreate()
                         }
                     }}
+                    data-attr="tour-announcement-title-input"
                 />
             </div>
 
@@ -213,6 +218,7 @@ function AnnouncementConfigStep({
                     type="primary"
                     onClick={onCreate}
                     disabledReason={!name.trim() ? 'Enter a name' : undefined}
+                    data-attr="tour-announcement-create-button"
                 >
                     Create
                 </LemonButton>

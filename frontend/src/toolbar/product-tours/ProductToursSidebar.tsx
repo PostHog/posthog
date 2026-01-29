@@ -150,6 +150,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                     color: 'var(--text-3000)',
                 }}
                 onClick={(e) => e.stopPropagation()}
+                data-attr="product-tours-toolbar-sidebar"
             >
                 <div className="p-4 border-b border-border-bold-3000 bg-bg-light">
                     <div className="flex items-center justify-between mb-3">
@@ -169,6 +170,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                         onChange={(value) => setTourFormValue('name', value)}
                         status={tourFormErrors?.name ? 'danger' : undefined}
                         fullWidth
+                        data-attr="product-tour-title-input"
                     />
 
                     <div className="mt-3 flex gap-2">
@@ -213,7 +215,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                             <p className="m-0 text-xs text-muted-3000">Add your first step to get started</p>
                         </div>
                     ) : (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2" data-attr="product-tour-step-list">
                             {steps.map((step: TourStep, index: number) => (
                                 <StepCard
                                     key={step.id}
@@ -240,16 +242,19 @@ export function ProductToursSidebar(): JSX.Element | null {
                                     icon: STEP_TYPE_ICONS['element'],
                                     label: STEP_TYPE_LABELS['element']!,
                                     onClick: () => addStep('element'),
+                                    'data-attr': 'new-tour-step__element',
                                 },
                                 {
                                     icon: STEP_TYPE_ICONS['modal'],
                                     label: STEP_TYPE_LABELS['modal']!,
                                     onClick: () => addStep('modal'),
+                                    'data-attr': 'new-tour-step__modal',
                                 },
                                 {
                                     icon: STEP_TYPE_ICONS['survey'],
                                     label: STEP_TYPE_LABELS['survey']!,
                                     onClick: () => addStep('survey'),
+                                    'data-attr': 'new-tour-step__survey',
                                 },
                             ]}
                             placement="bottom-start"
@@ -261,6 +266,7 @@ export function ProductToursSidebar(): JSX.Element | null {
                                 icon={<IconPlus />}
                                 sideIcon={<IconChevronDown />}
                                 disabledReason={isAddingStep ? 'Already adding step' : undefined}
+                                data-attr="new-step-button"
                             >
                                 Add step
                             </LemonButton>
