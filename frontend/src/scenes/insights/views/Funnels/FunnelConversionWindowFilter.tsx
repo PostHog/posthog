@@ -25,10 +25,9 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
         funnelDataLogic(insightProps)
     )
 
-    const displayInterval =
-        conversionWindowInterval === null
-            ? conversionWindow.funnelWindowInterval
-            : conversionWindowInterval || undefined
+    const hasEdited = conversionWindowInterval !== null
+    const displayInterval = hasEdited ? conversionWindowInterval || undefined : conversionWindow.funnelWindowInterval
+
     const displayUnit = conversionWindowUnit ?? conversionWindow.funnelWindowIntervalUnit
     const intervalBounds = TIME_INTERVAL_BOUNDS[displayUnit]
 

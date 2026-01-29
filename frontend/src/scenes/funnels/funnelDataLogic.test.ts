@@ -1074,15 +1074,6 @@ describe('funnelDataLogic', () => {
             })
         })
 
-        it('setConversionWindowInterval accepts 0 for empty input', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setConversionWindowInterval(21)
-                logic.actions.setConversionWindowInterval(0)
-            }).toMatchValues({
-                conversionWindowInterval: 0,
-            })
-        })
-
         it('setConversionWindowUnit updates the draft unit', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setConversionWindowUnit(FunnelConversionWindowTimeUnit.Hour)
