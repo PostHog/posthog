@@ -308,27 +308,18 @@ describe('dataTableLogic', () => {
             distinct_id: '123',
         }
         const results = [
-            [
-                { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
-                'pageview',
-                '2022-12-24T17:00:41.165000Z',
-                'bar',
-            ],
-            [
-                { ...commonResult, timestamp: '2022-12-23T17:00:41.165000Z' },
-                'pageview',
-                '2022-12-23T17:00:41.165000Z',
-                'baz',
-            ],
+            [{ ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' }, 'pageview', '2022-12-24T17:00:41.165000Z'],
+            [{ ...commonResult, timestamp: '2022-12-23T17:00:41.165000Z' }, 'pageview', '2022-12-23T17:00:41.165000Z'],
         ]
-        // Simulate adding a column: query has new column but response doesn't yet
+        // Simulate the race condition: query has new column but API response still has old columns
+        // This happens when applying a table view or adding a column - the query updates immediately
+        // but the API response is asynchronous
         ;(performQuery as any).mockResolvedValueOnce({
-            columns: ['*', 'event', 'timestamp', 'properties.foo'],
+            columns: ['*', 'event', 'timestamp'], // Response has old columns (without properties.foo)
             types: [
                 "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
                 'String',
                 "DateTime64(6, 'UTC')",
-                'String',
             ],
             results: results,
             hasMore: false,
@@ -340,7 +331,7 @@ describe('dataTableLogic', () => {
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp', 'properties.foo'],
+                    select: ['*', 'event', 'timestamp', 'properties.foo'], // Query has new column
                 },
             },
         })
@@ -353,6 +344,7 @@ describe('dataTableLogic', () => {
             .toMatchValues({ responseLoading: false, response: partial({ results }) })
 
         // The key assertion: dataTableRows should contain results, not be empty
+        // Even though columnsInQuery !== columnsInResponse, we should still show the results
         await expectLogic(logic).toMatchValues({
             dataTableRows: [{ result: results[0] }, { result: results[1] }],
         })
