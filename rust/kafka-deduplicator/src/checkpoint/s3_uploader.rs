@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use object_store::aws::AmazonS3Builder;
 use object_store::buffered::BufWriter;
+use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
 use object_store::{ClientOptions, ObjectStore, ObjectStoreExt, PutPayload};
 use std::path::Path;
@@ -14,6 +15,8 @@ use tracing::info;
 use super::config::CheckpointConfig;
 use super::uploader::CheckpointUploader;
 
+/// S3Uploader using `object_store` crate with `LimitStore` for bounded concurrency.
+/// The LimitStore wraps the S3 client with a semaphore that limits concurrent requests.
 #[derive(Debug)]
 pub struct S3Uploader {
     store: Arc<dyn ObjectStore>,
@@ -63,7 +66,7 @@ impl S3Uploader {
             builder = builder.with_virtual_hosted_style_request(false);
         }
 
-        let store = builder.build().with_context(|| {
+        let base_store = builder.build().with_context(|| {
             format!(
                 "Failed to create S3 client for bucket '{}' in region '{}'",
                 config.s3_bucket,
@@ -71,19 +74,21 @@ impl S3Uploader {
             )
         })?;
 
+        // Wrap with LimitStore for bounded concurrency
+        let store: Arc<dyn ObjectStore> = Arc::new(LimitStore::new(
+            base_store,
+            config.max_concurrent_checkpoint_file_uploads,
+        ));
+
         // Validate bucket access by listing (head not available in object_store)
         let _ = store.list(Some(&ObjectPath::from(""))).next().await;
 
         info!(
-            "S3 bucket '{}' validated successfully in region '{}'",
-            config.s3_bucket,
-            config.aws_region.as_deref().unwrap_or("default")
+            "S3 bucket '{}' validated successfully with max {} concurrent uploads",
+            config.s3_bucket, config.max_concurrent_checkpoint_file_uploads
         );
 
-        Ok(Self {
-            store: Arc::new(store),
-            config,
-        })
+        Ok(Self { store, config })
     }
 
     /// Upload a file using object_store's streaming multipart upload.

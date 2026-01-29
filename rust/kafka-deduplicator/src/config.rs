@@ -221,6 +221,18 @@ pub struct Config {
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
 
+    // Maximum concurrent S3 file downloads during checkpoint import
+    // Limits memory usage by bounding the number of in-flight HTTP connections
+    // Critical during rebalance when many partitions are assigned simultaneously
+    // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
+    #[envconfig(default = "50")]
+    pub max_concurrent_checkpoint_file_downloads: usize,
+
+    // Maximum concurrent S3 file uploads during checkpoint export
+    // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
+    #[envconfig(default = "25")]
+    pub max_concurrent_checkpoint_file_uploads: usize,
+
     //// End checkpoint configuration ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
