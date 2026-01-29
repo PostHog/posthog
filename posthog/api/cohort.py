@@ -630,9 +630,11 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
         logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
-        calculate_cohort_from_list.delay(
-            cohort.pk, ids, team_id=self.context["team_id"], id_type=id_type, email_column_name=email_column_name
-        )
+        # Only pass email_column_name if it's not None to maintain backward compatibility
+        kwargs = {"team_id": self.context["team_id"], "id_type": id_type}
+        if email_column_name is not None:
+            kwargs["email_column_name"] = email_column_name
+        calculate_cohort_from_list.delay(cohort.pk, ids, **kwargs)
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""

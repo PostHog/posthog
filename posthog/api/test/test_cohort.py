@@ -795,7 +795,6 @@ Jane Smith,{person2.uuid},ignore_this_too,jane@example.com
             [str(person1.uuid), str(person2.uuid)],
             team_id=self.team.id,
             id_type="person_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -828,7 +827,6 @@ Jane Smith,   ,jane@example.com
             [str(person1.uuid)],
             team_id=self.team.id,
             id_type="person_id",
-            email_column_name=None,
         )
 
     def test_static_cohort_csv_upload_multicolumn_without_any_id_fails(self):
@@ -937,7 +935,6 @@ another_user
             ["legacy_user", "another_user"],
             team_id=self.team.id,
             id_type="distinct_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -971,7 +968,6 @@ another_user
             [str(person1.uuid), str(person2.uuid)],
             team_id=self.team.id,
             id_type="person_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1005,7 +1001,6 @@ Jane Smith,	user456	,jane@example.com
             ["user123", "user456"],
             team_id=self.team.id,
             id_type="distinct_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1039,7 +1034,6 @@ Jane Smith,	user456	,jane@example.com
             ["user,123", "user,456,special"],
             team_id=self.team.id,
             id_type="distinct_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1073,7 +1067,6 @@ Jane Smith,	user456	,jane@example.com
             ['user"123', 'user"special"456'],
             team_id=self.team.id,
             id_type="distinct_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1112,7 +1105,6 @@ user789
             ["user123", "user456"],
             team_id=self.team.id,
             id_type="distinct_id",
-            email_column_name=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
