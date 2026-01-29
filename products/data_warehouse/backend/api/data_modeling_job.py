@@ -1,7 +1,9 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
@@ -53,3 +55,17 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     def safely_get_queryset(self, queryset=None):
         queryset = super().safely_get_queryset(queryset).filter(team_id=self.team_id)
         return queryset
+
+    @action(methods=["GET"], detail=False)
+    def running(self, request, *args, **kwargs):
+        """Get all currently running jobs."""
+        queryset = self.safely_get_queryset().filter(status=DataModelingJob.Status.RUNNING)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(methods=["GET"], detail=False)
+    def recent(self, request, *args, **kwargs):
+        """Get recent jobs (last 24 hours)."""
+        queryset = self.safely_get_queryset().order_by("-created_at")
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
