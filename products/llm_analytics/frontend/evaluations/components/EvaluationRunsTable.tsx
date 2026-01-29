@@ -8,17 +8,11 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, evaluationRunsLoading } = useValues(llmEvaluationLogic)
+    const { evaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-
-    const runsLookup: Record<string, EvaluationRun> = {}
-    for (const run of evaluationRuns) {
-        runsLookup[run.generation_id] = run
-    }
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {

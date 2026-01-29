@@ -488,6 +488,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 providerKeysByProvider[selectedProvider] || [],
         ],
 
+        runsLookup: [
+            (s) => [s.evaluationRuns],
+            (runs): Record<string, EvaluationRun> => {
+                const lookup: Record<string, EvaluationRun> = {}
+                for (const run of runs) {
+                    lookup[run.generation_id] = run
+                }
+                return lookup
+            },
+        ],
+
         runsSummary: [
             (s) => [s.evaluationRuns],
             (runs) => {
