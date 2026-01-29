@@ -358,6 +358,8 @@ interface PolicySnapshot {
         operator?: string
         value?: number
     }
+    bypass_org_membership_levels?: string[]
+    bypass_roles?: string[]
 }
 
 function PolicyConfigurationDisplay({ policySnapshot }: { policySnapshot?: PolicySnapshot }): JSX.Element {
@@ -456,6 +458,28 @@ function PolicyConfigurationDisplay({ policySnapshot }: { policySnapshot?: Polic
                 <div className="text-secondary text-sm mb-1">Self-approval</div>
                 <div>{policySnapshot.allow_self_approve ? 'Allowed' : 'Not allowed'}</div>
             </div>
+
+            {/* Bypass */}
+            {((policySnapshot.bypass_org_membership_levels && policySnapshot.bypass_org_membership_levels.length > 0) ||
+                (policySnapshot.bypass_roles && policySnapshot.bypass_roles.length > 0)) && (
+                <div>
+                    <div className="text-secondary text-sm mb-2">Bypass</div>
+                    <div className="flex flex-wrap gap-2">
+                        {policySnapshot.bypass_org_membership_levels &&
+                            policySnapshot.bypass_org_membership_levels.length > 0 && (
+                                <LemonTag type="completion">Org admins and owners can bypass</LemonTag>
+                            )}
+                        {policySnapshot.bypass_roles?.map((id) => {
+                            const role = rolesById.get(id)
+                            return (
+                                <LemonTag key={id} type="highlight">
+                                    {role ? role.name : `Role ${id}`}
+                                </LemonTag>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
