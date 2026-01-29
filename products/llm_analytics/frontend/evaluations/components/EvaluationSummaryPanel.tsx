@@ -28,6 +28,19 @@ function getSummarizeTooltip(runsCount: number, filter: EvaluationSummaryFilter,
     return `${action} ${runsCount} ${filterLabel}evaluation results`
 }
 
+interface FilterOption {
+    value: EvaluationSummaryFilter
+    label: string
+}
+
+const BASE_FILTER_OPTIONS: FilterOption[] = [
+    { value: 'all', label: 'All' },
+    { value: 'pass', label: 'Passing' },
+    { value: 'fail', label: 'Failing' },
+]
+
+const NA_FILTER_OPTION: FilterOption = { value: 'na', label: 'N/A' }
+
 export function EvaluationSummaryControls(): JSX.Element | null {
     const {
         evaluation,
@@ -75,12 +88,7 @@ export function EvaluationSummaryControls(): JSX.Element | null {
                 onChange={(value) => {
                     setEvaluationSummaryFilter(value as EvaluationSummaryFilter, evaluationSummaryFilter)
                 }}
-                options={[
-                    { value: 'all', label: 'All' },
-                    { value: 'pass', label: 'Passing' },
-                    { value: 'fail', label: 'Failing' },
-                    ...(evaluation?.output_config?.allows_na ? [{ value: 'na', label: 'N/A' }] : []),
-                ]}
+                options={[...BASE_FILTER_OPTIONS, ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : [])]}
                 size="small"
                 data-attr="llma-evaluation-summary-filter"
             />
