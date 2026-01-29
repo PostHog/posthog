@@ -190,9 +190,9 @@ impl FlagError {
     /// This provides more specific error classification than `error_code()`,
     /// particularly for database errors where we can distinguish between
     /// timeouts, connection pool exhaustion, etc.
+    /// Falls back to `error_code()` for variants that don't need extra granularity.
     pub fn evaluation_error_code(&self) -> String {
         match self {
-            FlagError::HashKeyOverrideError => "hash_key_override_error".to_string(),
             FlagError::DatabaseError(sqlx_error, context) => {
                 let error_msg = sqlx_error.to_string();
                 let context_msg = context.as_deref().unwrap_or("");
@@ -210,16 +210,11 @@ impl FlagError {
                 } else if error_msg.contains("query_wait_timeout") {
                     "query_wait_timeout".to_string()
                 } else {
-                    "database_error".to_string()
+                    self.error_code().to_string()
                 }
             }
-            FlagError::DatabaseUnavailable => "database_unavailable".to_string(),
-            FlagError::RedisUnavailable => "redis_unavailable".to_string(),
-            FlagError::TimeoutError(timeout_type) => match timeout_type {
-                Some(t) => format!("timeout:{t}"),
-                None => "timeout_error".to_string(),
-            },
-            FlagError::NoGroupTypeMappings => "no_group_type_mappings".to_string(),
+            FlagError::TimeoutError(Some(t)) => format!("timeout:{t}"),
+            FlagError::TimeoutError(None) => "timeout_error".to_string(),
             FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "dependency_not_found_cohort".to_string(),
                 DependencyType::Flag => "dependency_not_found_flag".to_string(),
@@ -228,16 +223,16 @@ impl FlagError {
                 DependencyType::Cohort => "dependency_cycle_cohort".to_string(),
                 DependencyType::Flag => "dependency_cycle_flag".to_string(),
             },
-            _ => "unknown".to_string(),
+            _ => self.error_code().to_string(),
         }
     }
 
     /// Returns a human-readable description for flag evaluation failures.
+    /// Provides detailed descriptions for variants where the `Display` impl
+    /// is too technical, and falls back to `to_string()` (the `#[error]` message)
+    /// for everything else.
     pub fn evaluation_error_description(&self) -> String {
         match self {
-            FlagError::HashKeyOverrideError => {
-                "Failed to fetch hash key override for experience continuity".to_string()
-            }
             FlagError::DatabaseError(sqlx_error, context) => {
                 let error_msg = sqlx_error.to_string();
                 let context_msg = context.as_deref().unwrap_or("");
@@ -258,15 +253,7 @@ impl FlagError {
                     "Database connection error during evaluation".to_string()
                 }
             }
-            FlagError::DatabaseUnavailable => "Database is unavailable".to_string(),
-            FlagError::RedisUnavailable => "Redis cache unavailable".to_string(),
-            FlagError::TimeoutError(timeout_type) => match timeout_type {
-                Some(t) => format!("Timeout: {t}"),
-                None => "Evaluation timed out".to_string(),
-            },
-            FlagError::NoGroupTypeMappings => {
-                "Group type mappings not found for this team".to_string()
-            }
+            FlagError::TimeoutError(Some(t)) => format!("Timeout: {t}"),
             FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "Cohort dependency not found".to_string(),
                 DependencyType::Flag => "Flag dependency not found".to_string(),
@@ -275,7 +262,7 @@ impl FlagError {
                 DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
                 DependencyType::Flag => "Flag dependency cycle detected".to_string(),
             },
-            _ => "Flag evaluation failed due to an unknown error".to_string(),
+            _ => self.to_string(),
         }
     }
 

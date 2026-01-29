@@ -825,7 +825,7 @@ impl FeatureFlagMatcher {
                     let reason = e.evaluation_error_code();
                     inc(
                         FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), reason.clone())],
+                        &[("reason".to_string(), reason)],
                         1,
                     );
                     level_evaluated_flags_map
