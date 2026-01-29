@@ -49,13 +49,6 @@ CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env(
     "0 5 * * SUN",
 )
 
-# Schedule to delete redundant ClickHouse data on. Follows crontab syntax.
-# Use empty string to prevent this
-CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
-    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
-    # Every third month 5AM UTC on 1st of the month
-    "0 5 1 */3 *",
-)
 
 # Schedule to count items in playlists. Follows crontab syntax.
 PLAYLIST_COUNTER_SCHEDULE_CRON = get_from_env(

@@ -713,6 +713,40 @@ class VerifiedDeletionResources:
 
 
 @dagster.op
+def remove_deleted_person_data(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    pending_deletes_dictionary: PendingDeletesDictionary,
+) -> PendingDeletesDictionary:
+    """Remove person rows that have been marked as deleted (is_deleted > 0)."""
+
+    def count_deleted_persons(client: Client) -> int:
+        result = client.execute(f"SELECT count() FROM {PERSONS_TABLE} WHERE is_deleted > 0")
+        return result[0][0] if result else 0
+
+    count = cluster.any_host(count_deleted_persons).result()
+
+    if count == 0:
+        context.add_output_metadata(
+            {"persons_removed": dagster.MetadataValue.int(0), "message": "No deleted persons found"}
+        )
+        return pending_deletes_dictionary
+
+    context.add_output_metadata({"persons_removed": dagster.MetadataValue.int(count)})
+
+    delete_mutation_runner = LightweightDeleteMutationRunner(
+        table=PERSONS_TABLE,
+        predicate="is_deleted > 0",
+    )
+
+    # Person table is replicated (non-sharded), so run on any host
+    mutation = cluster.any_host(delete_mutation_runner).result()
+    cluster.map_all_hosts(mutation.wait).result()
+
+    return pending_deletes_dictionary
+
+
+@dagster.op
 def mark_deletions_verified(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     pending_deletions_dictionary: PendingDeletesDictionary,
@@ -789,6 +823,8 @@ def deletes_job():
         # input to each step is the output of the previous step
         delete_mutations = delete_team_data_from(table)(pending_deletes_dictionary)
         pending_deletes_dictionary = wait_for_delete_mutations_in_all_hosts(delete_mutations)
+
+    pending_deletes_dictionary = remove_deleted_person_data(pending_deletes_dictionary)
 
     verified_deletion_resources = mark_deletions_verified(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
 
