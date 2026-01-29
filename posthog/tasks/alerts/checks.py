@@ -199,7 +199,6 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         logger.warning("Alert not found or not enabled", alert_id=alert_id)
         return
 
-    # Skip alerts for deleted insights (defensive check for race conditions)
     if alert.insight.deleted:
         logger.info("Skipping alert for deleted insight", alert_id=alert_id, insight_id=alert.insight_id)
         return

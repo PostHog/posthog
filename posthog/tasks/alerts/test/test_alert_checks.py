@@ -675,7 +675,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_alert_is_not_triggered_when_insight_deleted(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
-        """Alert should be skipped if the associated insight has been soft-deleted."""
         self.set_thresholds(lower=1)
 
         # Soft-delete the insight
@@ -687,9 +686,6 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         # Alert should be skipped without error
         check_alert(self.alert["id"])
-
         assert mock_send_notifications_for_breaches.call_count == 0
         assert mock_send_errors.call_count == 0
-
-        # No AlertCheck should have been created since we skipped early
         assert AlertCheck.objects.filter(alert_configuration=self.alert["id"]).count() == 0

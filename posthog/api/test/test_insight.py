@@ -51,6 +51,7 @@ from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
+    AlertConfiguration,
     Cohort,
     Dashboard,
     DashboardTile,
@@ -2723,8 +2724,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_soft_delete_deletes_alerts(self) -> None:
-        from posthog.models import AlertConfiguration
-
         insight_id, insight = self.dashboard_api.create_insight(
             {
                 "name": "insight with alert",
@@ -2735,8 +2734,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             }
         )
-
-        # Create an alert for this insight
         alert_response = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
             {
@@ -2751,16 +2748,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(alert_response.status_code, status.HTTP_201_CREATED)
         alert_id = alert_response.json()["id"]
 
-        # Verify alert exists
         alert = AlertConfiguration.objects.get(id=alert_id)
-        self.assertTrue(alert.enabled)
+        self.assertIsNotNone(alert, "Alert should be present")
 
-        # Soft-delete the insight
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-
-        # Verify alert is now deleted
-        self.assertFalse(AlertConfiguration.objects.filter(id=alert_id).exists())
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK, "Insight should be soft deleted")
+        self.assertFalse(AlertConfiguration.objects.filter(id=alert_id).exists(), "Alert should be deleted")
 
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow

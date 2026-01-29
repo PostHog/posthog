@@ -1,12 +1,12 @@
+from collections import defaultdict
+
 import dagster
 
 from posthog.dags.common import JobOwners
 
 
 class DeleteAlertsConfig(dagster.Config):
-    """Configuration for deleting alerts on deleted insights."""
-
-    dry_run: bool = False
+    dry_run: bool = True
     limit: int = 1000
 
 
@@ -22,10 +22,7 @@ def delete_alerts_for_deleted_insights_op(
     """
     from posthog.models import AlertConfiguration
 
-    # Find all alerts on deleted insights (both enabled and disabled)
-    alerts_on_deleted = AlertConfiguration.objects.filter(
-        insight__deleted=True,
-    )[: config.limit]
+    alerts_on_deleted = AlertConfiguration.objects.filter(insight__deleted=True)[: config.limit]
 
     count = alerts_on_deleted.count()
     context.log.info(f"Found {count} alerts on deleted insights")
@@ -40,15 +37,17 @@ def delete_alerts_for_deleted_insights_op(
         )
         return {"total_found": 0, "total_deleted": 0}
 
-    # Log sample alerts for visibility
-    sample_size = min(20, count)
-    sample_alerts = list(alerts_on_deleted[:sample_size])
-    context.log.info(f"Sample of alerts (showing first {sample_size}):")
-    for alert in sample_alerts:
-        context.log.info(f"  - Alert {alert.id}: {alert.name} (insight {alert.insight_id}, team {alert.team_id})")
+    alerts_by_team: dict[int, list] = defaultdict(list)
+    for alert in alerts_on_deleted:
+        alerts_by_team[alert.team_id].append(alert)
 
-    if count > sample_size:
-        context.log.info(f"  ... and {count - sample_size} more")
+    context.log.info(f"Alerts to delete by team ({count} total across {len(alerts_by_team)} teams):")
+    for team_id, team_alerts in sorted(alerts_by_team.items(), key=lambda x: -len(x[1])):
+        insight_ids = [str(a.insight_id) for a in team_alerts[:10]]
+        insight_preview = ", ".join(insight_ids)
+        if len(team_alerts) > 10:
+            insight_preview += f", ... (+{len(team_alerts) - 10} more)"
+        context.log.info(f"  Team {team_id}: {len(team_alerts)} alerts (insights: {insight_preview})")
 
     if config.dry_run:
         context.log.warning(f"DRY RUN: Would delete {count} alerts (not making changes)")
@@ -77,22 +76,4 @@ def delete_alerts_for_deleted_insights_op(
 
 @dagster.job(tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value})
 def delete_alerts_for_deleted_insights():
-    """Backfill job to delete alerts for soft-deleted insights.
-
-    This job can be triggered manually from the Dagster UI with configuration:
-    - dry_run: Set to true to preview changes without making them
-    - limit: Maximum number of alerts to process in one run (default: 1000)
-
-    Example configuration in Dagster UI:
-    {
-        "ops": {
-            "delete_alerts_for_deleted_insights_op": {
-                "config": {
-                    "dry_run": true,
-                    "limit": 1000
-                }
-            }
-        }
-    }
-    """
     delete_alerts_for_deleted_insights_op()
