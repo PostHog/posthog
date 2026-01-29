@@ -20,6 +20,7 @@ from posthog.schema import (
     MaxExperimentSummaryContext,
     MaxExperimentVariantResultBayesian,
     MaxExperimentVariantResultFrequentist,
+    QueryStatusResponse,
 )
 
 from posthog.clickhouse.client.connection import Workload
@@ -125,8 +126,9 @@ def get_default_metric_title(metric_dict: dict) -> str:
     return "Metric"
 
 
-def is_cache_miss(result: Any) -> bool:
-    return isinstance(result, CacheMissResponse)
+def is_incomplete_response(result: Any) -> bool:
+    """Check if result is a cache miss or pending query status (i.e. incomplete result)."""
+    return isinstance(result, (CacheMissResponse, QueryStatusResponse))
 
 
 class ExperimentSummaryDataService:
@@ -180,7 +182,7 @@ class ExperimentSummaryDataService:
                 result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
                 refresh_time = getattr(result, "last_refresh", None)
 
-                if is_cache_miss(result):
+                if is_incomplete_response(result):
                     nonlocal pending_calculation
                     pending_calculation = True
                     return None, None
@@ -234,7 +236,7 @@ class ExperimentSummaryDataService:
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
                 )
 
-                if is_cache_miss(exposure_result):
+                if is_incomplete_response(exposure_result):
                     pending_calculation = True
                     exposure_result = None
 
