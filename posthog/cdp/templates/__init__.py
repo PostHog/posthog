@@ -81,6 +81,7 @@ from .sendgrid.template_sendgrid import (
     template as sendgrid,
 )
 from .slack.template_slack import template as slack
+from .synter.template_synter import template as synter
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
 from .userlist.template_userlist import template as userlist
@@ -91,6 +92,7 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     slack,
+    synter,
     activecampaign,
     airtable,
     attio,
