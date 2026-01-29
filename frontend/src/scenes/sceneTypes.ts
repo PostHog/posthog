@@ -37,6 +37,7 @@ export enum Scene {
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DeadLetterQueue = 'DeadLetterQueue',
+    Destinations = 'Destinations',
     DebugHog = 'DebugHog',
     DebugQuery = 'DebugQuery',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
