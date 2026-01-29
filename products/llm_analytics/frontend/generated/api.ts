@@ -19,6 +19,8 @@ import type {
     DatasetsList2Params,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationSummaryRequestApi,
+    EvaluationSummaryResponseApi,
     EvaluationsListParams,
     LLMProviderKeyApi,
     LlmAnalyticsProviderKeysListParams,
@@ -378,6 +380,39 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     return apiMutator<void>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * 
+Generate an AI-powered summary of evaluation results.
+
+This endpoint analyzes evaluation runs and identifies patterns in passing
+and failing evaluations, providing actionable recommendations.
+
+Data is fetched server-side by evaluation ID to ensure data integrity.
+
+**Use Cases:**
+- Understand why evaluations are passing or failing
+- Identify systematic issues in LLM responses
+- Get recommendations for improving response quality
+- Review patterns across many evaluation runs at once
+        
+ */
+export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_summary/`
+}
+
+export const llmAnalyticsEvaluationSummaryCreate = async (
+    projectId: string,
+    evaluationSummaryRequestApi: EvaluationSummaryRequestApi,
+    options?: RequestInit
+): Promise<EvaluationSummaryResponseApi> => {
+    return apiMutator<EvaluationSummaryResponseApi>(getLlmAnalyticsEvaluationSummaryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationSummaryRequestApi),
     })
 }
 
