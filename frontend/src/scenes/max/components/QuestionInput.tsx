@@ -214,7 +214,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                     >
                         {voiceInputEnabled && isVoiceSupported && (
-                            <Tooltip title={voiceError ? voiceError : isListening ? 'Stop listening' : 'Voice input'}>
+                            <Tooltip title={voiceError || (isListening ? 'Stop listening' : 'Voice input')}>
                                 <LemonButton
                                     type="secondary"
                                     size="small"
