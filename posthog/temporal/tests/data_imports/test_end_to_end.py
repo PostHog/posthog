@@ -21,8 +21,6 @@ import pytest_asyncio
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from deltalake import DeltaTable
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
-from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
@@ -55,6 +53,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNo
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.rest_source.http_client import RESTClient
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -339,8 +338,6 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             DATA_WAREHOUSE_REDIS_PORT="6379",
             DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
