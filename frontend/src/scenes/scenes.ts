@@ -20,6 +20,7 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 
 // Lazy load scene panel components
 const SurveyPanelDetails = lazy(() =>
@@ -614,8 +615,31 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
 }
 
 const redirectPipeline = (stage: DataPipelinesSceneTab, id: string): string => {
+    // Hog functions (destinations & transformations)
     if (id.startsWith('hog-')) {
         return urls.hogFunction(id.replace('hog-', ''))
+    }
+    // Batch exports (destinations)
+    if (id.startsWith('batch-export-')) {
+        return urls.batchExport(id.replace('batch-export-', ''))
+    }
+    // Legacy plugins (transformations)
+    if (id.startsWith('plugin-')) {
+        return urls.legacyPlugin(id.replace('plugin-', ''))
+    }
+    // Data warehouse sources (sources)
+    if (id.startsWith('managed-') || id.startsWith('self-managed-')) {
+        return urls.dataWarehouseSource(id)
+    }
+    // Fallback to list view
+    if (stage === 'sources') {
+        return urls.sources()
+    }
+    if (stage === 'destinations') {
+        return urls.destinations()
+    }
+    if (stage === 'transformations') {
+        return urls.transformations()
     }
     return urls.dataPipelines(stage)
 }
@@ -644,6 +668,8 @@ export const redirects: Record<
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    '/data-warehouse/sources/:id/:tab': ({ id, tab }) =>
+        urls.dataWarehouseSource(id, tab as DataWarehouseSourceSceneTab),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
@@ -693,6 +719,8 @@ export const redirects: Record<
     '/pipeline/site-apps/:id/:tab': ({ id }) => redirectPipeline('site_apps', id),
     '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline('transformations', id),
     '/pipeline/destinations': urls.destinations(),
+    '/pipeline/sources': urls.sources(),
+    '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.dataPipelines('sources'),
     '/project/settings': urls.settings('project'),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
