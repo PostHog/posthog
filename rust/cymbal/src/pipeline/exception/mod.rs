@@ -134,7 +134,14 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
 
     for exception in props.exception_list.iter_mut() {
         if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
-            exception.exception_message.truncate(MAX_EXCEPTION_VALUE_LENGTH);
+            let truncate_at = exception
+                .exception_message
+                .char_indices()
+                .take_while(|(i, _)| *i < MAX_EXCEPTION_VALUE_LENGTH)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
+            exception.exception_message.truncate(truncate_at);
             exception.exception_message.push_str("...");
         }
     }
