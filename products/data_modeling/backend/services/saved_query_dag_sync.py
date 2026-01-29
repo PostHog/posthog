@@ -187,11 +187,12 @@ def sync_saved_query_to_dag(
             ).save(skip_validation=True)
             return target
         # other query errors should surface to the user
+        target.delete()
         raise
     except Exception as e:
+        target.delete()
         logger.warning("Failed to parse query for dependencies", saved_query_id=str(saved_query.id), error=str(e))
         capture_exception(e)
-        target.delete()
         return None
 
     unresolved = []
