@@ -135,7 +135,7 @@ export function Navigation({
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
                                     'focus-visible:outline-none': isRemovingSidePanelFlag,
-                                    'max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
                                         isRemovingSidePanelFlag && sidePanelOpen,
                                 }
                             )}
