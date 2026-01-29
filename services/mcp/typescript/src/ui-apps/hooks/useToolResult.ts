@@ -88,6 +88,8 @@ function parseToolResultContent<T>(structuredContent: unknown): T | null {
     return null
 }
 
+function log(...args: any[]): void {}
+
 /**
  * Hook for MCP UI Apps to receive and handle tool results.
  *
@@ -104,6 +106,7 @@ export function useToolResult<T = unknown>({
 
     // Initialize PostHog on first render
     useEffect(() => {
+        log('Initializing PostHog', { appName, appVersion })
         initPostHog(appName, appVersion)
     }, [appName, appVersion])
 
@@ -115,6 +118,8 @@ export function useToolResult<T = unknown>({
         appInfo: { name: appName, version: appVersion },
         capabilities: {},
         onAppCreated: (appInstance) => {
+            log('App created', { appInstance })
+
             // Register tool input handler
             appInstance.setNotificationHandler(McpUiToolInputNotificationSchema, (notification) => {
                 // Extract toolName from params if available (may be in extended params)

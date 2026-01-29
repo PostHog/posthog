@@ -16,6 +16,8 @@ const POSTHOG_HOST = typeof __POSTHOG_BASE_URL__ !== 'undefined' ? __POSTHOG_BAS
 let client: PostHog | null = null
 let currentDistinctId: string | null = null
 
+const log = (...args: any[]): void => {}
+
 /**
  * Initialize PostHog for UI Apps tracking.
  * Only initializes if POSTHOG_UI_APPS_TOKEN is set.
@@ -29,6 +31,7 @@ export function initPostHog(appName: string, appVersion: string): void {
         return
     }
 
+    log('Initializing PostHog client', { token: POSTHOG_TOKEN, host: POSTHOG_HOST, appName, appVersion })
     client = new PostHog(POSTHOG_TOKEN, { host: POSTHOG_HOST })
     client.register({
         $mcp_app_name: appName,
@@ -41,13 +44,16 @@ export function initPostHog(appName: string, appVersion: string): void {
  */
 export function identifyUser(distinctId: string, toolName?: string): void {
     if (!client) {
+        log('PostHog client not initialized while attempting to identify user', { distinctId, toolName })
         return
     }
 
     if (currentDistinctId === distinctId) {
+        log('User already identified', { distinctId })
         return
     }
 
+    log('Identifying user', { distinctId, toolName })
     client.identify(distinctId)
     currentDistinctId = distinctId
 
