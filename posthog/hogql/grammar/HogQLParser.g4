@@ -172,6 +172,7 @@ columnExpr
     | columnExpr NULL_PROPERTY LBRACKET columnExpr RBRACKET                               # ColumnExprNullArrayAccess
     | columnExpr NULL_PROPERTY DECIMAL_LITERAL                                            # ColumnExprNullTupleAccess
     | columnExpr NULL_PROPERTY identifier                                                 # ColumnExprNullPropertyAccess
+    | columnExpr DOUBLECOLON identifier                                                  # ColumnExprTypeCast
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                 // *
                  | operator=SLASH                                                         // /
