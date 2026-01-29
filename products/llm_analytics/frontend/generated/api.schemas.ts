@@ -193,9 +193,9 @@ export const OutputTypeEnumApi = {
  * `anthropic` - Anthropic
  * `gemini` - Gemini
  */
-export type Provider53dEnumApi = (typeof Provider53dEnumApi)[keyof typeof Provider53dEnumApi]
+export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
 
-export const Provider53dEnumApi = {
+export const ProviderEnumApi = {
     openai: 'openai',
     anthropic: 'anthropic',
     gemini: 'gemini',
@@ -205,7 +205,7 @@ export const Provider53dEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider53dEnumApi
+    provider: ProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -387,7 +387,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider53dEnumApi
+    provider: ProviderEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -413,7 +413,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider53dEnumApi
+    provider?: ProviderEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -450,17 +450,6 @@ export const ModeEnumApi = {
     detailed: 'detailed',
 } as const
 
-/**
- * * `openai` - openai
- * `gemini` - gemini
- */
-export type Provider1b4EnumApi = (typeof Provider1b4EnumApi)[keyof typeof Provider1b4EnumApi]
-
-export const Provider1b4EnumApi = {
-    openai: 'openai',
-    gemini: 'gemini',
-} as const
-
 export interface SummarizeRequestApi {
     /** Type of entity to summarize
 
@@ -476,11 +465,6 @@ export interface SummarizeRequestApi {
     data: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
-    /** LLM provider to use (defaults to 'openai')
-
-* `openai` - openai
-* `gemini` - gemini */
-    provider?: Provider1b4EnumApi | NullEnumApi | null
     /**
      * LLM model to use (defaults based on provider)
      * @nullable
@@ -529,13 +513,8 @@ export interface BatchCheckRequestApi {
 * `minimal` - minimal
 * `detailed` - detailed */
     mode?: ModeEnumApi
-    /** LLM provider to check for (defaults to 'openai')
-
-* `openai` - openai
-* `gemini` - gemini */
-    provider?: Provider1b4EnumApi | NullEnumApi | null
     /**
-     * LLM model to check for (defaults based on provider)
+     * LLM model used for cached summaries
      * @nullable
      */
     model?: string | null
