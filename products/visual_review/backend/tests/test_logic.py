@@ -118,7 +118,7 @@ class TestRunOperations:
         return logic.create_project(team_id=team.id, name="Test")
 
     def test_create_run_basic(self, project):
-        run, missing = logic.create_run(
+        run, uploads = logic.create_run(
             project_id=project.id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc123def456",
@@ -138,12 +138,14 @@ class TestRunOperations:
         assert run.pr_number == 42
         assert run.status == RunStatus.PENDING
         assert run.total_snapshots == 2
-        assert set(missing) == {"hash1", "hash2"}
+        # uploads is a list of dicts with content_hash, url, fields
+        upload_hashes = {u["content_hash"] for u in uploads}
+        assert upload_hashes == {"hash1", "hash2"}
 
     def test_create_run_with_existing_artifacts(self, project):
         logic.get_or_create_artifact(project_id=project.id, content_hash="existing", storage_path="p/existing")
 
-        run, missing = logic.create_run(
+        run, uploads = logic.create_run(
             project_id=project.id,
             run_type=RunType.PLAYWRIGHT,
             commit_sha="abc",
@@ -156,14 +158,16 @@ class TestRunOperations:
             baseline_hashes={},
         )
 
-        assert missing == ["new"]
+        # Only "new" needs upload, "existing" already has artifact
+        assert len(uploads) == 1
+        assert uploads[0]["content_hash"] == "new"
 
     def test_create_run_with_baselines(self, project):
         baseline_artifact, _ = logic.get_or_create_artifact(
             project_id=project.id, content_hash="baseline_hash", storage_path="p/baseline"
         )
 
-        run, missing = logic.create_run(
+        run, _uploads = logic.create_run(
             project_id=project.id,
             run_type=RunType.STORYBOOK,
             commit_sha="abc",
@@ -309,9 +313,12 @@ class TestApproveRun:
         assert updated.approved_at is not None
         assert updated.approved_by_id == user.id
 
+        # Result should NOT be mutated - approval is recorded separately
         snapshot = updated.snapshots.first()
-        assert snapshot.baseline_artifact_id == current_artifact.id
-        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.result == SnapshotResult.CHANGED  # Result preserved
+        assert snapshot.approved_hash == "new_hash"  # Approval recorded
+        assert snapshot.approved_at is not None
+        assert snapshot.approved_by_id == user.id
 
 
 @pytest.mark.django_db

@@ -533,6 +533,50 @@ class TestGitHubCommitOnApprove:
 
         assert result.approved is True
 
+    def test_approve_preserves_result_and_sets_approval_fields(
+        self,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+    ):
+        """
+        Approve should NOT mutate snapshot.result.
+
+        Instead it sets approval fields to record the approval while
+        preserving the diff history.
+        """
+        run = run_with_changes
+        snapshots_before = list(run.snapshots.all())
+
+        # Verify snapshots are CHANGED before approval
+        for s in snapshots_before:
+            assert s.result == SnapshotResult.CHANGED
+            assert s.approved_at is None
+            assert s.approved_by_id is None
+            assert s.approved_hash == ""
+
+        approved = [
+            {"identifier": "button--primary", "new_hash": "abc123hash"},
+            {"identifier": "card--default", "new_hash": "def456hash"},
+        ]
+
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=approved,
+            commit_to_github=False,
+        )
+
+        # Refresh snapshots from DB
+        for s in run.snapshots.all():
+            # Result should NOT have changed - still CHANGED
+            assert s.result == SnapshotResult.CHANGED, f"Expected result to stay CHANGED but got {s.result}"
+
+            # Approval fields should be populated
+            assert s.approved_at is not None
+            assert s.approved_by_id == user.id
+            assert s.approved_hash in ["abc123hash", "def456hash"]
+
 
 @pytest.mark.django_db
 class TestGitHubIntegrationErrors:

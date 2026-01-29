@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from products.visual_review.backend import logic
 from products.visual_review.backend.api import api
-from products.visual_review.backend.api.dtos import CreateRunInput, RegisterArtifactInput, SnapshotManifestItem
+from products.visual_review.backend.api.dtos import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.domain_types import RunType
 
 
@@ -48,51 +49,19 @@ class TestProjectViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.visual_review.backend.logic.get_presigned_upload_url")
-    def test_get_upload_url(self, mock_presigned):
-        mock_presigned.return_value = {
-            "url": "https://s3.example.com/upload",
-            "fields": {"key": "value", "policy": "base64..."},
-        }
-        project = api.create_project(team_id=self.team.id, name="Test")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/projects/{project.id}/upload-url/",
-            {"content_hash": "abc123"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["url"], "https://s3.example.com/upload")
-        self.assertIn("fields", data)
-
-    def test_register_artifact(self):
-        project = api.create_project(team_id=self.team.id, name="Test")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/projects/{project.id}/artifacts/",
-            {
-                "content_hash": "abc123def456",
-                "width": 800,
-                "height": 600,
-                "size_bytes": 12345,
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(data["content_hash"], "abc123def456")
-        self.assertIn("id", data)
-
 
 class TestRunViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.project = api.create_project(team_id=self.team.id, name="Test")
 
-    def test_create_run(self):
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_create_run(self, mock_presigned):
+        mock_presigned.return_value = {
+            "url": "https://s3.example.com/upload",
+            "fields": {"key": "value"},
+        }
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/runs/",
             {
@@ -102,8 +71,8 @@ class TestRunViewSet(APIBaseTest):
                 "branch": "main",
                 "pr_number": 42,
                 "snapshots": [
-                    {"identifier": "Button-primary", "content_hash": "hash1"},
-                    {"identifier": "Card-default", "content_hash": "hash2"},
+                    {"identifier": "Button-primary", "content_hash": "hash1", "width": 100, "height": 200},
+                    {"identifier": "Card-default", "content_hash": "hash2", "width": 150, "height": 250},
                 ],
                 "baseline_hashes": {},
             },
@@ -113,7 +82,10 @@ class TestRunViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertIn("run_id", data)
-        self.assertEqual(set(data["missing_hashes"]), {"hash1", "hash2"})
+        self.assertIn("uploads", data)
+        self.assertEqual(len(data["uploads"]), 2)
+        upload_hashes = {u["content_hash"] for u in data["uploads"]}
+        self.assertEqual(upload_hashes, {"hash1", "hash2"})
 
     def test_retrieve_run(self):
         create_result = api.create_run(
@@ -175,13 +147,11 @@ class TestRunViewSet(APIBaseTest):
         mock_delay.assert_called_once()
 
     def test_approve_run(self):
-        # Register artifact
-        api.register_artifact(
-            RegisterArtifactInput(
-                project_id=self.project.id,
-                content_hash="new_hash",
-                storage_path="visual_review/new_hash",
-            )
+        # Create artifact directly via logic (API no longer exposes register_artifact)
+        logic.get_or_create_artifact(
+            project_id=self.project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
         )
 
         # Create run with changed snapshot

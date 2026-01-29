@@ -69,6 +69,23 @@ def create_project(team_id: int, name: str) -> Project:
     return Project.objects.create(team_id=team_id, name=name)
 
 
+def update_project(
+    project_id: UUID,
+    name: str | None = None,
+    repo_full_name: str | None = None,
+    baseline_file_paths: dict[str, str] | None = None,
+) -> Project:
+    project = get_project(project_id)
+    if name is not None:
+        project.name = name
+    if repo_full_name is not None:
+        project.repo_full_name = repo_full_name
+    if baseline_file_paths is not None:
+        project.baseline_file_paths = baseline_file_paths
+    project.save()
+    return project
+
+
 # --- Artifact Operations ---
 
 
@@ -182,11 +199,12 @@ def create_run(
     pr_number: int | None,
     snapshots: list[dict],
     baseline_hashes: dict[str, str],
-) -> tuple[Run, list[str]]:
+) -> tuple[Run, list[dict]]:
     """
     Create a new run with its snapshots.
 
-    Returns the run and list of missing artifact hashes.
+    Returns the run and list of upload targets for missing artifacts.
+    Each upload target has: content_hash, url, fields
     """
     project = get_project(project_id)
 
@@ -200,6 +218,8 @@ def create_run(
     )
 
     all_hashes: set[str] = set()
+    # Store width/height from manifest for later artifact creation
+    hash_metadata: dict[str, dict] = {}
 
     for snap in snapshots:
         identifier = snap["identifier"]
@@ -207,6 +227,10 @@ def create_run(
         baseline_hash = baseline_hashes.get(identifier)
 
         all_hashes.add(current_hash)
+        hash_metadata[current_hash] = {
+            "width": snap.get("width"),
+            "height": snap.get("height"),
+        }
         if baseline_hash:
             all_hashes.add(baseline_hash)
 
@@ -231,6 +255,9 @@ def create_run(
             current_artifact=current_artifact,
             baseline_artifact=baseline_artifact,
             result=result,
+            # Store metadata on snapshot for artifact creation during complete
+            current_width=snap.get("width"),
+            current_height=snap.get("height"),
         )
 
     # Calculate initial summary counts from snapshot results
@@ -241,8 +268,23 @@ def create_run(
     run.removed_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.REMOVED)
     run.save(update_fields=["changed_count", "new_count", "removed_count"])
 
+    # Find missing hashes and generate upload URLs
     missing_hashes = find_missing_hashes(project_id, list(all_hashes))
-    return run, missing_hashes
+    storage = ArtifactStorage(str(project_id))
+
+    uploads = []
+    for content_hash in missing_hashes:
+        upload_data = storage.get_presigned_upload_url(content_hash)
+        if upload_data:
+            uploads.append(
+                {
+                    "content_hash": content_hash,
+                    "url": upload_data["url"],
+                    "fields": upload_data["fields"],
+                }
+            )
+
+    return run, uploads
 
 
 def mark_run_processing(run_id: UUID) -> Run:
@@ -250,6 +292,60 @@ def mark_run_processing(run_id: UUID) -> Run:
     run.status = RunStatus.PROCESSING
     run.save(update_fields=["status"])
     return run
+
+
+def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
+    """
+    Verify S3 uploads exist and create Artifact records.
+
+    Called when run is completed. Checks S3 for each expected hash,
+    creates Artifact if present, and links to snapshots.
+
+    Returns number of artifacts created.
+    """
+    run = get_run_with_snapshots(run_id)
+    project_id = run.project_id
+    storage = ArtifactStorage(str(project_id))
+
+    # Collect all unique hashes we expect
+    expected_hashes: dict[str, dict] = {}
+    for snapshot in run.snapshots.all():
+        if snapshot.current_hash and snapshot.current_hash not in expected_hashes:
+            expected_hashes[snapshot.current_hash] = {
+                "width": snapshot.current_width,
+                "height": snapshot.current_height,
+            }
+        if snapshot.baseline_hash and snapshot.baseline_hash not in expected_hashes:
+            expected_hashes[snapshot.baseline_hash] = {
+                "width": None,
+                "height": None,
+            }
+
+    created_count = 0
+    for content_hash, metadata in expected_hashes.items():
+        # Check if artifact already exists
+        if get_artifact(project_id, content_hash):
+            continue
+
+        # Check if file exists in S3
+        if not storage.exists(content_hash):
+            continue
+
+        # Create artifact record
+        storage_path = storage._key(content_hash)
+        artifact, created = get_or_create_artifact(
+            project_id=project_id,
+            content_hash=content_hash,
+            storage_path=storage_path,
+            width=metadata.get("width"),
+            height=metadata.get("height"),
+        )
+
+        if created:
+            created_count += 1
+            link_artifact_to_snapshots(project_id, content_hash)
+
+    return created_count
 
 
 def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
@@ -453,16 +549,14 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     if commit_to_github and run.pr_number and project.repo_full_name:
         _commit_baseline_to_github(run, project, approved_snapshots)
 
-    # Update snapshots in DB
+    # Record approval on each snapshot without mutating result/baseline
+    # This preserves the diff history while tracking what was approved
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         new_hash = approvals[snapshot.identifier]
-        new_artifact = get_artifact(project.id, new_hash)
-
-        if new_artifact:
-            snapshot.baseline_artifact = new_artifact
-            snapshot.baseline_hash = new_hash
-            snapshot.result = SnapshotResult.UNCHANGED
-            snapshot.save(update_fields=["baseline_artifact", "baseline_hash", "result"])
+        snapshot.approved_at = timezone.now()
+        snapshot.approved_by_id = user_id
+        snapshot.approved_hash = new_hash
+        snapshot.save(update_fields=["approved_at", "approved_by_id", "approved_hash"])
 
     # Mark run approved
     run.approved = True

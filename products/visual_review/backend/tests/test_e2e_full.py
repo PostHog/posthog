@@ -22,12 +22,12 @@ import pytest
 import yaml
 from PIL import Image
 
+from products.visual_review.backend import logic
 from products.visual_review.backend.api import api
 from products.visual_review.backend.api.dtos import (
     ApproveRunInput,
     ApproveSnapshotInput,
     CreateRunInput,
-    RegisterArtifactInput,
     SnapshotManifestItem,
 )
 from products.visual_review.backend.domain_types import SnapshotResult
@@ -115,21 +115,29 @@ def extract_test_snapshots() -> dict[str, dict]:
 
 
 def upload_artifact(project_id: UUID, content_hash: str, width: int, height: int, size_bytes: int):
-    """Register an artifact (simulates upload completion)."""
-    # In real flow, CLI uploads to S3 then calls this
-    # We skip S3 and just register the artifact
+    """
+    Create an artifact record (simulates upload + verification in complete_run).
+
+    In real flow:
+    1. CLI uploads to S3
+    2. Backend verifies upload in complete_run and creates artifact
+    3. Backend links artifact to any pending snapshots
+
+    For tests, we skip S3 and just create the artifact directly, then link.
+    """
     storage_path = f"visual_review/{project_id}/{content_hash[:2]}/{content_hash}.png"
 
-    api.register_artifact(
-        RegisterArtifactInput(
-            project_id=project_id,
-            content_hash=content_hash,
-            storage_path=storage_path,
-            width=width,
-            height=height,
-            size_bytes=size_bytes,
-        )
+    logic.get_or_create_artifact(
+        project_id=project_id,
+        content_hash=content_hash,
+        storage_path=storage_path,
+        width=width,
+        height=height,
+        size_bytes=size_bytes,
     )
+
+    # Link artifact to any snapshots waiting for it (simulates complete_run behavior)
+    logic.link_artifact_to_snapshots(project_id, content_hash)
 
 
 # --- Tests ---

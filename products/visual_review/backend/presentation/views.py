@@ -21,18 +21,15 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..api import api
-from ..api.dtos import ApproveRunInput, RegisterArtifactInput
+from ..api.dtos import ApproveRunInput, UpdateProjectInput
 from .serializers import (
     ApproveRunInputSerializer,
-    ArtifactSerializer,
-    ArtifactUploadedSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
     ProjectSerializer,
     RunSerializer,
     SnapshotSerializer,
-    UploadUrlRequestSerializer,
-    UploadUrlSerializer,
+    UpdateProjectInputSerializer,
 )
 
 # TODO: Add VISUAL_REVIEW to frontend/src/queries/schema/schema-general.ts ProductKey enum
@@ -50,7 +47,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
     scope_object = "project"
-    scope_object_write_actions = ["create", "get_upload_url", "register_artifact"]
+    scope_object_write_actions = ["create", "partial_update"]
     scope_object_read_actions = ["list", "retrieve"]
 
     @extend_schema(responses={200: ProjectSerializer(many=True)})
@@ -75,47 +72,24 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(ProjectSerializer(instance=project).data)
 
-    @extend_schema(request=UploadUrlRequestSerializer, responses={200: UploadUrlSerializer})
-    @action(detail=True, methods=["post"], url_path="upload-url")
-    def get_upload_url(self, request: Request, pk: str, **kwargs) -> Response:
-        """Get a presigned URL for uploading an artifact."""
-        serializer = UploadUrlRequestSerializer(data=request.data)
+    @extend_schema(request=UpdateProjectInputSerializer, responses={200: ProjectSerializer})
+    def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
+        """Update a project's settings."""
+        serializer = UpdateProjectInputSerializer(data={**request.data, "project_id": pk})
         serializer.is_valid(raise_exception=True)
 
-        upload_url = api.get_upload_url(UUID(pk), serializer.validated_data["content_hash"])
-        if not upload_url:
-            return Response({"detail": "Object storage not available"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        return Response(UploadUrlSerializer(instance=upload_url).data)
-
-    @extend_schema(request=ArtifactUploadedSerializer, responses={201: ArtifactSerializer})
-    @action(detail=True, methods=["post"], url_path="artifacts")
-    def register_artifact(self, request: Request, pk: str, **kwargs) -> Response:
-        """Register an artifact after it has been uploaded to S3."""
-        serializer = ArtifactUploadedSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        project_id = UUID(pk)
-        data = serializer.validated_data
-
-        # Build storage path from project_id and hash
-        from ..storage import ArtifactStorage
-
-        storage = ArtifactStorage(str(project_id))
-        storage_path = storage._key(data["content_hash"])
-
-        artifact = api.register_artifact(
-            RegisterArtifactInput(
-                project_id=project_id,
-                content_hash=data["content_hash"],
-                storage_path=storage_path,
-                width=data.get("width"),
-                height=data.get("height"),
-                size_bytes=data.get("size_bytes"),
-            )
+        input_dto = UpdateProjectInput(
+            project_id=UUID(pk),
+            name=serializer.validated_data.get("name"),
+            repo_full_name=serializer.validated_data.get("repo_full_name"),
+            baseline_file_paths=serializer.validated_data.get("baseline_file_paths"),
         )
 
-        return Response({"id": str(artifact.id), "content_hash": artifact.content_hash}, status=status.HTTP_201_CREATED)
+        try:
+            project = api.update_project(input_dto)
+        except api.ProjectNotFoundError:
+            return Response({"detail": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ProjectSerializer(instance=project).data)
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])

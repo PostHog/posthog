@@ -5,13 +5,14 @@ from uuid import UUID
 import pytest
 from unittest.mock import patch
 
+from products.visual_review.backend import logic
 from products.visual_review.backend.api import api
 from products.visual_review.backend.api.dtos import (
     ApproveRunInput,
     ApproveSnapshotInput,
     CreateRunInput,
-    RegisterArtifactInput,
     SnapshotManifestItem,
+    UpdateProjectInput,
 )
 from products.visual_review.backend.domain_types import RunType, SnapshotResult
 
@@ -49,50 +50,35 @@ class TestProjectAPI:
         names = {p.name for p in result}
         assert names == {"First", "Second"}
 
+    def test_update_project_sets_github_config(self, team):
+        created = api.create_project(team_id=team.id, name="Test")
+        assert created.repo_full_name == ""
+        assert created.baseline_file_paths == {}
 
-@pytest.mark.django_db
-class TestArtifactAPI:
-    @pytest.fixture
-    def project(self, team):
-        return api.create_project(team_id=team.id, name="Test")
-
-    def test_register_artifact_returns_dto(self, project):
-        result = api.register_artifact(
-            RegisterArtifactInput(
-                project_id=project.id,
-                content_hash="abc123",
-                storage_path="visual_review/abc123",
-                width=100,
-                height=200,
-                size_bytes=5000,
+        result = api.update_project(
+            UpdateProjectInput(
+                project_id=created.id,
+                repo_full_name="posthog/posthog",
+                baseline_file_paths={"storybook": ".storybook/snapshots.yml"},
             )
         )
 
-        assert isinstance(result.id, UUID)
-        assert result.content_hash == "abc123"
-        assert result.width == 100
-        assert result.height == 200
+        assert result.repo_full_name == "posthog/posthog"
+        assert result.baseline_file_paths == {"storybook": ".storybook/snapshots.yml"}
+        assert result.name == "Test"  # unchanged
 
-    @patch("products.visual_review.backend.logic.get_presigned_upload_url")
-    def test_get_upload_url(self, mock_presigned, project):
-        mock_presigned.return_value = {
-            "url": "https://s3.example.com/upload",
-            "fields": {"key": "value"},
-        }
+    def test_update_project_partial_update(self, team):
+        created = api.create_project(team_id=team.id, name="Original")
 
-        result = api.get_upload_url(project.id, "somehash")
+        result = api.update_project(
+            UpdateProjectInput(
+                project_id=created.id,
+                name="Updated",
+            )
+        )
 
-        assert result is not None
-        assert result.url == "https://s3.example.com/upload"
-        assert result.fields == {"key": "value"}
-
-    @patch("products.visual_review.backend.logic.get_presigned_upload_url")
-    def test_get_upload_url_storage_disabled(self, mock_presigned, project):
-        mock_presigned.return_value = None
-
-        result = api.get_upload_url(project.id, "somehash")
-
-        assert result is None
+        assert result.name == "Updated"
+        assert result.repo_full_name == ""  # unchanged
 
 
 @pytest.mark.django_db
@@ -101,7 +87,13 @@ class TestRunAPI:
     def project(self, team):
         return api.create_project(team_id=team.id, name="Test")
 
-    def test_create_run_returns_result(self, project):
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_create_run_returns_result_with_uploads(self, mock_presigned, project):
+        mock_presigned.return_value = {
+            "url": "https://s3.example.com/upload",
+            "fields": {"key": "value"},
+        }
+
         result = api.create_run(
             CreateRunInput(
                 project_id=project.id,
@@ -109,14 +101,20 @@ class TestRunAPI:
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[
-                    SnapshotManifestItem(identifier="Button", content_hash="hash1"),
-                    SnapshotManifestItem(identifier="Card", content_hash="hash2"),
+                    SnapshotManifestItem(identifier="Button", content_hash="hash1", width=100, height=200),
+                    SnapshotManifestItem(identifier="Card", content_hash="hash2", width=150, height=250),
                 ],
             )
         )
 
         assert isinstance(result.run_id, UUID)
-        assert set(result.missing_hashes) == {"hash1", "hash2"}
+        assert len(result.uploads) == 2
+        upload_hashes = {u.content_hash for u in result.uploads}
+        assert upload_hashes == {"hash1", "hash2"}
+        # Check upload targets have URL and fields
+        for upload in result.uploads:
+            assert upload.url == "https://s3.example.com/upload"
+            assert upload.fields == {"key": "value"}
 
     def test_get_run_returns_dto(self, project):
         create_result = api.create_run(
@@ -181,13 +179,11 @@ class TestApproveRunAPI:
         return api.create_project(team_id=team.id, name="Test")
 
     def test_approve_run(self, project, user):
-        # Create artifact first
-        api.register_artifact(
-            RegisterArtifactInput(
-                project_id=project.id,
-                content_hash="new_hash",
-                storage_path="visual_review/new_hash",
-            )
+        # Create artifact first (directly via logic since API no longer exposes this)
+        logic.get_or_create_artifact(
+            project_id=project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
         )
 
         # Create run with a changed snapshot
@@ -213,7 +209,8 @@ class TestApproveRunAPI:
         assert result.approved is True
         assert result.approved_at is not None
 
-        # Check snapshot was updated
+        # Check snapshot approval fields were set but result was NOT mutated
         snapshots = api.get_run_snapshots(create_result.run_id)
         button_snap = next(s for s in snapshots if s.identifier == "Button")
-        assert button_snap.result == SnapshotResult.UNCHANGED
+        assert button_snap.result == SnapshotResult.CHANGED  # Result preserved
+        assert button_snap.approved_hash == "new_hash"  # Approval recorded

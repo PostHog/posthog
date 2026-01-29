@@ -17,7 +17,7 @@ from ..api.dtos import (
     RunSummary,
     Snapshot,
     SnapshotManifestItem,
-    UploadUrl,
+    UploadTarget,
 )
 
 # --- Output Serializers ---
@@ -34,6 +34,11 @@ class ArtifactSerializer(DataclassSerializer):
 
 
 class SnapshotSerializer(DataclassSerializer):
+    # Explicitly mark artifact fields as nullable for OpenAPI schema
+    current_artifact = ArtifactSerializer(allow_null=True, required=False)
+    baseline_artifact = ArtifactSerializer(allow_null=True, required=False)
+    diff_artifact = ArtifactSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = Snapshot
 
@@ -48,14 +53,14 @@ class ProjectSerializer(DataclassSerializer):
         dataclass = Project
 
 
+class UploadTargetSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = UploadTarget
+
+
 class CreateRunResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRunResult
-
-
-class UploadUrlSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = UploadUrl
 
 
 # --- Input Serializers ---
@@ -71,6 +76,18 @@ class CreateRunInputSerializer(DataclassSerializer):
         dataclass = CreateRunInput
 
 
+class UpdateProjectInputSerializer(serializers.Serializer):
+    """Input for updating a project. project_id comes from URL."""
+
+    name = serializers.CharField(max_length=255, required=False, allow_null=True)
+    repo_full_name = serializers.CharField(max_length=255, required=False, allow_null=True, allow_blank=True)
+    baseline_file_paths = serializers.DictField(
+        child=serializers.CharField(max_length=512),
+        required=False,
+        allow_null=True,
+    )
+
+
 class ApproveSnapshotInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = ApproveSnapshotInput
@@ -81,21 +98,3 @@ class ApproveRunInputSerializer(serializers.Serializer):
 
     snapshots = ApproveSnapshotInputSerializer(many=True)
     commit_to_github = serializers.BooleanField(default=True, required=False)
-
-
-# --- Convenience Serializers ---
-
-
-class UploadUrlRequestSerializer(serializers.Serializer):
-    """Request for a presigned upload URL."""
-
-    content_hash = serializers.CharField(max_length=128)
-
-
-class ArtifactUploadedSerializer(serializers.Serializer):
-    """Notification that an artifact has been uploaded."""
-
-    content_hash = serializers.CharField(max_length=128)
-    width = serializers.IntegerField(required=False, allow_null=True)
-    height = serializers.IntegerField(required=False, allow_null=True)
-    size_bytes = serializers.IntegerField(required=False, allow_null=True)

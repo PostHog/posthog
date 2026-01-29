@@ -3,6 +3,9 @@ Celery tasks for visual_review.
 
 Async entrypoints that call the facade (api/api.py).
 Keep task functions thin - only call facade methods.
+
+NOTE: Imports are done inside functions to avoid circular imports
+when Celery loads this module at startup.
 """
 
 from uuid import UUID
@@ -10,20 +13,18 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
-from .. import logic
-from ..diff import compute_diff
-from ..domain_types import SnapshotResult
-
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True)
+@shared_task(name="products.visual_review.backend.tasks.process_run_diffs", ignore_result=True)
 def process_run_diffs(run_id: str) -> None:
     """
     Process diffs for all snapshots in a run.
 
     Called after CI signals that all artifacts have been uploaded.
     """
+    from .. import logic
+
     run_uuid = UUID(run_id)
 
     try:
@@ -41,6 +42,9 @@ def _process_diffs(run_id: UUID) -> None:
     """
     Process diffs for all changed snapshots in a run.
     """
+    from .. import logic
+    from ..domain_types import SnapshotResult
+
     snapshots = logic.get_run_snapshots(run_id)
 
     for snapshot in snapshots:
@@ -67,6 +71,9 @@ def _diff_snapshot(snapshot) -> None:
 
     Downloads both images, computes pixel diff, uploads diff image.
     """
+    from .. import logic
+    from ..diff import compute_diff
+
     project_id = snapshot.run.project_id
 
     # Download images from storage

@@ -3,8 +3,9 @@
 import pytest
 from unittest.mock import patch
 
+from products.visual_review.backend import logic
 from products.visual_review.backend.api import api
-from products.visual_review.backend.api.dtos import CreateRunInput, RegisterArtifactInput, SnapshotManifestItem
+from products.visual_review.backend.api.dtos import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.domain_types import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.tasks.tasks import _process_diffs, process_run_diffs
 
@@ -59,12 +60,10 @@ class TestProcessRunDiffs:
 
     def test_process_diffs_skips_unchanged(self, project):
         # Create artifact that exists for both baseline and current
-        api.register_artifact(
-            RegisterArtifactInput(
-                project_id=project.id,
-                content_hash="same_hash",
-                storage_path="visual_review/same_hash",
-            )
+        logic.get_or_create_artifact(
+            project_id=project.id,
+            content_hash="same_hash",
+            storage_path="visual_review/same_hash",
         )
 
         create_result = api.create_run(
@@ -107,20 +106,16 @@ class TestProcessRunDiffs:
 
     def test_process_diffs_attempts_diff_for_changed(self, project):
         # Create baseline artifact
-        api.register_artifact(
-            RegisterArtifactInput(
-                project_id=project.id,
-                content_hash="old_hash",
-                storage_path="visual_review/old_hash",
-            )
+        logic.get_or_create_artifact(
+            project_id=project.id,
+            content_hash="old_hash",
+            storage_path="visual_review/old_hash",
         )
         # Create current artifact
-        api.register_artifact(
-            RegisterArtifactInput(
-                project_id=project.id,
-                content_hash="new_hash",
-                storage_path="visual_review/new_hash",
-            )
+        logic.get_or_create_artifact(
+            project_id=project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
         )
 
         create_result = api.create_run(

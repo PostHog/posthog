@@ -7,10 +7,14 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export type ProjectApiBaselineFilePaths = { [key: string]: string }
+
 export interface ProjectApi {
     id: string
     team_id: number
     name: string
+    repo_full_name: string
+    baseline_file_paths: ProjectApiBaselineFilePaths
     created_at: string
 }
 
@@ -24,70 +28,26 @@ export interface PaginatedProjectListApi {
 }
 
 /**
- * Notification that an artifact has been uploaded.
+ * @nullable
  */
-export interface ArtifactUploadedApi {
-    /** @maxLength 128 */
-    content_hash: string
-    /** @nullable */
-    width?: number | null
-    /** @nullable */
-    height?: number | null
-    /** @nullable */
-    size_bytes?: number | null
-}
-
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
-}
+export type PatchedUpdateProjectInputApiBaselineFilePaths = { [key: string]: string } | null | null
 
 /**
- * Request for a presigned upload URL.
+ * Input for updating a project. project_id comes from URL.
  */
-export interface UploadUrlRequestApi {
-    /** @maxLength 128 */
-    content_hash: string
-}
-
-export type UploadUrlApiFields = { [key: string]: string }
-
-export interface UploadUrlApi {
-    url: string
-    fields: UploadUrlApiFields
-}
-
-export type CreateRunInputApiBaselineHashes = { [key: string]: string }
-
-export interface SnapshotManifestItemApi {
-    identifier: string
-    content_hash: string
+export interface PatchedUpdateProjectInputApi {
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    repo_full_name?: string | null
     /** @nullable */
-    width?: number | null
-    /** @nullable */
-    height?: number | null
-}
-
-export interface CreateRunInputApi {
-    project_id: string
-    run_type: string
-    commit_sha: string
-    branch: string
-    snapshots: SnapshotManifestItemApi[]
-    /** @nullable */
-    pr_number?: number | null
-    baseline_hashes?: CreateRunInputApiBaselineHashes
-}
-
-export interface CreateRunResultApi {
-    run_id: string
-    missing_hashes: string[]
+    baseline_file_paths?: PatchedUpdateProjectInputApiBaselineFilePaths
 }
 
 export interface RunSummaryApi {
@@ -118,6 +78,50 @@ export interface RunApi {
     completed_at: string | null
 }
 
+export interface PaginatedRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RunApi[]
+}
+
+export type CreateRunInputApiBaselineHashes = { [key: string]: string }
+
+export interface SnapshotManifestItemApi {
+    identifier: string
+    content_hash: string
+    /** @nullable */
+    width?: number | null
+    /** @nullable */
+    height?: number | null
+}
+
+export interface CreateRunInputApi {
+    project_id: string
+    run_type: string
+    commit_sha: string
+    branch: string
+    snapshots: SnapshotManifestItemApi[]
+    /** @nullable */
+    pr_number?: number | null
+    baseline_hashes?: CreateRunInputApiBaselineHashes
+}
+
+export type UploadTargetApiFields = { [key: string]: string }
+
+export interface UploadTargetApi {
+    content_hash: string
+    url: string
+    fields: UploadTargetApiFields
+}
+
+export interface CreateRunResultApi {
+    run_id: string
+    uploads: UploadTargetApi[]
+}
+
 export interface ApproveSnapshotInputApi {
     identifier: string
     new_hash: string
@@ -128,19 +132,34 @@ export interface ApproveSnapshotInputApi {
  */
 export interface ApproveRunInputApi {
     snapshots: ApproveSnapshotInputApi[]
+    commit_to_github?: boolean
+}
+
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
 }
 
 export interface SnapshotApi {
-    id: string
-    identifier: string
-    result: string
     current_artifact: ArtifactApi
     baseline_artifact: ArtifactApi
     diff_artifact: ArtifactApi
+    id: string
+    identifier: string
+    result: string
     /** @nullable */
     diff_percentage: number | null
     /** @nullable */
     diff_pixel_count: number | null
+    /** @nullable */
+    approved_at: string | null
+    approved_hash: string
 }
 
 export interface PaginatedSnapshotListApi {
@@ -153,6 +172,17 @@ export interface PaginatedSnapshotListApi {
 }
 
 export type VisualReviewProjectsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -120,6 +120,10 @@ class RunSnapshot(models.Model):
     current_hash = models.CharField(max_length=128, blank=True)
     baseline_hash = models.CharField(max_length=128, blank=True)
 
+    # Dimensions from manifest (used for artifact creation during complete)
+    current_width = models.PositiveIntegerField(null=True, blank=True)
+    current_height = models.PositiveIntegerField(null=True, blank=True)
+
     # Current artifact (from this CI run)
     current_artifact = models.ForeignKey(
         Artifact, on_delete=models.SET_NULL, null=True, blank=True, related_name="current_snapshots"
@@ -142,6 +146,11 @@ class RunSnapshot(models.Model):
     # Diff metrics
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
+
+    # Approval (per-snapshot, preserves result immutability)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    approved_hash = models.CharField(max_length=128, blank=True)
 
     class Meta:
         constraints = [

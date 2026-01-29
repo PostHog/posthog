@@ -12,7 +12,7 @@ import type {
     RunApi,
     SnapshotApi,
     SnapshotManifestItemApi,
-    UploadUrlApi,
+    UploadTargetApi,
 } from '@visual-review/types'
 
 // Re-export types for convenience
@@ -22,7 +22,7 @@ export type {
     RunApi as Run,
     SnapshotApi as Snapshot,
     SnapshotManifestItemApi as SnapshotManifestItem,
-    UploadUrlApi as UploadUrl,
+    UploadTargetApi as UploadTarget,
 }
 
 export interface ClientConfig {
@@ -100,23 +100,13 @@ export class VisualReviewClient {
     }
 
     /**
-     * Get presigned URL for uploading an artifact.
+     * Upload artifact to S3 using presigned URL from createRun response.
      */
-    async getUploadUrl(projectId: string, contentHash: string): Promise<UploadUrlApi> {
-        return this.request<UploadUrlApi>(`/visual_review/projects/${projectId}/upload-url/`, {
-            method: 'POST',
-            body: JSON.stringify({ content_hash: contentHash }),
-        })
-    }
-
-    /**
-     * Upload artifact to S3 using presigned URL.
-     */
-    async uploadToS3(uploadUrl: UploadUrlApi, data: Buffer): Promise<void> {
+    async uploadToS3(uploadTarget: UploadTargetApi, data: Buffer): Promise<void> {
         const formData = new FormData()
 
         // Add all presigned fields
-        for (const [key, value] of Object.entries(uploadUrl.fields)) {
+        for (const [key, value] of Object.entries(uploadTarget.fields) as [string, string][]) {
             formData.append(key, value)
         }
 
@@ -126,7 +116,7 @@ export class VisualReviewClient {
         // Add file data (must be last field in form data for S3)
         formData.append('file', new Blob([new Uint8Array(data)], { type: 'image/png' }))
 
-        const response = await fetch(uploadUrl.url, {
+        const response = await fetch(uploadTarget.url, {
             method: 'POST',
             body: formData,
         })
@@ -134,27 +124,6 @@ export class VisualReviewClient {
         if (!response.ok) {
             throw new Error(`S3 upload failed: ${response.status}`)
         }
-    }
-
-    /**
-     * Register an artifact after upload.
-     */
-    async registerArtifact(
-        projectId: string,
-        contentHash: string,
-        width?: number,
-        height?: number,
-        sizeBytes?: number
-    ): Promise<void> {
-        await this.request(`/visual_review/projects/${projectId}/artifacts/`, {
-            method: 'POST',
-            body: JSON.stringify({
-                content_hash: contentHash,
-                width,
-                height,
-                size_bytes: sizeBytes,
-            }),
-        })
     }
 
     /**

@@ -131,6 +131,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     const scanned = scanDirectory(dirPath)
 
     if (scanned.length === 0) {
+        console.error('No PNGs found in directory')
         return 1
     }
 
@@ -171,33 +172,20 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         baselineHashes,
     })
 
-    // 5. Upload missing artifacts
-    if (result.missing_hashes.length > 0) {
+    // 5. Upload missing artifacts (URLs are returned from createRun)
+    if (result.uploads.length > 0) {
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
 
-        for (const hash of result.missing_hashes) {
-            const snapshot = hashToSnapshot.get(hash)
+        for (const upload of result.uploads) {
+            const snapshot = hashToSnapshot.get(upload.content_hash)
             if (!snapshot) {
                 continue
             }
 
             try {
-                // Get presigned URL
-                const uploadUrl = await client.getUploadUrl(options.project, hash)
-
-                // Upload to S3
-                await client.uploadToS3(uploadUrl, snapshot.data)
-
-                // Register artifact
-                await client.registerArtifact(
-                    options.project,
-                    hash,
-                    snapshot.width,
-                    snapshot.height,
-                    snapshot.data.length
-                )
+                await client.uploadToS3(upload, snapshot.data)
             } catch (error) {
-                console.error(`  ✗ ${hash.slice(0, 12)}...: ${error}`)
+                console.error(`  ✗ ${upload.content_hash.slice(0, 12)}...: ${error}`)
             }
         }
     }
@@ -225,13 +213,10 @@ async function runStatus(runId: string, options: StatusOptions): Promise<void> {
         sessionCookie: options.cookie,
     })
 
-    const run = await client.getRun(runId)
     const snapshots = await client.getRunSnapshots(runId)
 
-    if (snapshots.length > 0) {
-        for (const snapshot of snapshots) {
-            const icon = snapshot.result === 'unchanged' ? '✓' : snapshot.result === 'new' ? '+' : '~'
-        }
+    for (const snapshot of snapshots) {
+        const icon = snapshot.result === 'unchanged' ? '✓' : snapshot.result === 'new' ? '+' : '~'
     }
 }
 
@@ -269,9 +254,6 @@ async function runApprove(runId: string, options: ApproveOptions): Promise<void>
     const merged = mergeSnapshots(existing, updates)
 
     writeSnapshots(baselinePath, merged)
-
-    for (const s of toApprove) {
-    }
 }
 
 // --- Helpers ---

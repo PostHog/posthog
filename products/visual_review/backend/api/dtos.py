@@ -36,18 +36,6 @@ class CreateRunInput:
 
 
 @dataclass(frozen=True)
-class RegisterArtifactInput:
-    """Input for registering an artifact after upload."""
-
-    project_id: UUID
-    content_hash: str
-    storage_path: str
-    width: int | None = None
-    height: int | None = None
-    size_bytes: int | None = None
-
-
-@dataclass(frozen=True)
 class ApproveSnapshotInput:
     """A snapshot approval from the UI."""
 
@@ -69,19 +57,20 @@ class ApproveRunInput:
 
 
 @dataclass(frozen=True)
+class UploadTarget:
+    """Upload target for a single artifact."""
+
+    content_hash: str
+    url: str
+    fields: dict[str, str]
+
+
+@dataclass(frozen=True)
 class CreateRunResult:
     """Result of creating a run."""
 
     run_id: UUID
-    missing_hashes: list[str]
-
-
-@dataclass(frozen=True)
-class UploadUrl:
-    """Presigned URL for artifact upload."""
-
-    url: str
-    fields: dict[str, str]
+    uploads: list[UploadTarget]
 
 
 @dataclass(frozen=True)
@@ -107,6 +96,9 @@ class Snapshot:
     diff_artifact: Artifact | None
     diff_percentage: float | None
     diff_pixel_count: int | None
+    # Approval fields (immutable once set)
+    approved_at: datetime | None
+    approved_hash: str
 
 
 @dataclass(frozen=True)
@@ -140,10 +132,22 @@ class Run:
 
 
 @dataclass(frozen=True)
+class UpdateProjectInput:
+    """Input for updating a project."""
+
+    project_id: UUID
+    name: str | None = None
+    repo_full_name: str | None = None
+    baseline_file_paths: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
 class Project:
     """A visual review project."""
 
     id: UUID
     team_id: int
     name: str
+    repo_full_name: str
+    baseline_file_paths: dict[str, str]
     created_at: datetime

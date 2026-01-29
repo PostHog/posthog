@@ -24,11 +24,11 @@ from .dtos import (
     CreateRunInput,
     CreateRunResult,
     Project,
-    RegisterArtifactInput,
     Run,
     RunSummary,
     Snapshot,
-    UploadUrl,
+    UpdateProjectInput,
+    UploadTarget,
 )
 
 # Re-export exceptions for callers
@@ -65,6 +65,8 @@ def _to_snapshot(snapshot, project_id: UUID) -> Snapshot:
         diff_artifact=_to_artifact(snapshot.diff_artifact, project_id) if snapshot.diff_artifact else None,
         diff_percentage=snapshot.diff_percentage,
         diff_pixel_count=snapshot.diff_pixel_count,
+        approved_at=snapshot.approved_at,
+        approved_hash=snapshot.approved_hash,
     )
 
 
@@ -97,6 +99,8 @@ def _to_project(project) -> Project:
         id=project.id,
         team_id=project.team_id,
         name=project.name,
+        repo_full_name=project.repo_full_name,
+        baseline_file_paths=project.baseline_file_paths,
         created_at=project.created_at,
     )
 
@@ -119,29 +123,14 @@ def create_project(team_id: int, name: str) -> Project:
     return _to_project(project)
 
 
-# --- Artifact API ---
-
-
-def get_upload_url(project_id: UUID, content_hash: str) -> UploadUrl | None:
-    result = logic.get_presigned_upload_url(project_id, content_hash)
-    if not result:
-        return None
-    return UploadUrl(url=result["url"], fields=result["fields"])
-
-
-def register_artifact(input: RegisterArtifactInput) -> Artifact:
-    artifact, created = logic.get_or_create_artifact(
+def update_project(input: UpdateProjectInput) -> Project:
+    project = logic.update_project(
         project_id=input.project_id,
-        content_hash=input.content_hash,
-        storage_path=input.storage_path,
-        width=input.width,
-        height=input.height,
-        size_bytes=input.size_bytes,
+        name=input.name,
+        repo_full_name=input.repo_full_name,
+        baseline_file_paths=input.baseline_file_paths,
     )
-    # Link artifact to any pending snapshots that reference this hash
-    if created:
-        logic.link_artifact_to_snapshots(input.project_id, input.content_hash)
-    return _to_artifact(artifact, input.project_id)
+    return _to_project(project)
 
 
 # --- Run API ---
@@ -154,9 +143,17 @@ def list_runs(team_id: int) -> list[Run]:
 
 
 def create_run(input: CreateRunInput) -> CreateRunResult:
-    snapshots = [{"identifier": s.identifier, "content_hash": s.content_hash} for s in input.snapshots]
+    snapshots = [
+        {
+            "identifier": s.identifier,
+            "content_hash": s.content_hash,
+            "width": s.width,
+            "height": s.height,
+        }
+        for s in input.snapshots
+    ]
 
-    run, missing_hashes = logic.create_run(
+    run, uploads = logic.create_run(
         project_id=input.project_id,
         run_type=input.run_type,
         commit_sha=input.commit_sha,
@@ -166,7 +163,16 @@ def create_run(input: CreateRunInput) -> CreateRunResult:
         baseline_hashes=input.baseline_hashes,
     )
 
-    return CreateRunResult(run_id=run.id, missing_hashes=missing_hashes)
+    upload_targets = [
+        UploadTarget(
+            content_hash=u["content_hash"],
+            url=u["url"],
+            fields=u["fields"],
+        )
+        for u in uploads
+    ]
+
+    return CreateRunResult(run_id=run.id, uploads=upload_targets)
 
 
 def get_run(run_id: UUID) -> Run:
@@ -183,9 +189,19 @@ def get_run_snapshots(run_id: UUID) -> list[Snapshot]:
 
 
 def complete_run(run_id: UUID) -> Run:
-    """Mark run as ready for diff processing."""
+    """
+    Complete a run: verify uploads, create artifacts, trigger diff processing.
+
+    1. Verifies all expected uploads exist in S3
+    2. Creates Artifact records for verified uploads
+    3. Links artifacts to snapshots
+    4. Triggers async diff processing
+    """
+    # Verify uploads and create artifact records
+    logic.verify_uploads_and_create_artifacts(run_id)
+
+    # Mark as processing and trigger diff task
     logic.mark_run_processing(run_id)
-    # Trigger diff task (will be implemented in tasks.py)
     from ..tasks.tasks import process_run_diffs
 
     process_run_diffs.delay(str(run_id))
