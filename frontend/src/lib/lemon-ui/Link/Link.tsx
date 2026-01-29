@@ -121,7 +121,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             target,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel = false,
+            disableDocsPanel = true,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
