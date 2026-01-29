@@ -26,24 +26,65 @@ class FixMissingPersonOverridesConfig(dagster.Config):
         default=True,
         description="If true, don't actually insert, just log what would be inserted",
     )
+    min_date: Optional[str] = pydantic.Field(
+        default=None,
+        description="Optional minimum date for events query (ISO format, e.g. '2024-01-01')",
+    )
+    max_date: Optional[str] = pydantic.Field(
+        default=None,
+        description="Optional maximum date for events query (ISO format, e.g. '2024-12-31')",
+    )
 
 
-def get_mismatched_person_ids(team: Team) -> list[str]:
+def get_mismatched_person_ids(
+    team: Team,
+    min_date: Optional[str] = None,
+    max_date: Optional[str] = None,
+) -> list[str]:
     """Find person_ids where events.person_id differs from pdi.person_id.
 
     This identifies persons where at least one override exists but possibly
     not all distinct_ids have overrides yet.
 
+    Args:
+        team: The team to query
+        min_date: Optional minimum date filter (ISO format)
+        max_date: Optional maximum date filter (ISO format)
+
     Returns list of person_ids that need to be checked.
     """
-    result = execute_hogql_query(
-        """
-        SELECT DISTINCT person_id
-        FROM events
-        WHERE person_id != pdi.person_id
-        """,
-        team=team,
-    )
+    from posthog.hogql import ast
+    from posthog.hogql.parser import parse_select
+
+    # Parse base query
+    query = parse_select("SELECT DISTINCT person_id FROM events WHERE person_id != pdi.person_id")
+
+    # Build date filter conditions
+    date_conditions: list[ast.Expr] = []
+
+    if min_date:
+        date_conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=min_date),
+            )
+        )
+
+    if max_date:
+        date_conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=max_date),
+            )
+        )
+
+    # Add date conditions to the WHERE clause
+    if date_conditions and query.where:
+        query.where = ast.And(exprs=[query.where, *date_conditions])
+
+    result = execute_hogql_query(query, team=team)
     return [str(row[0]) for row in result.results] if result.results else []
 
 
@@ -177,9 +218,11 @@ def fix_missing_person_overrides_op(
 
     context.log.info(f"Finding mismatched person_ids for team {config.team_id}")
     context.log.info(f"Dry run: {config.dry_run}")
+    if config.min_date or config.max_date:
+        context.log.info(f"Date range: {config.min_date or 'start'} to {config.max_date or 'end'}")
 
     # Step 1: Find person_ids with mismatches (1 HogQL query)
-    mismatched_person_ids = get_mismatched_person_ids(team)
+    mismatched_person_ids = get_mismatched_person_ids(team, config.min_date, config.max_date)
     context.log.info(f"Found {len(mismatched_person_ids)} person_ids with mismatches")
 
     if not mismatched_person_ids:

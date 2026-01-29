@@ -96,6 +96,81 @@ class TestGetMismatchedPersonIds(ClickhouseTestMixin, BaseTest):
         result = get_mismatched_person_ids(self.team)
         assert len(result) == 0
 
+    def test_min_date_filters_events(self):
+        """Events before min_date are excluded."""
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        insert_pdi2_records([(self.team.id, "user_date", old_person_id, 1, 0)])
+        insert_override_records([(self.team.id, "user_date", new_person_id, 1, 0)])
+
+        # Create event in January 2024
+        _create_event(
+            event="old_event",
+            distinct_id="user_date",
+            team=self.team,
+            timestamp=datetime(2024, 1, 15),
+        )
+        flush_persons_and_events()
+
+        # Query with min_date in February - should find nothing
+        result = get_mismatched_person_ids(self.team, min_date="2024-02-01")
+        assert len(result) == 0
+
+        # Query with min_date in January - should find the mismatch
+        result = get_mismatched_person_ids(self.team, min_date="2024-01-01")
+        assert len(result) == 1
+
+    def test_max_date_filters_events(self):
+        """Events on or after max_date are excluded."""
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        insert_pdi2_records([(self.team.id, "user_max", old_person_id, 1, 0)])
+        insert_override_records([(self.team.id, "user_max", new_person_id, 1, 0)])
+
+        # Create event in March 2024
+        _create_event(
+            event="march_event",
+            distinct_id="user_max",
+            team=self.team,
+            timestamp=datetime(2024, 3, 15),
+        )
+        flush_persons_and_events()
+
+        # Query with max_date in March - should find nothing (exclusive)
+        result = get_mismatched_person_ids(self.team, max_date="2024-03-01")
+        assert len(result) == 0
+
+        # Query with max_date in April - should find the mismatch
+        result = get_mismatched_person_ids(self.team, max_date="2024-04-01")
+        assert len(result) == 1
+
+    def test_date_range_filters_events(self):
+        """Only events within the date range are included."""
+        old_person_id = uuid4()
+        new_person_id = uuid4()
+
+        insert_pdi2_records([(self.team.id, "user_range", old_person_id, 1, 0)])
+        insert_override_records([(self.team.id, "user_range", new_person_id, 1, 0)])
+
+        # Create event in February 2024
+        _create_event(
+            event="feb_event",
+            distinct_id="user_range",
+            team=self.team,
+            timestamp=datetime(2024, 2, 15),
+        )
+        flush_persons_and_events()
+
+        # Query with range that excludes the event
+        result = get_mismatched_person_ids(self.team, min_date="2024-03-01", max_date="2024-04-01")
+        assert len(result) == 0
+
+        # Query with range that includes the event
+        result = get_mismatched_person_ids(self.team, min_date="2024-02-01", max_date="2024-03-01")
+        assert len(result) == 1
+
 
 class TestInsertOverrideBatch(ClickhouseTestMixin, BaseTest):
     def test_inserts_batch_of_overrides(self):
