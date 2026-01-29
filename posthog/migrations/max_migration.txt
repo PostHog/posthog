@@ -1,1 +1,1 @@
-0987_add_column_configuration_constraints
+0992_drop_approvalpolicy_bypass_roles_column
