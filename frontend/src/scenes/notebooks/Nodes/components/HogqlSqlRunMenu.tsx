@@ -9,35 +9,35 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
 import { NotebookRunMode, buildRunMenuItems } from './runMenuItems'
 
-export type DuckSqlRunMode = NotebookRunMode
+export type HogqlSqlRunMode = NotebookRunMode
 
-type DuckSqlRunMenuProps = {
+type HogqlSqlRunMenuProps = {
     isFresh: boolean
     isStale: boolean
     loading: boolean
     queued: boolean
     disabledReason?: string
-    onRun: (mode: DuckSqlRunMode) => void
+    onRun: (mode: HogqlSqlRunMode) => void
 }
 
-export const DuckSqlRunMenu = ({
+export const HogqlSqlRunMenu = ({
     isFresh,
     isStale,
     loading,
     queued,
     disabledReason,
     onRun,
-}: DuckSqlRunMenuProps): JSX.Element => {
+}: HogqlSqlRunMenuProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const duckSqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
-    const duckSqlRunTooltip = `Run SQL (DuckDB) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
+    const hogqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
+    const hogqlRunTooltip = `Run SQL (HogQL) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
-    const duckSqlRunMenuItems: LemonMenuItems = [...buildRunMenuItems(onRun)]
+    const hogqlRunMenuItems: LemonMenuItems = [...buildRunMenuItems(onRun)]
 
     if (featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
-        duckSqlRunMenuItems.push({
+        hogqlRunMenuItems.push({
             label: 'Toggle kernel info',
             onClick: () => setShowKernelInfo(!showKernelInfo),
         })
@@ -47,15 +47,15 @@ export const DuckSqlRunMenu = ({
         <LemonButton
             onClick={() => onRun('auto')}
             size="small"
-            icon={<IconPlay className={duckSqlRunIconClass} />}
+            icon={<IconPlay className={hogqlRunIconClass} />}
             loading={loading || queued}
             disabledReason={disabledReason}
-            tooltip={duckSqlRunTooltip}
+            tooltip={hogqlRunTooltip}
             sideAction={{
                 icon: <IconChevronDown />,
                 dropdown: {
                     placement: 'bottom-end',
-                    overlay: <LemonMenuOverlay items={duckSqlRunMenuItems} />,
+                    overlay: <LemonMenuOverlay items={hogqlRunMenuItems} />,
                 },
                 divider: false,
                 'aria-label': 'Open run options',

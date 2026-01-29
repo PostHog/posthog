@@ -30,6 +30,7 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeGroupProperties } from '../Nodes/NotebookNodeGroupProperties'
+import { NotebookNodeHogQL } from '../Nodes/NotebookNodeHogQL'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeIssues } from '../Nodes/NotebookNodeIssues'
 import { NotebookNodeLLMTrace } from '../Nodes/NotebookNodeLLMTrace'
@@ -122,6 +123,7 @@ export function Editor(): JSX.Element {
         NotebookNodeQuery,
         NotebookNodePython,
         NotebookNodeDuckSQL,
+        NotebookNodeHogQL,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,

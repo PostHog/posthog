@@ -40,6 +40,7 @@ export enum NotebookNodeType {
     Query = 'ph-query',
     Python = 'ph-python',
     DuckSQL = 'ph-duck-sql',
+    HogQLSQL = 'ph-hogql-sql',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
