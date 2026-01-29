@@ -96,19 +96,10 @@ class PolicyEngine:
         Evaluate if an action requires approval.
 
         Returns PolicyDecision with:
-        - ALLOW: User can execute immediately (bypass role or conditions don't match)
+        - ALLOW: User can execute immediately (conditions don't match)
         - DENY: Action not allowed
         - REQUIRE_APPROVAL: Must get approvals
         """
-        if self._has_bypass_role(actor, policy, context):
-            return PolicyDecision(
-                result="ALLOW",
-                reason="User has bypass role",
-                message="Approved immediately",
-                approvers={},
-                policy_snapshot={},
-            )
-
         if not self._evaluate_conditions(policy.conditions, intent):
             return PolicyDecision(
                 result="ALLOW",
@@ -269,19 +260,6 @@ class PolicyEngine:
             before_val = before_by_path.get(path)
             after_val = after_by_path.get(path)
             if before_val != after_val:
-                return True
-
-        return False
-
-    def _has_bypass_role(self, actor, policy, context: dict) -> bool:
-        """Check if user has a bypass role"""
-        if not policy.bypass_roles:
-            return False
-
-        org = context.get("organization")
-        if org:
-            membership = actor.organization_memberships.filter(organization=org).first()
-            if membership and str(membership.level) in policy.bypass_roles:
                 return True
 
         return False
