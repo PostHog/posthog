@@ -228,7 +228,7 @@ interface InfiniteListRowProps {
         group: TaxonomicFilterGroup,
         value: string | number | null,
         item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
-        query: string
+        originalQuery?: string
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -344,7 +344,7 @@ const InfiniteListRow = ({
                 onClick={() => {
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery ?? '')
+                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
                     )
                 }}
             >
