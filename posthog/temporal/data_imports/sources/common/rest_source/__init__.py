@@ -20,16 +20,7 @@ from .http_client import RESTClient
 from .incremental import Incremental
 from .jsonpath_utils import TJsonPath
 from .pagination import BasePaginator
-from .typing import (
-    ClientConfig,
-    Endpoint,
-    EndpointResource,
-    EndpointResourceBase,
-    HTTPMethodBasic,
-    RESTAPIConfig,
-    TAnySchemaColumns,
-    TTableHintTemplate,
-)
+from .typing import ClientConfig, Endpoint, EndpointResource, EndpointResourceBase, HTTPMethodBasic, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
 
 # Type alias for resources - simple iterators
