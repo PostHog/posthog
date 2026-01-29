@@ -27,6 +27,7 @@ class AST:
             "hog_qlxattribute": "hogqlx_attribute",
             "uuidtype": "uuid_type",
             "string_jsontype": "string_json_type",
+            "ctetype": "cte_type",
         }
 
         for old, new in replacements.items():
@@ -86,6 +87,7 @@ class CTE(Expr):
     expr: Expr
     # Whether the CTE is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
     cte_type: Literal["column", "subquery"]
+    recursive: bool = field(default=False)
 
 
 @dataclass(kw_only=True)

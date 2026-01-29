@@ -505,7 +505,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return select_query
 
     def visitWithClause(self, ctx: HogQLParser.WithClauseContext):
-        return self.visit(ctx.withExprList())
+        ctes: dict[str, ast.CTE] = self.visit(ctx.withExprList())
+        if ctx.RECURSIVE():
+            for name in ctes:
+                ctes[name].recursive = True
+        return ctes
 
     def visitTopClause(self, ctx: HogQLParser.TopClauseContext):
         raise NotImplementedError(f"Unsupported node: TopClause")

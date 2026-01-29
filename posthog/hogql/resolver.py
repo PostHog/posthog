@@ -58,10 +58,13 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
         unique_types = {str(resolve_constant_data_type(item)) for item in constant}
         return ast.ArrayType(
             nullable=False,
-            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType(),
+            item_type=(resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()),
         )
     if isinstance(constant, tuple):
-        return ast.TupleType(nullable=False, item_types=[resolve_constant_data_type(item) for item in constant])
+        return ast.TupleType(
+            nullable=False,
+            item_types=[resolve_constant_data_type(item) for item in constant],
+        )
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
         return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
@@ -171,8 +174,9 @@ class Resolver(CloningVisitor):
             start=node.start,
             end=node.end,
             type=node_type,
-            # CTEs have been expanded (moved to the type for now), so remove from the printable "WITH" clause
-            ctes=None,
+            # For Postgres, keep CTEs on the node (they'll be printed as WITH clause).
+            # For other dialects, CTEs are expanded inline so remove from the printable "WITH" clause.
+            ctes=node.ctes if self.dialect == "postgres" else None,
             # "select" needs a default value, so [] it is
             select=[],
         )
@@ -311,20 +315,91 @@ class Resolver(CloningVisitor):
         if isinstance(node.table, ast.HogQLXTag):
             node.table = expand_hogqlx_query(node.table, self.context.team_id)
 
-        # If selecting from a CTE, expand and visit the new node
+        # If selecting from a CTE, handle it based on dialect
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             table_name = str(node.table.chain[0])
             cte = lookup_cte_by_name(self.scopes, table_name)
             if cte:
-                node = cast(ast.JoinExpr, clone_expr(node))
-                node.table = clone_expr(cte.expr)
-                if node.alias is None:
-                    node.alias = table_name
+                if self.dialect == "postgres":
+                    # For Postgres, don't expand CTE inline - create a CTEType reference instead.
+                    # This allows recursive CTEs to work properly.
+                    node = cast(ast.JoinExpr, clone_expr(node))
+                    table_alias = node.alias or table_name
 
-                self.cte_counter += 1
-                response = self.visit(node)
-                self.cte_counter -= 1
-                return response
+                    # Check if this CTE is currently being resolved (self-reference in recursive CTE)
+                    cte_being_resolved = getattr(self, "_ctes_being_resolved", set())
+                    is_self_reference = cte.name in cte_being_resolved
+
+                    if is_self_reference:
+                        # This is a self-reference in a recursive CTE.
+                        # Use the already-partially-resolved type if available.
+                        if cte.expr.type is not None and isinstance(
+                            cte.expr.type, (ast.SelectQueryType, ast.SelectSetQueryType)
+                        ):
+                            select_query_type = cte.expr.type
+                        else:
+                            # Create a placeholder type - columns will be determined by non-recursive part
+                            select_query_type = ast.SelectQueryType()
+
+                        cte_type = ast.CTEType(
+                            name=cte.name,
+                            cte=cte,
+                            select_query_type=select_query_type,
+                        )
+                    else:
+                        # Mark this CTE as being resolved to detect self-references
+                        if not hasattr(self, "_ctes_being_resolved"):
+                            self._ctes_being_resolved = set()
+                        self._ctes_being_resolved.add(cte.name)
+
+                        # Resolve the CTE expression to get its type
+                        self.cte_counter += 1
+                        resolved_cte_expr = self.visit(clone_expr(cte.expr))
+                        self.cte_counter -= 1
+
+                        # Remove from being-resolved set
+                        self._ctes_being_resolved.discard(cte.name)
+
+                        if not isinstance(
+                            resolved_cte_expr.type,
+                            (ast.SelectQueryType, ast.SelectSetQueryType),
+                        ):
+                            raise QueryError(f"CTE {cte.name} must be a SELECT query for Postgres")
+
+                        # Update the CTE with the resolved expression so the printer can use it
+                        cte.expr = resolved_cte_expr
+
+                        cte_type = ast.CTEType(
+                            name=cte.name,
+                            cte=cte,
+                            select_query_type=resolved_cte_expr.type,
+                        )
+
+                    if table_alias != table_name:
+                        node_type: ast.TableOrSelectType = ast.SelectQueryAliasType(
+                            alias=table_alias, select_query_type=resolved_cte_expr.type
+                        )
+                    else:
+                        node_type = cte_type
+
+                    scope.tables[table_alias] = node_type
+                    node.type = node_type
+                    node.table.type = cte_type
+                    node.next_join = self.visit(node.next_join)
+                    if node.constraint is not None:
+                        node.constraint = self.visit(node.constraint)
+                    return node
+                else:
+                    # For other dialects, expand CTE inline
+                    node = cast(ast.JoinExpr, clone_expr(node))
+                    node.table = clone_expr(cte.expr)
+                    if node.alias is None:
+                        node.alias = table_name
+
+                    self.cte_counter += 1
+                    response = self.visit(node)
+                    self.cte_counter -= 1
+                    return response
 
         if isinstance(node.table, ast.Field):
             table_name_chain = [str(n) for n in node.table.chain]
@@ -435,7 +510,9 @@ class Resolver(CloningVisitor):
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectViewType(
-                    alias=node.alias, view_name=node.table.view_name, select_query_type=node.table.type
+                    alias=node.alias,
+                    view_name=node.table.view_name,
+                    select_query_type=node.table.type,
                 )
                 scope.tables[node.alias] = node.type
             elif node.alias is not None:
@@ -525,7 +602,12 @@ class Resolver(CloningVisitor):
                 if events_alias is None:
                     raise QueryError("matchesAction can only be used with the events table")
                 return self.visit(
-                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+                    matches_action(
+                        node=node,
+                        args=node.args,
+                        context=self.context,
+                        events_alias=events_alias,
+                    )
                 )
             if node.name == "getSurveyResponse":
                 return self.visit(get_survey_response(node=node, args=node.args))
@@ -595,7 +677,10 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
+        node_type = ast.SelectQueryType(
+            parent=self.scopes[-1] if len(self.scopes) > 0 else None,
+            is_lambda_type=True,
+        )
 
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
@@ -828,7 +913,10 @@ class Resolver(CloningVisitor):
             (isinstance(tuple.type, ast.PropertyType))
             or (
                 isinstance(tuple.type, ast.FieldType)
-                and isinstance(tuple.type.resolve_database_field(self.context), StringJSONDatabaseField)
+                and isinstance(
+                    tuple.type.resolve_database_field(self.context),
+                    StringJSONDatabaseField,
+                )
             )
         ):
             tuple.chain.append(node.index)
@@ -915,7 +1003,9 @@ class Resolver(CloningVisitor):
         return node
 
     # Used to find events table in current scope for action functions
-    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+    def _get_events_table_current_scope(
+        self,
+    ) -> tuple[Optional[str], Optional[EventsTable]]:
         scope = self.scopes[-1]
         for alias, table_type in scope.tables.items():
             if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
