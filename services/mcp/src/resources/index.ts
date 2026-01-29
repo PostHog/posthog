@@ -119,7 +119,7 @@ async function registerContextMillResources(server: McpServer, context: Context)
  */
 async function registerDataWarehouseSchemaResource(server: McpServer, context: Context): Promise<void> {
     server.registerResource(
-        'Data warehouse schema',
+        'data-warehouse-schema',
         'posthog://schema/data-warehouse',
         {
             mimeType: 'text/plain',
