@@ -213,8 +213,9 @@ pub mod testing {
 
     /// Mock repository for unit testing RestrictionManager
     pub struct MockRestrictionsRepository {
-        entries:
-            Mutex<HashMap<RestrictionType, Result<Option<Vec<RestrictionEntry>>, CustomRedisError>>>,
+        entries: Mutex<
+            HashMap<RestrictionType, Result<Option<Vec<RestrictionEntry>>, CustomRedisError>>,
+        >,
     }
 
     impl MockRestrictionsRepository {
@@ -357,7 +358,12 @@ mod integration_tests {
 
     async fn cleanup(client: &Arc<dyn Client + Send + Sync>, prefix: &str) {
         for restriction_type in RestrictionType::all() {
-            let key = format!("{}{}:{}", prefix, REDIS_KEY_PREFIX, restriction_type.redis_key());
+            let key = format!(
+                "{}{}:{}",
+                prefix,
+                REDIS_KEY_PREFIX,
+                restriction_type.redis_key()
+            );
             client.del(key).await.ok();
         }
     }
@@ -369,12 +375,18 @@ mod integration_tests {
 
         // Write plain JSON like Python does
         let json = r#"[{"version": 2, "token": "test_token", "pipelines": ["analytics"]}]"#;
-        let key = format!("{}{}:force_overflow_from_ingestion", prefix, REDIS_KEY_PREFIX);
+        let key = format!(
+            "{}{}:force_overflow_from_ingestion",
+            prefix, REDIS_KEY_PREFIX
+        );
         helper.set(key, json.to_string()).await.unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
-            .await
-            .unwrap();
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(
+            REDIS_URL.to_string(),
+            prefix.clone(),
+        )
+        .await
+        .unwrap();
         let entries = repo
             .get_entries(RestrictionType::ForceOverflow)
             .await
@@ -394,13 +406,13 @@ mod integration_tests {
         let helper = create_helper_client().await;
         let prefix = random_prefix();
 
-        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
-            .await
-            .unwrap();
-        let entries = repo
-            .get_entries(RestrictionType::DropEvent)
-            .await
-            .unwrap();
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(
+            REDIS_URL.to_string(),
+            prefix.clone(),
+        )
+        .await
+        .unwrap();
+        let entries = repo.get_entries(RestrictionType::DropEvent).await.unwrap();
 
         assert!(entries.is_none());
 
@@ -422,9 +434,12 @@ mod integration_tests {
         let key = format!("{}{}:drop_event_from_ingestion", prefix, REDIS_KEY_PREFIX);
         helper.set(key, json.to_string()).await.unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
-            .await
-            .unwrap();
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(
+            REDIS_URL.to_string(),
+            prefix.clone(),
+        )
+        .await
+        .unwrap();
         let entries = repo
             .get_entries(RestrictionType::DropEvent)
             .await
@@ -451,9 +466,12 @@ mod integration_tests {
         let key = format!("{}{}:drop_event_from_ingestion", prefix, REDIS_KEY_PREFIX);
         helper.set(key, json.to_string()).await.unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
-            .await
-            .unwrap();
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(
+            REDIS_URL.to_string(),
+            prefix.clone(),
+        )
+        .await
+        .unwrap();
         let entries = repo
             .get_entries(RestrictionType::DropEvent)
             .await
@@ -516,9 +534,12 @@ mod integration_tests {
             .await
             .unwrap();
 
-        let repo = RedisRestrictionsRepository::with_prefix_for_test(REDIS_URL.to_string(), prefix.clone())
-            .await
-            .unwrap();
+        let repo = RedisRestrictionsRepository::with_prefix_for_test(
+            REDIS_URL.to_string(),
+            prefix.clone(),
+        )
+        .await
+        .unwrap();
 
         // Verify each restriction type returns only its own data
         let drop_entries = repo

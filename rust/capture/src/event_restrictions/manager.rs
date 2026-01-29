@@ -413,11 +413,8 @@ mod tests {
 
         let new_entry = make_entry("token_new", vec!["analytics"]);
 
-        repo.set_entries(
-            RestrictionType::DropEvent,
-            Some(vec![old_entry, new_entry]),
-        )
-        .await;
+        repo.set_entries(RestrictionType::DropEvent, Some(vec![old_entry, new_entry]))
+            .await;
 
         let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
             .await
