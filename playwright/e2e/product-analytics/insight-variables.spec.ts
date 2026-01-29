@@ -4,10 +4,18 @@ test.describe('insight variables', () => {
     test('show correctly on dashboards', async ({ page }) => {
         // Go to "Insight variables" dashboard.
         await page.goToMenuItem('dashboards')
-        await page.getByText('Insight variables').click()
+        
+        // Wait for the dashboard list to load and click on "Insight variables"
+        const insightVariablesDashboard = page.getByText('Insight variables')
+        await expect(insightVariablesDashboard).toBeVisible()
+        await insightVariablesDashboard.click()
+        
+        // Wait for the dashboard to load
+        await expect(page.locator('.InsightCard').first()).toBeVisible()
 
         // Add a temporary override
         await page.goto(page.url() + '?query_variables=%7B"variable_4"%3A40%7D%20')
+        await expect(page.locator('.InsightCard').first()).toBeVisible()
 
         const cardForDefaultVariable = page.locator('.InsightCard').nth(0)
         await cardForDefaultVariable.scrollIntoViewIfNeeded()
