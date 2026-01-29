@@ -464,13 +464,13 @@ def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
 
     details = [
         f"   Found {len(workspace_roots)} Cargo workspace(s) to clean.",
+        "   Also cleans global cargo registry (~/.cargo/registry).",
     ]
 
     if items:
         details.append(f"   Total target directory size: {_format_size(total)}")
         details.extend(_describe_items(items, repo_root, "   Target directories:"))
 
-    # Store workspace roots in items for cleanup function
     return CleanupEstimate(total_size=total, items=items, details=details)
 
 
@@ -651,17 +651,16 @@ def _cleanup_docker(_: CleanupEstimate, __: Path) -> CleanupStats:
 
 
 def _cleanup_rust(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
-    """Execute cargo clean in all Rust workspaces."""
+    """Execute cargo clean in all Rust workspaces and clean global registry."""
 
     workspace_roots = _find_cargo_workspaces(repo_root)
-
-    if not workspace_roots:
-        return CleanupStats(deleted_anything=False)
+    cargo_home = Path.home() / ".cargo"
 
     click.echo()
     success = True
     cleaned_any = False
 
+    # Clean local workspaces
     for workspace in workspace_roots:
         try:
             relative = workspace.relative_to(repo_root)
@@ -677,10 +676,32 @@ def _cleanup_rust(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
             success = False
             click.echo(f"   ⚠️  Failed to clean {relative}")
 
+    # Clean global cargo registry
+    package_cache = cargo_home / ".package-cache"
+    if package_cache.exists():
+        try:
+            package_cache.unlink()
+            click.echo("   Removed cargo package cache lock")
+        except OSError as e:
+            click.echo(f"   ⚠️  Could not remove .package-cache lock: {e}")
+
+    for subdir in ["registry/cache", "registry/index"]:
+        path = cargo_home / subdir
+        if path.exists() and path.is_dir():
+            try:
+                shutil.rmtree(path)
+                click.echo(f"   Cleaned ~/.cargo/{subdir}")
+                cleaned_any = True
+            except OSError as e:
+                success = False
+                click.echo(f"   ⚠️  Failed to clean ~/.cargo/{subdir}: {e}")
+
     if success and cleaned_any:
         click.echo("   ✓ Cargo cleanup completed")
     elif cleaned_any:
         click.echo("   ✓ Cargo cleanup completed with some errors")
+    elif not workspace_roots:
+        click.echo("   No Cargo workspaces or global cache to clean")
     else:
         click.echo("   ⚠️  Cargo cleanup failed")
 
