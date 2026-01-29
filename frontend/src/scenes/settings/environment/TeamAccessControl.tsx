@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconTestTube } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,7 +46,7 @@ export function TeamAccessControl(): JSX.Element {
     return (
         <div className="space-y-6">
             <LemonButton
-                icon={<IconSparkles />}
+                icon={<IconTestTube />}
                 onClick={() => {
                     updateEarlyAccessFeatureEnrollment('rbac-ui-redesign', true)
                 }}

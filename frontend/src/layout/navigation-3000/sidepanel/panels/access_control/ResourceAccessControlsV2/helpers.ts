@@ -62,3 +62,15 @@ export function sortAccessControlRows(a: AccessControlRow, b: AccessControlRow):
 export function getScopeTypeNoun(scopeType: ScopeType): string {
     return scopeType === 'role' ? 'role' : 'member'
 }
+
+export function getIdForDefaultRow(): string {
+    return 'default'
+}
+
+export function getIdForRoleRow(roleId: string): string {
+    return `role:${roleId}`
+}
+
+export function getIdForMemberRow(memberId: string): string {
+    return `member:${memberId}`
+}

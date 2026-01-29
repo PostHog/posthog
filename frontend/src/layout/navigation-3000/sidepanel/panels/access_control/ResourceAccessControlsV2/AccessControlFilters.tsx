@@ -54,7 +54,7 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
                 <FeaturesFilter
                     selectedResourceKeys={props.filters.resourceKeys}
                     setSelectedResourceKeys={(values) => props.setFilters({ resourceKeys: values })}
-                    resources={props.resources}
+                    resources={props.resources.filter((resource) => resource.key !== 'project')}
                 />
 
                 <AccessLevelFilter

@@ -1,29 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import {
-    IconApps,
-    IconBug,
-    IconCode2,
-    IconCursor,
-    IconDashboard,
-    IconDatabase,
-    IconFlask,
-    IconHome,
-    IconInfo,
-    IconLive,
-    IconMessage,
-    IconNotebook,
-    IconNotification,
-    IconPieChart,
-    IconPiggyBank,
-    IconRewindPlay,
-    IconRocket,
-    IconSpotlight,
-    IconToggle,
-    IconTrends,
-    IconWarning,
-} from '@posthog/icons'
+import { IconHome, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
@@ -31,32 +9,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import { AccessControlLevelMapping, GroupedAccessControlRulesForm, accessControlLogic } from '../accessControlLogic'
+import { ScopeIcon } from './ScopeIcon'
 import { RuleModalState, ScopeType } from './types'
-
-const SCOPE_ICON_MAP: Record<string, React.ReactElement> = {
-    project: <IconHome />,
-    action: <IconCursor />,
-    activity_log: <IconNotification />,
-    dashboard: <IconDashboard />,
-    early_access_feature: <IconRocket />,
-    endpoint: <IconCode2 />,
-    error_tracking: <IconWarning />,
-    event_definition: <IconApps />,
-    experiment: <IconFlask />,
-    external_data_source: <IconDatabase />,
-    feature_flag: <IconToggle />,
-    insight: <IconTrends />,
-    live_debugger: <IconBug />,
-    logs: <IconLive />,
-    notebook: <IconNotebook />,
-    product_tour: <IconSpotlight />,
-    property_definition: <IconApps />,
-    revenue_analytics: <IconPiggyBank />,
-    session_recording: <IconRewindPlay />,
-    survey: <IconMessage />,
-    task: <IconBug />,
-    web_analytics: <IconPieChart />,
-}
 
 export function GroupedAccessControlRuleModal(props: {
     state: RuleModalState
@@ -69,6 +23,7 @@ export function GroupedAccessControlRuleModal(props: {
     loading: boolean
     projectId: string
     canEdit: boolean
+    memberHasAdminAccess: boolean
 }): JSX.Element | null {
     const logic = accessControlLogic({
         resource: 'project',
@@ -141,6 +96,7 @@ export function GroupedAccessControlRuleModal(props: {
                 onUpdate={updateLevels}
                 getLevelOptionsForResource={props.getLevelOptionsForResource}
                 canEdit={props.canEdit}
+                memberHasAdminAccess={props.memberHasAdminAccess}
             />
         </LemonModal>
     )
@@ -189,6 +145,7 @@ function GroupedAccessControlRuleModalContent(props: {
         resourceKey: APIScopeObject
     ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
     canEdit: boolean
+    memberHasAdminAccess: boolean
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
         (prev, mapping) => {
@@ -250,7 +207,7 @@ function GroupedAccessControlRuleModalContent(props: {
                             <div key={resource.key} className="flex gap-2 items-center justify-between">
                                 <div className="font-medium flex items-center gap-2">
                                     <span className="text-lg flex items-center text-muted-alt">
-                                        {SCOPE_ICON_MAP[resource.key]}
+                                        <ScopeIcon scope={resource.key} />
                                     </span>
                                     {resource.label}
                                     {tooltipText && (
@@ -265,6 +222,12 @@ function GroupedAccessControlRuleModalContent(props: {
                                         className="w-36"
                                         size="small"
                                         value={mappedLevels[resource.key] ?? null}
+                                        disabled={props.memberHasAdminAccess}
+                                        disabledReason={
+                                            props.memberHasAdminAccess
+                                                ? 'Feature overrides do not apply to admins'
+                                                : undefined
+                                        }
                                         onChange={(newValue) => {
                                             const newLevels = [
                                                 ...props.groupedRuleForm.levels.filter(

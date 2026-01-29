@@ -1,29 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    IconApps,
-    IconBug,
-    IconCode2,
-    IconCursor,
-    IconDashboard,
-    IconDatabase,
-    IconFlask,
-    IconHome,
-    IconInfo,
-    IconLive,
-    IconMessage,
-    IconNotebook,
-    IconNotification,
-    IconPieChart,
-    IconPiggyBank,
-    IconPlus,
-    IconRewindPlay,
-    IconRocket,
-    IconSpotlight,
-    IconToggle,
-    IconTrends,
-    IconWarning,
-} from '@posthog/icons'
+import { IconHome, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSelect, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -31,32 +8,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
+import { ScopeIcon } from './ScopeIcon'
 import { accessControlsLogic } from './accessControlsLogic'
-
-const SCOPE_ICON_MAP: Record<string, React.ReactElement> = {
-    project: <IconHome />,
-    action: <IconCursor />,
-    activity_log: <IconNotification />,
-    dashboard: <IconDashboard />,
-    early_access_feature: <IconRocket />,
-    endpoint: <IconCode2 />,
-    error_tracking: <IconWarning />,
-    event_definition: <IconApps />,
-    experiment: <IconFlask />,
-    external_data_source: <IconDatabase />,
-    feature_flag: <IconToggle />,
-    insight: <IconTrends />,
-    live_debugger: <IconBug />,
-    logs: <IconLive />,
-    notebook: <IconNotebook />,
-    product_tour: <IconSpotlight />,
-    property_definition: <IconApps />,
-    revenue_analytics: <IconPiggyBank />,
-    session_recording: <IconRewindPlay />,
-    survey: <IconMessage />,
-    task: <IconBug />,
-    web_analytics: <IconPieChart />,
-}
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
@@ -119,7 +72,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                 return (
                                     <div className="font-medium flex items-center gap-2">
                                         <span className="text-lg flex items-center text-muted-alt">
-                                            {SCOPE_ICON_MAP[resource.key]}
+                                            <ScopeIcon scope={resource.key} />
                                         </span>
                                         {resource.label}
                                         {tooltipText && (

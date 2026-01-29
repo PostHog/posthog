@@ -1,14 +1,11 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { AvailableFeature } from '~/types'
 
-import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
-import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
 import { AccessControlTable } from './AccessControlTable'
@@ -17,10 +14,6 @@ import { accessControlsLogic } from './accessControlsLogic'
 import type { AccessControlsTab } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
-    useMountedLogic(membersLogic)
-    useMountedLogic(roleAccessControlLogic)
-    useMountedLogic(resourcesAccessControlLogic)
-
     const logic = accessControlsLogic({ projectId })
 
     const {
@@ -39,6 +32,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         roles,
         canEditAccessControls,
         canEditRoleBasedAccessControls,
+        ruleModalMemberHasAdminAccess,
     } = useValues(logic)
 
     const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, saveGroupedRules } =
@@ -102,6 +96,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                         ruleModalState.row.id === 'default' ? !!canEditAccessControls : !!canEditRoleBasedAccessControls
                     }
                     onSave={saveGroupedRules}
+                    memberHasAdminAccess={ruleModalMemberHasAdminAccess}
                 />
             )}
         </>

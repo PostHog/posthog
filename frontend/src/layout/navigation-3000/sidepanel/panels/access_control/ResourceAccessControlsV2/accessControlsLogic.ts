@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { fullName, toSentenceCase } from 'lib/utils'
 import { getMaximumAccessLevel, getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -10,14 +11,17 @@ import {
     APIScopeObject,
     AccessControlLevel,
     AccessControlType,
+    AccessControlTypeMember,
+    AccessControlTypeOrganizationAdmins,
     AvailableFeature,
     OrganizationMemberType,
 } from '~/types'
 
 import { AccessControlLevelMapping, accessControlLogic } from '../accessControlLogic'
-import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
+import { MemberResourceAccessControls, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
+import { getIdForDefaultRow, getIdForMemberRow, getIdForRoleRow } from './helpers'
 import { AccessControlFilters, AccessControlRow, AccessControlsTab, RuleModalState, ScopeType } from './types'
 
 export interface AccessControlsLogicProps {
@@ -43,7 +47,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
     ]),
     props({} as AccessControlsLogicProps),
     key((props) => props.projectId),
-
     connect((props: AccessControlsLogicProps) => ({
         values: [
             teamLogic,
@@ -197,7 +200,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     }
                 }
                 rows.push({
-                    id: 'default',
+                    id: getIdForDefaultRow(),
                     role: { id: 'default', name: 'Default' },
                     levels: defaultLevels,
                 })
@@ -226,7 +229,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             }
                         }
                         rows.push({
-                            id: `role:${role.id}`,
+                            id: getIdForRoleRow(role.id),
                             role: { id: role.id, name: role.name },
                             levels,
                         })
@@ -234,17 +237,36 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 }
 
                 // Member scope rows
+                const mappedAccessControlMembers = accessControlMembers.reduce(
+                    (acc, accessControlMember) => {
+                        if (!accessControlMember.organization_member) {
+                            return acc
+                        }
+                        return Object.assign(acc, { [accessControlMember.organization_member]: accessControlMember })
+                    },
+                    {} as Record<string, AccessControlTypeMember | AccessControlTypeOrganizationAdmins>
+                )
+                const mappedMemberResourceEntries = memberResourceAccessControls.reduce(
+                    (acc, memberAccessControl) => {
+                        if (!memberAccessControl.organization_member) {
+                            return acc
+                        }
+                        return Object.assign(acc, {
+                            [memberAccessControl.organization_member?.id]: memberAccessControl,
+                        })
+                    },
+                    {} as Record<string, MemberResourceAccessControls>
+                )
+
                 for (const member of allMembers) {
                     const levels: AccessControlLevelMapping[] = []
-                    const projectOverride = accessControlMembers.find((o) => o.organization_member === member.id)
+                    const projectOverride = mappedAccessControlMembers[member.id]
                     levels.push({
                         resourceKey: 'project',
                         level: (projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel,
                     })
 
-                    const memberResourceEntry = memberResourceAccessControls.find(
-                        (m) => m.organization_member?.id === member.id
-                    )
+                    const memberResourceEntry = mappedMemberResourceEntries[member.id]
                     if (memberResourceEntry) {
                         for (const [resourceKey, control] of Object.entries(
                             memberResourceEntry.accessControlByResource
@@ -258,7 +280,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                         }
                     }
                     rows.push({
-                        id: `member:${member.id}`,
+                        id: getIdForMemberRow(member.id),
                         role: { id: member.id, name: fullName(member.user) },
                         member,
                         levels,
@@ -388,6 +410,33 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (s) => [s.resourceAccessControlsLoading, s.accessControlsLoading],
             (resourceAccessControlsLoading, accessControlsLoading): boolean =>
                 resourceAccessControlsLoading || accessControlsLoading,
+        ],
+
+        ruleModalMemberHasAdminAccess: [
+            (s) => [s.ruleModalState],
+            (ruleModalState): boolean => {
+                if (!ruleModalState) {
+                    return false
+                }
+
+                const row = ruleModalState.row
+                if (!row.member) {
+                    return false
+                }
+
+                // Check if member is an organization admin
+                if (row.member.level >= OrganizationMembershipLevel.Admin) {
+                    return true
+                }
+
+                // Check if member has project admin access
+                const projectLevel = row.levels.find((l) => l.resourceKey === 'project')
+                if (projectLevel?.level === AccessControlLevel.Admin) {
+                    return true
+                }
+
+                return false
+            },
         ],
     }),
 
