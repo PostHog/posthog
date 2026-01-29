@@ -15,6 +15,13 @@ import {
     isTracesQuery,
 } from '~/queries/utils'
 
+/** Check if a HogQL query uses the {filters} placeholder which makes it responsive to date filter changes */
+function hogQLQueryUsesFiltersPlaceholder(query: HogQLQuery): boolean {
+    const queryString = query.query || ''
+    // Check for {filters} or {filters.dateRange.from} or {filters.dateRange.to}
+    return /\{filters\b/.test(queryString)
+}
+
 interface DateRangeProps<
     Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,
 > {
@@ -42,10 +49,16 @@ export function DateRange<
     }
 
     if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
+        const usesFilters = isSessionAttributionExplorerQuery(query) || hogQLQueryUsesFiltersPlaceholder(query)
+        const disabledReason = usesFilters
+            ? null
+            : 'This query does not use the {filters} placeholder. Add "WHERE {filters}" to your query to enable date filtering.'
+
         return (
             <DateFilter
                 dateFrom={query.filters?.dateRange?.date_from ?? undefined}
                 dateTo={query.filters?.dateRange?.date_to ?? undefined}
+                disabledReason={disabledReason}
                 onChange={(changedDateFrom, changedDateTo) => {
                     const newQuery: Q = {
                         ...query,
