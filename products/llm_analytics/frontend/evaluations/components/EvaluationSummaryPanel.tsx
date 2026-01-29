@@ -10,6 +10,25 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationPattern, EvaluationRun, EvaluationSummary, EvaluationSummaryFilter } from '../types'
 import { PatternCard } from './PatternCard'
 
+const FILTER_LABELS: Record<Exclude<EvaluationSummaryFilter, 'all'>, string> = {
+    pass: 'passing ',
+    fail: 'failing ',
+    na: 'N/A ',
+}
+
+function getFilterLabel(filter: EvaluationSummaryFilter): string {
+    return filter === 'all' ? '' : FILTER_LABELS[filter]
+}
+
+function getSummarizeTooltip(runsCount: number, filter: EvaluationSummaryFilter, hasSummary: boolean): string {
+    if (runsCount === 0) {
+        return 'No runs match the current filter'
+    }
+    const filterLabel = getFilterLabel(filter)
+    const action = hasSummary ? 'Regenerate AI summary for' : 'Use AI to analyze patterns in'
+    return `${action} ${runsCount} ${filterLabel}evaluation results`
+}
+
 export function EvaluationSummaryControls(): JSX.Element | null {
     const {
         evaluation,
@@ -29,31 +48,7 @@ export function EvaluationSummaryControls(): JSX.Element | null {
 
     return (
         <div className="flex items-center gap-2">
-            <Tooltip
-                title={
-                    runsToSummarizeCount === 0
-                        ? 'No runs match the current filter'
-                        : evaluationSummary
-                          ? `Regenerate AI summary for ${runsToSummarizeCount} ${
-                                evaluationSummaryFilter === 'all'
-                                    ? ''
-                                    : evaluationSummaryFilter === 'pass'
-                                      ? 'passing '
-                                      : evaluationSummaryFilter === 'fail'
-                                        ? 'failing '
-                                        : 'N/A '
-                            }evaluation results`
-                          : `Use AI to analyze patterns in ${runsToSummarizeCount} ${
-                                evaluationSummaryFilter === 'all'
-                                    ? ''
-                                    : evaluationSummaryFilter === 'pass'
-                                      ? 'passing '
-                                      : evaluationSummaryFilter === 'fail'
-                                        ? 'failing '
-                                        : 'N/A '
-                            }evaluation results`
-                }
-            >
+            <Tooltip title={getSummarizeTooltip(runsToSummarizeCount, evaluationSummaryFilter, !!evaluationSummary)}>
                 <LemonButton
                     type="secondary"
                     onClick={() => {
