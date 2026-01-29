@@ -10,6 +10,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { getCellLabel } from './components/NotebookNodeTitle'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { buildMediaSource, renderAnsiText } from './utils'
@@ -163,18 +164,12 @@ const Component = ({
     const showReturnVariableRow = expanded || isSettingsVisible
     const showDataframeTable = !!dataframeVariableName
 
-    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number, title: string): string => {
+    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string => {
         const trimmedTitle = title.trim()
         if (trimmedTitle) {
             return trimmedTitle
         }
-        if (nodeType === NotebookNodeType.Python) {
-            return `Python ${nodeIndex}`
-        }
-        if (nodeType === NotebookNodeType.DuckSQL) {
-            return `SQL (DuckDB) ${nodeIndex}`
-        }
-        return `SQL (HogQL) ${nodeIndex}`
+        return getCellLabel(nodeIndex, nodeType) ?? 'SQL'
     }
 
     if (!expanded && !showReturnVariableRow) {

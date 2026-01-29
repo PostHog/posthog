@@ -47,7 +47,7 @@ const getNodeIndex = ({
     return undefined
 }
 
-const getCellLabel = (nodeIndex: number | undefined, nodeType: NotebookNodeType): string | null => {
+export const getCellLabel = (nodeIndex: number | undefined, nodeType: NotebookNodeType): string | null => {
     if (!nodeIndex) {
         return null
     }
