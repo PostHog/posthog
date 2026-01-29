@@ -44,28 +44,22 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND event = 'pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = 'pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC') )
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC

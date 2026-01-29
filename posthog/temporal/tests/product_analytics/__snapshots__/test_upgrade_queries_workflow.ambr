@@ -13,6 +13,14 @@
       (!exists(@.version) || @.version == null || @.version < 4)
   )'
          OR query @? '$.** ? (
+      @.kind == "RetentionQuery" &&
+      (!exists(@.version) || @.version == null || @.version < 2)
+  )'
+         OR query @? '$.** ? (
+      @.kind == "StickinessQuery" &&
+      (!exists(@.version) || @.version == null || @.version < 2)
+  )'
+         OR query @? '$.** ? (
       @.kind == "TrendsQuery" &&
       (!exists(@.version) || @.version == null || @.version < 6)
   )')
