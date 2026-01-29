@@ -67,6 +67,8 @@ def DISTRIBUTED_DISTINCT_ID_USAGE_TABLE_SQL():
 
 
 # Kafka table - reads from the events topic with a separate consumer group
+# We add settings to prevent poison pills from stopping ingestion
+# kafka_skip_broken_messages is an int so we set it to skip all broken messages
 KAFKA_DISTINCT_ID_USAGE_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
@@ -79,6 +81,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC')
 ) ENGINE = {engine}
+SETTINGS kafka_skip_broken_messages = 100
 """
 
 
