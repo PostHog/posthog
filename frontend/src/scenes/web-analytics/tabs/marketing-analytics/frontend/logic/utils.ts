@@ -7,14 +7,14 @@ import {
     ExternalDataSourceType,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     NativeMarketingSource,
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { ManualLinkSourceType, PropertyMathType } from '~/types'
+import { HogQLMathType, ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
@@ -113,7 +113,7 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
     }
     return (
         column === draftConversionGoal.conversion_goal_name ||
-        column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`
+        column === `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`
     )
 }
 
@@ -259,14 +259,14 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         specialConversionLogic: (_table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql:
                         'SUM(ifNull(toFloat(conversion_signup_total_value), 0) + ifNull(toFloat(conversion_purchase_total_items), 0))',
                 }
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql:
                         'SUM(ifNull(toFloat(conversion_purchase_total_value), 0) + ifNull(toFloat(conversion_signup_total_value), 0))',
                 }
@@ -290,12 +290,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasConversionValueColumn = table.fields && 'conversion_value_in_local_currency' in table.fields
                 if (hasConversionValueColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(ifNull(toFloat(conversion_value_in_local_currency), 0))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -318,12 +318,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasConversionsColumn = table.fields && 'conversions' in table.fields
                 if (hasConversionsColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(toFloat(conversions))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -331,12 +331,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasConversionValuesColumn = table.fields && 'conversion_values' in table.fields
                 if (hasConversionValuesColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(ifNull(toFloat(conversion_values), 0))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -359,12 +359,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasConversionsColumn = table.fields && 'conversion' in table.fields
                 if (hasConversionsColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(toFloat(conversion))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -372,12 +372,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasConversionValueColumn = table.fields && 'total_complete_payment_value' in table.fields
                 if (hasConversionValueColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(ifNull(toFloat(total_complete_payment_value), 0))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -400,12 +400,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasConversionsColumn = table.fields && 'conversions' in table.fields
                 if (hasConversionsColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(toFloat(conversions))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -413,12 +413,12 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 const hasRevenueColumn = table.fields && 'revenue' in table.fields
                 if (hasRevenueColumn) {
                     return {
-                        math: 'hogql' as any,
+                        math: HogQLMathType.HogQL,
                         math_hogql: 'SUM(ifNull(toFloat(revenue), 0))',
                     }
                 }
                 return {
-                    math: 'hogql' as any,
+                    math: HogQLMathType.HogQL,
                     math_hogql: '0',
                 }
             }
@@ -509,7 +509,7 @@ export function createMarketingTile(
                 distinct_id_field: tileConfig.idField,
                 timestamp_field: tileConfig.timestampField,
                 table_name: table.name,
-                math: 'hogql' as any,
+                math: HogQLMathType.HogQL,
                 math_hogql: '0',
             }
         }
@@ -525,7 +525,7 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
@@ -585,7 +585,7 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
@@ -600,7 +600,7 @@ export function createMarketingTile(
         distinct_id_field: tileConfig.idField,
         timestamp_field: tileConfig.timestampField,
         table_name: table.name,
-        math: PropertyMathType.Sum,
-        math_property: column.name,
+        math: HogQLMathType.HogQL,
+        math_hogql: `SUM(ifNull(toFloat(${column.name}), 0))`,
     }
 }

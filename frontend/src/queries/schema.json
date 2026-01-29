@@ -19591,8 +19591,8 @@
             },
             "type": "object"
         },
-        "MarketingAnalyticsHelperForColumnNames": {
-            "enum": ["Goal", "Cost per"],
+        "MarketingAnalyticsConstants": {
+            "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
