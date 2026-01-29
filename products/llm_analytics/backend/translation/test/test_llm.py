@@ -8,46 +8,77 @@ from parameterized import parameterized
 from products.llm_analytics.backend.translation.constants import SUPPORTED_LANGUAGES, TRANSLATION_MODEL
 from products.llm_analytics.backend.translation.llm import translate_text
 
+MOCK_PATH = "products.llm_analytics.backend.translation.llm.get_llm_client"
+
 
 class TestTranslateText:
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_returns_translated_text(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_returns_translated_text(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="  Hola mundo  "))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         result = translate_text("Hello world", "es")
 
         assert result == "Hola mundo"
 
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_uses_correct_model(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_uses_correct_model(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         translate_text("Test", "es")
 
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == TRANSLATION_MODEL
-        assert call_kwargs["user"] == "llma-translation"
 
-    @parameterized.expand(list(SUPPORTED_LANGUAGES.items()))
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_includes_language_name_in_prompt(self, lang_code, lang_name, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_uses_fallback_user_when_no_distinct_id(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
+
+        translate_text("Test", "es")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["user"] == "llma-translation"
+
+    @patch(MOCK_PATH)
+    def test_passes_distinct_id_as_user(self, mock_get_client):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        translate_text("Test", "es", user_distinct_id="user-123")
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["user"] == "user-123"
+
+    @patch(MOCK_PATH)
+    def test_creates_client_with_correct_product(self, mock_get_client):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+
+        translate_text("Test", "es")
+
+        mock_get_client.assert_called_once_with("llma_translation")
+
+    @parameterized.expand(list(SUPPORTED_LANGUAGES.items()))
+    @patch(MOCK_PATH)
+    def test_includes_language_name_in_prompt(self, lang_code, lang_name, mock_get_client):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value = mock_client
 
         translate_text("Test", lang_code)
 
@@ -55,15 +86,13 @@ class TestTranslateText:
         system_message = call_kwargs["messages"][0]["content"]
         assert lang_name in system_message
 
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_falls_back_to_language_code_for_unknown_language(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_falls_back_to_language_code_for_unknown_language(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         translate_text("Test", "unknown_lang")
 
@@ -71,15 +100,13 @@ class TestTranslateText:
         system_message = call_kwargs["messages"][0]["content"]
         assert "unknown_lang" in system_message
 
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_passes_text_as_user_message(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_passes_text_as_user_message(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         translate_text("Hello world", "es")
 
@@ -88,47 +115,40 @@ class TestTranslateText:
         assert user_message["role"] == "user"
         assert user_message["content"] == "Hello world"
 
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_returns_empty_string_for_none_content(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_returns_empty_string_for_none_content(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content=None))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         result = translate_text("Test", "es")
 
         assert result == ""
 
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_strips_whitespace_from_response(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_strips_whitespace_from_response(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="\n\n  Translated text  \n\n"))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         result = translate_text("Test", "es")
 
         assert result == "Translated text"
 
-    @patch("openai.OpenAI")
-    @patch("django.conf.settings")
-    def test_propagates_openai_exceptions(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
-        mock_openai_class.return_value.chat.completions.create.side_effect = Exception("API Error")
+    @patch(MOCK_PATH)
+    def test_propagates_exceptions(self, mock_get_client):
+        mock_get_client.return_value.chat.completions.create.side_effect = Exception("API Error")
 
         with pytest.raises(Exception, match="API Error"):
             translate_text("Test", "es")
 
-    @patch("openai.OpenAI")
-    @patch("products.llm_analytics.backend.translation.llm.settings")
-    def test_creates_client_with_timeout(self, mock_settings, mock_openai_class):
-        mock_settings.OPENAI_API_KEY = "test-key"
+    @patch(MOCK_PATH)
+    def test_sets_timeout(self, mock_get_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
-        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+        mock_get_client.return_value.chat.completions.create.return_value = mock_response
 
         translate_text("Test", "es")
 
-        mock_openai_class.assert_called_once_with(api_key="test-key", timeout=30.0)
+        call_kwargs = mock_get_client.return_value.chat.completions.create.call_args.kwargs
+        assert call_kwargs["timeout"] == 30.0

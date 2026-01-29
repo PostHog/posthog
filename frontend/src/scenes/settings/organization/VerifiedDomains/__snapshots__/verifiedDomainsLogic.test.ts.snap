@@ -49,6 +49,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "https://posthog.com/",
           "https://app.posthog.com",
           "https://example.com",
+          "http://127.0.0.1:*",
         ],
         "autocapture_exceptions_errors_to_ignore": [],
         "autocapture_exceptions_opt_in": false,
