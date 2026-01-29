@@ -12,7 +12,7 @@ def fix_orphaned_schemas(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0015_alter_externaldatasource_source_type"),
+        ("data_warehouse", "0017_alter_externaldatasource_source_type"),
     ]
 
     operations = [
