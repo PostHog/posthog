@@ -343,6 +343,13 @@ class TestPrinter(BaseTest):
             "arrayMap((x, y) -> multiply(x, y), [1, 2, 3])",
         )
 
+    def test_to_json_function(self):
+        """Test toJSON function for JSON type conversion."""
+        self.assertEqual(
+            self._expr("toJSON(properties)"),
+            "CAST(events.properties AS JSON)",
+        )
+
     def test_equals_null(self):
         self.assertEqual(self._expr("event == null"), "isNull(events.event)")
         self.assertEqual(self._expr("event != null"), "isNotNull(events.event)")
