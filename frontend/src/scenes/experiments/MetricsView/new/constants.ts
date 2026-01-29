@@ -1,8 +1,6 @@
 // Chart
 export const VIEW_BOX_WIDTH = 800
 export const SVG_EDGE_MARGIN = 20
-export const BAR_HEIGHT = 16
-export const BAR_SPACING = 12
 
 // ChartCell
 export const CHART_CELL_VIEW_BOX_HEIGHT = 51
@@ -17,5 +15,4 @@ export const TICK_FONT_SIZE = 9
 export const MAX_AXIS_RANGE = 1.5 // Cap at ±150% to prevent outliers from squishing other charts
 
 // New temporary values until the new table have been fully rolled out
-export const BAR_HEIGHT_NEW = 12
 export const TICK_FONT_SIZE_NEW = 11
