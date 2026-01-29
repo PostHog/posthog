@@ -104,16 +104,8 @@ ATTIO_ENDPOINTS: dict[str, AttioEndpointConfig] = {
         path="/v2/notes",
         method="GET",
         primary_key="note_id",
-        partition_key="created_at",
         page_size=50,
-        incremental_fields=[
-            {
-                "label": "Created at",
-                "type": IncrementalFieldType.DateTime,
-                "field": "created_at",
-                "field_type": IncrementalFieldType.DateTime,
-            }
-        ],
+        incremental_fields=[],
     ),
     "tasks": AttioEndpointConfig(
         name="tasks",
