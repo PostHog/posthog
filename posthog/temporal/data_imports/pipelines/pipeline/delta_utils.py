@@ -60,6 +60,11 @@ def _convert_type_for_delta(arrow_type: pa.DataType) -> pa.DataType:
         # Delta Lake doesn't support duration, convert to int64 microseconds
         return pa.int64()
 
+    # Null types -> not supported, convert to string
+    if pa.types.is_null(arrow_type):
+        # Delta Lake doesn't support null type, convert to string
+        return pa.string()
+
     # Handle nested types recursively
     if pa.types.is_list(arrow_type):
         return pa.list_(_convert_type_for_delta(arrow_type.value_type))  # type: ignore[attr-defined]
