@@ -1,7 +1,11 @@
 import { useState } from 'react'
 
-import { IconPlusSmall, IconX } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
 
@@ -14,13 +18,13 @@ interface EventsFilterProps {
 
 export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Element {
     const events = query.events || []
-    const [isAdding, setIsAdding] = useState(false)
+    const [isOpen, setIsOpen] = useState(false)
 
-    const handleAddEvent = (value: string | null): void => {
-        if (value) {
-            setQuery?.({ ...query, events: [...events, value] })
+    const handleAddEvent = (eventName: string): void => {
+        if (!events.includes(eventName)) {
+            setQuery?.({ ...query, events: [...events, eventName] })
         }
-        setIsAdding(false)
+        setIsOpen(false)
     }
 
     const handleRemoveEvent = (index: number): void => {
@@ -38,52 +42,56 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
         }
     }
 
+    // No events selected - show single selector for first event
+    if (events.length === 0) {
+        return (
+            <EventNameComponent
+                value={null}
+                disabled={!setQuery}
+                onChange={(value) => value && handleAddEvent(value)}
+                allEventsOption="explicit"
+                placeholder="Select event"
+            />
+        )
+    }
+
+    // Events selected - show them with "Add event" button
     return (
         <div className="flex items-center gap-1 flex-wrap">
             {events.map((event, index) => (
-                <div key={index} className="flex items-center gap-1">
-                    <EventNameComponent
-                        value={event}
-                        disabled={!setQuery}
-                        onChange={(value) => handleUpdateEvent(index, value)}
-                        allEventsOption="clear"
-                        placeholder="Select event"
-                    />
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        type="tertiary"
-                        onClick={() => handleRemoveEvent(index)}
-                        tooltip="Remove event filter"
-                    />
-                </div>
+                <EventNameComponent
+                    key={index}
+                    value={event}
+                    disabled={!setQuery}
+                    onChange={(value) => handleUpdateEvent(index, value)}
+                    allEventsOption="clear"
+                    placeholder="Select event"
+                />
             ))}
-            {isAdding ? (
-                <div className="flex items-center gap-1">
-                    <EventNameComponent
+            <LemonDropdown
+                overlay={
+                    <TaxonomicFilter
+                        groupType={TaxonomicFilterGroupType.Events}
                         value={null}
-                        disabled={!setQuery}
-                        onChange={handleAddEvent}
-                        allEventsOption="clear"
-                        placeholder="Select event"
+                        onChange={(_, payload) => handleAddEvent(payload as string)}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
                     />
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        type="tertiary"
-                        onClick={() => setIsAdding(false)}
-                        tooltip="Cancel"
-                    />
-                </div>
-            ) : (
+                }
+                matchWidth={false}
+                actionable
+                visible={isOpen}
+                onClickOutside={() => setIsOpen(false)}
+            >
                 <LemonButton
                     icon={<IconPlusSmall />}
                     size="small"
                     type="secondary"
-                    onClick={() => setIsAdding(true)}
-                    tooltip="Add event filter"
-                />
-            )}
+                    onClick={() => setIsOpen(!isOpen)}
+                    tooltip="Add another event to filter by (OR)"
+                >
+                    Add event
+                </LemonButton>
+            </LemonDropdown>
         </div>
     )
 }

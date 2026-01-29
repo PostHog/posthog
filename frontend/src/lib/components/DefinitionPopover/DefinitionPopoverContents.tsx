@@ -597,6 +597,8 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
+    onMouseEnterInside?: React.MouseEventHandler<HTMLDivElement>
+    onMouseLeaveInside?: React.MouseEventHandler<HTMLDivElement>
 }
 
 export function ControlledDefinitionPopover({
@@ -604,6 +606,8 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
+    onMouseEnterInside,
+    onMouseLeaveInside,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -628,6 +632,8 @@ export function ControlledDefinitionPopover({
             visible={visible}
             referenceElement={highlightedItemElement}
             className="click-outside-block hotkey-block"
+            onMouseEnterInside={onMouseEnterInside}
+            onMouseLeaveInside={onMouseLeaveInside}
             overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
