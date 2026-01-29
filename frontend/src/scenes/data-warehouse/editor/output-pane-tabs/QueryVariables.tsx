@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
@@ -23,20 +24,27 @@ export function QueryVariables(): JSX.Element {
     const { openExistingVariableModal } = useActions(variableModalLogic)
     const { insertTextAtCursor } = useActions(multitabEditorLogic)
 
+    const tooltipContent = (
+        <div className="max-w-xs space-y-2 text-xs">
+            <p className="mb-0">
+                Query variables let you dynamically set values in your SQL query. Add a variable and then use it in your
+                HogQL query. The value you set here can be changed when viewing the insight or dashboard.
+            </p>
+            <Link to={documentationUrl} target="_blank">
+                Learn more about variables
+            </Link>
+        </div>
+    )
+
     return (
         <div className="overflow-auto" data-attr="sql-editor-sidebar-query-variables-pane">
             <div className="flex flex-row items-center gap-2">
                 <h3 className="mb-0">Query variables</h3>
-            </div>
-            <div className="space-y-2">
-                <p className="text-xs">
-                    Query variables let you dynamically set values in your SQL query. Add a variable and then use it in
-                    your HogQL query. The value you set here can be changed when viewing the insight or dashboard.
-                    <br />
-                    <Link to={documentationUrl} target="_blank">
-                        Learn more about variables
-                    </Link>
-                </p>
+                <Tooltip title={tooltipContent} placement="right">
+                    <span className="inline-flex text-muted">
+                        <IconInfo className="h-4 w-4" />
+                    </span>
+                </Tooltip>
             </div>
             <div
                 className={clsx(
