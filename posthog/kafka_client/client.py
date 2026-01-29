@@ -213,6 +213,8 @@ class _KafkaProducer:
             config: dict[str, Any] = {
                 "bootstrap.servers": ",".join(kafka_hosts) if isinstance(kafka_hosts, list) else kafka_hosts,
                 "security.protocol": kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+                # Wait for leader to acknowledge (matches kafka-python default)
+                "acks": 1,
                 # Retry configuration
                 "message.send.max.retries": KAFKA_PRODUCER_RETRIES,
                 "retry.backoff.ms": 100,
@@ -274,7 +276,10 @@ class _KafkaProducer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
         if key is not None:
-            key = key.encode("utf-8")
+            if isinstance(key, bytes):
+                pass  # already bytes
+            else:
+                key = str(key).encode("utf-8")
         encoded_headers: dict[str, bytes] | None = (
             {header[0]: header[1].encode("utf-8") for header in headers} if headers is not None else None
         )
