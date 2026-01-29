@@ -1622,6 +1622,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
