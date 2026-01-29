@@ -116,7 +116,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         evaluationSummary: [
             null as EvaluationSummary | null,
             {
-                generateEvaluationSummary: async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
+                generateEvaluationSummary: async ({ forceRefresh }: { forceRefresh?: boolean }) => {
+                    const shouldRefresh = forceRefresh ?? false
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
                         return null
@@ -128,7 +129,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
                         evaluation_id: props.evaluationId,
                         filter: requestFilter,
-                        force_refresh: forceRefresh,
+                        force_refresh: shouldRefresh,
                     })
 
                     // Discard if the user changed the filter while the request was in flight
