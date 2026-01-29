@@ -273,7 +273,10 @@ export function SidePanel({
                             'top-0 h-full': sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
                         })}
                     />
-                    {isRemovingSidePanelFlag && <div className="hidden lg:block fixed inset-0 z-10 bg-[red]" />}
+                    {/* Overlay for mobile to click outside to close the side panel */}
+                    {isRemovingSidePanelFlag && (
+                        <div onClick={() => closeSidePanel()} className="lg:hidden fixed inset-0 -z-1" />
+                    )}
                 </>
             )}
 
