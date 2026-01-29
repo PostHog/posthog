@@ -95,7 +95,7 @@ export function LemonTabs<T extends string | number>({
                 >
                     {realTabs.map((tab) => {
                         const content = (
-                            <div className="relative flex items-center gap-1">
+                            <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
                                 {tab.label}
                                 {tab.completed && (
                                     <div className="absolute left-full -top-2 md:top-auto -ml-[2px] md:ml-1 size-4 shrink-0 flex items-center justify-center">
@@ -105,6 +105,7 @@ export function LemonTabs<T extends string | number>({
                                 {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
                             </div>
                         )
+
                         return (
                             <Tooltip
                                 key={tab.key}
@@ -129,7 +130,6 @@ export function LemonTabs<T extends string | number>({
                                             : undefined
                                     }
                                     ref={tab.key === activeKey ? selectionRef : undefined}
-                                    data-attr={tab['data-attr']}
                                 >
                                     {tab.link ? (
                                         <Link className="LemonTabs__tab-content" to={tab.link}>

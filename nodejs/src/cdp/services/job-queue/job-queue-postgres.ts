@@ -241,6 +241,7 @@ function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): Cy
         functionId: invocation.functionId,
         queueName: invocation.queue,
         priority: invocation.queuePriority,
+        parentRunId: invocation.parentRunId ?? null,
         vmState: invocation.state,
         parameters,
         blob,
@@ -269,7 +270,7 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
         }
     }
 
-    return {
+    const invocation: CyclotronJobInvocation = {
         id: job.id,
         state: job.vmState,
         teamId: job.teamId,
@@ -281,4 +282,11 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
         queueParameters: params,
         queueSource: 'postgres', // NOTE: We always set this here, as we know it came from postgres
     }
+
+    // Only add parentRunId if it exists (avoid adding undefined field)
+    if (job.parentRunId) {
+        invocation.parentRunId = job.parentRunId
+    }
+
+    return invocation
 }

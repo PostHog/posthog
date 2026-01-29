@@ -1,5 +1,7 @@
 metadata:
     categories:
+        - key: devenv
+          title: Intent-based dev environment
         - key: core
           title: Core development commands
         - key: start
@@ -82,6 +84,11 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+devenv:
+    dev:setup:
+    dev:generate:
+    dev:explain:
+    dev:intents:
 core:
     categories:
         description: Show all available commands grouped by category
@@ -316,35 +323,18 @@ build:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
 docker:
-    docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services
-        services:
-            - docker
-            - postgresql
-            - clickhouse
-            - redis
-            - kafka
-    docker:services:up:minimal:
-        extends: docker:services:up
-        cmd: docker compose -f docker-compose.dev-minimal.yml up -d
+    # docker:services:up is a Python command in common/hogli/devenv/cli.py that respects intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
         services:
             - docker
-    docker:services:down:minimal:
-        extends: docker:services:down
-        cmd: docker compose -f docker-compose.dev-minimal.yml down
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
         description: Stop Docker infrastructure services and remove all volumes (complete wipe)
         services:
             - docker
         prompt: true
-    docker:services:remove:minimal:
-        extends: docker:services:remove
-        cmd: docker compose -f docker-compose.dev-minimal.yml down -v
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -470,6 +460,11 @@ db:
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
             - db:migrate
+            - name: ensure-migration-defaults
+              cmd: |
+                  set -e
+                  echo "Ensuring default migration data..."
+                  python manage.py ensure_migration_defaults
         description: Fetch pre-migrated schema from CI, restore it, and run any pending migrations (creates backup first)
         prompt: true
         services:

@@ -1,21 +1,15 @@
-import { getNextJSSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getNextJSSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    CalloutBox: any,
-    Tab: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getNextJSSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
+import { StepDefinition } from '../steps'
+
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getNextJSStepsPA(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets)
+    const installationSteps = getNextJSStepsPA(ctx)
 
     // Add flag implementation steps
     const flagSteps: StepDefinition[] = [
@@ -79,21 +73,7 @@ export const getNextJSSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const NextJSInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = useMDXComponents()
-    const steps = getNextJSSteps(CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const NextJSInstallation = createInstallation(getNextJSSteps)

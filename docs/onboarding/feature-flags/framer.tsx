@@ -1,19 +1,15 @@
-import { getFramerSteps as getFramerStepsPA } from '../product-analytics/framer'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import { StepDefinition, StepModifier } from '../steps'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const getFramerSteps = (
-    CodeBlock: any,
-    Markdown: any,
-    dedent: any,
-    snippets: any,
-    options?: StepModifier
-): StepDefinition[] => {
+import { getFramerSteps as getFramerStepsPA } from '../product-analytics/framer'
+import { StepDefinition } from '../steps'
+
+export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { Markdown, dedent, snippets } = ctx
     const BooleanFlag = snippets?.BooleanFlagSnippet
     const MultivariateFlag = snippets?.MultivariateFlagSnippet
 
     // Get installation steps from product-analytics
-    const installationSteps = getFramerStepsPA(CodeBlock, Markdown, dedent, snippets)
+    const installationSteps = getFramerStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -58,21 +54,7 @@ export const getFramerSteps = (
         },
     ]
 
-    const allSteps = [...installationSteps, ...flagSteps]
-    return options?.modifySteps ? options.modifySteps(allSteps) : allSteps
+    return [...installationSteps, ...flagSteps]
 }
 
-export const FramerInstallation = ({ modifySteps }: StepModifier = {}): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getFramerSteps(CodeBlock, Markdown, dedent, snippets, { modifySteps })
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const FramerInstallation = createInstallation(getFramerSteps)

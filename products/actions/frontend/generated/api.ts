@@ -37,16 +37,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type actionsListResponse200 = {
-    data: PaginatedActionListApi
-    status: 200
-}
-
-export type actionsListResponseSuccess = actionsListResponse200 & {
-    headers: Headers
-}
-export type actionsListResponse = actionsListResponseSuccess
-
 export const getActionsListUrl = (projectId: string, params?: ActionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -67,22 +57,12 @@ export const actionsList = async (
     projectId: string,
     params?: ActionsListParams,
     options?: RequestInit
-): Promise<actionsListResponse> => {
-    return apiMutator<actionsListResponse>(getActionsListUrl(projectId, params), {
+): Promise<PaginatedActionListApi> => {
+    return apiMutator<PaginatedActionListApi>(getActionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type actionsCreateResponse201 = {
-    data: ActionApi
-    status: 201
-}
-
-export type actionsCreateResponseSuccess = actionsCreateResponse201 & {
-    headers: Headers
-}
-export type actionsCreateResponse = actionsCreateResponseSuccess
 
 export const getActionsCreateUrl = (projectId: string, params?: ActionsCreateParams) => {
     const normalizedParams = new URLSearchParams()
@@ -105,24 +85,14 @@ export const actionsCreate = async (
     actionApi: NonReadonly<ActionApi>,
     params?: ActionsCreateParams,
     options?: RequestInit
-): Promise<actionsCreateResponse> => {
-    return apiMutator<actionsCreateResponse>(getActionsCreateUrl(projectId, params), {
+): Promise<ActionApi> => {
+    return apiMutator<ActionApi>(getActionsCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(actionApi),
     })
 }
-
-export type actionsRetrieveResponse200 = {
-    data: ActionApi
-    status: 200
-}
-
-export type actionsRetrieveResponseSuccess = actionsRetrieveResponse200 & {
-    headers: Headers
-}
-export type actionsRetrieveResponse = actionsRetrieveResponseSuccess
 
 export const getActionsRetrieveUrl = (projectId: string, id: number, params?: ActionsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
@@ -145,22 +115,12 @@ export const actionsRetrieve = async (
     id: number,
     params?: ActionsRetrieveParams,
     options?: RequestInit
-): Promise<actionsRetrieveResponse> => {
-    return apiMutator<actionsRetrieveResponse>(getActionsRetrieveUrl(projectId, id, params), {
+): Promise<ActionApi> => {
+    return apiMutator<ActionApi>(getActionsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type actionsUpdateResponse200 = {
-    data: ActionApi
-    status: 200
-}
-
-export type actionsUpdateResponseSuccess = actionsUpdateResponse200 & {
-    headers: Headers
-}
-export type actionsUpdateResponse = actionsUpdateResponseSuccess
 
 export const getActionsUpdateUrl = (projectId: string, id: number, params?: ActionsUpdateParams) => {
     const normalizedParams = new URLSearchParams()
@@ -184,24 +144,14 @@ export const actionsUpdate = async (
     actionApi: NonReadonly<ActionApi>,
     params?: ActionsUpdateParams,
     options?: RequestInit
-): Promise<actionsUpdateResponse> => {
-    return apiMutator<actionsUpdateResponse>(getActionsUpdateUrl(projectId, id, params), {
+): Promise<ActionApi> => {
+    return apiMutator<ActionApi>(getActionsUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(actionApi),
     })
 }
-
-export type actionsPartialUpdateResponse200 = {
-    data: ActionApi
-    status: 200
-}
-
-export type actionsPartialUpdateResponseSuccess = actionsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type actionsPartialUpdateResponse = actionsPartialUpdateResponseSuccess
 
 export const getActionsPartialUpdateUrl = (projectId: string, id: number, params?: ActionsPartialUpdateParams) => {
     const normalizedParams = new URLSearchParams()
@@ -225,8 +175,8 @@ export const actionsPartialUpdate = async (
     patchedActionApi: NonReadonly<PatchedActionApi>,
     params?: ActionsPartialUpdateParams,
     options?: RequestInit
-): Promise<actionsPartialUpdateResponse> => {
-    return apiMutator<actionsPartialUpdateResponse>(getActionsPartialUpdateUrl(projectId, id, params), {
+): Promise<ActionApi> => {
+    return apiMutator<ActionApi>(getActionsPartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -237,16 +187,6 @@ export const actionsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type actionsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type actionsDestroyResponseError = actionsDestroyResponse405 & {
-    headers: Headers
-}
-
-export type actionsDestroyResponse = actionsDestroyResponseError
-
 export const getActionsDestroyUrl = (projectId: string, id: number, params?: ActionsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -268,8 +208,8 @@ export const actionsDestroy = async (
     id: number,
     params?: ActionsDestroyParams,
     options?: RequestInit
-): Promise<actionsDestroyResponse> => {
-    return apiMutator<actionsDestroyResponse>(getActionsDestroyUrl(projectId, id, params), {
+): Promise<unknown> => {
+    return apiMutator<unknown>(getActionsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
     })

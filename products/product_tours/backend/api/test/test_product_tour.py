@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
+from posthog.models.team.team import Team
 
 from products.product_tours.backend.constants import ProductTourEventName
 from products.product_tours.backend.models import ProductTour
@@ -629,3 +630,58 @@ class TestProductTourInternalTargetingFlag(APIBaseTest):
                 assert any(substring in key for key in property_keys), f"Expected {substring} in {property_keys}"
         else:
             assert len(properties) == 0, f"Expected no exclusion properties, got {properties}"
+
+
+class TestProductTourLinkedFlagValidation(APIBaseTest):
+    def test_linked_flag_must_belong_to_same_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_flag = FeatureFlag.objects.create(team=other_team, key="other-flag", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={"name": "Tour", "content": {"steps": []}, "linked_flag_id": other_flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Feature Flag with this ID does not exist" in str(response.json())
+
+    @parameterized.expand(
+        [
+            # (variant, has_variants_on_flag, expected_status, error_substring)
+            ("control", True, 201, None),  # valid variant
+            ("any", True, 201, None),  # "any" is always valid
+            ("nonexistent", True, 400, "does not exist"),  # invalid variant
+            ("some_variant", False, 400, "has no variants"),  # flag has no variants
+        ]
+    )
+    def test_linked_flag_variant_validation(self, variant, has_variants_on_flag, expected_status, error_substring):
+        filters: dict = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        if has_variants_on_flag:
+            filters["multivariate"] = {"variants": [{"key": "control", "rollout_percentage": 100}]}
+
+        flag = FeatureFlag.objects.create(team=self.team, key="flag", created_by=self.user, filters=filters)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "linked_flag_id": flag.id,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": variant}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        if error_substring:
+            assert error_substring in str(response.json())
+
+    def test_linked_flag_variant_requires_linked_flag_id(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={"name": "Tour", "content": {"steps": [], "conditions": {"linkedFlagVariant": "v"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())

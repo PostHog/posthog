@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -8,6 +9,8 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     BillingPlan,
@@ -22,6 +25,7 @@ import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPr
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
+import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
@@ -656,10 +660,36 @@ export const billingProductLogic = kea<billingProductLogicType>([
             const products = `${product.type}:${plan?.plan_key}`
             actions.handleProductUpgrade(products, redirectPath)
         },
-        handleProductUpgrade: ({ products, redirectPath }) => {
-            window.location.href = `/api/billing/activate?products=${products}${
-                redirectPath && `&redirect_path=${redirectPath}`
-            }`
+        handleProductUpgrade: async ({ products, redirectPath }) => {
+            try {
+                const body: Record<string, string> = { products }
+                const response = await api.create('api/billing/activate', body)
+
+                if (response.success) {
+                    await billingLogic.asyncActions.loadBilling()
+                    if (redirectPath) {
+                        window.location.pathname = redirectPath
+                    } else {
+                        router.actions.push(router.values.location.pathname, {
+                            ...router.values.searchParams,
+                            upgraded: 'true',
+                            products,
+                        })
+                        organizationLogic.actions.loadCurrentOrganization()
+                        userLogic.actions.loadUser()
+                    }
+                } else if (response.must_setup_payment) {
+                    paymentEntryLogic.actions.setRedirectPath(redirectPath || null)
+                    paymentEntryLogic.actions.showPaymentEntryModal()
+                } else {
+                    lemonToast.error(response.error || 'Failed to activate subscription')
+                }
+            } catch (error) {
+                posthog.captureException(new Error('payment entry api error - product upgrade error', { cause: error }))
+                lemonToast.error('Failed to activate subscription. Please try again.')
+            } finally {
+                actions.setBillingProductLoading(null)
+            }
         },
         confirmProductUpgrade: () => {
             const upgradePlan = values.currentAndUpgradePlans.upgradePlan

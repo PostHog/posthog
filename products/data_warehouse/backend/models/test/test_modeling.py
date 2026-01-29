@@ -52,6 +52,16 @@ from products.data_warehouse.backend.models.modeling import (
             """,
             {"numbers", "events"},
         ),
+        # CTE with UNION ALL at top level - the CTE should not be treated as a parent
+        (
+            """
+            WITH cte AS (SELECT * FROM events)
+            SELECT * FROM cte
+            UNION ALL
+            SELECT * FROM cte
+            """,
+            {"events"},
+        ),
     ],
 )
 def test_get_parents_from_model_query(query: str, parents: set[str]):

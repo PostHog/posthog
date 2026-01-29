@@ -390,6 +390,7 @@ export function GoalsConfiguration(): JSX.Element {
                                   ? 'Finish editing current goal first'
                                   : undefined
                         }
+                        data-attr="revenue-analytics-add-goal-button"
                     >
                         Add Goal
                     </LemonButton>

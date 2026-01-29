@@ -24,7 +24,7 @@ const SetupWizardBanner = ({
     }
 
     const region = preflight?.region || Region.US
-    const wizardCommand = `npx -y @posthog/wizard@latest${region === Region.EU ? ` --eu` : ''}`
+    const wizardCommand = `npx -y @posthog/wizard@latest${region === Region.EU ? ` --region eu` : ''}`
 
     return (
         <>
