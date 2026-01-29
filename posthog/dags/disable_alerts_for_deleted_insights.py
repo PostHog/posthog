@@ -22,26 +22,32 @@ def delete_alerts_for_deleted_insights_op(
     """
     from posthog.models import AlertConfiguration
 
-    alerts_on_deleted = AlertConfiguration.objects.filter(insight__deleted=True)[: config.limit]
+    total_count = AlertConfiguration.objects.filter(insight__deleted=True).count()
+    alert_ids = list(
+        AlertConfiguration.objects.filter(insight__deleted=True).values_list("id", flat=True)[: config.limit]
+    )
+    batch_count = len(alert_ids)
 
-    count = alerts_on_deleted.count()
-    context.log.info(f"Found {count} alerts on deleted insights")
+    context.log.info(f"Found {total_count} total alerts on deleted insights, processing batch of {batch_count}")
 
-    if count == 0:
+    if batch_count == 0:
         context.log.info("No alerts to delete")
         context.add_output_metadata(
             {
                 "total_found": dagster.MetadataValue.int(0),
+                "batch_size": dagster.MetadataValue.int(0),
                 "total_deleted": dagster.MetadataValue.int(0),
             }
         )
         return {"total_found": 0, "total_deleted": 0}
 
+    # Fetch full objects for logging (only the batch we're deleting)
+    alerts_to_delete = AlertConfiguration.objects.filter(id__in=alert_ids)
     alerts_by_team: dict[int, list] = defaultdict(list)
-    for alert in alerts_on_deleted:
+    for alert in alerts_to_delete:
         alerts_by_team[alert.team_id].append(alert)
 
-    context.log.info(f"Alerts to delete by team ({count} total across {len(alerts_by_team)} teams):")
+    context.log.info(f"Alerts to delete by team ({batch_count} in batch across {len(alerts_by_team)} teams):")
     for team_id, team_alerts in sorted(alerts_by_team.items(), key=lambda x: -len(x[1])):
         insight_ids = [str(a.insight_id) for a in team_alerts[:10]]
         insight_preview = ", ".join(insight_ids)
@@ -50,28 +56,28 @@ def delete_alerts_for_deleted_insights_op(
         context.log.info(f"  Team {team_id}: {len(team_alerts)} alerts (insights: {insight_preview})")
 
     if config.dry_run:
-        context.log.warning(f"DRY RUN: Would delete {count} alerts (not making changes)")
+        context.log.warning(f"DRY RUN: Would delete {batch_count} alerts (not making changes)")
         context.add_output_metadata(
             {
-                "total_found": dagster.MetadataValue.int(count),
+                "total_found": dagster.MetadataValue.int(total_count),
+                "batch_size": dagster.MetadataValue.int(batch_count),
                 "total_deleted": dagster.MetadataValue.int(0),
             }
         )
-        return {"total_found": count, "total_deleted": 0}
+        return {"total_found": total_count, "total_deleted": 0}
 
-    # Actually delete the alerts (this will cascade delete related objects)
-    deleted_count, _ = alerts_on_deleted.delete()
-    context.log.info(f"Successfully deleted {deleted_count} alerts")
+    deleted_count, _ = alerts_to_delete.delete()
+    context.log.info(f"Successfully deleted {deleted_count} alerts ({total_count - deleted_count} remaining)")
 
-    # Add metadata for Dagster UI
     context.add_output_metadata(
         {
-            "total_found": dagster.MetadataValue.int(count),
+            "total_found": dagster.MetadataValue.int(total_count),
+            "batch_size": dagster.MetadataValue.int(batch_count),
             "total_deleted": dagster.MetadataValue.int(deleted_count),
         }
     )
 
-    return {"total_found": count, "total_deleted": deleted_count}
+    return {"total_found": total_count, "total_deleted": deleted_count}
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value})
