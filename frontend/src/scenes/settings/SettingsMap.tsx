@@ -674,6 +674,27 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-approvals',
+        title: 'Approvals',
+        flag: 'APPROVALS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-discussions',
         title: 'Discussions',
         settings: [
@@ -878,27 +899,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-security',
                 title: 'Security settings',
                 component: <OrganizationSecuritySettings />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-approvals',
-        title: 'Approvals',
-        flag: 'APPROVALS',
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        settings: [
-            {
-                id: 'approval-policies',
-                title: 'Policies',
-                description: 'Configure which actions require approval before being applied',
-                component: <ApprovalPolicies />,
-            },
-            {
-                id: 'change-requests',
-                title: 'Change requests',
-                description: 'Review and approve pending change requests',
-                component: <ChangeRequestsList />,
             },
         ],
     },
