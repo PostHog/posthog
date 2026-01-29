@@ -275,7 +275,7 @@ order by count() desc
             ),
     },
     {
-        title: 'SQL (duckdb)',
+        title: 'SQL (DuckDB)',
         search: 'duck sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
@@ -284,6 +284,23 @@ order by count() desc
                 attrs: {
                     code: '',
                     returnVariable: 'duck_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
+        title: 'SQL (HogQL)',
+        search: 'hogql sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.HogQLSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'hogql_df',
                     __init: {
                         showSettings: true,
                     },

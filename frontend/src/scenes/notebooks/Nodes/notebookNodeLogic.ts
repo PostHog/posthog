@@ -36,11 +36,14 @@ import {
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 import {
     type DuckSqlNodeSummary,
+    type HogqlSqlNodeSummary,
     type NotebookDependencyGraph,
     type NotebookDependencyNode,
     type NotebookDependencyUsage,
     getUniqueDuckSqlReturnVariable,
+    getUniqueHogqlReturnVariable,
     resolveDuckSqlReturnVariable,
+    resolveHogqlReturnVariable,
 } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import {
@@ -55,6 +58,7 @@ import {
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+export type HogqlSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 
 type RunPythonCellParams = {
     notebookId: string
@@ -72,6 +76,16 @@ type RunDuckSqlCellParams = {
     pageSize: number
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
     setDuckSqlRunLoading: (loading: boolean) => void
+    executionSandboxId: string | null
+}
+
+type RunHogqlSqlCellParams = {
+    notebookId: string
+    code: string
+    returnVariable: string
+    pageSize: number
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
+    setHogqlSqlRunLoading: (loading: boolean) => void
     executionSandboxId: string | null
 }
 
@@ -97,6 +111,17 @@ const buildDuckSqlCode = (code: string, returnVariable: string, pageSize: number
         `import json\n` +
         `${resolvedReturnVariable} = duck_execute(${sqlLiteral})\n` +
         `duck_save_table(${tableNameLiteral}, ${resolvedReturnVariable})\n` +
+        `json.dumps(notebook_dataframe_page(${resolvedReturnVariable}, offset=0, limit=${previewPageSize}))`
+    )
+}
+
+const buildHogqlSqlCode = (code: string, returnVariable: string, pageSize: number): string => {
+    const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
+    const sqlLiteral = JSON.stringify(code ?? '')
+    const previewPageSize = Math.max(1, pageSize || DEFAULT_DATAFRAME_PAGE_SIZE)
+    return (
+        `import json\n` +
+        `${resolvedReturnVariable} = hogql_execute(${sqlLiteral})\n` +
         `json.dumps(notebook_dataframe_page(${resolvedReturnVariable}, offset=0, limit=${previewPageSize}))`
     )
 }
@@ -222,6 +247,26 @@ const isDuckSqlExecutionFresh = (
     )
 }
 
+const isHogqlSqlExecutionFresh = (
+    nodeLogic: BuiltLogic<notebookNodeLogicType>,
+    code: string,
+    returnVariable: string
+): boolean => {
+    const { hogqlExecutionCodeHash, hogqlExecution, hogqlExecutionSandboxId } = nodeLogic.values.nodeAttributes
+    const codeHash = hashCodeForString(`${code}\n${returnVariable}`)
+    const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const kernelIsRunning = nodeLogic.values.kernelInfo?.status === 'running'
+    const sandboxMatches =
+        hogqlExecutionSandboxId && kernelSandboxId !== null && hogqlExecutionSandboxId === kernelSandboxId
+    return (
+        hogqlExecutionCodeHash &&
+        hogqlExecutionCodeHash === codeHash &&
+        hogqlExecution?.status === 'ok' &&
+        sandboxMatches &&
+        kernelIsRunning
+    )
+}
+
 const setDependencyNodeQueued = (
     nodeLogic: BuiltLogic<notebookNodeLogicType>,
     nodeType: NotebookNodeType,
@@ -233,6 +278,10 @@ const setDependencyNodeQueued = (
     }
     if (nodeType === NotebookNodeType.DuckSQL) {
         nodeLogic.actions.setDuckSqlRunQueued(queued)
+        return
+    }
+    if (nodeType === NotebookNodeType.HogQLSQL) {
+        nodeLogic.actions.setHogqlSqlRunQueued(queued)
     }
 }
 
@@ -241,13 +290,15 @@ const runDependencyNodes = async ({
     notebookId,
     mode,
     duckSqlNodeSummaries,
+    hogqlSqlNodeSummaries,
     currentNodeId,
     skipDataframeVariableUpdateForNodeId,
 }: {
     entries: { node: NotebookDependencyNode; nodeLogic: BuiltLogic<notebookNodeLogicType> }[]
     notebookId: string
-    mode: PythonRunMode | DuckSqlRunMode
+    mode: PythonRunMode | DuckSqlRunMode | HogqlSqlRunMode
     duckSqlNodeSummaries: DuckSqlNodeSummary[]
+    hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
     currentNodeId: string
     skipDataframeVariableUpdateForNodeId?: string
 }): Promise<void> => {
@@ -328,6 +379,56 @@ const runDependencyNodes = async ({
                     if (shouldUpdateDataframeVariable) {
                         nodeLogic.actions.setDataframeVariableName(
                             nodeLogic.values.duckSqlReturnVariable,
+                            previewResult
+                        )
+                    }
+                } else {
+                    nodeLogic.actions.setDataframeVariableName(null)
+                }
+                if (!isSuccess) {
+                    break
+                }
+            }
+
+            if (node.nodeType === NotebookNodeType.HogQLSQL) {
+                const nodeAttributes = nodeLogic.values.nodeAttributes as {
+                    code?: string
+                    returnVariable?: string
+                    hogqlExecutionSandboxId?: string | null
+                }
+                const nodeCode = nodeAttributes.code ?? node.code ?? ''
+                const nodeReturnVariable = getUniqueHogqlReturnVariable(
+                    hogqlSqlNodeSummaries,
+                    node.nodeId,
+                    nodeAttributes.returnVariable ?? node.returnVariable ?? 'hogql_df'
+                )
+                const executionSandboxId =
+                    nodeLogic.values.kernelInfo?.sandbox_id ?? nodeAttributes.hogqlExecutionSandboxId ?? null
+                if (
+                    mode === 'auto' &&
+                    node.nodeId !== currentNodeId &&
+                    isHogqlSqlExecutionFresh(nodeLogic, nodeCode, nodeReturnVariable)
+                ) {
+                    continue
+                }
+                const { executed, execution } = await runHogqlSqlCell({
+                    notebookId,
+                    code: nodeCode,
+                    returnVariable: nodeReturnVariable,
+                    pageSize: nodeLogic.values.dataframePageSize,
+                    updateAttributes: nodeLogic.actions.updateAttributes,
+                    setHogqlSqlRunLoading: nodeLogic.actions.setHogqlSqlRunLoading,
+                    executionSandboxId,
+                })
+
+                const isSuccess = executed && execution?.status === 'ok'
+                if (isSuccess) {
+                    const previewResult = parseDataframePreview(execution?.result)
+                    const shouldUpdateDataframeVariable =
+                        node.nodeId !== skipDataframeVariableUpdateForNodeId || !nodeLogic.values.dataframeVariableName
+                    if (shouldUpdateDataframeVariable) {
+                        nodeLogic.actions.setDataframeVariableName(
+                            nodeLogic.values.hogqlSqlReturnVariable,
                             previewResult
                         )
                     }
@@ -506,7 +607,7 @@ const runDuckSqlCell = async ({
 
         return { executed: true, execution: executionResult }
     } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'
+        const message = error instanceof Error ? error.message : 'Failed to run SQL (DuckDB) query.'
         const executionResult = buildPythonExecutionError(message, [
             { name: resolvedReturnVariable, type: 'DataFrame' },
         ])
@@ -518,6 +619,67 @@ const runDuckSqlCell = async ({
         return { executed: false, execution: executionResult }
     } finally {
         setDuckSqlRunLoading(false)
+    }
+}
+
+const runHogqlSqlCell = async ({
+    notebookId,
+    code,
+    returnVariable,
+    pageSize,
+    updateAttributes,
+    setHogqlSqlRunLoading,
+    executionSandboxId,
+}: RunHogqlSqlCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
+    setHogqlSqlRunLoading(true)
+    const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
+    const executionCode = buildHogqlSqlCode(code, returnVariable, pageSize)
+    try {
+        let executionResult: PythonExecutionResult | null = null
+        let kernelResponse: PythonKernelExecuteResponse | null = null
+        const codeHash = hashCodeForString(`${code}\n${resolvedReturnVariable}`)
+        const exportedGlobals = [{ name: resolvedReturnVariable, type: 'DataFrame' }]
+
+        updateAttributes({
+            hogqlExecution: buildPythonExecutionRunning(exportedGlobals),
+            hogqlExecutionCodeHash: codeHash,
+            hogqlExecutionSandboxId: executionSandboxId,
+        })
+
+        kernelResponse = (await api.notebooks.kernelExecute(notebookId, {
+            code: executionCode,
+            return_variables: true,
+        })) as PythonKernelExecuteResponse
+        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
+        updateAttributes({
+            hogqlExecution: executionResult,
+            hogqlExecutionCodeHash: codeHash,
+            hogqlExecutionSandboxId: runtimeSandboxId,
+        })
+
+        if (!executionResult && kernelResponse) {
+            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+        }
+
+        if (!executionResult) {
+            throw new Error('HogQL execution did not return a result.')
+        }
+
+        return { executed: true, execution: executionResult }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to run SQL (HogQL) query.'
+        const executionResult = buildPythonExecutionError(message, [
+            { name: resolvedReturnVariable, type: 'DataFrame' },
+        ])
+        updateAttributes({
+            hogqlExecution: executionResult,
+            hogqlExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
+            hogqlExecutionSandboxId: executionSandboxId,
+        })
+        return { executed: false, execution: executionResult }
+    } finally {
+        setHogqlSqlRunLoading(false)
     }
 }
 
@@ -613,6 +775,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         runDuckSqlNodeWithMode: (payload: { mode: DuckSqlRunMode }) => payload,
         setDuckSqlRunLoading: (loading: boolean) => ({ loading }),
         setDuckSqlRunQueued: (queued: boolean) => ({ queued }),
+        runHogqlSqlNode: true,
+        runHogqlSqlNodeWithMode: (payload: { mode: HogqlSqlRunMode }) => payload,
+        setHogqlSqlRunLoading: (loading: boolean) => ({ loading }),
+        setHogqlSqlRunQueued: (queued: boolean) => ({ queued }),
         setDataframeVariableName: (variableName: string | null, initialResult?: NotebookDataframeResult | null) => ({
             variableName,
             initialResult,
@@ -636,6 +802,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 'comments',
                 'pythonNodeSummaries',
                 'duckSqlNodeSummaries',
+                'hogqlSqlNodeSummaries',
                 'dependencyGraph',
                 'notebook',
                 'kernelInfo',
@@ -726,6 +893,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             false,
             {
                 setDuckSqlRunQueued: (_, { queued }) => queued,
+            },
+        ],
+        hogqlSqlRunLoading: [
+            false,
+            {
+                setHogqlSqlRunLoading: (_, { loading }) => loading,
+            },
+        ],
+        hogqlSqlRunQueued: [
+            false,
+            {
+                setHogqlSqlRunQueued: (_, { queued }) => queued,
             },
         ],
         dataframeVariableName: [
@@ -830,6 +1009,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (duckSqlNodeSummaries, nodeId, nodeAttributes): string =>
                 getUniqueDuckSqlReturnVariable(duckSqlNodeSummaries, nodeId, nodeAttributes.returnVariable ?? ''),
         ],
+        hogqlSqlNodeIndex: [
+            (s) => [s.hogqlSqlNodeSummaries, s.nodeId],
+            (hogqlSqlNodeSummaries, nodeId) => hogqlSqlNodeSummaries.findIndex((node) => node.nodeId === nodeId),
+        ],
+        hogqlSqlReturnVariable: [
+            (s) => [s.hogqlSqlNodeSummaries, s.nodeId, s.nodeAttributes],
+            (hogqlSqlNodeSummaries, nodeId, nodeAttributes): string =>
+                getUniqueHogqlReturnVariable(hogqlSqlNodeSummaries, nodeId, nodeAttributes.returnVariable ?? ''),
+        ],
         dataframeRowCount: [(s) => [s.dataframeResult], (dataframeResult): number => dataframeResult?.rowCount ?? 0],
         duckSqlTablesUsed: [
             (s) => [s.dependencyGraph, s.nodeId],
@@ -844,6 +1032,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.dependencyGraph, s.nodeId, s.duckSqlReturnVariable],
             (dependencyGraph, nodeId, duckSqlReturnVariable): NotebookDependencyUsage[] =>
                 dependencyGraph.downstreamUsageByNode[nodeId]?.[duckSqlReturnVariable] ?? [],
+        ],
+        hogqlReturnVariableUsage: [
+            (s) => [s.dependencyGraph, s.nodeId, s.hogqlSqlReturnVariable],
+            (dependencyGraph, nodeId, hogqlSqlReturnVariable): NotebookDependencyUsage[] =>
+                dependencyGraph.downstreamUsageByNode[nodeId]?.[hogqlSqlReturnVariable] ?? [],
         ],
 
         usageByVariable: [
@@ -994,7 +1187,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (
                 props.nodeType === NotebookNodeType.Python ||
                 (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
-                props.nodeType === NotebookNodeType.DuckSQL
+                props.nodeType === NotebookNodeType.DuckSQL ||
+                props.nodeType === NotebookNodeType.HogQLSQL
             ) {
                 actions.updateAttributes({ showSettings: shouldShowThis })
             }
@@ -1012,7 +1206,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 if (
                     (props.nodeType === NotebookNodeType.Python ||
                         (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
-                        props.nodeType === NotebookNodeType.DuckSQL) &&
+                        props.nodeType === NotebookNodeType.DuckSQL ||
+                        props.nodeType === NotebookNodeType.HogQLSQL) &&
                     __init.showSettings
                 ) {
                     actions.updateAttributes({ showSettings: true })
@@ -1022,7 +1217,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (
                 props.nodeType === NotebookNodeType.Python ||
                 (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
-                props.nodeType === NotebookNodeType.DuckSQL
+                props.nodeType === NotebookNodeType.DuckSQL ||
+                props.nodeType === NotebookNodeType.HogQLSQL
             ) {
                 const shouldShowSettings = __init?.showSettings ?? values.nodeAttributes.showSettings
                 if (typeof shouldShowSettings === 'boolean') {
@@ -1051,6 +1247,31 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     const previewResult = parseDataframePreview(cachedExecution.result)
                     if (previewResult) {
                         actions.setDataframeVariableName(values.duckSqlReturnVariable, previewResult)
+                    }
+                }
+            }
+            if (props.nodeType === NotebookNodeType.HogQLSQL) {
+                const currentReturnVariable =
+                    typeof values.nodeAttributes.returnVariable === 'string'
+                        ? values.nodeAttributes.returnVariable
+                        : 'hogql_df'
+                const uniqueReturnVariable = getUniqueHogqlReturnVariable(
+                    values.hogqlSqlNodeSummaries,
+                    values.nodeId,
+                    currentReturnVariable
+                )
+                if (uniqueReturnVariable !== resolveHogqlReturnVariable(currentReturnVariable)) {
+                    actions.updateAttributes({ returnVariable: uniqueReturnVariable })
+                }
+                const cachedExecution = values.nodeAttributes.hogqlExecution
+                if (
+                    !values.dataframeVariableName &&
+                    cachedExecution?.status === 'ok' &&
+                    typeof cachedExecution.result === 'string'
+                ) {
+                    const previewResult = parseDataframePreview(cachedExecution.result)
+                    if (previewResult) {
+                        actions.setDataframeVariableName(values.hogqlSqlReturnVariable, previewResult)
                     }
                 }
             }
@@ -1196,6 +1417,79 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 notebookId: notebook.short_id,
                 mode,
                 duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                hogqlSqlNodeSummaries: values.hogqlSqlNodeSummaries,
+                currentNodeId: values.nodeId,
+            })
+        },
+
+        runHogqlSqlNode: async () => {
+            if (props.nodeType !== NotebookNodeType.HogQLSQL) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+            const { code = '', returnVariable = 'hogql_df' } = values.nodeAttributes as {
+                code?: string
+                returnVariable?: string
+                hogqlExecutionSandboxId?: string | null
+            }
+            const executionSandboxId =
+                values.kernelInfo?.sandbox_id ?? values.nodeAttributes.hogqlExecutionSandboxId ?? null
+            const resolvedReturnVariable = getUniqueHogqlReturnVariable(
+                values.hogqlSqlNodeSummaries,
+                values.nodeId,
+                returnVariable
+            )
+            const { executed, execution } = await runHogqlSqlCell({
+                notebookId: notebook.short_id,
+                code,
+                returnVariable: resolvedReturnVariable,
+                pageSize: values.dataframePageSize,
+                updateAttributes: actions.updateAttributes,
+                setHogqlSqlRunLoading: actions.setHogqlSqlRunLoading,
+                executionSandboxId,
+            })
+            if (!executed || execution?.status !== 'ok') {
+                actions.setDataframeVariableName(null)
+                return
+            }
+            const previewResult = parseDataframePreview(execution?.result)
+            actions.setDataframeVariableName(values.hogqlSqlReturnVariable, previewResult)
+        },
+        runHogqlSqlNodeWithMode: async ({ mode }) => {
+            if (props.nodeType !== NotebookNodeType.HogQLSQL) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+
+            if (mode === 'cell') {
+                await actions.runHogqlSqlNode()
+                return
+            }
+
+            const direction: DependencyRunDirection = mode === 'cell_downstream' ? 'downstream' : 'upstream'
+            const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                dependencyGraph: values.dependencyGraph,
+                nodeId: values.nodeId,
+                direction,
+                notebookLogic: values.notebookLogic,
+            })
+            if (nodesToRunWithLogic.length === 0) {
+                await actions.runHogqlSqlNode()
+                return
+            }
+
+            await runDependencyNodes({
+                entries: nodesToRunWithLogic,
+                notebookId: notebook.short_id,
+                mode,
+                duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                hogqlSqlNodeSummaries: values.hogqlSqlNodeSummaries,
                 currentNodeId: values.nodeId,
             })
         },
@@ -1231,6 +1525,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 notebookId: notebook.short_id,
                 mode,
                 duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                hogqlSqlNodeSummaries: values.hogqlSqlNodeSummaries,
                 currentNodeId: values.nodeId,
             })
         },
@@ -1283,6 +1578,34 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         notebookId: notebook.short_id,
                         mode: 'cell_upstream',
                         duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                        hogqlSqlNodeSummaries: values.hogqlSqlNodeSummaries,
+                        currentNodeId: values.nodeId,
+                        skipDataframeVariableUpdateForNodeId: values.nodeId,
+                    })
+                }
+            }
+            if (
+                props.nodeType === NotebookNodeType.HogQLSQL &&
+                nodeLogic &&
+                !isHogqlSqlExecutionFresh(
+                    nodeLogic,
+                    (values.nodeAttributes as { code?: string }).code ?? '',
+                    values.hogqlSqlReturnVariable
+                )
+            ) {
+                const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                    dependencyGraph: values.dependencyGraph,
+                    nodeId: values.nodeId,
+                    direction: 'upstream',
+                    notebookLogic: values.notebookLogic,
+                })
+                if (nodesToRunWithLogic.length > 0) {
+                    await runDependencyNodes({
+                        entries: nodesToRunWithLogic,
+                        notebookId: notebook.short_id,
+                        mode: 'cell_upstream',
+                        duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                        hogqlSqlNodeSummaries: values.hogqlSqlNodeSummaries,
                         currentNodeId: values.nodeId,
                         skipDataframeVariableUpdateForNodeId: values.nodeId,
                     })
