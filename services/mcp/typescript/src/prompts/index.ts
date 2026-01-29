@@ -1,11 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import { getPromptsFromManifest } from '@/resources'
-import type { Context } from '@/tools/types'
 
-export async function registerPrompts(server: McpServer, context: Context): Promise<void> {
+export async function registerPrompts(server: McpServer): Promise<void> {
     // Get prompts from the manifest (they already have URIs substituted)
-    const manifestPrompts = await getPromptsFromManifest(context)
+    const manifestPrompts = await getPromptsFromManifest()
 
     for (const prompt of manifestPrompts) {
         // Register as zero-argument prompt
