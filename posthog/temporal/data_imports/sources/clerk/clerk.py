@@ -36,9 +36,9 @@ def get_resource(
         if should_use_incremental_field
         else "replace",
         "endpoint": {
-            "data_selector": "data",
             "path": config.path,
             "params": params,
+            "data_selector": "data",
         },
         "table_format": "delta",
     }
@@ -59,8 +59,13 @@ class ClerkPaginator(BasePaginator):
             self._has_next_page = False
             return
 
-        # Clerk returns data in a 'data' array
-        items = res.get("data", [])
+        # Clerk returns {"data": [...], "totalCount": ...}
+        if isinstance(res, dict) and "data" in res:
+            items = res["data"]
+        elif isinstance(res, list):
+            items = res
+        else:
+            items = []
 
         # If we got fewer items than the limit, we've reached the end
         if len(items) < self._limit:
@@ -74,6 +79,28 @@ class ClerkPaginator(BasePaginator):
             if request.params is None:
                 request.params = {}
             request.params["offset"] = self._offset
+
+
+# Timestamp fields that need conversion from milliseconds to seconds
+TIMESTAMP_FIELDS = [
+    "created_at",
+    "updated_at",
+    "last_sign_in_at",
+    "last_active_at",
+    "mfa_enabled_at",
+    "mfa_disabled_at",
+    "password_last_updated_at",
+    "legal_accepted_at",
+]
+
+
+def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
+    """Convert Clerk timestamp fields from milliseconds to seconds."""
+    for field in TIMESTAMP_FIELDS:
+        if field in item and item[field] is not None:
+            # Clerk returns timestamps in milliseconds, convert to seconds
+            item[field] = item[field] / 1000
+    return item
 
 
 def validate_credentials(secret_key: str) -> bool:
@@ -135,7 +162,7 @@ def clerk_source(
 
     resources = rest_api_resources(config, team_id, job_id, None)
     assert len(resources) == 1
-    resource = resources[0]
+    resource = resources[0].add_map(_convert_timestamps)
 
     return SourceResponse(
         name=endpoint,
