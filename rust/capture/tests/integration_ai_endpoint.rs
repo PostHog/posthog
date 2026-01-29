@@ -2023,81 +2023,66 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     let event = &events[0];
     let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
 
-    // Verify properties contain S3 URLs from mock blob storage
+    // Verify properties contain placeholders (with random suffix)
     let props = event_json["properties"].as_object().unwrap();
-
-    // Both blobs should have S3 URLs
-    let input_url = props["$ai_input"].as_str().unwrap();
-    let output_url = props["$ai_output"].as_str().unwrap();
-
-    // Verify S3 URLs point to same file with different ranges
-    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
-    // Token is hashed (first 16 chars of SHA-256) to prevent path traversal attacks
-    let token_hash = "896566b02a7f7462"; // SHA-256 of "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
-    let expected_prefix = format!("s3://{TEST_BLOB_BUCKET}/{TEST_BLOB_PREFIX}{token_hash}/");
+    let input_placeholder = props["$ai_input"].as_str().unwrap();
+    let output_placeholder = props["$ai_output"].as_str().unwrap();
     assert!(
-        input_url.starts_with(&expected_prefix),
-        "Input URL should start with {expected_prefix}, got {input_url}"
+        input_placeholder.starts_with("$posthog_external_property_0_"),
+        "Input should have placeholder, got: {input_placeholder}"
     );
     assert!(
-        output_url.starts_with(&expected_prefix),
-        "Output URL should start with {expected_prefix}, got {output_url}"
+        output_placeholder.starts_with("$posthog_external_property_1_"),
+        "Output should have placeholder, got: {output_placeholder}"
     );
 
-    // Extract UUIDs from both URLs (should be the same)
-    // URL format: s3://test-bucket/llma/<token_hash>/<uuid>?range=...
-    let input_uuid = input_url
-        .split('/')
-        .nth(5)
-        .unwrap()
-        .split('?')
-        .next()
-        .unwrap();
-    let output_uuid = output_url
-        .split('/')
-        .nth(5)
-        .unwrap()
-        .split('?')
-        .next()
-        .unwrap();
+    // Verify external_properties contains S3 references
+    let external_props = event_json["external_properties"].as_object().unwrap();
+    assert_eq!(external_props.len(), 2, "Should have 2 external properties");
+
+    // Verify structure of external_properties entries (keys match placeholders)
+    let ext_input = external_props[input_placeholder].as_object().unwrap();
+    assert_eq!(ext_input["type"].as_str().unwrap(), "s3");
+    assert!(ext_input["path"].as_str().unwrap().starts_with("s3://"));
+    let input_range = ext_input["range"].as_array().unwrap();
+    assert_eq!(input_range.len(), 2);
+
+    let ext_output = external_props[output_placeholder].as_object().unwrap();
+    assert_eq!(ext_output["type"].as_str().unwrap(), "s3");
+    assert!(ext_output["path"].as_str().unwrap().starts_with("s3://"));
+    let output_range = ext_output["range"].as_array().unwrap();
+    assert_eq!(output_range.len(), 2);
+
+    // Verify both point to same S3 path
     assert_eq!(
-        input_uuid, output_uuid,
-        "Both blobs should point to same file"
+        ext_input["path"].as_str().unwrap(),
+        ext_output["path"].as_str().unwrap(),
+        "Both blobs should point to same S3 file"
     );
-    assert_eq!(input_uuid, event_uuid, "UUID should match event UUID");
 
-    // Verify ranges are sequential
+    // Verify S3 path contains token hash and event UUID
+    let s3_path = ext_input["path"].as_str().unwrap();
+    let token_hash = "896566b02a7f7462"; // SHA-256 of "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
     assert!(
-        input_url.contains("range="),
-        "Input URL should have range parameter"
+        s3_path.contains(token_hash),
+        "S3 path should contain token hash"
     );
     assert!(
-        output_url.contains("range="),
-        "Output URL should have range parameter"
+        s3_path.contains(event_uuid),
+        "S3 path should contain event UUID"
     );
 
-    // Extract range values and verify they are non-overlapping and sequential
-    let input_range = input_url.split("range=").nth(1).unwrap();
-    let output_range = output_url.split("range=").nth(1).unwrap();
+    // Verify ranges are sequential and non-overlapping
+    let input_start = input_range[0].as_u64().unwrap();
+    let input_end = input_range[1].as_u64().unwrap();
+    let output_start = output_range[0].as_u64().unwrap();
+    let output_end = output_range[1].as_u64().unwrap();
 
-    // Parse ranges: format is "start-end"
-    let input_parts: Vec<usize> = input_range.split('-').map(|s| s.parse().unwrap()).collect();
-    let output_parts: Vec<usize> = output_range
-        .split('-')
-        .map(|s| s.parse().unwrap())
-        .collect();
-
-    let (input_start, input_end) = (input_parts[0], input_parts[1]);
-    let (output_start, output_end) = (output_parts[0], output_parts[1]);
-
-    // Verify ranges are valid (end > start)
     assert!(input_end > input_start, "Input range should be valid");
     assert!(output_end > output_start, "Output range should be valid");
-
-    // Verify ranges don't overlap (output starts after input ends)
     assert!(
         output_start > input_end,
-        "Output blob range should start after input blob range ends"
+        "Output range should start after input range ends"
     );
 }
 
@@ -2170,32 +2155,48 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
     let props = event_json["properties"].as_object().unwrap();
 
-    // Extract all URLs
-    let url1 = props["$ai_blob1"].as_str().unwrap();
-    let url2 = props["$ai_blob2"].as_str().unwrap();
-    let url3 = props["$ai_blob3"].as_str().unwrap();
+    // Verify properties contain placeholders (with random suffix)
+    let placeholder1 = props["$ai_blob1"].as_str().unwrap();
+    let placeholder2 = props["$ai_blob2"].as_str().unwrap();
+    let placeholder3 = props["$ai_blob3"].as_str().unwrap();
+    assert!(placeholder1.starts_with("$posthog_external_property_0_"));
+    assert!(placeholder2.starts_with("$posthog_external_property_1_"));
+    assert!(placeholder3.starts_with("$posthog_external_property_2_"));
 
-    // Verify all point to same file
-    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
-    let uuid1 = url1.split('/').nth(5).unwrap().split('?').next().unwrap();
-    let uuid2 = url2.split('/').nth(5).unwrap().split('?').next().unwrap();
-    let uuid3 = url3.split('/').nth(5).unwrap().split('?').next().unwrap();
-    assert_eq!(uuid1, uuid2);
-    assert_eq!(uuid2, uuid3);
-    assert_eq!(uuid1, event_uuid);
+    // Verify external_properties structure
+    let external_props = event_json["external_properties"].as_object().unwrap();
+    assert_eq!(external_props.len(), 3, "Should have 3 external properties");
 
-    // Extract and parse ranges
-    let range1 = url1.split("range=").nth(1).unwrap();
-    let range2 = url2.split("range=").nth(1).unwrap();
-    let range3 = url3.split("range=").nth(1).unwrap();
+    // Extract ranges from external_properties (keys match placeholders)
+    let ext1 = external_props[placeholder1].as_object().unwrap();
+    let ext2 = external_props[placeholder2].as_object().unwrap();
+    let ext3 = external_props[placeholder3].as_object().unwrap();
 
-    let parts1: Vec<usize> = range1.split('-').map(|s| s.parse().unwrap()).collect();
-    let parts2: Vec<usize> = range2.split('-').map(|s| s.parse().unwrap()).collect();
-    let parts3: Vec<usize> = range3.split('-').map(|s| s.parse().unwrap()).collect();
+    // Verify all point to same S3 path
+    assert_eq!(ext1["path"], ext2["path"]);
+    assert_eq!(ext2["path"], ext3["path"]);
 
-    let (start1, end1) = (parts1[0], parts1[1]);
-    let (start2, end2) = (parts2[0], parts2[1]);
-    let (start3, end3) = (parts3[0], parts3[1]);
+    // Verify S3 path contains event UUID
+    let s3_path = ext1["path"].as_str().unwrap();
+    assert!(s3_path.contains(event_uuid));
+
+    // Extract ranges
+    let range1 = ext1["range"].as_array().unwrap();
+    let range2 = ext2["range"].as_array().unwrap();
+    let range3 = ext3["range"].as_array().unwrap();
+
+    let (start1, end1) = (
+        range1[0].as_u64().unwrap(),
+        range1[1].as_u64().unwrap(),
+    );
+    let (start2, end2) = (
+        range2[0].as_u64().unwrap(),
+        range2[1].as_u64().unwrap(),
+    );
+    let (start3, end3) = (
+        range3[0].as_u64().unwrap(),
+        range3[1].as_u64().unwrap(),
+    );
 
     // Verify ranges are valid
     assert!(end1 > start1, "First range should be valid");
@@ -2205,6 +2206,76 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     // Verify ranges are sequential (non-overlapping)
     assert!(start2 > end1, "Second blob should start after first ends");
     assert!(start3 > end2, "Third blob should start after second ends");
+}
+
+#[tokio::test]
+async fn test_ai_event_with_nested_blob_path_creates_structure() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "760e8400-e29b-41d4-a716-446655440003";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input[0].content",
+            Part::bytes(b"nested blob content".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+
+    // Verify nested structure was created with placeholder
+    let props = event_json["properties"].as_object().unwrap();
+    let ai_input = props["$ai_input"].as_array().unwrap();
+    assert_eq!(ai_input.len(), 1);
+    let placeholder = ai_input[0]["content"].as_str().unwrap();
+    assert!(
+        placeholder.starts_with("$posthog_external_property_0_"),
+        "Should have placeholder with random suffix, got: {placeholder}"
+    );
+
+    // Verify external_properties (key matches placeholder)
+    let external_props = event_json["external_properties"].as_object().unwrap();
+    assert_eq!(external_props.len(), 1);
+
+    let ext = external_props[placeholder].as_object().unwrap();
+    assert_eq!(ext["type"].as_str().unwrap(), "s3");
+    assert!(ext["path"].as_str().unwrap().contains(event_uuid));
 }
 
 #[tokio::test]

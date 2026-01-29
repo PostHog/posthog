@@ -61,18 +61,53 @@ struct BlobPart {
     data: Bytes,
 }
 
-/// Insert S3 URLs from uploaded blobs into event properties.
-fn insert_blob_urls_into_properties(
+/// Generate a placeholder string for external property references.
+/// Format: $posthog_external_property_<index>_<random>
+fn generate_placeholder(index: usize) -> String {
+    use rand::Rng;
+    let random_suffix: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect();
+    format!("$posthog_external_property_{}_{}", index, random_suffix)
+}
+
+/// Process blobs: insert placeholders at paths, build external_properties map.
+///
+/// For each blob:
+/// 1. Insert a placeholder string at the blob's path in properties
+/// 2. Add an entry to external_properties mapping placeholder to S3 reference
+fn process_blob_placeholders(
     uploaded: &crate::ai_s3::UploadedBlobs,
+    blob_parts: &[BlobPart],
     properties: &mut serde_json::Map<String, Value>,
-) {
-    for part in &uploaded.parts {
-        let url = format!(
-            "{}?range={}-{}",
-            uploaded.base_url, part.range_start, part.range_end
+) -> serde_json::Map<String, Value> {
+    let mut external_props = serde_json::Map::new();
+
+    for (index, (blob_part, upload_part)) in
+        blob_parts.iter().zip(&uploaded.parts).enumerate()
+    {
+        let placeholder = generate_placeholder(index);
+
+        // Insert placeholder at path in properties
+        if let Err(e) = insert_at_path(properties, &blob_part.parsed_path, Value::String(placeholder.clone())) {
+            warn!("Failed to insert placeholder at path: {:?}", e);
+            continue;
+        }
+
+        // Add to external_properties
+        external_props.insert(
+            placeholder,
+            serde_json::json!({
+                "type": "s3",
+                "path": uploaded.base_url.clone(),
+                "range": [upload_part.range_start, upload_part.range_end]
+            }),
         );
-        properties.insert(part.property_name.clone(), Value::String(url));
     }
+
+    external_props
 }
 
 /// Metadata extracted from the event part for early checks (token dropper, quota)
@@ -335,14 +370,24 @@ pub async fn ai_handler(
                 CaptureError::NonRetryableSinkError
             })?;
 
-        // Insert S3 URLs into event properties
-        if let Some(properties) = parsed
-            .event
-            .as_object_mut()
-            .and_then(|obj| obj.get_mut("properties"))
-            .and_then(|p| p.as_object_mut())
-        {
-            insert_blob_urls_into_properties(&uploaded, properties);
+        // Insert placeholders into properties and build external_properties map
+        if let Some(event_obj) = parsed.event.as_object_mut() {
+            let properties = event_obj
+                .entry("properties")
+                .or_insert_with(|| Value::Object(serde_json::Map::new()))
+                .as_object_mut()
+                .unwrap();
+
+            let external_properties =
+                process_blob_placeholders(&uploaded, &parsed.blob_parts, properties);
+
+            // Add external_properties to event root
+            if !external_properties.is_empty() {
+                event_obj.insert(
+                    "external_properties".to_string(),
+                    Value::Object(external_properties),
+                );
+            }
         }
     }
 
@@ -1034,13 +1079,34 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_json_path::parse_json_path;
     use crate::ai_s3::{BlobPartRange, UploadedBlobs};
+    use serde_json::json;
 
     #[test]
-    fn test_insert_blob_urls_into_properties() {
+    fn test_generate_placeholder() {
+        let p0 = generate_placeholder(0);
+        let p1 = generate_placeholder(1);
+        let p42 = generate_placeholder(42);
+
+        // Check prefix format: $posthog_external_property_<index>_<random>
+        assert!(p0.starts_with("$posthog_external_property_0_"));
+        assert!(p1.starts_with("$posthog_external_property_1_"));
+        assert!(p42.starts_with("$posthog_external_property_42_"));
+
+        // Check that random suffix is 8 characters
+        assert_eq!(p0.len(), "$posthog_external_property_0_".len() + 8);
+
+        // Check that each call generates unique placeholder
+        let p0_again = generate_placeholder(0);
+        assert_ne!(p0, p0_again);
+    }
+
+    #[test]
+    fn test_process_blob_placeholders_simple() {
         let uploaded = UploadedBlobs {
-            base_url: "s3://capture/llma/phc_test_token/abc-def".to_string(),
-            boundary: "----posthog-ai-abc-def".to_string(),
+            base_url: "s3://capture/llma/hash/uuid".to_string(),
+            boundary: "----posthog-ai-uuid".to_string(),
             parts: vec![
                 BlobPartRange {
                     property_name: "$ai_input".to_string(),
@@ -1055,16 +1121,84 @@ mod tests {
             ],
         };
 
-        let mut properties = serde_json::Map::new();
-        insert_blob_urls_into_properties(&uploaded, &mut properties);
+        let blob_parts = vec![
+            BlobPart {
+                name: "event.properties.$ai_input".to_string(),
+                parsed_path: parse_json_path("$ai_input").unwrap(),
+                content_type: Some("application/json".to_string()),
+                content_encoding: None,
+                data: Bytes::from_static(b"input data"),
+            },
+            BlobPart {
+                name: "event.properties.$ai_output".to_string(),
+                parsed_path: parse_json_path("$ai_output").unwrap(),
+                content_type: Some("application/json".to_string()),
+                content_encoding: None,
+                data: Bytes::from_static(b"output data"),
+            },
+        ];
 
-        assert_eq!(
-            properties.get("$ai_input").unwrap().as_str().unwrap(),
-            "s3://capture/llma/phc_test_token/abc-def?range=0-99"
-        );
-        assert_eq!(
-            properties.get("$ai_output").unwrap().as_str().unwrap(),
-            "s3://capture/llma/phc_test_token/abc-def?range=100-249"
+        let mut properties = serde_json::Map::new();
+        let external_props = process_blob_placeholders(&uploaded, &blob_parts, &mut properties);
+
+        // Check placeholders inserted in properties (with random suffix)
+        let input_placeholder = properties.get("$ai_input").unwrap().as_str().unwrap();
+        let output_placeholder = properties.get("$ai_output").unwrap().as_str().unwrap();
+        assert!(input_placeholder.starts_with("$posthog_external_property_0_"));
+        assert!(output_placeholder.starts_with("$posthog_external_property_1_"));
+
+        // Check external_properties structure - keys match placeholders
+        assert_eq!(external_props.len(), 2);
+        assert!(external_props.contains_key(input_placeholder));
+        assert!(external_props.contains_key(output_placeholder));
+
+        let ext_input = external_props.get(input_placeholder).unwrap();
+        assert_eq!(ext_input["type"], "s3");
+        assert_eq!(ext_input["path"], "s3://capture/llma/hash/uuid");
+        assert_eq!(ext_input["range"], json!([0, 99]));
+
+        let ext_output = external_props.get(output_placeholder).unwrap();
+        assert_eq!(ext_output["type"], "s3");
+        assert_eq!(ext_output["path"], "s3://capture/llma/hash/uuid");
+        assert_eq!(ext_output["range"], json!([100, 249]));
+    }
+
+    #[test]
+    fn test_process_blob_placeholders_nested_path() {
+        let uploaded = UploadedBlobs {
+            base_url: "s3://capture/llma/hash/uuid".to_string(),
+            boundary: "----posthog-ai-uuid".to_string(),
+            parts: vec![BlobPartRange {
+                property_name: "$ai_input[0].content".to_string(),
+                range_start: 0,
+                range_end: 99,
+            }],
+        };
+
+        let blob_parts = vec![BlobPart {
+            name: "event.properties.$ai_input[0].content".to_string(),
+            parsed_path: parse_json_path("$ai_input[0].content").unwrap(),
+            content_type: Some("text/plain".to_string()),
+            content_encoding: None,
+            data: Bytes::from_static(b"nested content"),
+        }];
+
+        let mut properties = serde_json::Map::new();
+        let external_props = process_blob_placeholders(&uploaded, &blob_parts, &mut properties);
+
+        // Check nested structure created with placeholder
+        let ai_input = properties.get("$ai_input").unwrap().as_array().unwrap();
+        let content_placeholder = ai_input[0]["content"].as_str().unwrap();
+        assert!(content_placeholder.starts_with("$posthog_external_property_0_"));
+
+        // Check external_properties - key matches placeholder
+        assert_eq!(external_props.len(), 1);
+        assert!(external_props.contains_key(content_placeholder));
+
+        let ext = external_props.get(content_placeholder).unwrap();
+        assert_eq!(ext["type"], "s3");
+        assert_eq!(ext["path"], "s3://capture/llma/hash/uuid");
+        assert_eq!(ext["range"], json!([0, 99])
         );
     }
 }
