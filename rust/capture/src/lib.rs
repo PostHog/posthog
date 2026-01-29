@@ -3,7 +3,6 @@ pub mod ai_s3;
 pub mod api;
 pub mod config;
 pub mod event_restrictions;
-pub mod event_restrictions_repository;
 pub mod events;
 pub mod extractors;
 pub mod global_rate_limiter;

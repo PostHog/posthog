@@ -6,7 +6,7 @@ use metrics::counter;
 use serde::Deserialize;
 use tracing::warn;
 
-use crate::event_restrictions::RestrictionType;
+use super::types::{Restriction, RestrictionFilters, RestrictionScope, RestrictionType};
 
 const REDIS_KEY_PREFIX: &str = "event_ingestion_restriction_dynamic_config";
 
@@ -25,6 +25,31 @@ pub struct RestrictionEntry {
     pub event_names: Vec<String>,
     #[serde(default)]
     pub event_uuids: Vec<String>,
+}
+
+impl RestrictionEntry {
+    pub fn into_restriction(self, restriction_type: RestrictionType) -> Restriction {
+        let has_filters = !self.distinct_ids.is_empty()
+            || !self.session_ids.is_empty()
+            || !self.event_names.is_empty()
+            || !self.event_uuids.is_empty();
+
+        let scope = if has_filters {
+            RestrictionScope::Filtered(RestrictionFilters {
+                distinct_ids: self.distinct_ids.into_iter().collect(),
+                session_ids: self.session_ids.into_iter().collect(),
+                event_names: self.event_names.into_iter().collect(),
+                event_uuids: self.event_uuids.into_iter().collect(),
+            })
+        } else {
+            RestrictionScope::AllEvents
+        };
+
+        Restriction {
+            restriction_type,
+            scope,
+        }
+    }
 }
 
 /// Repository trait for fetching restriction entries from storage.
@@ -201,13 +226,63 @@ pub mod testing {
 }
 
 // ============================================================================
-// Integration Tests for RedisRestrictionsRepository
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_restriction_entry_parsing() {
+        let json = r#"[
+            {
+                "version": 2,
+                "token": "token1",
+                "pipelines": ["analytics"],
+                "distinct_ids": ["user1", "user2"],
+                "event_names": ["$pageview"]
+            },
+            {
+                "version": 2,
+                "token": "token2",
+                "pipelines": ["analytics", "session_recordings"]
+            }
+        ]"#;
+
+        let entries: Vec<RestrictionEntry> = serde_json::from_str(json).unwrap();
+        assert_eq!(entries.len(), 2);
+
+        let entry1 = &entries[0];
+        assert_eq!(entry1.token, "token1");
+        assert_eq!(entry1.distinct_ids, vec!["user1", "user2"]);
+        assert_eq!(entry1.event_names, vec!["$pageview"]);
+        assert!(entry1.session_ids.is_empty());
+
+        let restriction1 = entries[0]
+            .clone()
+            .into_restriction(RestrictionType::DropEvent);
+        assert!(matches!(restriction1.scope, RestrictionScope::Filtered(_)));
+
+        let entry2 = &entries[1];
+        assert_eq!(entry2.token, "token2");
+        assert!(entry2.distinct_ids.is_empty());
+
+        let restriction2 = entries[1]
+            .clone()
+            .into_restriction(RestrictionType::DropEvent);
+        assert!(matches!(restriction2.scope, RestrictionScope::AllEvents));
+    }
+}
+
+// ============================================================================
+// Integration Tests
 // ============================================================================
 
 /// Integration tests for RedisRestrictionsRepository using real Redis.
 /// Each test uses a unique prefix to avoid conflicts when running in parallel.
 #[cfg(test)]
-mod repository_integration_tests {
+mod integration_tests {
     use super::*;
     use common_redis::Client;
     use rand::distributions::Alphanumeric;
