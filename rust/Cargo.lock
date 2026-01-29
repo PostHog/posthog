@@ -1641,6 +1641,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "multer",
+ "nom",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",

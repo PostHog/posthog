@@ -50,6 +50,7 @@ aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
 lz-str = { workspace = true }
 multer = "3.0"
+nom = "7"
 futures = { workspace = true }
 sha2 = { workspace = true }
 

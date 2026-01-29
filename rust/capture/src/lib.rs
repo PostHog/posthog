@@ -1,4 +1,5 @@
 pub mod ai_endpoint;
+pub mod ai_json_path;
 pub mod ai_s3;
 pub mod api;
 pub mod config;
