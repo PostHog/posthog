@@ -71,7 +71,8 @@ if [[ -f "$REPOSITORY_ROOT/.env.secrets" ]]; then
     fi
 fi
 
-# Rust build optimizations (dynamic, can't be in .env.development)
+# Limit Rust parallel compilation jobs to reduce CPU contention when multiple
+# services start simultaneously via mprocs (they share a build lock anyway)
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
@@ -92,6 +93,8 @@ export DAGSTER_HOME=$REPOSITORY_ROOT/.dagster_home
 # Use --tracing flag to enable if you have the intent configured
 if [[ "$*" == *"--tracing"* ]]; then
     export OTEL_SDK_DISABLED="false"
+    export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
+    export OTEL_TRACES_SAMPLER_ARG="1"
     echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI"
 else
     export OTEL_SDK_DISABLED="true"
