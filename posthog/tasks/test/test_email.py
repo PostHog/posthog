@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -1154,7 +1155,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the href in template context uses the provided slug
         actual_href = mocked_email_messages[0].properties["href"]
-        expected_href = "http://localhost:8010/replay/test-replay-id"
+        expected_href = f"{settings.SITE_URL}/replay/test-replay-id#panel=discussion"
         assert actual_href == expected_href, f"Expected {expected_href}, got {actual_href}"
 
     def test_send_discussions_mentioned_replay_without_slug_generates_href_from_item_id(
@@ -1188,7 +1189,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
 
         # Verify the href is auto-generated from scope and item_id
-        assert mocked_email_messages[0].properties["href"] == "http://localhost:8010/replay/replay-uuid-123"
+        assert (
+            mocked_email_messages[0].properties["href"]
+            == f"{settings.SITE_URL}/replay/replay-uuid-123#panel=discussion"
+        )
 
     def test_send_discussions_mentioned_notebook_without_slug_generates_href_from_item_id(
         self, MockEmailMessage: MagicMock
@@ -1221,7 +1225,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
 
         # Verify the href is auto-generated for notebook
-        assert mocked_email_messages[0].properties["href"] == "http://localhost:8010/notebook/notebook-short-id"
+        assert (
+            mocked_email_messages[0].properties["href"]
+            == f"{settings.SITE_URL}/notebooks/notebook-short-id#panel=discussion"
+        )
 
     def test_send_discussions_mentioned_unknown_scope_without_slug_falls_back_to_base_url(
         self, MockEmailMessage: MagicMock
@@ -1253,5 +1260,5 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
 
-        # Verify the href falls back to base URL
-        assert mocked_email_messages[0].properties["href"] == "http://localhost:8010"
+        # Verify the href falls back to base URL with discussion panel
+        assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"

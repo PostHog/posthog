@@ -133,7 +133,6 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
-                        - 'frontend/src/lib/api-stub-for-orval.ts'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -893,7 +892,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -1045,6 +1044,9 @@ jobs:
                   oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   # Skip plugin transpiler build - these tests don't need it and it causes esbuild deadlocks
                   skip-plugin-transpiler: 'true'
+                  # Compat tests run a subset of snapshot tests, so unused snapshots are expected
+                  # This makes unused snapshots non-fatal (warning only) instead of failing the build
+                  snapshot-warn-unused: 'true'
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:

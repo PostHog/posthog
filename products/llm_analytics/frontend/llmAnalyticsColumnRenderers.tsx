@@ -16,7 +16,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
 import { EventData, useAIData } from './hooks/useAIData'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages } from './utils'
 
@@ -91,8 +91,8 @@ export function getTracesUrlWithPersonFilter(
 }
 
 function PersonColumnCell({ person }: { person: PersonData | null | undefined }): JSX.Element {
-    const { setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { propertyFilters } = useValues(llmAnalyticsLogic)
+    const { setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters } = useValues(llmAnalyticsSharedLogic)
 
     const filterIdentifier = getFilterIdentifier(person)
 
@@ -136,7 +136,7 @@ function PersonColumnCell({ person }: { person: PersonData | null | undefined })
 
 function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | undefined }): JSX.Element {
     const { push } = useActions(router)
-    const { dateFilter } = useValues(llmAnalyticsLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
     const filterIdentifier = getFilterIdentifier(person)
 
     const handleFilterAndRedirect = (e: React.MouseEvent): void => {
@@ -334,8 +334,9 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <PersonColumnCell person={null} />
         },
     },
-    // User column for Users tab - clicking filter redirects to traces page
-    user: {
+    // LLM person column for Users tab - clicking filter redirects to traces page
+    // Uses __llm_person to avoid collision with user-defined 'user' columns in SQL queries
+    __llm_person: {
         title: 'Person',
         render: ({ value }) => {
             // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]

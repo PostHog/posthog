@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -63,10 +64,12 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     count: number
     latestVersion: string
     releaseDate: string | undefined
+    releasedAgo: string | undefined
     daysSinceRelease: number | undefined
     isOutdated: boolean
     isOld: boolean
     needsUpdating: boolean
+    isCurrentOrNewer: boolean
 }
 
 /**
@@ -155,6 +158,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     return {}
                 }
 
+                // Threshold for considering an outdated version's traffic "significant"
+                // If an outdated version handles ≥10% of events, flag the SDK as needing attention
+                const SIGNIFICANT_TRAFFIC_THRESHOLD = 0.1
+
                 return Object.fromEntries(
                     Object.entries(rawData).map(([sdkType, teamSdkUsage]) => {
                         const isSingleVersion = teamSdkUsage.usage.length === 1
@@ -167,12 +174,29 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             )
                         )
 
+                        // Calculate total events across all versions of this SDK
+                        const totalEvents = releasesInfo.reduce((sum, r) => sum + r.count, 0)
+
+                        // Check if any outdated version handles significant traffic (≥10% of events)
+                        // Skip for mobile SDKs - users don't auto-update apps, so outdated versions are expected
+                        const isMobileSdk = DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType as SdkType)
+                        const hasSignificantOutdatedTraffic =
+                            !isMobileSdk &&
+                            totalEvents > 0 &&
+                            releasesInfo.some(
+                                (r) => r.isOutdated && r.count / totalEvents >= SIGNIFICANT_TRAFFIC_THRESHOLD
+                            )
+
+                        // SDK is outdated if most recent version is outdated OR any outdated version has significant traffic
+                        // Safe: backend only includes SDKs with at least one usage entry
+                        const isOutdated = releasesInfo[0]!.isOutdated || hasSignificantOutdatedTraffic
+
                         return [
                             sdkType,
                             {
-                                isOutdated: releasesInfo[0]!.isOutdated,
+                                isOutdated,
                                 isOld: releasesInfo[0]!.isOld,
-                                needsUpdating: releasesInfo[0]!.needsUpdating,
+                                needsUpdating: isOutdated || releasesInfo[0]!.isOld,
                                 currentVersion: teamSdkUsage.latest_version,
                                 allReleases: releasesInfo,
                             },
@@ -311,6 +335,11 @@ function computeAugmentedInfoRelease(
         // Check if versions differ
         const diff = diffVersions(latestVersion, currentVersion)
 
+        // Check if current version is equal to or newer than cached latest
+        // This handles the case where events show a newer version than what's cached from GitHub
+        // diff === null means versions are equal; diff.diff <= 0 means current >= latest
+        const isCurrentOrNewer = diff === null || diff.diff <= 0
+
         // Count number of versions behind by estimating based on semantic version difference
         let releasesBehind = 0
         if (diff) {
@@ -396,7 +425,9 @@ function computeAugmentedInfoRelease(
             isOutdated,
             isOld, // Returned separately for "Old" badge in UI
             needsUpdating: isOutdated || isOld,
+            isCurrentOrNewer,
             releaseDate: usageEntry.release_date,
+            releasedAgo: usageEntry.release_date ? dayjs(usageEntry.release_date).fromNow() : undefined,
             daysSinceRelease,
             latestVersion: versionToString(latestVersion),
         }
@@ -410,7 +441,9 @@ function computeAugmentedInfoRelease(
             isOutdated: false,
             isOld: false,
             needsUpdating: false,
+            isCurrentOrNewer: false,
             releaseDate: undefined,
+            releasedAgo: undefined,
             daysSinceRelease: undefined,
             latestVersion: versionToString(latestVersion),
         }

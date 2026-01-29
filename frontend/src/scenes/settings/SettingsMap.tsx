@@ -47,6 +47,7 @@ import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
+import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
@@ -58,7 +59,7 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import { LinearIntegration } from './environment/Integrations'
-import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
+import { LogsCaptureSettings, LogsJsonParseSettings, LogsRetentionSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -572,6 +573,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsCaptureSettings />,
                 flag: 'LOGS_SETTINGS',
             },
+            {
+                id: 'logs-json-parse',
+                title: 'JSON parse logs',
+                component: <LogsJsonParseSettings />,
+                flag: 'LOGS_SETTINGS_JSON',
+            },
+            {
+                id: 'logs-retention',
+                title: 'Retention',
+                component: <LogsRetentionSettings />,
+                flag: 'LOGS_SETTINGS_RETENTION',
+            },
         ],
     },
     {
@@ -686,6 +699,39 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Notifications',
                 component: <ActivityLogNotifications />,
                 flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-approvals',
+        title: 'Approvals',
+        flag: 'APPROVALS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-discussions',
+        title: 'Discussions',
+        settings: [
+            {
+                id: 'discussion-mention-integrations',
+                title: 'Integrations',
+                component: <DiscussionMentionNotifications />,
             },
         ],
     },
@@ -876,27 +922,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-security',
                 title: 'Security settings',
                 component: <OrganizationSecuritySettings />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-approvals',
-        title: 'Approvals',
-        flag: 'APPROVALS',
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        settings: [
-            {
-                id: 'approval-policies',
-                title: 'Policies',
-                description: 'Configure which actions require approval before being applied',
-                component: <ApprovalPolicies />,
-            },
-            {
-                id: 'change-requests',
-                title: 'Change requests',
-                description: 'Review and approve pending change requests',
-                component: <ChangeRequestsList />,
             },
         ],
     },

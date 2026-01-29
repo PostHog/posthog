@@ -23,7 +23,7 @@ export const template: HogFunctionTemplate = {
     })
 }
 
-let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: "{inputs.title}" description: "{inputs.description}" teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
+let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: {jsonStringify(inputs.title)} description: {jsonStringify(inputs.description)} teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
 
 let issue_response := query(issue_mutation);
 

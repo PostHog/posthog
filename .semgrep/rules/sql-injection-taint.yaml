@@ -1,0 +1,52 @@
+rules:
+    - id: sql-injection-user-input
+      mode: taint
+      pattern-sources:
+          - patterns:
+                - pattern-either:
+                      # Django request parameters
+                      - pattern: $REQ.GET.get(...)
+                      - pattern: $REQ.POST.get(...)
+                      - pattern: $REQ.GET[...]
+                      - pattern: $REQ.POST[...]
+                      - pattern: $REQ.data.get(...)
+                      - pattern: $REQ.data[...]
+                      - pattern: $REQ.query_params.get(...)
+                      - pattern: $REQ.query_params[...]
+                      # DRF serializer data
+                      - pattern: $SERIALIZER.validated_data.get(...)
+                      - pattern: $SERIALIZER.validated_data[...]
+      pattern-sinks:
+          # String format in execute (works well with taint tracking)
+          - pattern: $C.execute("...".format(...))
+          - pattern: $C.execute("..." % ...)
+          - pattern: $C.execute($A + ...)
+          - pattern: $M.raw("...".format(...))
+          - pattern: $M.raw("..." % ...)
+      pattern-sanitizers:
+          # Type conversions that neutralize injection
+          - pattern: int(...)
+          - pattern: float(...)
+          - pattern: str(int(...))
+          - pattern: str(float(...))
+          # Explicit escaping functions
+          - pattern: escape_clickhouse_identifier(...)
+          - pattern: escape_clickhouse_string(...)
+          # psycopg2 safe SQL composition
+          - pattern: sql.Identifier(...)
+          - pattern: sql.Literal(...)
+          - pattern: sql.SQL(...).format(...)
+      message: |
+          SQL injection risk: User input flows to SQL query without parameterization.
+          Use parameterized queries: cursor.execute("SELECT * FROM t WHERE id = %s", [id])
+          For identifiers, use escape_clickhouse_identifier() or psycopg2 sql.Identifier().
+      languages: [python]
+      severity: ERROR
+      paths:
+          exclude:
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/*_test.py'
+              - '**/test_*.py'
+              - '**/conftest.py'

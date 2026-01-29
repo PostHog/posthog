@@ -14,6 +14,7 @@ export const GRID_LINES_OPACITY = 0.8
 // Axis
 export const TICK_PANEL_HEIGHT = 20
 export const TICK_FONT_SIZE = 9
+export const MAX_AXIS_RANGE = 1.5 // Cap at ±150% to prevent outliers from squishing other charts
 
 // New temporary values until the new table have been fully rolled out
 export const BAR_HEIGHT_NEW = 12
