@@ -88,7 +88,9 @@ function parseToolResultContent<T>(structuredContent: unknown): T | null {
     return null
 }
 
-function log(...args: any[]): void {}
+function log(...args: any[]): void {
+    console.debug('[PostHog MCP App]', ...args)
+}
 
 /**
  * Hook for MCP UI Apps to receive and handle tool results.

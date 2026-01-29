@@ -16,7 +16,9 @@ const POSTHOG_HOST = typeof __POSTHOG_BASE_URL__ !== 'undefined' ? __POSTHOG_BAS
 let client: PostHog | null = null
 let currentDistinctId: string | null = null
 
-const log = (...args: any[]): void => {}
+const log = (...args: any[]): void => {
+    console.debug('[PostHog Analytics]', ...args)
+}
 
 /**
  * Initialize PostHog for UI Apps tracking.
