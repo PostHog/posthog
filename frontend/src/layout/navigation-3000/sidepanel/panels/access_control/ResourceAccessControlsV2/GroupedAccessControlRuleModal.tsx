@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconHome, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
@@ -154,6 +154,20 @@ function GroupedAccessControlRuleModalContent(props: {
         {} as Record<APIScopeObject, AccessControlLevel>
     )
 
+    const disabledReason = useMemo(() => {
+        if (props.loading) {
+            return 'Loading...'
+        }
+
+        if (!props.canEdit) {
+            return 'Cannot edit'
+        }
+
+        if (!props.memberHasAdminAccess) {
+            return 'Feature overrides do not apply to admins'
+        }
+    }, [])
+
     return (
         <div className="space-y-4">
             <div className="flex gap-2 items-center justify-between">
@@ -222,12 +236,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                         className="w-36"
                                         size="small"
                                         value={mappedLevels[resource.key] ?? null}
-                                        disabled={props.memberHasAdminAccess}
-                                        disabledReason={
-                                            props.memberHasAdminAccess
-                                                ? 'Feature overrides do not apply to admins'
-                                                : undefined
-                                        }
+                                        disabledReason={disabledReason}
                                         onChange={(newValue) => {
                                             const newLevels = [
                                                 ...props.groupedRuleForm.levels.filter(
