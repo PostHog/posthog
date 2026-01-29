@@ -267,6 +267,14 @@ dev = [
     "watchdog==5.0.3",
 ]
 
+# Packages that only have sdist on PyPI and use distutils (removed in Python 3.12)
+# These need to be pre-built as wheels for Bazel
+bazel-wheels = [
+    "thrift==0.20.0",
+    "zstd",
+    "fastuuid",
+]
+
 [tool.uv]
 required-version = ">=0.7.0"
 
