@@ -156,7 +156,7 @@ def clerk_source(
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime",
+        partition_format="week",
+        partition_keys=[endpoint_config.partition_key],
     )

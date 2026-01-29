@@ -80,9 +80,4 @@ The secret key starts with `sk_live_` or `sk_test_`.
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value
-            if inputs.should_use_incremental_field
-            else None,
-            incremental_field=inputs.incremental_field,
         )
