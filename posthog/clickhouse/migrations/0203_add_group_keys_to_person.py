@@ -22,7 +22,7 @@ from posthog.models.person.sql import (
 )
 
 ADD_GROUP_KEY_COLUMNS_SQL = f"""
-ALTER TABLE IF EXISTS {PERSONS_TABLE}
+ALTER TABLE {PERSONS_TABLE}
 ADD COLUMN IF NOT EXISTS group_0_key VARCHAR DEFAULT '',
 ADD COLUMN IF NOT EXISTS group_1_key VARCHAR DEFAULT '',
 ADD COLUMN IF NOT EXISTS group_2_key VARCHAR DEFAULT '',
@@ -37,6 +37,7 @@ operations = [
     run_sql_with_exceptions(
         ADD_GROUP_KEY_COLUMNS_SQL,
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
         is_alter_on_replicated_table=True,
     ),
     # 2. Drop the materialized view (on ingestion layer)
