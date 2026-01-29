@@ -6,7 +6,8 @@ const QUERY_PLACEHOLDER_PREFIX = '__QUERY_PLACEHOLDER_'
 // Using ~3.5 chars per token estimate, 25k tokens ≈ 87.5k chars
 // We use 80k to leave room for the truncation message
 const MAX_RESPONSE_CHARS = 80_000
-const TRUNCATION_MESSAGE = '\n\n[Response truncated - exceeded maximum length. Use more specific filters or pagination to get complete results.]'
+const TRUNCATION_MESSAGE =
+    '\n\n[Response truncated - exceeded maximum length. Use more specific filters or pagination to get complete results.]'
 
 function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placeholderId = { current: 0 }): any {
     if (obj === null || obj === undefined) {
