@@ -419,13 +419,11 @@ def calculate_video_segment_specs(
     # If inactivity data is present - only analyze "active" periods (when user was interacting)
     segments: list[VideoSegmentSpec] = []
     segment_index = 0
-    # Filter to only active periods (skip gaps and idle time)
-    active_periods = [p for p in inactivity_periods if p.active]
-    if not active_periods:
-        # No active periods to check
-        return []
     # TODO: Add more logic to avoid splitting right after jumping to the new page
-    for period in active_periods:
+    for period in inactivity_periods:
+        # Filter to only active periods (skip gaps and idle time)
+        if not period.active:
+            continue
         # End period can have no end time, so default to video duration
         period_end = period.ts_to_s if period.ts_to_s is not None else video_duration
         # Start either after the rendering delay, or at the previous chunk end
