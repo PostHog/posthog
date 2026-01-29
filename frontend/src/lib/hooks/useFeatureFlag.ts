@@ -7,9 +7,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 export const useFeatureFlag = (flag: keyof typeof FEATURE_FLAGS, match?: string): boolean => {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (flag === 'UX_REMOVE_SIDEPANEL') {
-        return true
-    }
+    // Remove this hardcoded override and let the feature flag system control the behavior
 
     // If a match is provided, we're only actually gonna check it if not running on Storybook
     // On storybook we'll simply set the flag to be available and in that case we just ignore the match
