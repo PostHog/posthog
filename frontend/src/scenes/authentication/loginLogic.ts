@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { SSOProvider } from '~/types'
 
 import type { loginLogicType } from './loginLogicType'
+import { twoFactorResetLogic } from './twoFactorResetLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -154,11 +155,15 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        const searchParams: Record<string, any> = {}
-                        if (router.values.searchParams.next) {
-                            searchParams.next = router.values.searchParams.next
+                        const next: string | undefined = router.values.searchParams.next
+                        const searchParams: Record<string, any> = next ? { next } : {}
+                        if (next && next.startsWith('/reset_2fa')) {
+                            // Reset the cached validation state so it re-validates after redirect
+                            twoFactorResetLogic.actions.resetState()
+                            router.actions.push(next, searchParams)
+                        } else {
+                            router.actions.push(urls.login2FA(), searchParams)
                         }
-                        router.actions.push(urls.login2FA(), searchParams)
                         throw e
                     }
                     if (code === 'email_mfa_required') {
