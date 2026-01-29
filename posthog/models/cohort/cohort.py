@@ -706,11 +706,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         Remove a user from the cohort by their UUID.
 
+        This operation is idempotent - it succeeds even if the person wasn't in the cohort,
+        to handle cases where ClickHouse and PostgreSQL data may be out of sync.
+
         Args:
             user_uuid: UUID of the user to be removed from the cohort.
             team_id: ID of the team to which the cohort belongs
         Returns:
-            True if user was removed, False if user was not in the cohort.
+            True if the person exists (removal attempted), False if the person doesn't exist.
+        Raises:
+            Exception: If removal fails due to database errors.
         """
         from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
 
@@ -718,23 +723,36 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Get person by UUID
             person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=team_id, uuid=user_uuid)
 
-            # Check if person is in the cohort (PostgreSQL)
+            # Check if person is in the cohort in PostgreSQL
             cohort_person = CohortPeople.objects.filter(
                 cohort_id=self.id,
                 person_id=person.id,
             ).first()
 
-            # Always try to remove from ClickHouse, even if not in PostgreSQL
-            # This handles sync issues where data exists in CH but not PG
-            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
-
-            # Remove from PostgreSQL if present
+            # Delete from PostgreSQL first (source of truth), then ClickHouse.
+            # This order ensures if PG delete fails, we don't create inverse inconsistency.
             if cohort_person:
                 cohort_person.delete()
+            else:
+                # Person not in PG - this is expected when handling CH/PG sync issues
+                logger.info(
+                    "Removing person from cohort: not in PostgreSQL CohortPeople table",
+                    cohort_id=self.id,
+                    team_id=team_id,
+                    user_uuid=user_uuid,
+                )
+
+            # Always attempt CH delete - it's idempotent and handles cases where
+            # data exists in CH but not PG due to past sync issues
+            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
 
             # Update count - use write database to avoid replication lag after delete
             try:
-                count = get_static_cohort_size(cohort_id=self.id, team_id=team_id, using_database=PERSONS_DB_FOR_WRITE)
+                count = get_static_cohort_size(
+                    cohort_id=self.id,
+                    team_id=team_id,
+                    using_database=PERSONS_DB_FOR_WRITE,
+                )
                 self.count = count
                 self.save(update_fields=["count"])
             except Exception as count_err:
