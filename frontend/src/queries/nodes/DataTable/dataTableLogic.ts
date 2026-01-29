@@ -1,4 +1,3 @@
-import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -127,11 +126,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const queryResponse = response as AnyResponseType
                     if (queryResponse) {
-                        // must be loading
-                        if (!equal(columnsInQuery, columnsInResponse)) {
-                            return []
-                        }
-
                         let results: any[] | null = []
                         if ('results' in queryResponse) {
                             results = queryResponse.results

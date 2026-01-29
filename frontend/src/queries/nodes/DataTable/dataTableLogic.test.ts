@@ -298,4 +298,63 @@ describe('dataTableLogic', () => {
             }),
         })
     })
+
+    it('shows results even when columns in query do not match columns in response', async () => {
+        const commonResult = {
+            uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
+            event: 'pageview',
+            properties: {},
+            team_id: 1,
+            distinct_id: '123',
+        }
+        const results = [
+            [
+                { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
+                'pageview',
+                '2022-12-24T17:00:41.165000Z',
+                'bar',
+            ],
+            [
+                { ...commonResult, timestamp: '2022-12-23T17:00:41.165000Z' },
+                'pageview',
+                '2022-12-23T17:00:41.165000Z',
+                'baz',
+            ],
+        ]
+        // Simulate adding a column: query has new column but response doesn't yet
+        ;(performQuery as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp', 'properties.foo'],
+            types: [
+                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+                'String',
+                "DateTime64(6, 'UTC')",
+                'String',
+            ],
+            results: results,
+            hasMore: false,
+        })
+        logic = dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp', 'properties.foo'],
+                },
+            },
+        })
+        logic.mount()
+        expect(performQuery).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true })
+            .delay(0)
+            .toMatchValues({ responseLoading: false, response: partial({ results }) })
+
+        // The key assertion: dataTableRows should contain results, not be empty
+        await expectLogic(logic).toMatchValues({
+            dataTableRows: [{ result: results[0] }, { result: results[1] }],
+        })
+    })
 })
