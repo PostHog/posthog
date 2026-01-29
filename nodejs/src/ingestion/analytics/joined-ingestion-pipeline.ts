@@ -4,6 +4,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
@@ -27,6 +28,7 @@ export interface JoinedIngestionPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -89,6 +91,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -107,6 +110,7 @@ export function createJoinedIngestionPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
         overflowEnabled,
         overflowTopic,
         dlqTopic,

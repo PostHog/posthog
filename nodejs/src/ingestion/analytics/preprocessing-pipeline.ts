@@ -6,6 +6,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
@@ -36,6 +37,7 @@ export interface PreprocessingPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -63,6 +65,7 @@ export function createPreprocessingPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -118,6 +121,7 @@ export function createPreprocessingPipeline<
                             .sequentially((b) =>
                                 createPostTeamPreprocessingSubpipeline(b, {
                                     eventIngestionRestrictionManager,
+                                    eventSchemaEnforcementManager,
                                 })
                             )
                             // We want to call cookieless with the whole batch at once.
