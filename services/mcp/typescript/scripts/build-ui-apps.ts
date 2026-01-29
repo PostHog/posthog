@@ -41,7 +41,12 @@ function discoverApps(): string[] {
 }
 
 function buildApp(appName: string): void {
+    if (!/^[a-z_]+$/.test(appName)) {
+        throw new Error(`Invalid app name "${appName}": must only contain a-z and underscore`)
+    }
+
     console.info(`\n📦 Building ${appName}...`)
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     execSync(`UI_APP=${appName} vite build --config vite.ui-apps.config.ts`, {
         cwd: ROOT_DIR,
         stdio: 'inherit',
