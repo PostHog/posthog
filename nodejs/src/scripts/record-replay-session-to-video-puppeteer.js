@@ -309,8 +309,7 @@ async function main() {
             // Adjusting bitrate to match the playback speed to keep the quality
             videoBitrate: 1000 * (0.5 * playbackSpeed),
             // No autopad
-            // Keep to two aspect ratios for the time being
-            aspectRatio: width > height ? '16:9' : '9:16', // TODO: Find a better way to decide it
+            aspectRatio: `${width}:${height}`, // Keep the original aspect ratio
         }
         recorder = new PuppeteerScreenRecorder(page, recorderConfig)
         // Start recording
