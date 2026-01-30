@@ -51,9 +51,11 @@ import {
     PythonExecutionResult,
     PythonExecutionVariable,
     PythonKernelExecuteResponse,
+    PythonKernelVariableResponse,
     buildPythonExecutionError,
     buildPythonExecutionResult,
     buildPythonExecutionRunning,
+    mergeExecutionVariables,
 } from './pythonExecution'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -115,15 +117,95 @@ const buildDuckSqlCode = (code: string, returnVariable: string, pageSize: number
     )
 }
 
-const buildHogqlSqlCode = (code: string, returnVariable: string, pageSize: number): string => {
+type HogqlExecuteResponse = {
+    results?: any[]
+    columns?: string[]
+    error?: string
+}
+
+const buildHogqlSqlAssignmentCode = (code: string, returnVariable: string): string => {
     const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
     const sqlLiteral = JSON.stringify(code ?? '')
-    const previewPageSize = Math.max(1, pageSize || DEFAULT_DATAFRAME_PAGE_SIZE)
-    return (
-        `import json\n` +
-        `${resolvedReturnVariable} = hogql_execute(${sqlLiteral})\n` +
-        `json.dumps(notebook_dataframe_page(${resolvedReturnVariable}, offset=0, limit=${previewPageSize}))`
-    )
+    return `${resolvedReturnVariable} = hogql_execute(${sqlLiteral})`
+}
+
+const buildHogqlDataframeResult = (
+    response: HogqlExecuteResponse,
+    pageSize: number
+): NotebookDataframeResult | null => {
+    const columns = Array.isArray(response.columns) ? response.columns : []
+    const results = Array.isArray(response.results) ? response.results : []
+    const resolvedPageSize = Math.max(1, pageSize || DEFAULT_DATAFRAME_PAGE_SIZE)
+    const limitedResults = results.slice(0, resolvedPageSize)
+    const rows = limitedResults.map((row) => {
+        if (row && typeof row === 'object' && !Array.isArray(row)) {
+            return row as Record<string, any>
+        }
+        if (Array.isArray(row)) {
+            const rowObject: Record<string, any> = {}
+            if (columns.length > 0) {
+                columns.forEach((column, index) => {
+                    rowObject[column] = row[index]
+                })
+            } else {
+                row.forEach((value, index) => {
+                    rowObject[`column_${index + 1}`] = value
+                })
+            }
+            return rowObject
+        }
+        if (columns.length === 1) {
+            return { [columns[0]]: row }
+        }
+        return { value: row }
+    })
+    const resolvedColumns = columns.length > 0 ? columns : rows.length > 0 ? Object.keys(rows[0]) : []
+    return {
+        columns: resolvedColumns,
+        rows,
+        rowCount: results.length,
+    }
+}
+
+const buildHogqlExecutionResult = ({
+    response,
+    exportedGlobals,
+    returnVariable,
+    query,
+    pageSize,
+}: {
+    response: HogqlExecuteResponse
+    exportedGlobals: { name: string; type: string }[]
+    returnVariable: string
+    query: string
+    pageSize: number
+}): PythonExecutionResult => {
+    const isError = Boolean(response.error)
+    const dataframeResult = isError ? null : buildHogqlDataframeResult(response, pageSize)
+    const variableResponse: PythonKernelVariableResponse = isError
+        ? {
+              status: 'error',
+              type: 'DataFrame',
+              ename: 'HogQLQueryError',
+              evalue: response.error,
+              traceback: response.error ? [response.error] : [],
+          }
+        : {
+              status: 'ok',
+              type: 'DataFrame',
+              hogql_query: query,
+          }
+    return {
+        status: isError ? 'error' : 'ok',
+        stdout: '',
+        stderr: isError ? (response.error ?? 'Failed to run HogQL query.') : '',
+        result: dataframeResult ? JSON.stringify(dataframeResult) : undefined,
+        errorName: isError ? 'HogQLQueryError' : null,
+        traceback: isError && response.error ? [response.error] : [],
+        variables: mergeExecutionVariables(exportedGlobals, {
+            [returnVariable]: variableResponse,
+        }),
+    }
 }
 
 type DependencyRunDirection = 'upstream' | 'downstream'
@@ -633,7 +715,8 @@ const runHogqlSqlCell = async ({
 }: RunHogqlSqlCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setHogqlSqlRunLoading(true)
     const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
-    const executionCode = buildHogqlSqlCode(code, returnVariable, pageSize)
+    const executionCode = buildHogqlSqlAssignmentCode(code, returnVariable)
+    let runtimeSandboxId = executionSandboxId
     try {
         let executionResult: PythonExecutionResult | null = null
         let kernelResponse: PythonKernelExecuteResponse | null = null
@@ -648,22 +731,38 @@ const runHogqlSqlCell = async ({
 
         kernelResponse = (await api.notebooks.kernelExecute(notebookId, {
             code: executionCode,
-            return_variables: true,
+            return_variables: false,
         })) as PythonKernelExecuteResponse
-        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
+        runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
+
+        if (kernelResponse.status === 'error') {
+            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+            updateAttributes({
+                hogqlExecution: executionResult,
+                hogqlExecutionCodeHash: codeHash,
+                hogqlExecutionSandboxId: runtimeSandboxId,
+            })
+            return { executed: true, execution: executionResult }
+        }
+
+        const queryResponse = await api.notebooks.hogqlExecute(notebookId, {
+            query: code,
+        })
+        executionResult = buildHogqlExecutionResult({
+            response: queryResponse,
+            exportedGlobals,
+            returnVariable: resolvedReturnVariable,
+            query: code,
+            pageSize,
+        })
         updateAttributes({
             hogqlExecution: executionResult,
             hogqlExecutionCodeHash: codeHash,
             hogqlExecutionSandboxId: runtimeSandboxId,
         })
 
-        if (!executionResult && kernelResponse) {
-            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-        }
-
-        if (!executionResult) {
-            throw new Error('HogQL execution did not return a result.')
+        if (executionResult.status === 'error') {
+            return { executed: true, execution: executionResult }
         }
 
         return { executed: true, execution: executionResult }
@@ -675,7 +774,7 @@ const runHogqlSqlCell = async ({
         updateAttributes({
             hogqlExecution: executionResult,
             hogqlExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
-            hogqlExecutionSandboxId: executionSandboxId,
+            hogqlExecutionSandboxId: runtimeSandboxId,
         })
         return { executed: false, execution: executionResult }
     } finally {
