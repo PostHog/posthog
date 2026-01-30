@@ -760,22 +760,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => {
                             const name = featureFlag.key || featureFlag.name
-                            const isInactive = !featureFlag.active || featureFlag.status !== 'ACTIVE'
+                            const isInactive = !featureFlag.active
                             return isInactive ? `${name} (disabled)` : name
                         },
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
                         getIcon: (featureFlag: FeatureFlagType) => (
-                            <IconFlag
-                                className={clsx(
-                                    'size-4',
-                                    (!featureFlag.active || featureFlag.status !== 'ACTIVE') &&
-                                        'text-muted-alt opacity-50'
-                                )}
-                            />
+                            <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
                         ),
-                        getIsDisabled: (featureFlag: FeatureFlagType) =>
-                            !featureFlag.active || featureFlag.status !== 'ACTIVE',
+                        getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
                         localItemsSearch: (
                             items: TaxonomicDefinitionTypes[],
                             query: string
