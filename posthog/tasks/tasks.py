@@ -819,13 +819,6 @@ def count_items_in_playlists() -> None:
     enqueue_recordings_that_match_playlist_filters()
 
 
-@shared_task(ignore_result=True)
-def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
-    from posthog.tasks.environments_rollback import environments_rollback_migration
-
-    environments_rollback_migration(organization_id, environment_mappings, user_id)
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
