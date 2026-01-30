@@ -124,6 +124,11 @@ from posthog.temporal.weekly_digest import (
     ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
+from posthog.temporal.workflow_failure_alerting import (
+    WorkflowFailureAlertingWorkflow,
+    count_failed_workflows_activity,
+    send_slack_alert_activity,
+)
 
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
@@ -174,7 +179,8 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
-        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
+        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
+        + [WorkflowFailureAlertingWorkflow],
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -186,7 +192,8 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
-        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
+        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
+        + [count_failed_workflows_activity, send_slack_alert_activity],
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,

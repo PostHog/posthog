@@ -43,6 +43,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingI
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
+from posthog.temporal.workflow_failure_alerting.schedule import create_workflow_failure_alerting_schedule
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
@@ -326,6 +327,10 @@ if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
+
+# Workflow failure alerting schedule - only enable in cloud deployments when configured
+if settings.TEMPORAL_WORKFLOW_FAILURE_ALERT_ENABLED:
+    schedules.append(create_workflow_failure_alerting_schedule)
 
 
 async def a_init_general_queue_schedules():

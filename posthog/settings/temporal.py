@@ -77,3 +77,9 @@ SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue"
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
+
+# Temporal workflow failure alerting settings
+TEMPORAL_WORKFLOW_FAILURE_ALERT_ENABLED: bool = get_from_env(
+    "TEMPORAL_WORKFLOW_FAILURE_ALERT_ENABLED", False, type_cast=str_to_bool
+)
+TEMPORAL_WORKFLOW_FAILURE_SLACK_WEBHOOK_URL: str | None = os.getenv("TEMPORAL_WORKFLOW_FAILURE_SLACK_WEBHOOK_URL", None)
