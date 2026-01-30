@@ -1223,34 +1223,38 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
 
 @sensor(
     name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently when enabled for faster backfill
+    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
     job_name="duckling_events_backfill_job",
-    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+    default_status=DefaultSensorStatus.RUNNING,  # Always on
 )
 def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical backfill sensor - disabled by default.
+    """Full historical backfill sensor - runs daily, can be triggered manually.
 
-    This sensor is meant to be manually enabled via the Dagster UI when you need
-    to do a full historical backfill for a new customer. It will:
+    This sensor automatically runs once per day to backfill any missing historical
+    events data. It will:
 
     1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
     2. Create partitions for dates from earliest event to yesterday (batched)
     3. Trigger backfill runs for historical partitions
 
     The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation to avoid OOM/timeout issues. Keep the sensor enabled until all
-    partitions are created, then disable it.
+    per evaluation. If there are more partitions to create, it will continue
+    processing until caught up, then wait until the next day.
 
-    After the full backfill completes, you should disable this sensor and let
-    the daily `duckling_backfill_discovery_sensor` handle ongoing daily top-ups.
+    Manual trigger:
+        To run immediately (without waiting for the next day), reset the sensor
+        cursor in Dagster UI: Sensors -> duckling_full_backfill_sensor -> Reset cursor
 
-    Usage:
-        1. Create a DuckLakeCatalog entry for the customer in Django admin
-        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
-        3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete (when no new partitions are created)
+    The daily `duckling_backfill_discovery_sensor` handles ongoing daily top-ups
+    for yesterday's data specifically.
     """
+    today = timezone.now().date().isoformat()
     yesterday = (timezone.now() - timedelta(days=1)).date()
+
+    # Check cursor to see if we already completed today's scan
+    # Cursor format: "YYYY-MM-DD" (date of last completed scan)
+    last_completed_date = context.cursor
+
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     new_partitions: list[str] = []
@@ -1318,15 +1322,20 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             run_count=len(run_requests),
             batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
         )
+        # Still have work to do, don't update cursor yet
+        return SensorResult(
+            run_requests=run_requests,
+            dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)],
+        )
     else:
-        context.log.info("Full backfill: no new partitions to create (all up to date)")
+        # All caught up - check if we should skip until tomorrow
+        if last_completed_date == today:
+            context.log.debug("Full backfill: already completed today's scan, skipping")
+            return SensorResult(run_requests=[], cursor=today)
 
-    return SensorResult(
-        run_requests=run_requests,
-        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
-        if new_partitions
-        else [],
-    )
+        context.log.info("Full backfill: no new partitions to create (all up to date)")
+        # Mark today as completed so we don't re-scan until tomorrow (or cursor reset)
+        return SensorResult(run_requests=[], cursor=today)
 
 
 duckling_events_backfill_job = define_asset_job(
@@ -1426,26 +1435,30 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Run frequently when enabled for faster backfill
+    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
     job_name="duckling_persons_backfill_job",
-    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+    default_status=DefaultSensorStatus.RUNNING,  # Always on
 )
 def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical persons backfill sensor - disabled by default.
+    """Full historical persons backfill sensor - runs daily, can be triggered manually.
 
     Similar to duckling_full_backfill_sensor but for persons data.
     Queries min(_timestamp) from the person table to find the earliest date.
 
     The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation to avoid OOM/timeout issues.
+    per evaluation. If there are more partitions to create, it will continue
+    processing until caught up, then wait until the next day.
 
-    Usage:
-        1. Create a DuckLakeCatalog entry for the customer in Django admin
-        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
-        3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete (when no new partitions are created)
+    Manual trigger:
+        To run immediately (without waiting for the next day), reset the sensor
+        cursor in Dagster UI: Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
+    today = timezone.now().date().isoformat()
     yesterday = (timezone.now() - timedelta(days=1)).date()
+
+    # Check cursor to see if we already completed today's scan
+    last_completed_date = context.cursor
+
     existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
 
     new_partitions: list[str] = []
@@ -1513,15 +1526,20 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             run_count=len(run_requests),
             batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
         )
+        # Still have work to do, don't update cursor yet
+        return SensorResult(
+            run_requests=run_requests,
+            dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)],
+        )
     else:
-        context.log.info("Persons full backfill: no new partitions to create (all up to date)")
+        # All caught up - check if we should skip until tomorrow
+        if last_completed_date == today:
+            context.log.debug("Persons full backfill: already completed today's scan, skipping")
+            return SensorResult(run_requests=[], cursor=today)
 
-    return SensorResult(
-        run_requests=run_requests,
-        dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
-        if new_partitions
-        else [],
-    )
+        context.log.info("Persons full backfill: no new partitions to create (all up to date)")
+        # Mark today as completed so we don't re-scan until tomorrow (or cursor reset)
+        return SensorResult(run_requests=[], cursor=today)
 
 
 duckling_persons_backfill_job = define_asset_job(
