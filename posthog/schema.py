@@ -42,6 +42,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    RESEARCH = "research"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -1604,6 +1605,7 @@ class ExternalDataSourceType(StrEnum):
     VITALLY = "Vitally"
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
+    CLERK = "Clerk"
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"

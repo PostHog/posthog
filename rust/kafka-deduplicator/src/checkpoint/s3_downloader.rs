@@ -1,10 +1,12 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
+
+use tokio_util::bytes::Bytes;
 
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
 use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
-use super::s3_utils::create_s3_client;
 use crate::metrics_const::{
     CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
     CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM,
@@ -13,10 +15,56 @@ use crate::metrics_const::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_sdk_s3::Client;
 use chrono::{DateTime, Duration, Utc};
+use futures::stream::FuturesUnordered;
+use futures::{StreamExt, TryStreamExt};
+use object_store::aws::AmazonS3Builder;
+use object_store::limit::LimitStore;
+use object_store::path::Path as ObjectPath;
+use object_store::{ClientOptions, ObjectStore, ObjectStoreExt};
+use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+/// Result of attempting to read the next chunk from a stream with cancellation support
+enum ChunkResult {
+    Data(Bytes),
+    EndOfStream,
+    Cancelled,
+    Error(object_store::Error),
+}
+
+/// Read next chunk from stream with cancellation support.
+/// Uses `tokio::select!` with `biased;` to ensure cancellation is checked promptly,
+/// even if the stream is slow or stalled.
+async fn next_chunk_cancellable<S>(
+    stream: &mut S,
+    cancel_token: Option<&CancellationToken>,
+) -> ChunkResult
+where
+    S: futures::Stream<Item = Result<Bytes, object_store::Error>> + Unpin,
+{
+    match cancel_token {
+        Some(token) => {
+            tokio::select! {
+                biased;
+
+                _ = token.cancelled() => ChunkResult::Cancelled,
+
+                result = stream.try_next() => match result {
+                    Ok(Some(chunk)) => ChunkResult::Data(chunk),
+                    Ok(None) => ChunkResult::EndOfStream,
+                    Err(e) => ChunkResult::Error(e),
+                }
+            }
+        }
+        None => match stream.try_next().await {
+            Ok(Some(chunk)) => ChunkResult::Data(chunk),
+            Ok(None) => ChunkResult::EndOfStream,
+            Err(e) => ChunkResult::Error(e),
+        },
+    }
+}
 
 /// Build the S3 key prefix for listing checkpoints for a specific topic/partition.
 /// The trailing slash is critical: ensures partition "41" doesn't prefix-match "410", "419", etc.
@@ -39,9 +87,12 @@ fn format_checkpoint_list_start_after(partition_prefix: &str, cutoff: DateTime<U
     )
 }
 
-#[derive(Debug, Clone)]
+/// S3Downloader using `object_store` crate with `LimitStore` for bounded concurrency.
+/// The LimitStore wraps the S3 client with a semaphore that limits concurrent requests.
+/// Each download holds a permit for the entire stream duration, ensuring memory is bounded.
+#[derive(Debug)]
 pub struct S3Downloader {
-    client: Client,
+    store: Arc<LimitStore<object_store::aws::AmazonS3>>,
     s3_bucket: String,
     s3_key_prefix: String,
     checkpoint_import_window_hours: u32,
@@ -49,23 +100,78 @@ pub struct S3Downloader {
 
 impl S3Downloader {
     pub async fn new(config: &CheckpointConfig) -> Result<Self> {
-        let client = create_s3_client(config).await;
+        // Per-request timeout (analogous to operation_attempt_timeout in aws_sdk_s3)
+        let client_options = ClientOptions::new().with_timeout(config.s3_attempt_timeout);
 
-        client
-            .head_bucket()
-            .bucket(&config.s3_bucket)
-            .send()
-            .await
-            .with_context(|| {
+        // Build the base S3 store using the same pattern as S3Uploader
+        let mut builder = AmazonS3Builder::new()
+            .with_bucket_name(&config.s3_bucket)
+            .with_client_options(client_options)
+            .with_retry(object_store::RetryConfig {
+                max_retries: config.s3_max_retries,
+                // Total retry budget (analogous to operation_timeout in aws_sdk_s3)
+                retry_timeout: config.s3_operation_timeout,
+                ..Default::default()
+            });
+
+        // Set region if provided
+        if let Some(ref region) = config.aws_region {
+            builder = builder.with_region(region);
+        }
+
+        // Set custom endpoint for MinIO/local dev
+        if let Some(ref endpoint) = config.s3_endpoint {
+            builder = builder.with_endpoint(endpoint);
+            // Allow HTTP for local development
+            if endpoint.starts_with("http://") {
+                builder = builder.with_allow_http(true);
+            }
+        }
+
+        // Set credentials if provided (for local dev without IAM)
+        if let (Some(ref access_key), Some(ref secret_key)) =
+            (&config.s3_access_key_id, &config.s3_secret_access_key)
+        {
+            builder = builder
+                .with_access_key_id(access_key)
+                .with_secret_access_key(secret_key);
+        }
+
+        // Force path-style URLs if needed (required for MinIO)
+        if config.s3_force_path_style {
+            builder = builder.with_virtual_hosted_style_request(false);
+        }
+
+        let base_store = builder.build().with_context(|| {
+            format!(
+                "Failed to create S3 client for bucket '{}' in region '{}'",
+                config.s3_bucket,
+                config.aws_region.as_deref().unwrap_or("default")
+            )
+        })?;
+
+        // Wrap with LimitStore for bounded concurrency
+        // The semaphore permit is held for the entire stream duration
+        let store = LimitStore::new(base_store, config.max_concurrent_checkpoint_file_downloads);
+
+        // Validate bucket access by attempting to list - fail fast if misconfigured
+        if let Some(Err(e)) = store.list(Some(&ObjectPath::from(""))).next().await {
+            return Err(anyhow::anyhow!(e)).with_context(|| {
                 format!(
-                    "S3 bucket validation failed for: {}. Check credentials and bucket access.",
+                    "S3 bucket validation failed for '{}' in region '{}' - check bucket exists, credentials, and network connectivity",
                     config.s3_bucket,
+                    config.aws_region.as_deref().unwrap_or("default")
                 )
-            })?;
-        info!("S3 bucket '{}' validated successfully", config.s3_bucket);
+            });
+        }
+
+        info!(
+            "S3 bucket '{}' validated successfully with max {} concurrent downloads",
+            config.s3_bucket, config.max_concurrent_checkpoint_file_downloads
+        );
 
         Ok(Self {
-            client,
+            store: Arc::new(store),
             s3_bucket: config.s3_bucket.clone(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
@@ -77,23 +183,18 @@ impl S3Downloader {
 impl CheckpointDownloader for S3Downloader {
     async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>> {
         let start_time = Instant::now();
-        let get_object = match self
-            .client
-            .get_object()
-            .bucket(&self.s3_bucket)
-            .key(remote_key)
-            .send()
-            .await
-        {
-            Ok(get_object) => {
+        let path = ObjectPath::from(remote_key);
+
+        let result = match self.store.get(&path).await {
+            Ok(result) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success")
                     .increment(1);
-                get_object
+                result
             }
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(e).with_context(|| {
+                return Err(anyhow::anyhow!(e)).with_context(|| {
                     format!(
                         "Failed to get object from S3 bucket {}: {remote_key}",
                         self.s3_bucket
@@ -102,7 +203,8 @@ impl CheckpointDownloader for S3Downloader {
             }
         };
 
-        let body = get_object.body.collect().await.with_context(|| {
+        // Buffer entire file into memory (used for small metadata.json files)
+        let body = result.bytes().await.with_context(|| {
             format!(
                 "Failed to read body data from S3 object from bucket {}: {remote_key}",
                 self.s3_bucket,
@@ -110,7 +212,7 @@ impl CheckpointDownloader for S3Downloader {
         })?;
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs_f64());
         Ok(body.to_vec())
     }
 
@@ -131,19 +233,16 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        let get_object = match self
-            .client
-            .get_object()
-            .bucket(&self.s3_bucket)
-            .key(remote_key)
-            .send()
-            .await
-        {
-            Ok(get_object) => get_object,
+        let path = ObjectPath::from(remote_key);
+
+        // Get object - LimitStore automatically acquires semaphore permit
+        // The permit is held for the entire stream duration
+        let result = match self.store.get(&path).await {
+            Ok(result) => result,
             Err(e) => {
                 metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                     .increment(1);
-                return Err(e).with_context(|| {
+                return Err(anyhow::anyhow!(e)).with_context(|| {
                     format!(
                         "Failed to get object from S3 bucket {}: {remote_key}",
                         self.s3_bucket
@@ -152,21 +251,30 @@ impl CheckpointDownloader for S3Downloader {
             }
         };
 
-        // Create the file and copy the remote stream into it
+        // Create the file to write chunks to
         let mut file = tokio::fs::File::create(local_filepath)
             .await
             .with_context(|| format!("Failed to create local file: {local_filepath:?}"))?;
-        let mut stream = get_object.body.into_async_read();
 
-        // If we have a cancellation token, race between the copy and cancellation.
-        // This ensures we drop the S3 stream immediately on cancellation rather than
-        // letting it complete in the background (which would waste bandwidth during
-        // overlapping rebalances).
-        let copy_result = if let Some(token) = cancel_token {
-            tokio::select! {
-                biased;
-                _ = token.cancelled() => {
-                    // Drop file handle before cleanup
+        // Stream chunks to disk - permit held until stream fully consumed
+        let mut stream = result.into_stream();
+
+        // Process stream with cancellation support
+        loop {
+            let chunk_result = next_chunk_cancellable(&mut stream, cancel_token).await;
+
+            match chunk_result {
+                ChunkResult::Data(chunk) => {
+                    if let Err(e) = file.write_all(&chunk).await {
+                        metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
+                            .increment(1);
+                        return Err(e).with_context(|| {
+                            format!("Failed to write chunk to local file: {local_filepath:?}")
+                        });
+                    }
+                }
+                ChunkResult::EndOfStream => break,
+                ChunkResult::Cancelled => {
                     drop(file);
                     let _ = tokio::fs::remove_file(local_filepath).await;
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
@@ -174,22 +282,24 @@ impl CheckpointDownloader for S3Downloader {
                     warn!("Download of {remote_key} cancelled mid-stream");
                     return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
                 }
-                result = tokio::io::copy(&mut stream, &mut file) => result,
+                ChunkResult::Error(e) => {
+                    metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
+                        .increment(1);
+                    return Err(anyhow::anyhow!(e)).with_context(|| {
+                        format!("Failed to read chunk from S3 stream: {remote_key}")
+                    });
+                }
             }
-        } else {
-            tokio::io::copy(&mut stream, &mut file).await
-        };
-
-        if let Err(e) = copy_result {
-            metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error").increment(1);
-            return Err(e).with_context(|| {
-                format!("Failed to write remote contents to local file: {local_filepath:?}")
-            });
         }
+
+        // Ensure all data is flushed to disk
+        file.flush()
+            .await
+            .with_context(|| format!("Failed to flush file: {local_filepath:?}"))?;
 
         metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "success").increment(1);
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
 
         info!("Downloaded remote file {remote_key} to {local_filepath:?}");
         Ok(())
@@ -202,6 +312,7 @@ impl CheckpointDownloader for S3Downloader {
         cancel_token: Option<&CancellationToken>,
     ) -> Result<()> {
         let start_time = Instant::now();
+        let file_count = remote_keys.len();
 
         // Check cancellation before starting
         if let Some(token) = cancel_token {
@@ -211,37 +322,55 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        let mut download_futures = Vec::with_capacity(remote_keys.len());
-        for remote_key in remote_keys {
-            let remote_filename = remote_key
-                .rsplit('/')
-                .next()
-                .with_context(|| {
-                    format!("Failed to extract remote filename from key: {remote_key}")
-                })?
-                .to_string();
-            let local_filepath = local_base_path.join(&remote_filename);
+        // Build download futures using FuturesUnordered for early exit with sibling cancellation.
+        // LimitStore's semaphore still limits concurrent S3 requests.
+        let mut futures: FuturesUnordered<_> = remote_keys
+            .iter()
+            .map(|remote_key| {
+                let remote_filename = remote_key
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(remote_key)
+                    .to_string();
+                let local_filepath = local_base_path.join(&remote_filename);
 
-            // Pass cancel_token to each individual download so they can bail mid-stream
-            download_futures.push(async move {
-                match self
-                    .download_and_store_file_cancellable(remote_key, &local_filepath, cancel_token)
+                async move {
+                    self.download_and_store_file_cancellable(
+                        remote_key,
+                        &local_filepath,
+                        cancel_token,
+                    )
                     .await
-                {
-                    Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
-                    Err(e) => Err::<String, anyhow::Error>(e.context("In download_files")),
+                    .with_context(|| format!("Failed to download: {remote_key}"))
                 }
-            });
+            })
+            .collect();
+
+        let mut first_error: Option<anyhow::Error> = None;
+
+        // Process completions, cancel siblings on first error
+        while let Some(result) = futures.next().await {
+            if let Err(e) = result {
+                first_error = Some(e);
+                // Cancel siblings via the attempt token - they'll exit on next chunk iteration
+                if let Some(token) = cancel_token {
+                    token.cancel();
+                }
+                break;
+            }
         }
 
-        // With cancellation now handled inside each download, we can just await all.
-        // Any cancellation will cause individual downloads to fail fast.
-        let results = futures::future::try_join_all(download_futures).await?;
+        // Drain remaining futures - they'll exit quickly due to cancellation check in their loop
+        if first_error.is_some() {
+            while futures.next().await.is_some() {}
+        }
 
-        let file_count = results.len();
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM)
-            .record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
         info!("Successfully downloaded checkpoint with {file_count} files to local path: {local_base_path:?}");
 
         Ok(())
@@ -264,53 +393,22 @@ impl CheckpointDownloader for S3Downloader {
             start_after_key, self.s3_bucket
         );
 
-        // list_objects_v2 returns results in *lexicographic sort order*
-        // but we want the most recent by timestamp path elem. So, we cheat and
-        // use prefix() and start_after() to pull a recent window, that we can
-        // hopefully sort in memory to obtain the most recent metadata.json files
+        // Use object_store's list_with_offset for lexicographic filtering
+        // This is equivalent to S3's start_after parameter
+        let prefix = ObjectPath::from(remote_key_prefix.as_str());
+        let offset = ObjectPath::from(start_after_key.as_str());
+
         let mut keys_found = Vec::new();
-        let mut continuation_token = None;
-        let base_request = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.s3_bucket)
-            .prefix(remote_key_prefix)
-            .start_after(&start_after_key);
+        let mut stream = self.store.list_with_offset(Some(&prefix), &offset);
 
-        loop {
-            let mut req = base_request.clone();
-            if let Some(token) = continuation_token {
-                req = req.continuation_token(&token);
-            }
-
-            let response = req.send().await.with_context(|| {
-                format!(
-                    "Failed to list remote objects after s3://{}/{start_after_key}",
-                    self.s3_bucket
-                )
-            })?;
-
-            response
-                .contents()
-                .iter()
-                .for_each(|object| match object.key() {
-                    Some(key) => {
-                        keys_found.push(key.to_string());
-                    }
-                    None => {
-                        error!("Failed to get object key from S3 object: {object:?}");
-                    }
-                });
-
-            if let Some(true) = response.is_truncated() {
-                if let Some(token) = response.next_continuation_token() {
-                    continuation_token = Some(token.to_string());
-                } else {
-                    error!("Expected continuation token not found in response: {response:?}");
-                    break;
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(meta) => {
+                    keys_found.push(meta.location.to_string());
                 }
-            } else {
-                break;
+                Err(e) => {
+                    error!("Error listing S3 objects: {e}");
+                }
             }
         }
 
@@ -320,7 +418,7 @@ impl CheckpointDownloader for S3Downloader {
         keys_found.reverse();
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs() as f64);
+        metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs_f64());
         info!(
             "Found {} metadata.json files of {} total keys scanned at or after: {}",
             keys_found.len(),

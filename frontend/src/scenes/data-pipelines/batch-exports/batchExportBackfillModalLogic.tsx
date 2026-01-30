@@ -282,23 +282,29 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
             },
 
             submit: async ({ start_at, end_at, earliest_backfill }) => {
-                let startAt = earliest_backfill ? null : (start_at?.toISOString() ?? null)
-                let endAt = end_at?.toISOString() ?? null
+                let startAtStr
+                let endAtStr
                 // If it's a daily or weekly batch export, we should only send date strings rather than datetime strings.
+                // (using format('YYYY-MM-DD') rather than toISOString() to return the date in the local timezone)
                 if (values.batchExportConfig?.interval === 'day' || values.batchExportConfig?.interval === 'week') {
-                    startAt = startAt?.split('T')[0] ?? null
-                    endAt = endAt?.split('T')[0] ?? null
+                    startAtStr = earliest_backfill ? null : (start_at?.format('YYYY-MM-DD') ?? null)
+                    endAtStr = end_at?.format('YYYY-MM-DD') ?? null
+                } else {
+                    startAtStr = earliest_backfill ? null : (start_at?.toISOString() ?? null)
+                    endAtStr = end_at?.toISOString() ?? null
                 }
-                await api.batchExports.createBackfill(props.id, { start_at: startAt, end_at: endAt }).catch((e) => {
-                    if (e.detail) {
-                        actions.setBackfillFormManualErrors({
-                            [e.attr ?? 'end_at']: e.detail,
-                        })
-                    } else {
-                        lemonToast.error('Unknown error occurred')
-                    }
-                    throw e
-                })
+                await api.batchExports
+                    .createBackfill(props.id, { start_at: startAtStr, end_at: endAtStr })
+                    .catch((e) => {
+                        if (e.detail) {
+                            actions.setBackfillFormManualErrors({
+                                [e.attr ?? 'end_at']: e.detail,
+                            })
+                        } else {
+                            lemonToast.error('Unknown error occurred')
+                        }
+                        throw e
+                    })
 
                 actions.closeBackfillModal()
                 return

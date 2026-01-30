@@ -288,7 +288,7 @@ const Settings = ({
     return (
         <CodeEditorResizeable
             language="sql"
-            value={attributes.code}
+            value={typeof attributes.code === 'string' ? attributes.code : ''}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
             onPressCmdEnter={() => {
                 void runDuckSqlNodeWithMode({ mode: 'auto' })

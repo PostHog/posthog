@@ -1,6 +1,6 @@
 import re
+from typing import cast
 
-import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -10,7 +10,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_team_action, report_user_action
+from posthog.models import User
 from posthog.models.llm_prompt import LLMPrompt
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 
@@ -88,6 +91,8 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "llm-analytics-prompts"
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(deleted=False)
@@ -98,6 +103,49 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
 
         return super().get_throttles()
 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+
+        report_user_action(
+            cast(User, self.request.user),
+            "llma prompt created",
+            {
+                "prompt_id": str(instance.id),
+                "prompt_name": instance.name,
+            },
+            self.team,
+        )
+
+    def perform_update(self, serializer):
+        is_being_deleted = serializer.validated_data.get("deleted") is True and not self.get_object().deleted
+
+        instance = serializer.save()
+
+        if is_being_deleted:
+            report_user_action(
+                cast(User, self.request.user),
+                "llma prompt deleted",
+                {
+                    "prompt_id": str(instance.id),
+                    "prompt_name": instance.name,
+                },
+                self.team,
+            )
+        else:
+            changed_fields = [field for field in serializer.validated_data.keys() if field != "deleted"]
+
+            if changed_fields:
+                report_user_action(
+                    cast(User, self.request.user),
+                    "llma prompt updated",
+                    {
+                        "prompt_id": str(instance.id),
+                        "prompt_name": instance.name,
+                        "changed_fields": changed_fields,
+                    },
+                    self.team,
+                )
+
     @action(
         methods=["GET"],
         detail=False,
@@ -106,19 +154,6 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
     )
     @monitor(feature=None, endpoint="llma_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        distinct_id = getattr(request.user, "distinct_id", None)
-
-        if not distinct_id or not posthoganalytics.feature_enabled(
-            "llm-analytics-prompts",
-            distinct_id,
-            groups={"organization": str(self.organization.id)},
-            group_properties={"organization": {"id": str(self.organization.id)}},
-        ):
-            return Response(
-                {"detail": "This feature is not available."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         try:
             prompt = LLMPrompt.objects.get(
                 team=self.team,
@@ -130,6 +165,15 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
                 {"detail": f"Prompt with name '{prompt_name}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        report_team_action(
+            self.team,
+            "llma prompt fetched",
+            {
+                "prompt_id": str(prompt.id),
+                "prompt_name": prompt.name,
+            },
+        )
 
         serializer = self.get_serializer(prompt)
         return Response(serializer.data)

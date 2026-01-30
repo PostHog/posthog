@@ -4789,6 +4789,7 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'Clerk',
     'RevenueCat',
     'Polar',
     'GoogleAds',
