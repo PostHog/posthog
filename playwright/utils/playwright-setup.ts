@@ -90,11 +90,12 @@ export class PlaywrightSetup {
      * This is the main setup method - creates everything you need for most tests.
      * The test user will be a member of the organization.
      */
-    async createWorkspace(organizationName?: string): Promise<PlaywrightWorkspaceSetupResult> {
+    async createWorkspace(
+        dataOrName?: string | Partial<PlaywrightWorkspaceSetupData>
+    ): Promise<PlaywrightWorkspaceSetupResult> {
+        const data = typeof dataOrName === 'string' ? { organization_name: dataOrName } : (dataOrName ?? {})
         const result = await this.callSetupEndpoint('organization_with_team', {
-            data: {
-                organization_name: organizationName,
-            } as PlaywrightWorkspaceSetupData,
+            data: data as PlaywrightWorkspaceSetupData,
         })
 
         if (!result.success) {
