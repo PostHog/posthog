@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconPerson } from '@posthog/icons'
@@ -17,11 +17,11 @@ export interface AssigneeAnyDisplayProps {
 }
 
 export interface AssigneeResolverProps {
-    children: (props: { assignee: Assignee }) => React.ReactElement
+    children: (props: { assignee: Assignee }) => JSX.Element
     assignee: ErrorTrackingIssue['assignee']
 }
 
-export const AssigneeResolver = ({ children, assignee }: AssigneeResolverProps): React.ReactElement => {
+export const AssigneeResolver = ({ children, assignee }: AssigneeResolverProps): JSX.Element => {
     const { resolveAssignee } = useValues(assigneeSelectLogic)
     const resolvedAssignee = useMemo(() => resolveAssignee(assignee), [assignee, resolveAssignee])
     return children({ assignee: resolvedAssignee })

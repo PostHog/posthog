@@ -103,7 +103,7 @@ export function LemonCollapse<K extends React.Key>({
 }
 
 interface LemonCollapsePanelProps {
-    header: ReactNode
+    header: string | LemonButtonProps
     content: ReactNode
     isExpanded: boolean
     indexUnexpanableHeader: boolean
@@ -131,7 +131,9 @@ function LemonCollapsePanel({
         ? { children: header }
         : typeof header === 'string'
           ? { children: header }
-          : (header ?? {})
+          : typeof header === 'object' && header !== null
+            ? (header as LemonButtonProps)
+            : {}
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
@@ -157,7 +159,7 @@ function LemonCollapsePanel({
                     size={size}
                     icon={indexUnexpanableHeader ? <div className="w-[1em] h-[1em]" /> : null}
                 >
-                    {header}
+                    {headerProps.children}
                 </LemonButton>
             )}
             <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>

@@ -9,7 +9,8 @@ import { AdvertiseMobileReplay, AdvertiseMobileReplayContext } from '../session-
 
 interface OnboardingDocsWrapperOptions {
     Installation: React.ComponentType<any>
-    snippets?: Record<string, React.ComponentType<any>>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    snippets?: Record<string, any>
     wizardIntegrationName?: string
 }
 
@@ -35,7 +36,8 @@ interface MobileReplayOptions {
     Installation: React.ComponentType<any>
     sdkKey: SDKKey
     onboardingContext: AdvertiseMobileReplayContext
-    snippets?: Record<string, React.ComponentType<any>>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    snippets?: Record<string, any>
     wizardIntegrationName?: string
 }
 

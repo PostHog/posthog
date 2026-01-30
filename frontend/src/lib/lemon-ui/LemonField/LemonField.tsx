@@ -119,7 +119,9 @@ export const LemonField = ({
                 labelClassName={labelClassName}
                 premiumFeature={premiumFeature}
             >
-                {kids}
+                {typeof kids === 'function'
+                    ? (kids as unknown as (props: Record<string, unknown>) => React.ReactNode)({})
+                    : kids}
             </LemonPureField>
         )
     }

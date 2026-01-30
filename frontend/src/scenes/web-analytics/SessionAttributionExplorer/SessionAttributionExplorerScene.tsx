@@ -44,7 +44,7 @@ const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unk
     }
 
     if (!Array.isArray(value)) {
-        return <div>{value}</div>
+        return <div>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</div>
     }
 
     return (

@@ -101,10 +101,13 @@ const errorTrackingIssueActionsMapping: Record<
         if (!before || !after) {
             return null
         }
+        const displayBefore = typeof before === 'object' ? JSON.stringify(before) : String(before)
+        const displayAfter = typeof after === 'object' ? JSON.stringify(after) : String(after)
         return {
             description: [
                 <>
-                    changed status of {nameAndLink(logItem)} from <strong>{before}</strong> to <strong>{after}</strong>
+                    changed status of {nameAndLink(logItem)} from <strong>{displayBefore}</strong> to{' '}
+                    <strong>{displayAfter}</strong>
                 </>,
             ],
         }

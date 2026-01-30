@@ -249,7 +249,7 @@ export function DataTable({
 
     const contextRowPropsFn = context?.rowProps
     const onRow = useCallback(
-        (record) => {
+        (record: DataTableRow) => {
             const rowProps = contextRowPropsFn?.(record)
             const rowFillFraction =
                 rowFillFractionIndex >= 0 && Array.isArray(record.result)

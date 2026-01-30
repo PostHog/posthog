@@ -52,7 +52,13 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 <LemonBanner type="error">
                                     <ol>
                                         {experimentFormErrors.name && <li>{experimentFormErrors.name}</li>}
-                                        {experimentFormErrors.variants && <li>{experimentFormErrors.variants}</li>}
+                                        {experimentFormErrors.variants && (
+                                            <li>
+                                                {typeof experimentFormErrors.variants === 'string'
+                                                    ? experimentFormErrors.variants
+                                                    : 'Variant configuration has errors'}
+                                            </li>
+                                        )}
                                     </ol>
                                 </LemonBanner>
                             )}

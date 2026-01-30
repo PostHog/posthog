@@ -437,7 +437,10 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
-        canvasFiltersOverride: [() => [(_, props) => props], (props) => props.canvasFiltersOverride || []],
+        canvasFiltersOverride: [
+            () => [(_, props: NotebookLogicProps) => props],
+            (props: NotebookLogicProps) => props.canvasFiltersOverride || [],
+        ],
         shortId: [(_, p) => [p.shortId], (shortId) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],

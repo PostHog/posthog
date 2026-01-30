@@ -69,7 +69,7 @@ export function CohortCriteriaRowBuilder({
                                     error && `CohortCriteriaRow__Criteria--error`
                                 )}
                             >
-                                {kids}
+                                {typeof kids === 'function' ? (kids as Function)({}) : kids}
                                 {error && (
                                     <LemonBanner className="my-2" type="error">
                                         {error}
@@ -93,7 +93,7 @@ export function CohortCriteriaRowBuilder({
                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                             )}
                                         >
-                                            {kids}
+                                            {typeof kids === 'function' ? (kids as Function)({}) : kids}
                                         </div>
                                     </>
                                 )
@@ -137,7 +137,7 @@ export function CohortCriteriaRowBuilder({
                                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                                             )}
                                                         >
-                                                            {kids}
+                                                            {typeof kids === 'function' ? (kids as Function)({}) : kids}
                                                         </div>
                                                     </>
                                                 )

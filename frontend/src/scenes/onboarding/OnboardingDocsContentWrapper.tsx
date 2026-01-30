@@ -46,7 +46,8 @@ export interface OnboardingComponentsContext {
         Panels: React.ComponentType<{ children: ReactNode }>
         Panel: React.ComponentType<{ children: ReactNode }>
     } & React.ComponentType<{ children: ReactNode }>
-    snippets?: Record<string, React.ComponentType<any>>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    snippets?: Record<string, any>
     selectedFile?: string | null
     setSelectedFile?: (file: string) => void
 }
@@ -62,9 +63,10 @@ function Steps({ children }: StepsProps): JSX.Element {
         }
 
         // Only number Step components - check if it's actually a Step component
-        const isStep = child.type === Step && 'title' in child.props && typeof child.props.title === 'string'
+        const childProps = child.props as Record<string, unknown>
+        const isStep = child.type === Step && 'title' in childProps && typeof childProps.title === 'string'
 
-        if (isStep && !child.props.docsOnly) {
+        if (isStep && !childProps.docsOnly) {
             stepNumber += 1
             return React.cloneElement(child, { stepNumber } as any)
         }
@@ -72,7 +74,7 @@ function Steps({ children }: StepsProps): JSX.Element {
         return child
     })
 
-    return <div className="space-y-6">{processedChildren}</div>
+    return <div className="space-y-6">{processedChildren as React.ReactNode}</div>
 }
 
 function Step({
@@ -103,7 +105,7 @@ function Step({
                 )}
             </div>
             {subtitle && <p className="text-muted text-sm m-0">{subtitle}</p>}
-            <div className="space-y-4">{children}</div>
+            <div className="space-y-4">{children as React.ReactNode}</div>
         </div>
     )
 }
@@ -322,8 +324,10 @@ export function OnboardingDocsContentWrapper({
     createSnippets,
 }: {
     children: ReactNode
-    snippets?: Record<string, React.ComponentType<any>>
-    createSnippets?: (components: OnboardingComponentsContext) => Record<string, React.ComponentType<any>>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    snippets?: Record<string, any>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createSnippets?: (components: OnboardingComponentsContext) => Record<string, any>
 }): JSX.Element {
     const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
 

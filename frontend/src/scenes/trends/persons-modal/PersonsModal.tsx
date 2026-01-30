@@ -107,7 +107,7 @@ export function PersonsModal({
             return title(capitalizeFirstLetter(actorLabel.plural))
         }
 
-        if (isOtherBreakdown(title)) {
+        if ((typeof title === 'string' || typeof title === 'number') && isOtherBreakdown(title)) {
             return 'Other'
         }
 

@@ -493,7 +493,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             name: item.name || `Insight ${item.id}`,
                             value: item.id,
                             type: MaxContextType.INSIGHT,
-                            icon: IconGraph,
+                            icon: <IconGraph />,
                         })
                     } else if (item.type == MaxContextType.DASHBOARD) {
                         options.push({
@@ -501,7 +501,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             name: item.name || `Dashboard ${item.id}`,
                             value: item.id,
                             type: MaxContextType.DASHBOARD,
-                            icon: IconDashboard,
+                            icon: <IconDashboard />,
                         })
                         item.insights.forEach((insight) => {
                             options.push({
@@ -509,7 +509,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 name: insight.name || `Insight ${insight.id}`,
                                 value: insight.id,
                                 type: MaxContextType.INSIGHT,
-                                icon: IconGraph,
+                                icon: <IconGraph />,
                             })
                         })
                     } else if (item.type == MaxContextType.ERROR_TRACKING_ISSUE) {
@@ -518,7 +518,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             name: item.name || `Error ${item.id}`,
                             value: item.id,
                             type: MaxContextType.ERROR_TRACKING_ISSUE,
-                            icon: IconBug,
+                            icon: <IconBug />,
                         })
                     }
                 })

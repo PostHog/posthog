@@ -121,7 +121,9 @@ function createSimpleValueHandler(fieldName: string, options: { useEmphasis?: bo
             return null
         }
 
-        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        const displayValue =
+            typeof change.after === 'object' ? JSON.stringify(change.after) : String(change.after ?? '')
+        const valueElement = useEmphasis ? <em>{displayValue}</em> : displayValue
         return {
             description: [
                 <>
@@ -144,7 +146,9 @@ function createFixedVerbValueHandler(
             return null
         }
 
-        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        const displayValue =
+            typeof change.after === 'object' ? JSON.stringify(change.after) : String(change.after ?? '')
+        const valueElement = useEmphasis ? <em>{displayValue}</em> : displayValue
         return {
             description: [
                 <>
@@ -583,7 +587,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
                 <>
                     {change.action === 'created' ? 'set' : 'changed'} the <em>primary dashboard</em> to{' '}
                     <Link to={urls.dashboard(change.after as number)}>
-                        <em>{change.after}</em>
+                        <em>{String(change.after)}</em>
                     </Link>
                 </>,
             ],

@@ -43,7 +43,7 @@ export function NotebookPanel(): JSX.Element | null {
             className={cn('NotebookPanel', {
                 'bg-transparent': isRemovingSidePanelFlag,
             })}
-            {...dropProperties}
+            {...(dropProperties as React.HTMLAttributes<HTMLDivElement>)}
         >
             {!droppedResource ? (
                 <>

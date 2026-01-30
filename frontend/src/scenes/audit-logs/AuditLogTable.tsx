@@ -22,7 +22,7 @@ const columns: LemonTableColumns<HumanizedActivityLogItem> = [
         className: 'max-w-80',
         render: (description) => (
             <span className="[&_*]:inline whitespace-nowrap overflow-hidden text-ellipsis">
-                {typeof description === 'string' ? description : description || 'No description'}
+                {typeof description === 'string' ? description : 'No description'}
             </span>
         ),
         width: '40%',

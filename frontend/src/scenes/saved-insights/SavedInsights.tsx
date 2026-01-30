@@ -90,7 +90,7 @@ export interface InsightTypeMetadata {
     description?: string
     /** Override the description on the insight page tab, for additional info. */
     tooltipDescription?: string
-    icon: (props?: any) => JSX.Element | null
+    icon: React.ComponentType<any>
     inMenu: boolean
     tooltipDocLink?: string
 }
@@ -635,12 +635,12 @@ export function InsightIcon({
     insight: QueryBasedInsightModel
     className?: string
 }): JSX.Element | null {
-    let Icon: (props?: any) => JSX.Element | null = () => null
+    let Icon: React.ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
         const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
         const insightMetadata = QUERY_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
+        Icon = insightMetadata?.icon ?? null
     }
 
     return Icon ? <Icon className={className} /> : null

@@ -1,5 +1,3 @@
-import { memo } from 'react'
-
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 interface PersonProfilesProps {
@@ -7,7 +5,7 @@ interface PersonProfilesProps {
     file?: string
 }
 
-export const PersonProfiles = memo(({ language = 'javascript', file }: PersonProfilesProps): JSX.Element => {
+export function PersonProfiles({ language = 'javascript', file }: PersonProfilesProps): JSX.Element {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
     const getCodeAndFile = () => {
@@ -52,4 +50,4 @@ export const PersonProfiles = memo(({ language = 'javascript', file }: PersonPro
             />
         </>
     )
-})
+}

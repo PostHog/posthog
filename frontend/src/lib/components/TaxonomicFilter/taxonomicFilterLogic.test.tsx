@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
@@ -228,10 +229,10 @@ describe('taxonomicFilterLogic', () => {
         let maxLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
         beforeEach(() => {
-            const maxContextOptions = [
-                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
-                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
-                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
+            const maxContextOptions: MaxContextTaxonomicFilterOption[] = [
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: <span /> },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: <span /> },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: <span /> },
             ]
 
             const logicProps: TaxonomicFilterLogicProps = {

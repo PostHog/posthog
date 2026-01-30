@@ -123,9 +123,10 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
 
         if (levelChange) {
             const beforeLevel =
-                membershipLevelToName.get(levelChange.before as OrganizationMembershipLevel) || levelChange.before
+                membershipLevelToName.get(levelChange.before as OrganizationMembershipLevel) ||
+                String(levelChange.before)
             const afterLevel =
-                membershipLevelToName.get(levelChange.after as OrganizationMembershipLevel) || levelChange.after
+                membershipLevelToName.get(levelChange.after as OrganizationMembershipLevel) || String(levelChange.after)
 
             return {
                 description: (

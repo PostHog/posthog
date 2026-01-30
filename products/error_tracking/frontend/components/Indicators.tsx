@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 
 import { LemonBadge, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 
@@ -16,7 +15,7 @@ const sizeVariants = {
     large: 'gap-3 text-lg',
 }
 
-interface LabelIndicatorProps {
+export interface LabelIndicatorProps {
     intent: Intent
     label: string
     size: 'xsmall' | 'small' | 'medium' | 'large'
@@ -25,19 +24,23 @@ interface LabelIndicatorProps {
     className?: string
 }
 
-export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
-    { intent, label, size, tooltip, tooltipPlacement, className },
-    ref
-): JSX.Element {
+export function LabelIndicator({
+    intent,
+    label,
+    size,
+    tooltip,
+    tooltipPlacement,
+    className,
+}: LabelIndicatorProps): JSX.Element {
     return (
         <Tooltip title={tooltip} placement={tooltipPlacement}>
-            <div ref={ref} className={clsx('flex items-center cursor-help', className, sizeVariants[size])}>
+            <div className={clsx('flex items-center cursor-help', className, sizeVariants[size])}>
                 <LemonBadge status={intent} size="small" />
                 <div>{label}</div>
             </div>
         </Tooltip>
     )
-})
+}
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
@@ -80,10 +83,13 @@ interface StatusIndicatorProps {
     className?: string
 }
 
-export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
-    { status, size = 'small', intent = false, className, withTooltip },
-    ref
-): JSX.Element {
+export function StatusIndicator({
+    status,
+    size = 'small',
+    intent = false,
+    className,
+    withTooltip,
+}: StatusIndicatorProps): JSX.Element {
     return (
         <LabelIndicator
             intent={STATUS_INTENT[status]}
@@ -92,7 +98,6 @@ export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorP
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
             tooltipPlacement={withTooltip ? (typeof withTooltip === 'string' ? withTooltip : 'top') : undefined}
             className={className}
-            ref={ref}
         />
     )
-})
+}

@@ -104,7 +104,8 @@ export const sdksLogic = kea<sdksLogicType>([
         availableSDKInstructionsMap: [
             {} as SDKInstructionsMap,
             {
-                setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) => sdkInstructionMap,
+                setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) =>
+                    sdkInstructionMap as unknown as SDKInstructionsMap,
             },
         ],
         showSideBySide: [

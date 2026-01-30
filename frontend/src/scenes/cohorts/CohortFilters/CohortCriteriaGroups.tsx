@@ -68,7 +68,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 {error}
                                             </LemonBanner>
                                         )}
-                                        {kids}
+                                        {typeof kids === 'function' ? (kids as Function)({}) : kids}
                                     </div>
                                 )
                             }}

@@ -80,7 +80,7 @@ export const SelectOption = <T,>({ title, description, value, selectedValue }: S
                     : 'bg-surface-secondary text-primary'
             }`}
         >
-            {value}
+            {String(value)}
         </div>
         <div>
             <div className="font-bold">{title}</div>
