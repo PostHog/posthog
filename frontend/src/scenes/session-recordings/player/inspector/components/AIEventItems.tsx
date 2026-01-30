@@ -1,5 +1,4 @@
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
@@ -64,17 +63,4 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
             )}
         </div>
     )
-}
-
-export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
-    if (event.properties.$ai_is_error) {
-        return (
-            <div className="flex items-center gap-1 text-danger">
-                <IconExclamation />
-                <span>Error</span>
-            </div>
-        )
-    }
-
-    return null
 }
