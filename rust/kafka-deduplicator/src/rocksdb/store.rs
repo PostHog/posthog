@@ -112,7 +112,7 @@ fn rocksdb_options() -> Options {
     // - Larger buffers = fewer flushes = less I/O pressure on PVC storage
     // - With 64 partitions and shared write buffer manager (2GB), each partition
     //   effectively gets ~32MB of write buffer space on average
-    opts.set_write_buffer_size(WRITE_BUFFER_SIZE); // 32MB per memtable (up from 8MB)
+    opts.set_write_buffer_size(WRITE_BUFFER_SIZE); // 64MB per memtable (up from 32MB)
     opts.set_max_write_buffer_number(2); // 2 buffers to allow writes during flush
     opts.set_min_write_buffer_number_to_merge(1); // Merge 1 buffer before flush (faster)
 
