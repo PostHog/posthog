@@ -30,11 +30,9 @@ export function QueryVariables(): JSX.Element {
             </div>
             <div className="space-y-2">
                 <p className="text-xs">
-                    Query variables let you dynamically set values in your SQL query. Add a variable and then use it in
-                    your HogQL query. The value you set here can be changed when viewing the insight or dashboard.
-                    <br />
+                    Dynamically set values in your SQL query, which can be changed when viewing an insight or dashboard.{' '}
                     <Link to={documentationUrl} target="_blank">
-                        Learn more about variables
+                        Learn more.
                     </Link>
                 </p>
             </div>
