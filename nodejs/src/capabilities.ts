@@ -40,6 +40,11 @@ export const CAPABILITIES_SESSION_REPLAY_OVERFLOW: PluginServerCapabilities = {
     sessionRecordingBlobIngestionV2Overflow: true,
 }
 
+/** Recording API - decryption and serving of encrypted recordings */
+export const CAPABILITIES_RECORDING_API: PluginServerCapabilities = {
+    recordingApi: true,
+}
+
 /** Logs - log ingestion */
 export const CAPABILITIES_LOGS: PluginServerCapabilities = {
     logsIngestion: true,
@@ -73,6 +78,7 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
     session_replay: CAPABILITIES_SESSION_REPLAY,
+    recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
@@ -117,6 +123,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 CAPABILITIES_REALTIME_COHORTS,
                 CAPABILITIES_SESSION_REPLAY,
                 { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
+                CAPABILITIES_RECORDING_API,
                 CAPABILITIES_LOGS,
                 CAPABILITIES_FEATURE_FLAGS
             )
@@ -197,6 +204,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
+            }
+        case PluginServerMode.recording_api:
+            return {
+                recordingApi: true,
             }
     }
 }
