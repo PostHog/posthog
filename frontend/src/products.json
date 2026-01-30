@@ -1,6 +1,13 @@
 {
     "products": [
         {
+            "path": "Site Apps",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": "hog_function",
+            "intents": ["site_apps"]
+        },
+        {
             "path": "Data pipelines",
             "category": "Tools",
             "iconType": "data_pipeline",

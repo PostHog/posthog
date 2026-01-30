@@ -618,7 +618,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.DataPipelines,
                             label: 'Data pipelines',
                             icon: <IconPlug />,
-                            to: urls.dataPipelines('overview'),
+                            to: urls.destinations(),
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
                         {
