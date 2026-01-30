@@ -189,15 +189,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     {/* Templates - only show for new flags */}
                     {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={() => {}} />}
 
-                    {/* Section heading to clarify templates are optional */}
-                    {isNewFeatureFlag && (
-                        <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>
-                    )}
-
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
                         {/* Left column - narrow, sticky on large screens */}
-                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
+                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonField
