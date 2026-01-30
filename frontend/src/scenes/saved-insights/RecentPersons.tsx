@@ -44,6 +44,7 @@ export function RecentPersons(): JSX.Element {
             }}
             items={persons.slice(0, 5)}
             renderRow={(person: PersonType, index) => <PersonRow key={index} person={person} />}
+            contentHeightBehavior="fit-content"
         />
     )
 }

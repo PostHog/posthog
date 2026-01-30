@@ -40,6 +40,16 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
                         {`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
                     </span>
                 </div>
+                <LemonButton
+                    size="small"
+                    icon={<IconExternal />}
+                    to={urls.insightView(insight.short_id)}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        reportInsightOpenedFromRecentInsightList()
+                    }}
+                    tooltip="Open insight"
+                />
             </div>
             {isExpanded && (
                 <div className="border-t border-border bg-surface-primary">

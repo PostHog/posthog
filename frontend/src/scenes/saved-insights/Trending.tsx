@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconChevronRight, IconExternal } from '@posthog/icons'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { Query } from '~/queries/Query/Query'
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
-import { ProjectHomePageCompactListItem } from '../project-homepage/ProjectHomePageCompactListItem'
 import { InsightIcon } from './SavedInsights'
 import { trendingInsightsLogic } from './trendingInsightsLogic'
 
@@ -17,17 +21,58 @@ interface InsightRowProps {
 
 function InsightRow({ insight }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
+    const [isExpanded, setIsExpanded] = useState(false)
 
     return (
-        <ProjectHomePageCompactListItem
-            title={insight.name || insight.derived_name || 'Insight'}
-            subtitle={`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
-            prefix={<InsightIcon insight={insight} />}
-            to={urls.insightView(insight.short_id)}
-            onClick={() => {
-                reportInsightOpenedFromRecentInsightList()
-            }}
-        />
+        <div className="border border-border rounded bg-surface-primary mb-2 last:mb-0">
+            <div
+                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                <div className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                    <IconChevronRight className="text-xl" />
+                </div>
+                <InsightIcon insight={insight} className="text-secondary text-3xl" />
+                <div className="flex flex-col flex-1 truncate">
+                    <span className="font-semibold truncate">{insight.name || insight.derived_name || 'Insight'}</span>
+                    <span className="text-muted text-xs mt-0.5 truncate">
+                        {`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
+                    </span>
+                </div>
+                <LemonButton
+                    size="small"
+                    icon={<IconExternal />}
+                    to={urls.insightView(insight.short_id)}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        reportInsightOpenedFromRecentInsightList()
+                    }}
+                    tooltip="Open insight"
+                />
+            </div>
+            {isExpanded && (
+                <div className="border-t border-border bg-surface-primary">
+                    <div className="p-4 h-60 relative">
+                        <Query
+                            query={insight.query}
+                            readOnly
+                            embedded
+                            context={{ insightProps: { dashboardItemId: insight.short_id as any } }}
+                        />
+                    </div>
+                    <div className="flex justify-end items-center p-3 border-t border-border">
+                        <LemonButton
+                            type="primary"
+                            icon={<IconExternal />}
+                            to={urls.insightView(insight.short_id)}
+                            onClick={() => reportInsightOpenedFromRecentInsightList()}
+                        >
+                            Open insight
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -47,6 +92,7 @@ export function Trending(): JSX.Element {
             }}
             items={trendingInsights.slice(0, 5)}
             renderRow={(insight: QueryBasedInsightModel, index) => <InsightRow key={index} insight={insight} />}
+            contentHeightBehavior="fit-content"
         />
     )
 }

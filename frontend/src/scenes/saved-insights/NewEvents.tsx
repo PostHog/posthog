@@ -45,6 +45,7 @@ export function NewEvents(): JSX.Element {
             }}
             items={newEvents.slice(0, 5)}
             renderRow={(event: EventDefinition, index) => <EventRow key={index} event={event} />}
+            contentHeightBehavior="fit-content"
         />
     )
 }

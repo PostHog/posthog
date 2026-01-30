@@ -30,6 +30,7 @@ export function Activity(): JSX.Element {
             }}
             items={humanizedActivity.slice(0, ACTIVITY_LIMIT)}
             renderRow={(logItem: HumanizedActivityLogItem, index) => <ActivityLogRow key={index} logItem={logItem} />}
+            contentHeightBehavior="fit-content"
         />
     )
 }

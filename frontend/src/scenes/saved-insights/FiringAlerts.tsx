@@ -51,6 +51,7 @@ export function FiringAlerts(): JSX.Element {
             }}
             items={firingAlerts.slice(0, 5)}
             renderRow={(alert: AlertType, index) => <AlertRow key={index} alert={alert} />}
+            contentHeightBehavior="fit-content"
         />
     )
 }
