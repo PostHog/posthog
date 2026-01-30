@@ -13,6 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { BrowserNotificationsSection } from './BrowserNotificationsSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export const scene: SceneExport = {
@@ -183,6 +184,8 @@ export function SupportSettingsScene(): JSX.Element {
                                 onChange={setNotificationRecipients}
                             />
                         </div>
+
+                        <BrowserNotificationsSection />
 
                         <div>
                             <h3>In-app widget</h3>
