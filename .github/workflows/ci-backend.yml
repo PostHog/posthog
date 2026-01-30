@@ -332,6 +332,21 @@ jobs:
             - name: Install SAML dependencies
               run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
+
+            - name: Install sqlx-cli
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
