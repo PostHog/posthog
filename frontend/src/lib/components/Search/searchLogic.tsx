@@ -569,7 +569,7 @@ export const searchLogic = kea<searchLogicType>([
                     const levelPrefix = toSentenceCase(section.level)
 
                     const settings = section.settings.flatMap((setting) => [
-                        toSentenceCase(setting.id.replace(/[-]/, ' ')),
+                        toSentenceCase(setting.id.replace(/[-]/g, ' ')),
                         ...(typeof setting.title === 'string' ? [setting.title] : []),
                         ...(typeof setting.description === 'string' ? [setting.description] : []),
                     ])
@@ -578,7 +578,7 @@ export const searchLogic = kea<searchLogicType>([
                     const displayName =
                         typeof section.title === 'string'
                             ? section.title
-                            : toSentenceCase(section.id.replace(/[-]/, ' '))
+                            : toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
                         displayName === 'General' || displayName === 'Danger zone'
