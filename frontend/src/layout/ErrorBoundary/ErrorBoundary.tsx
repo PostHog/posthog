@@ -60,10 +60,13 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                             fullWidth
                             center
                             onClick={() => {
+                                const errorDetails = stack || `${name}\n${message}`
+                                const prefillMessage = `I encountered an error:\n\n\`\`\`\n${errorDetails}\n\`\`\`\n\n${exceptionEvent?.uuid ? `Exception ID: ${exceptionEvent.uuid}\n\n` : ''}Please describe what you were doing when this error occurred:`
                                 openSupportForm({
                                     kind: 'bug',
                                     isEmailFormOpen: true,
                                     exception_event: exceptionEvent ?? null,
+                                    message: prefillMessage,
                                 })
                             }}
                             targetBlank
