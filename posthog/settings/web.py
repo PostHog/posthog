@@ -23,7 +23,7 @@ def _get_access_token_expires_in(request) -> int:
     from oauth2_provider.settings import oauth2_settings
 
     if hasattr(request, "client") and request.client:
-        if request.client.name and "claude" in request.client.name.lower():
+        if request.client.name and "claude code" in request.client.name.lower():
             return 60 * 60 * 4
 
     return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
