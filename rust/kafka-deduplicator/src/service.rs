@@ -143,6 +143,10 @@ impl KafkaDeduplicatorService {
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
             checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            max_concurrent_checkpoint_file_downloads: config
+                .max_concurrent_checkpoint_file_downloads,
+            max_concurrent_checkpoint_file_uploads: config.max_concurrent_checkpoint_file_uploads,
+            checkpoint_partition_import_timeout: config.checkpoint_partition_import_timeout(),
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
@@ -185,6 +189,7 @@ impl KafkaDeduplicatorService {
                 downloader,
                 store_config.path.clone(),
                 config.checkpoint_import_attempt_depth,
+                config.checkpoint_partition_import_timeout(),
             )))
         } else {
             None
