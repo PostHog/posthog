@@ -1,7 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { Hub, InternalPerson, PropertyOperator, PropertyUpdateOperation, Team } from '../../../../types'
+import {
+    DEFAULT_PERSON_GROUP_KEYS,
+    Hub,
+    InternalPerson,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    Team,
+} from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
@@ -420,6 +427,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const messages = await repository.deletePerson(nonExistentPerson)
@@ -475,6 +483,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson, undefined)
@@ -499,6 +508,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 version: 0,
                 is_identified: false,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson, undefined)
@@ -1335,6 +1345,7 @@ describe('PostgresPersonRepository', () => {
                 is_user_id: null,
                 properties_last_updated_at: {},
                 properties_last_operation: {},
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const update = { properties: { name: 'Jane' } }
@@ -1365,6 +1376,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             // First update should succeed
@@ -1401,6 +1413,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             // Update should fail due to version mismatch
@@ -1436,6 +1449,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             // Update should fail because person doesn't exist
@@ -1466,6 +1480,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1505,6 +1520,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: ['remove_me'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1542,6 +1558,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: ['remove'],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -2165,6 +2182,7 @@ describe('PostgresPersonRepository', () => {
                     properties_to_unset: [],
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                    ...DEFAULT_PERSON_GROUP_KEYS,
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2419,6 +2437,7 @@ describe('PostgresPersonRepository', () => {
                 properties_to_unset: [],
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
+                ...DEFAULT_PERSON_GROUP_KEYS,
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')

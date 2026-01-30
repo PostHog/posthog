@@ -135,6 +135,12 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
                     is_identified: Number(person.is_identified),
                     is_deleted: Number(isDeleted),
                     version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                    // Group keys for mixed user+group feature flag targeting
+                    group_0_key: person.group_0_key || '',
+                    group_1_key: person.group_1_key || '',
+                    group_2_key: person.group_2_key || '',
+                    group_3_key: person.group_3_key || '',
+                    group_4_key: person.group_4_key || '',
                 } as Omit<ClickHousePerson, 'timestamp'>),
             },
         ],

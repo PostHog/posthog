@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, Person, PropertyOperator, Team } from '~/types'
+import { DEFAULT_PERSON_GROUP_KEYS, Hub, Person, PropertyOperator, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -174,6 +174,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    ...DEFAULT_PERSON_GROUP_KEYS,
                 },
                 {
                     id: '2',
@@ -187,6 +188,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    ...DEFAULT_PERSON_GROUP_KEYS,
                 },
                 {
                     id: '3',
@@ -200,6 +202,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    ...DEFAULT_PERSON_GROUP_KEYS,
                 },
             ]
 
@@ -244,6 +247,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }))
             const batch2 = Array.from({ length: 300 }, (_, i) => ({
                 id: `${i + 500}`,
@@ -257,6 +261,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }))
 
             let callCount = 0
@@ -302,6 +307,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }))
 
             const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
@@ -342,6 +348,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }))
             const batch2 = Array.from({ length: 50 }, (_, i) => ({
                 id: `${i + 100}`,
@@ -355,6 +362,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                ...DEFAULT_PERSON_GROUP_KEYS,
             }))
 
             let callCount = 0

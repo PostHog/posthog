@@ -161,6 +161,13 @@ export class PostgresPersonRepository
             id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
+            // Group keys are not stored in Postgres - they're only in ClickHouse
+            // These are populated during event processing from the event's $groups
+            group_0_key: '',
+            group_1_key: '',
+            group_2_key: '',
+            group_3_key: '',
+            group_4_key: '',
         }
     }
 

@@ -1034,6 +1034,16 @@
                       "is_identified",
                       "pdi",
                       "revenue_analytics",
+                      "group_0_key",
+                      "group_0",
+                      "group_1_key",
+                      "group_1",
+                      "group_2_key",
+                      "group_2",
+                      "group_3_key",
+                      "group_3",
+                      "group_4_key",
+                      "group_4",
                       "$virt_initial_referring_domain_type",
                       "$virt_initial_channel_type",
                       "$virt_revenue",
@@ -1529,6 +1539,146 @@
                   "name": "revenue_analytics",
                   "schema_valid": true,
                   "table": "persons_revenue_analytics",
+                  "type": "lazy_table"
+              },
+              "group_0_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_0_key",
+                  "id": null,
+                  "name": "group_0_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_0": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_0",
+                  "id": "group_0",
+                  "name": "group_0",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_1_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_1_key",
+                  "id": null,
+                  "name": "group_1_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_1": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_1",
+                  "id": "group_1",
+                  "name": "group_1",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_2_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_2_key",
+                  "id": null,
+                  "name": "group_2_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_2": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_2",
+                  "id": "group_2",
+                  "name": "group_2",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_3_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_3_key",
+                  "id": null,
+                  "name": "group_3_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_3": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_3",
+                  "id": "group_3",
+                  "name": "group_3",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_4_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_4_key",
+                  "id": null,
+                  "name": "group_4_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_4": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_4",
+                  "id": "group_4",
+                  "name": "group_4",
+                  "schema_valid": true,
+                  "table": "groups",
                   "type": "lazy_table"
               },
               "$virt_initial_referring_domain_type": {
@@ -4045,6 +4195,146 @@
                   "name": "revenue_analytics",
                   "schema_valid": true,
                   "table": "persons_revenue_analytics",
+                  "type": "lazy_table"
+              },
+              "group_0_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_0_key",
+                  "id": null,
+                  "name": "group_0_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_0": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_0",
+                  "id": "group_0",
+                  "name": "group_0",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_1_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_1_key",
+                  "id": null,
+                  "name": "group_1_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_1": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_1",
+                  "id": "group_1",
+                  "name": "group_1",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_2_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_2_key",
+                  "id": null,
+                  "name": "group_2_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_2": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_2",
+                  "id": "group_2",
+                  "name": "group_2",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_3_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_3_key",
+                  "id": null,
+                  "name": "group_3_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_3": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_3",
+                  "id": "group_3",
+                  "name": "group_3",
+                  "schema_valid": true,
+                  "table": "groups",
+                  "type": "lazy_table"
+              },
+              "group_4_key": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_4_key",
+                  "id": null,
+                  "name": "group_4_key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_4": {
+                  "chain": null,
+                  "fields": [
+                      "index",
+                      "team_id",
+                      "key",
+                      "created_at",
+                      "updated_at",
+                      "properties",
+                      "revenue_analytics"
+                  ],
+                  "hogql_value": "group_4",
+                  "id": "group_4",
+                  "name": "group_4",
+                  "schema_valid": true,
+                  "table": "groups",
                   "type": "lazy_table"
               },
               "$virt_initial_referring_domain_type": {
