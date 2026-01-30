@@ -40,6 +40,7 @@ import {
     type NotebookDependencyGraph,
     type NotebookDependencyNode,
     type NotebookDependencyUsage,
+    extractHogqlPlaceholders,
     getUniqueDuckSqlReturnVariable,
     getUniqueHogqlReturnVariable,
     resolveDuckSqlReturnVariable,
@@ -84,6 +85,7 @@ type RunDuckSqlCellParams = {
 type RunHogqlSqlCellParams = {
     notebookId: string
     code: string
+    placeholders: string[]
     returnVariable: string
     pageSize: number
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
@@ -127,6 +129,23 @@ const buildHogqlSqlAssignmentCode = (code: string, returnVariable: string): stri
     const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
     const sqlLiteral = JSON.stringify(code ?? '')
     return `${resolvedReturnVariable} = hogql_execute(${sqlLiteral})`
+}
+
+const buildHogqlSqlExecutionCode = (
+    code: string,
+    returnVariable: string,
+    pageSize: number,
+    placeholders: string[]
+): string => {
+    const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
+    const sqlLiteral = JSON.stringify(code ?? '')
+    const placeholdersLiteral = JSON.stringify(placeholders)
+    const previewPageSize = Math.max(1, pageSize || DEFAULT_DATAFRAME_PAGE_SIZE)
+    return (
+        `import json\n` +
+        `${resolvedReturnVariable} = hogql_execute(${sqlLiteral}, placeholders=${placeholdersLiteral})\n` +
+        `json.dumps(notebook_dataframe_page(${resolvedReturnVariable}, offset=0, limit=${previewPageSize}))`
+    )
 }
 
 const buildHogqlDataframeResult = (
@@ -484,6 +503,7 @@ const runDependencyNodes = async ({
                     node.nodeId,
                     nodeAttributes.returnVariable ?? node.returnVariable ?? 'hogql_df'
                 )
+                const placeholders = extractHogqlPlaceholders(nodeCode)
                 const executionSandboxId =
                     nodeLogic.values.kernelInfo?.sandbox_id ?? nodeAttributes.hogqlExecutionSandboxId ?? null
                 if (
@@ -496,6 +516,7 @@ const runDependencyNodes = async ({
                 const { executed, execution } = await runHogqlSqlCell({
                     notebookId,
                     code: nodeCode,
+                    placeholders,
                     returnVariable: nodeReturnVariable,
                     pageSize: nodeLogic.values.dataframePageSize,
                     updateAttributes: nodeLogic.actions.updateAttributes,
@@ -707,6 +728,7 @@ const runDuckSqlCell = async ({
 const runHogqlSqlCell = async ({
     notebookId,
     code,
+    placeholders,
     returnVariable,
     pageSize,
     updateAttributes,
@@ -715,7 +737,11 @@ const runHogqlSqlCell = async ({
 }: RunHogqlSqlCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setHogqlSqlRunLoading(true)
     const resolvedReturnVariable = resolveHogqlReturnVariable(returnVariable)
-    const executionCode = buildHogqlSqlAssignmentCode(code, returnVariable)
+    const placeholderNames = placeholders.filter((placeholder) => placeholder.trim().length > 0)
+    const shouldExecuteInKernel = placeholderNames.length > 0
+    const executionCode = shouldExecuteInKernel
+        ? buildHogqlSqlExecutionCode(code, returnVariable, pageSize, placeholderNames)
+        : buildHogqlSqlAssignmentCode(code, returnVariable)
     let runtimeSandboxId = executionSandboxId
     try {
         let executionResult: PythonExecutionResult | null = null
@@ -731,11 +757,21 @@ const runHogqlSqlCell = async ({
 
         kernelResponse = (await api.notebooks.kernelExecute(notebookId, {
             code: executionCode,
-            return_variables: false,
+            return_variables: shouldExecuteInKernel,
         })) as PythonKernelExecuteResponse
         runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
 
         if (kernelResponse.status === 'error') {
+            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
+            updateAttributes({
+                hogqlExecution: executionResult,
+                hogqlExecutionCodeHash: codeHash,
+                hogqlExecutionSandboxId: runtimeSandboxId,
+            })
+            return { executed: true, execution: executionResult }
+        }
+
+        if (shouldExecuteInKernel) {
             executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
             updateAttributes({
                 hogqlExecution: executionResult,
@@ -1545,9 +1581,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 values.nodeId,
                 returnVariable
             )
+            const placeholders = extractHogqlPlaceholders(code)
             const { executed, execution } = await runHogqlSqlCell({
                 notebookId: notebook.short_id,
                 code,
+                placeholders,
                 returnVariable: resolvedReturnVariable,
                 pageSize: values.dataframePageSize,
                 updateAttributes: actions.updateAttributes,

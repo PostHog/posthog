@@ -59,6 +59,21 @@ const stripSqlComments = (sql: string): string => {
     return sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 }
 
+export const extractHogqlPlaceholders = (sql: string): string[] => {
+    const cleanedSql = stripSqlComments(sql || '')
+    const placeholders: string[] = []
+    const placeholderPattern = /\{([A-Za-z_][\w$]*)\}/g
+    let match = placeholderPattern.exec(cleanedSql)
+    while (match) {
+        const name = match[1]
+        if (name && name !== 'filters' && !placeholders.includes(name)) {
+            placeholders.push(name)
+        }
+        match = placeholderPattern.exec(cleanedSql)
+    }
+    return placeholders
+}
+
 const extractCteNames = (sql: string): Set<string> => {
     const cteNames = new Set<string>()
     const ctePattern = /(?:with|,)\s*([A-Za-z_][\w$]*)\s+as\s*\(/gi
@@ -401,7 +416,7 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 nodeIndex: hogqlSqlIndex,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
                 exports: returnVariable ? [returnVariable] : [],
-                uses: [],
+                uses: extractHogqlPlaceholders(code),
                 code,
                 returnVariable,
             })
