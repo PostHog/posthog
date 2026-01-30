@@ -39,6 +39,7 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -875,6 +876,13 @@ environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/autocapture_controls",
+    ErrorTrackingAutoCaptureControlsViewSet,
+    "environment_error_tracking_autocapture_controls",
     ["team_id"],
 )
 

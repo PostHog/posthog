@@ -1,5 +1,4 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
@@ -33,6 +32,7 @@ import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/a
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -45,8 +45,11 @@ import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
+import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
+import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
@@ -94,7 +97,6 @@ import { Members } from './organization/Members'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -491,6 +493,34 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-experiments',
+        title: 'Experiments',
+        settings: [
+            {
+                id: 'environment-experiment-stats-method',
+                title: 'Default statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this environment. Individual experiments can override this setting.',
+                component: <DefaultExperimentStatsMethod />,
+            },
+            {
+                id: 'environment-experiment-confidence-level',
+                title: 'Default confidence level',
+                description:
+                    'Higher confidence level reduces false positives but requires more data. Can be overridden per experiment.',
+                component: <DefaultExperimentConfidenceLevel />,
+            },
+            {
+                id: 'environment-experiment-recalculation-time',
+                title: 'Daily recalculation time',
+                description:
+                    "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
+                component: <ExperimentRecalculationTime />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-error-tracking',
         title: 'Error tracking',
         settings: [
@@ -803,13 +833,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
-            },
-            {
-                id: 'organization-experiment-stats-method',
-                title: 'Default experiment statistical method',
-                description:
-                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
-                component: <OrganizationExperimentStatsMethod />,
             },
             {
                 id: 'organization-ip-anonymization-default',
