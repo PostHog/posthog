@@ -22,8 +22,27 @@ export type State = {
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
+    /**
+     * Inkeep API key for the PostHog Agent Toolkit.
+     * Setting this enables the 'docs-search' tool.
+     */
     INKEEP_API_KEY: string | undefined
-    POSTHOG_BASE_URL: string | undefined
+    /**
+     * Custom API base URL for self-hosted PostHog instances.
+     *
+     * WARNING: In PostHog Production, this should NOT be set.
+     * The code automatically handles US/EU region routing via getAuthorizationServerUrl().
+     * Only set this for self-hosted PostHog deployments.
+     */
+    POSTHOG_API_BASE_URL: string | undefined
+    /**
+     * PostHog base URL for MCP Apps analytics (used for CSP and analytics ingestion).
+     * For local development, set to http://localhost:8010.
+     */
+    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: string | undefined
+    /**
+     * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
+     */
     POSTHOG_UI_APPS_TOKEN: string | undefined
 }
 

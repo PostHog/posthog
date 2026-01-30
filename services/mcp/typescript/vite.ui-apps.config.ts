@@ -6,7 +6,10 @@ import { type Plugin, defineConfig } from 'vite'
 // PostHog configuration - injected at build time
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
 const POSTHOG_UI_APPS_TOKEN = process.env.POSTHOG_UI_APPS_TOKEN || ''
-const POSTHOG_BASE_URL = process.env.POSTHOG_BASE_URL || 'https://us.posthog.com'
+// Analytics base URL for MCP Apps - where events are sent
+// For local development, set to http://localhost:8010
+const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL =
+    process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || 'https://us.i.posthog.com'
 
 // Apps directory - all subdirectories with index.html are apps
 const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
@@ -113,14 +116,14 @@ function inlineAllAssets(): Plugin {
  *
  * Environment variables:
  * - POSTHOG_UI_APPS_TOKEN: PostHog API token for analytics (optional)
- * - POSTHOG_BASE_URL: PostHog API base URL (defaults to https://us.posthog.com)
+ * - POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: PostHog base URL for analytics
  */
 export default defineConfig({
     plugins: [react(), inlineAllAssets()],
     define: {
         // Inject PostHog configuration at build time
         __POSTHOG_UI_APPS_TOKEN__: JSON.stringify(POSTHOG_UI_APPS_TOKEN),
-        __POSTHOG_BASE_URL__: JSON.stringify(POSTHOG_BASE_URL),
+        __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__: JSON.stringify(POSTHOG_MCP_APPS_ANALYTICS_BASE_URL),
     },
     build: {
         outDir: 'ui-apps-dist',

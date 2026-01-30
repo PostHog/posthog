@@ -9,7 +9,7 @@ import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import { AnalyticsEvent } from '@/lib/analytics'
 import {
-    CUSTOM_BASE_URL,
+    CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
     getBaseUrlForRegion,
@@ -107,8 +107,8 @@ export class MCP extends McpAgent<Env> {
     }
 
     async getBaseUrl(): Promise<string> {
-        if (CUSTOM_BASE_URL) {
-            return CUSTOM_BASE_URL
+        if (CUSTOM_API_BASE_URL) {
+            return CUSTOM_API_BASE_URL
         }
 
         // Check region from request props first (passed via URL param), then cache, then detect

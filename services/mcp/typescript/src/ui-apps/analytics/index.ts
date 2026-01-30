@@ -1,7 +1,6 @@
 export {
     initPostHog,
     identifyUser,
-    isPostHogEnabled,
     capture,
     captureAppConnected,
     captureAppConnectionError,

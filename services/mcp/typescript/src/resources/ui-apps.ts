@@ -48,12 +48,12 @@ interface RegisterAppParams {
 }
 
 function registerApp(server: McpServer, context: Context, { name, uri, description, html }: RegisterAppParams): void {
-    const posthogBaseUrl = context.env.POSTHOG_BASE_URL
+    const analyticsBaseUrl = context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
     const uiMetadata: McpUiResourceMeta = {}
-    if (posthogBaseUrl) {
+    if (analyticsBaseUrl) {
         uiMetadata.csp = {
-            connectDomains: [posthogBaseUrl],
-            resourceDomains: [posthogBaseUrl],
+            connectDomains: [analyticsBaseUrl],
+            resourceDomains: [analyticsBaseUrl],
         }
     }
 
