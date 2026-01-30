@@ -551,8 +551,8 @@ class TestGitHubCommitOnApprove:
         # Verify snapshots are CHANGED before approval
         for s in snapshots_before:
             assert s.result == SnapshotResult.CHANGED
-            assert s.approved_at is None
-            assert s.approved_by_id is None
+            assert s.reviewed_at is None
+            assert s.reviewed_by_id is None
             assert s.approved_hash == ""
 
         approved = [
@@ -573,8 +573,8 @@ class TestGitHubCommitOnApprove:
             assert s.result == SnapshotResult.CHANGED, f"Expected result to stay CHANGED but got {s.result}"
 
             # Approval fields should be populated
-            assert s.approved_at is not None
-            assert s.approved_by_id == user.id
+            assert s.reviewed_at is not None
+            assert s.reviewed_by_id == user.id
             assert s.approved_hash in ["abc123hash", "def456hash"]
 
 

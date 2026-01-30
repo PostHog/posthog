@@ -317,8 +317,8 @@ class TestApproveRun:
         snapshot = updated.snapshots.first()
         assert snapshot.result == SnapshotResult.CHANGED  # Result preserved
         assert snapshot.approved_hash == "new_hash"  # Approval recorded
-        assert snapshot.approved_at is not None
-        assert snapshot.approved_by_id == user.id
+        assert snapshot.reviewed_at is not None
+        assert snapshot.reviewed_by_id == user.id
 
 
 @pytest.mark.django_db

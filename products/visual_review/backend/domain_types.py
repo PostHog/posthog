@@ -28,3 +28,16 @@ class SnapshotResult(StrEnum):
     CHANGED = "changed"  # Differs from baseline
     NEW = "new"  # No baseline exists
     REMOVED = "removed"  # Baseline exists but snapshot missing
+
+
+class ReviewState(StrEnum):
+    """
+    Human review state for a snapshot.
+
+    Separate from SnapshotResult which is the computed diff status.
+    ReviewState tracks the human decision and can change between runs.
+    """
+
+    PENDING = "pending"  # Not yet reviewed
+    APPROVED = "approved"  # Accepted the change
+    # REJECTED = "rejected"  # Future: explicitly rejected (uncomment when needed)

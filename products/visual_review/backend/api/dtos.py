@@ -20,6 +20,8 @@ class SnapshotManifestItem:
     content_hash: str
     width: int | None = None
     height: int | None = None
+    # Flexible metadata (browser, viewport, is_critical, etc.)
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,8 @@ class CreateRunInput:
     snapshots: list[SnapshotManifestItem]
     pr_number: int | None = None
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -96,9 +100,12 @@ class Snapshot:
     diff_artifact: Artifact | None
     diff_percentage: float | None
     diff_pixel_count: int | None
-    # Approval fields (immutable once set)
-    approved_at: datetime | None
+    # Review state (human decision, separate from computed result)
+    review_state: str  # pending, approved, (future: rejected)
+    reviewed_at: datetime | None
     approved_hash: str
+    # Flexible metadata (browser, viewport, is_critical, is_flaky, page_group, etc.)
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -129,6 +136,8 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

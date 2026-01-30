@@ -58,6 +58,8 @@ export interface RunSummaryApi {
     unchanged: number
 }
 
+export type RunApiMetadata = { [key: string]: unknown }
+
 export interface RunApi {
     id: string
     project_id: string
@@ -76,6 +78,7 @@ export interface RunApi {
     created_at: string
     /** @nullable */
     completed_at: string | null
+    metadata?: RunApiMetadata
 }
 
 export interface PaginatedRunListApi {
@@ -89,6 +92,10 @@ export interface PaginatedRunListApi {
 
 export type CreateRunInputApiBaselineHashes = { [key: string]: string }
 
+export type CreateRunInputApiMetadata = { [key: string]: unknown }
+
+export type SnapshotManifestItemApiMetadata = { [key: string]: unknown }
+
 export interface SnapshotManifestItemApi {
     identifier: string
     content_hash: string
@@ -96,6 +103,7 @@ export interface SnapshotManifestItemApi {
     width?: number | null
     /** @nullable */
     height?: number | null
+    metadata?: SnapshotManifestItemApiMetadata
 }
 
 export interface CreateRunInputApi {
@@ -107,6 +115,7 @@ export interface CreateRunInputApi {
     /** @nullable */
     pr_number?: number | null
     baseline_hashes?: CreateRunInputApiBaselineHashes
+    metadata?: CreateRunInputApiMetadata
 }
 
 export type UploadTargetApiFields = { [key: string]: string }
@@ -146,10 +155,12 @@ export interface ArtifactApi {
     download_url: string | null
 }
 
+export type SnapshotApiMetadata = { [key: string]: unknown }
+
 export interface SnapshotApi {
-    current_artifact: ArtifactApi
-    baseline_artifact: ArtifactApi
-    diff_artifact: ArtifactApi
+    current_artifact?: ArtifactApi | null
+    baseline_artifact?: ArtifactApi | null
+    diff_artifact?: ArtifactApi | null
     id: string
     identifier: string
     result: string
@@ -157,9 +168,11 @@ export interface SnapshotApi {
     diff_percentage: number | null
     /** @nullable */
     diff_pixel_count: number | null
+    review_state: string
     /** @nullable */
-    approved_at: string | null
+    reviewed_at: string | null
     approved_hash: string
+    metadata?: SnapshotApiMetadata
 }
 
 export interface PaginatedSnapshotListApi {

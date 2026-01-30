@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -22,9 +22,7 @@ export const scene: SceneExport = {
     }),
 }
 
-type SnapshotFilter = 'changed' | 'new' | 'removed' | 'unchanged' | 'all'
-
-function SnapshotCard({
+function SnapshotThumbnail({
     snapshot,
     isSelected,
     onClick,
@@ -33,119 +31,104 @@ function SnapshotCard({
     isSelected: boolean
     onClick: () => void
 }): JSX.Element {
-    const isApproved = !!snapshot.approved_at
+    const isApproved = snapshot.review_state === 'approved'
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
-    const displayResult = isApproved && hasChanges ? 'approved' : snapshot.result
 
-    const resultStyles: Record<string, string> = {
-        unchanged: 'border-border bg-bg-light text-muted',
-        changed: 'border-warning bg-warning-highlight text-warning-dark',
-        new: 'border-primary bg-primary-highlight text-primary-dark',
-        removed: 'border-danger bg-danger-highlight text-danger-dark',
-        approved: 'border-success bg-success-highlight text-success-dark',
-    }
+    // Extract short name from identifier (last part after --)
+    const parts = snapshot.identifier.split('--')
+    const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
 
-    const resultLabels: Record<string, string> = {
-        unchanged: 'Unchanged',
-        changed: 'Changed',
-        new: 'New',
-        removed: 'Removed',
-        approved: 'Approved',
-    }
-
-    const shortName = snapshot.identifier.split('--').pop() || snapshot.identifier
+    const borderColor = isSelected ? 'border-warning-dark' : hasChanges ? 'border-warning' : 'border-border'
 
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={`
-                flex flex-col items-center gap-1 p-2 rounded border-2 transition-all min-w-[100px] max-w-[140px] shrink-0
-                ${resultStyles[displayResult] || resultStyles.unchanged}
-                ${isSelected ? 'ring-2 ring-primary ring-offset-2' : 'hover:scale-105'}
-            `}
-        >
-            <div className="w-16 h-12 bg-bg-3000 rounded flex items-center justify-center overflow-hidden">
+        <button type="button" onClick={onClick} className="flex flex-col items-center gap-1 shrink-0 group">
+            <div
+                className={`w-20 h-14 rounded border-2 overflow-hidden bg-bg-3000 transition-all ${borderColor} ${isSelected ? 'ring-2 ring-warning ring-offset-1' : 'group-hover:border-warning-dark'}`}
+            >
                 {snapshot.current_artifact?.download_url ? (
-                    <img src={snapshot.current_artifact.download_url} alt="" className="w-full h-full object-cover" />
+                    <img
+                        src={snapshot.current_artifact.download_url}
+                        alt=""
+                        className="w-full h-full object-cover object-top"
+                    />
                 ) : (
-                    <span className="text-xs text-muted">No image</span>
+                    <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-[10px] text-muted">No image</span>
+                    </div>
                 )}
             </div>
             <Tooltip title={snapshot.identifier}>
-                <span className="text-xs font-medium truncate w-full text-center">{shortName}</span>
+                <span className="text-xs text-muted truncate max-w-[80px]">{shortName}</span>
             </Tooltip>
-            <span className="text-[10px] font-semibold uppercase flex items-center gap-0.5">
-                {resultLabels[displayResult]}
-                {isApproved && <IconCheck className="w-3 h-3" />}
+            <span
+                className={`text-[10px] font-semibold uppercase flex items-center gap-0.5 ${
+                    isApproved ? 'text-success' : hasChanges ? 'text-warning-dark' : 'text-muted'
+                }`}
+            >
+                {isApproved ? (
+                    <>
+                        <IconCheck className="w-3 h-3" />
+                        Approved
+                    </>
+                ) : (
+                    snapshot.result
+                )}
             </span>
         </button>
     )
 }
 
 export function VisualReviewRunScene(): JSX.Element {
-    const { run, runLoading, snapshots, snapshotsLoading, selectedSnapshot, hasChanges, unapprovedChangesCount } =
-        useValues(visualReviewRunSceneLogic)
-    const { loadRun, loadSnapshots, setSelectedSnapshotId, approveChanges } = useActions(visualReviewRunSceneLogic)
-    const [activeTab, setActiveTab] = useState<SnapshotFilter>('changed')
+    const {
+        run,
+        runLoading,
+        snapshots,
+        snapshotsLoading,
+        selectedSnapshot,
+        hasChanges,
+        unapprovedChangesCount,
+        changedSnapshots,
+    } = useValues(visualReviewRunSceneLogic)
+    const { loadRun, loadSnapshots, setSelectedSnapshotId, approveChanges, approveSnapshot } =
+        useActions(visualReviewRunSceneLogic)
 
     useEffect(() => {
         loadRun()
         loadSnapshots()
     }, [loadSnapshots, loadRun])
 
-    // Auto-select first tab with content
-    useEffect(() => {
-        if (snapshots.length > 0) {
-            const changed = snapshots.filter((s) => s.result === 'changed')
-            const newSnaps = snapshots.filter((s) => s.result === 'new')
-            const removed = snapshots.filter((s) => s.result === 'removed')
-
-            if (changed.length > 0) {
-                setActiveTab('changed')
-            } else if (newSnaps.length > 0) {
-                setActiveTab('new')
-            } else if (removed.length > 0) {
-                setActiveTab('removed')
-            } else {
-                setActiveTab('unchanged')
-            }
-        }
-    }, [snapshots.length, snapshots])
-
     if (runLoading || !run) {
         return <div className="p-4">Loading...</div>
     }
 
-    // Group snapshots
-    const counts = {
-        changed: snapshots.filter((s) => s.result === 'changed').length,
-        new: snapshots.filter((s) => s.result === 'new').length,
-        removed: snapshots.filter((s) => s.result === 'removed').length,
-        unchanged: snapshots.filter((s) => s.result === 'unchanged').length,
-        all: snapshots.length,
+    // Count by result type
+    const changedCount = snapshots.filter((s: SnapshotApi) => s.result === 'changed').length
+    const newCount = snapshots.filter((s: SnapshotApi) => s.result === 'new').length
+    const removedCount = snapshots.filter((s: SnapshotApi) => s.result === 'removed').length
+
+    // Navigation within changed snapshots
+    const currentIndex = selectedSnapshot
+        ? changedSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
+        : -1
+    const hasPrevious = currentIndex > 0
+    const hasNext = currentIndex >= 0 && currentIndex < changedSnapshots.length - 1
+
+    const goToPrevious = (): void => {
+        if (hasPrevious) {
+            setSelectedSnapshotId(changedSnapshots[currentIndex - 1].id)
+        }
     }
 
-    const filteredSnapshots = activeTab === 'all' ? snapshots : snapshots.filter((s) => s.result === activeTab)
+    const goToNext = (): void => {
+        if (hasNext) {
+            setSelectedSnapshotId(changedSnapshots[currentIndex + 1].id)
+        }
+    }
 
-    // Build tabs - only show tabs that have content (except 'all' which always shows)
-    const tabs: LemonTab<SnapshotFilter>[] = []
-
-    if (counts.changed > 0) {
-        tabs.push({ key: 'changed', label: `Changed (${counts.changed})` })
-    }
-    if (counts.new > 0) {
-        tabs.push({ key: 'new', label: `New (${counts.new})` })
-    }
-    if (counts.removed > 0) {
-        tabs.push({ key: 'removed', label: `Removed (${counts.removed})` })
-    }
-    if (counts.unchanged > 0) {
-        tabs.push({ key: 'unchanged', label: `Unchanged (${counts.unchanged})` })
-    }
-    // Always show "All" if there are multiple categories
-    if (tabs.length > 1) {
-        tabs.push({ key: 'all', label: `All (${counts.all})` })
+    const handleApproveSnapshot = (): void => {
+        if (selectedSnapshot) {
+            approveSnapshot(selectedSnapshot)
+        }
     }
 
     return (
@@ -162,6 +145,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 }
             />
 
+            {/* Run metadata */}
             <div className="flex gap-4 items-center text-sm mb-4">
                 <RunStatusBadge status={run.status} />
                 <span className="font-mono">{run.commit_sha.substring(0, 7)}</span>
@@ -169,25 +153,30 @@ export function VisualReviewRunScene(): JSX.Element {
                 {run.approved && <span className="text-success font-medium">✓ Approved</span>}
             </div>
 
-            {/* Tabs for filtering */}
-            {tabs.length > 0 && <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} />}
+            {/* Visual changes header + thumbnail strip */}
+            {changedSnapshots.length > 0 && (
+                <div className="mb-4">
+                    <div className="flex items-center gap-4 mb-3">
+                        <h3 className="font-semibold">Visual changes ({changedSnapshots.length})</h3>
+                        <div className="text-sm text-muted">
+                            {changedCount > 0 && <span className="text-warning-dark">{changedCount} changed</span>}
+                            {newCount > 0 && <span className="text-primary-dark ml-2">{newCount} new</span>}
+                            {removedCount > 0 && <span className="text-danger ml-2">{removedCount} removed</span>}
+                        </div>
+                    </div>
 
-            {/* Snapshot cards */}
-            {filteredSnapshots.length > 0 ? (
-                <div className="flex gap-2 overflow-x-auto py-4">
-                    {filteredSnapshots.map((snapshot) => (
-                        <SnapshotCard
-                            key={snapshot.id}
-                            snapshot={snapshot}
-                            isSelected={selectedSnapshot?.id === snapshot.id}
-                            onClick={() => setSelectedSnapshotId(snapshot.id)}
-                        />
-                    ))}
+                    {/* Thumbnail strip */}
+                    <div className="flex gap-3 overflow-x-auto py-2 px-1">
+                        {changedSnapshots.map((snapshot: SnapshotApi) => (
+                            <SnapshotThumbnail
+                                key={snapshot.id}
+                                snapshot={snapshot}
+                                isSelected={selectedSnapshot?.id === snapshot.id}
+                                onClick={() => setSelectedSnapshotId(snapshot.id)}
+                            />
+                        ))}
+                    </div>
                 </div>
-            ) : snapshotsLoading ? (
-                <div className="text-center text-muted py-8">Loading snapshots...</div>
-            ) : (
-                <div className="text-center text-muted py-8">No snapshots in this category</div>
             )}
 
             <LemonDivider />
@@ -195,10 +184,23 @@ export function VisualReviewRunScene(): JSX.Element {
             {/* Selected snapshot diff viewer */}
             <div className="mt-4">
                 {selectedSnapshot ? (
-                    <SnapshotDiffViewer snapshot={selectedSnapshot} />
-                ) : snapshots.length > 0 ? (
+                    <SnapshotDiffViewer
+                        snapshot={selectedSnapshot}
+                        onApprove={handleApproveSnapshot}
+                        onPrevious={goToPrevious}
+                        onNext={goToNext}
+                        hasPrevious={hasPrevious}
+                        hasNext={hasNext}
+                        currentIndex={currentIndex >= 0 ? currentIndex : undefined}
+                        totalCount={changedSnapshots.length}
+                    />
+                ) : snapshotsLoading ? (
+                    <div className="text-center text-muted py-8">Loading snapshots...</div>
+                ) : changedSnapshots.length > 0 ? (
                     <div className="text-center text-muted py-8">Select a snapshot to view details</div>
-                ) : null}
+                ) : (
+                    <div className="text-center text-muted py-8">No visual changes in this run</div>
+                )}
             </div>
         </SceneContent>
     )

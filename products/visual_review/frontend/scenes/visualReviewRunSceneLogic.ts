@@ -25,6 +25,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         approveChanges: true,
+        approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
     }),
     reducers({
         selectedSnapshotId: [
@@ -70,7 +71,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         hasChanges: [(s) => [s.changedSnapshots], (changedSnapshots): boolean => changedSnapshots.length > 0],
         unapprovedChangesCount: [
             (s) => [s.changedSnapshots],
-            (changedSnapshots): number => changedSnapshots.filter((s) => !s.approved_at).length,
+            (changedSnapshots): number => changedSnapshots.filter((s) => s.review_state !== 'approved').length,
         ],
         breadcrumbs: [
             (s) => [s.run],
@@ -117,6 +118,30 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadSnapshots()
             } catch {
                 lemonToast.error('Failed to approve changes')
+            }
+        },
+        approveSnapshot: async ({ snapshot }) => {
+            if (!snapshot.current_artifact?.content_hash) {
+                lemonToast.error('No artifact to approve')
+                return
+            }
+
+            const approvalPayload = {
+                snapshots: [
+                    {
+                        identifier: snapshot.identifier,
+                        new_hash: snapshot.current_artifact.content_hash,
+                    },
+                ],
+            }
+
+            try {
+                await visualReviewRunsApproveCreate('@current', props.runId, approvalPayload)
+                lemonToast.success('Snapshot approved')
+                actions.loadRun()
+                actions.loadSnapshots()
+            } catch {
+                lemonToast.error('Failed to approve snapshot')
             }
         },
     })),

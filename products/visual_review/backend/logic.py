@@ -10,7 +10,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-from .domain_types import RunStatus, SnapshotResult
+from .domain_types import ReviewState, RunStatus, SnapshotResult
 from .models import Artifact, Project, Run, RunSnapshot
 from .storage import ArtifactStorage
 
@@ -199,6 +199,7 @@ def create_run(
     pr_number: int | None,
     snapshots: list[dict],
     baseline_hashes: dict[str, str],
+    metadata: dict | None = None,
 ) -> tuple[Run, list[dict]]:
     """
     Create a new run with its snapshots.
@@ -215,6 +216,7 @@ def create_run(
         branch=branch,
         pr_number=pr_number,
         total_snapshots=len(snapshots),
+        metadata=metadata or {},
     )
 
     all_hashes: set[str] = set()
@@ -258,6 +260,8 @@ def create_run(
             # Store metadata on snapshot for artifact creation during complete
             current_width=snap.get("width"),
             current_height=snap.get("height"),
+            # Flexible metadata (browser, viewport, is_critical, etc.)
+            metadata=snap.get("metadata") or {},
         )
 
     # Calculate initial summary counts from snapshot results
@@ -553,10 +557,11 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     # This preserves the diff history while tracking what was approved
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         new_hash = approvals[snapshot.identifier]
-        snapshot.approved_at = timezone.now()
-        snapshot.approved_by_id = user_id
+        snapshot.review_state = ReviewState.APPROVED
+        snapshot.reviewed_at = timezone.now()
+        snapshot.reviewed_by_id = user_id
         snapshot.approved_hash = new_hash
-        snapshot.save(update_fields=["approved_at", "approved_by_id", "approved_hash"])
+        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
     # Mark run approved
     run.approved = True

@@ -65,8 +65,10 @@ def _to_snapshot(snapshot, project_id: UUID) -> Snapshot:
         diff_artifact=_to_artifact(snapshot.diff_artifact, project_id) if snapshot.diff_artifact else None,
         diff_percentage=snapshot.diff_percentage,
         diff_pixel_count=snapshot.diff_pixel_count,
-        approved_at=snapshot.approved_at,
+        review_state=snapshot.review_state,
+        reviewed_at=snapshot.reviewed_at,
         approved_hash=snapshot.approved_hash,
+        metadata=snapshot.metadata or {},
     )
 
 
@@ -91,6 +93,7 @@ def _to_run(run) -> Run:
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        metadata=run.metadata or {},
     )
 
 
@@ -149,6 +152,7 @@ def create_run(input: CreateRunInput) -> CreateRunResult:
             "content_hash": s.content_hash,
             "width": s.width,
             "height": s.height,
+            "metadata": dict(s.metadata) if s.metadata else {},
         }
         for s in input.snapshots
     ]
@@ -161,6 +165,7 @@ def create_run(input: CreateRunInput) -> CreateRunResult:
         pr_number=input.pr_number,
         snapshots=snapshots,
         baseline_hashes=input.baseline_hashes,
+        metadata=dict(input.metadata) if input.metadata else {},
     )
 
     upload_targets = [

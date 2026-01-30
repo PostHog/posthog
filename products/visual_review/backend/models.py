@@ -7,7 +7,7 @@ from django.db import models
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from .domain_types import RunStatus, RunType, SnapshotResult
+from .domain_types import ReviewState, RunStatus, RunType, SnapshotResult
 
 
 class Project(models.Model):
@@ -94,6 +94,10 @@ class Run(models.Model):
 
     error_message = models.TextField(blank=True)
 
+    # Flexible metadata (not indexed)
+    # e.g., {"pr_title": "...", "base_branch": "main", "ci_job_url": "..."}
+    metadata = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -147,10 +151,23 @@ class RunSnapshot(models.Model):
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
 
-    # Approval (per-snapshot, preserves result immutability)
-    approved_at = models.DateTimeField(null=True, blank=True)
-    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # Review state (human decision, separate from computed result)
+    # result = computed diff status (immutable once set)
+    # review_state = human decision (can change, e.g., reset on new runs)
+    review_state = models.CharField(
+        max_length=20,
+        choices=[(s.value, s.value) for s in ReviewState],
+        default=ReviewState.PENDING,
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    review_comment = models.TextField(blank=True)  # For rejection reasons or notes
+    # Hash that was approved (specific to approval action)
     approved_hash = models.CharField(max_length=128, blank=True)
+
+    # Flexible metadata (not indexed)
+    # e.g., {"browser": "chrome", "viewport": "desktop", "is_flaky": true, "is_critical": true, "page_group": "Checkout"}
+    metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [
