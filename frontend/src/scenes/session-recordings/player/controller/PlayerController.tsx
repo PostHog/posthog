@@ -24,7 +24,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SessionPlayerState } from '~/types'
 
 import { ClipRecording } from './ClipRecording'
-import { SeekSkip, Timestamp } from './PlayerControllerTime'
+import { SeekSkip, Timestamp, TimestampFormatButton } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
 function PlayPauseButton(): JSX.Element {
@@ -230,6 +230,7 @@ export function PlayerController(): JSX.Element {
                     <PlayPauseButton />
                     <SeekSkip direction="forward" />
                     <Timestamp size={size} />
+                    <TimestampFormatButton />
                 </div>
                 <div className="flex gap-0.5 justify-end items-center">
                     {ModesWithInteractions.includes(playerMode) && (

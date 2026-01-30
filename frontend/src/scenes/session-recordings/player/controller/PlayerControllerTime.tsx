@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
+import { IconClock } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
@@ -79,6 +80,47 @@ export function Timestamp({
                 />
             )}
         </LemonButton>
+    )
+}
+
+const TIMESTAMP_FORMAT_LABELS: Record<TimestampFormat, string> = {
+    [TimestampFormat.Relative]: 'Relative',
+    [TimestampFormat.UTC]: 'UTC',
+    [TimestampFormat.Device]: 'Device',
+}
+
+export function TimestampFormatButton(): JSX.Element {
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
+
+    return (
+        <LemonMenu
+            items={[
+                {
+                    label: 'Relative',
+                    active: timestampFormat === TimestampFormat.Relative,
+                    onClick: () => setTimestampFormat(TimestampFormat.Relative),
+                },
+                {
+                    label: 'UTC',
+                    active: timestampFormat === TimestampFormat.UTC,
+                    onClick: () => setTimestampFormat(TimestampFormat.UTC),
+                },
+                {
+                    label: 'Device',
+                    active: timestampFormat === TimestampFormat.Device,
+                    onClick: () => setTimestampFormat(TimestampFormat.Device),
+                },
+            ]}
+        >
+            <LemonButton
+                size="xsmall"
+                noPadding
+                icon={<IconClock className="text-base" />}
+                tooltip={`Change timestamp (${TIMESTAMP_FORMAT_LABELS[timestampFormat]})`}
+                data-attr="recording-timestamp-format"
+            />
+        </LemonMenu>
     )
 }
 

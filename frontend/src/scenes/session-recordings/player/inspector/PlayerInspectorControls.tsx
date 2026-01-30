@@ -6,6 +6,7 @@ import {
     IconCheck,
     IconChevronDown,
     IconChevronRight,
+    IconClock,
     IconComment,
     IconDashboard,
     IconGear,
@@ -19,13 +20,20 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import {
+    SettingsBar,
+    SettingsButton,
+    SettingsMenu,
+    SettingsToggle,
+} from 'scenes/session-recordings/components/PanelSettings'
 import { SharedListMiniFilter, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     FilterableInspectorListItemTypes,
     InspectorListItem,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
@@ -267,6 +275,36 @@ function CommentsFilterSettingsButton(): JSX.Element {
     )
 }
 
+function TimestampFormatSettingsButton(): JSX.Element {
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
+
+    return (
+        <SettingsMenu
+            highlightWhenActive={false}
+            items={[
+                {
+                    label: 'Relative',
+                    onClick: () => setTimestampFormat(TimestampFormat.Relative),
+                    active: timestampFormat === TimestampFormat.Relative,
+                },
+                {
+                    label: 'UTC',
+                    onClick: () => setTimestampFormat(TimestampFormat.UTC),
+                    active: timestampFormat === TimestampFormat.UTC,
+                },
+                {
+                    label: 'Device',
+                    onClick: () => setTimestampFormat(TimestampFormat.Device),
+                    active: timestampFormat === TimestampFormat.Device,
+                },
+            ]}
+            icon={<IconClock />}
+            label={TimestampFormatToLabel[timestampFormat]}
+        />
+    )
+}
+
 export function PlayerInspectorControls(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { searchQuery, miniFiltersByKey } = useValues(miniFiltersLogic)
@@ -290,6 +328,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
                 {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
+                <TimestampFormatSettingsButton />
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle
