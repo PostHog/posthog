@@ -62,7 +62,7 @@ def check_max_migration_file() -> bool:
     if not migrations:
         return True
 
-    max_migration = max(migrations, key=lambda x: int(x[0]))
+    max_migration = max(migrations, key=lambda x: (int(x[0]), x[1]))
     expected = f"{max_migration[0]}_{max_migration[1]}"
 
     if not os.path.exists(MAX_MIGRATION_FILE):
