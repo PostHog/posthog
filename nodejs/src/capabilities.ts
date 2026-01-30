@@ -87,7 +87,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             // Check if specific capability groups are requested via env var
             if (config.NODEJS_CAPABILITY_GROUPS) {
-                const requestedGroups = config.NODEJS_CAPABILITY_GROUPS.split(',').map((g) => g.trim())
+            if (config.NODEJS_CAPABILITY_GROUPS && config.NODEJS_CAPABILITY_GROUPS.trim()) {
                 const capabilities: PluginServerCapabilities[] = []
 
                 for (const group of requestedGroups) {
