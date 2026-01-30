@@ -23,8 +23,8 @@ import { openDeletePromptDialog } from './utils'
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
     logic: llmPromptLogic,
-    paramsToProps: ({ params: { id }, searchParams }) => ({
-        promptId: id && id !== 'new' ? id : 'new',
+    paramsToProps: ({ params: { name }, searchParams }) => ({
+        promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
     }),
 }
@@ -229,16 +229,24 @@ function PromptRelatedTraces(): JSX.Element {
 }
 
 function PromptEditForm(): JSX.Element {
-    const { promptVariables } = useValues(llmPromptLogic)
+    const { promptVariables, isNewPrompt } = useValues(llmPromptLogic)
 
     return (
         <div className="space-y-4 max-w-3xl">
             <LemonField
                 name="name"
                 label="Name"
-                help="This name is used to fetch the prompt from your code. It must be unique. Only letters, numbers, hyphens (-), and underscores (_) are allowed."
+                help={
+                    isNewPrompt
+                        ? 'This name is used to fetch the prompt from your code. It must be unique and cannot be changed later. Only letters, numbers, hyphens (-), and underscores (_) are allowed.'
+                        : 'This name is used to fetch the prompt from your code.'
+                }
             >
-                <LemonInput placeholder="my-prompt-name" fullWidth />
+                <LemonInput
+                    placeholder="my-prompt-name"
+                    fullWidth
+                    disabledReason={!isNewPrompt ? 'Prompt name cannot be changed after creation' : undefined}
+                />
             </LemonField>
 
             <LemonField

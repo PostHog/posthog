@@ -5258,6 +5258,10 @@ const api = {
             return new ApiRequest().llmPrompt(promptId).get()
         },
 
+        getByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPrompts().addPathComponent('name').addPathComponent(promptName).get()
+        },
+
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
             return await new ApiRequest().llmPrompts().create({ data })
         },

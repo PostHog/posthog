@@ -20,7 +20,7 @@ describe('llmPromptLogic', () => {
 
     describe('mode handling', () => {
         it('defaults to View mode for existing prompts', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -31,7 +31,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('respects mode from props', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123', mode: PromptMode.Edit })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123', mode: PromptMode.Edit })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -42,7 +42,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('switches mode via setMode action', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -67,7 +67,7 @@ describe('llmPromptLogic', () => {
 
     describe('isViewMode selector', () => {
         it('returns true for existing prompts in View mode', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -78,7 +78,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('returns false for existing prompts in Edit mode', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123', mode: PromptMode.Edit })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123', mode: PromptMode.Edit })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -89,7 +89,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('returns false for new prompts regardless of mode', async () => {
-            const logic = llmPromptLogic({ promptId: 'new' })
+            const logic = llmPromptLogic({ promptName: 'new' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -102,7 +102,7 @@ describe('llmPromptLogic', () => {
 
     describe('isEditMode selector', () => {
         it('returns true for new prompts', async () => {
-            const logic = llmPromptLogic({ promptId: 'new' })
+            const logic = llmPromptLogic({ promptName: 'new' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -113,7 +113,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('returns true for existing prompts in Edit mode', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123', mode: PromptMode.Edit })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123', mode: PromptMode.Edit })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -124,7 +124,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('returns false for existing prompts in View mode', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -137,7 +137,7 @@ describe('llmPromptLogic', () => {
 
     describe('relatedTracesQuery selector', () => {
         it('returns null when no prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -148,7 +148,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('returns null for form values without id', async () => {
-            const logic = llmPromptLogic({ promptId: 'new' })
+            const logic = llmPromptLogic({ promptName: 'new' })
             logic.mount()
 
             await expectLogic(logic).toMatchValues({
@@ -159,7 +159,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('builds correct query when prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             const mockPrompt = {
@@ -216,7 +216,7 @@ describe('llmPromptLogic', () => {
 
     describe('viewAllTracesUrl selector', () => {
         it('returns base traces URL when no prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             expect(logic.values.viewAllTracesUrl).toBe('/llm-analytics/traces')
@@ -225,7 +225,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('returns base traces URL for form values without id', async () => {
-            const logic = llmPromptLogic({ promptId: 'new' })
+            const logic = llmPromptLogic({ promptName: 'new' })
             logic.mount()
 
             expect(logic.values.viewAllTracesUrl).toBe('/llm-analytics/traces')
@@ -234,7 +234,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('builds URL with encoded filter when prompt is loaded', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             const mockPrompt = {
@@ -267,7 +267,7 @@ describe('llmPromptLogic', () => {
         })
 
         it('encodes special characters in prompt name', async () => {
-            const logic = llmPromptLogic({ promptId: 'existing-prompt-123' })
+            const logic = llmPromptLogic({ promptName: 'existing-prompt-123' })
             logic.mount()
 
             const mockPrompt = {
