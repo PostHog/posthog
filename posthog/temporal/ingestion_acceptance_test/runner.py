@@ -4,6 +4,7 @@ import time
 import traceback
 from concurrent.futures import Executor, as_completed
 from dataclasses import dataclass
+from typing import Literal
 
 from .client import PostHogClient
 from .config import Config
@@ -37,7 +38,7 @@ def _run_single_test(
 ) -> TestResult:
     """Run a single test and return its result."""
     start_time = time.time()
-    status = "passed"
+    status: Literal["passed", "failed", "error"] = "passed"
     error_message = None
     error_details = None
 

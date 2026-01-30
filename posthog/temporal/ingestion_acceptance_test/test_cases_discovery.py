@@ -24,7 +24,7 @@ class TestCase:
 
 
 def discover_tests() -> list[TestCase]:
-    """Discover all test cases in the tests package by scanning for test_*.py files."""
+    """Discover all test cases in the tests package by scanning for acceptance_test_*.py files."""
     from .runner import AcceptanceTest
 
     tests_dir = Path(__file__).parent / "tests"
@@ -32,7 +32,7 @@ def discover_tests() -> list[TestCase]:
 
     tests: list[TestCase] = []
 
-    for test_file in tests_dir.rglob("test_*.py"):
+    for test_file in tests_dir.rglob("acceptance_test_*.py"):
         relative_path = test_file.relative_to(tests_dir)
         module_parts = list(relative_path.with_suffix("").parts)
         module_name = f"{base_package}.{'.'.join(module_parts)}"

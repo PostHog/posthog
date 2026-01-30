@@ -79,7 +79,9 @@ class TestRunTests:
 
         assert result.failed_count == 1
         assert result.results[0].status == "failed"
+        assert result.results[0].error_message is not None
         assert "expected failure" in result.results[0].error_message
+        assert result.results[0].error_details is not None
         assert result.results[0].error_details["type"] == "AssertionError"
 
     def test_returns_error_status_for_unexpected_exception(
@@ -95,7 +97,9 @@ class TestRunTests:
 
         assert result.error_count == 1
         assert result.results[0].status == "error"
+        assert result.results[0].error_message is not None
         assert "something broke" in result.results[0].error_message
+        assert result.results[0].error_details is not None
         assert result.results[0].error_details["type"] == "ValueError"
 
     def test_runs_multiple_tests_and_aggregates_results(
