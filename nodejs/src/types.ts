@@ -59,6 +59,7 @@ export enum PluginServerMode {
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    recording_api = 'recording-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -347,6 +348,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    SESSION_RECORDING_KMS_ENDPOINT: string | undefined
+    SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
     SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
@@ -544,6 +547,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    recordingApi?: boolean
 }
 
 export type TeamId = Team['id']
