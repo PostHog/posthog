@@ -191,7 +191,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
-                        {/* Left column - narrow, sticky on large screens */}
+                        {/* Left column */}
                         <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
@@ -402,7 +402,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             </div>
                         </div>
 
-                        {/* Right column - wide */}
+                        {/* Right column */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
                             {/* Flag type card */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">

@@ -201,13 +201,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
     )
 
     const handleAddConditionSet = (): void => {
-        // Get the next sort_key - it will be max(existing sort_keys) + 1
-        const maxSortKey = filterGroups.reduce(
-            (max, group) => Math.max(max, typeof group.sort_key === 'number' ? group.sort_key : 0),
-            -1
-        )
-        const newSortKey = maxSortKey + 1
-        addConditionSet()
+        const newSortKey = crypto.randomUUID()
+        addConditionSet(newSortKey)
         setOpenConditions((prev) => [...prev, `condition-${newSortKey}`])
     }
 
