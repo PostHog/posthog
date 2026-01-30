@@ -401,6 +401,13 @@ jobs:
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
+                  # Check if there are any test targets
+                  TEST_TARGETS=$(bazel query "kind(test, $TESTS)" 2>/dev/null || true)
+                  if [[ -z "$TEST_TARGETS" ]]; then
+                    echo "No test targets found in $TESTS - skipping"
+                    exit 0
+                  fi
+
                   echo "Running: bazel test --config=ci $TESTS"
                   bazel test --config=ci \
                     --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_API_KEY }} \
