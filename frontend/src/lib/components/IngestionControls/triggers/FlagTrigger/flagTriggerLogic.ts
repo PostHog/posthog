@@ -11,7 +11,7 @@ import type { flagTriggerLogicType } from './flagTriggerLogicType'
 export type FlagTriggerLogicProps = {
     logicKey: string
     flag: LinkedFeatureFlag | null
-    onChange: (flag: LinkedFeatureFlag) => void
+    onChange: (flag: LinkedFeatureFlag | null) => void
 }
 
 export const flagTriggerLogic = kea<flagTriggerLogicType>([
