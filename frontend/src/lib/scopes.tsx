@@ -149,7 +149,7 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition', 'action'].includes(key)
+            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
                 ? `${key}:write`
                 : `${key}:read`
         ),
@@ -188,8 +188,6 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'survey:write',
     'event_definition:read',
     'event_definition:write',
-    'action:read',
-    'action:write',
     'error_tracking:read',
     'logs:read',
 ]
