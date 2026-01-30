@@ -86,10 +86,7 @@ class Command(BaseCommand):
             sys.exit(1)
 
         if sys.stdin.isatty():
-            logger.warning("Not running migration-specific checks, please run:")
-            logger.warning(
-                r'git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | python manage.py test_ch_migrations_are_safe'
-            )
+            logger.warning("Not running migration-specific checks. See .github/workflows/ci-backend.yml for usage.")
             return
 
         migrations = [m.strip() for m in sys.stdin.readlines() if m.strip()]
