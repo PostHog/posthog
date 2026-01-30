@@ -4,6 +4,7 @@ load("@aspect_rules_py//py:defs.bzl", "py_test")
 # Combined into single target to avoid aspect_rules_py .venv.pth conflicts
 py_test(
     name = "tests",
+    size = "large",  # Integration tests with DB setup need more time (900s vs 300s default)
     srcs = glob(["test_*.py"]) + ["conftest.py"],
     data = ["//posthog:conftest.py"],  # posthog conftest with django_db_setup fixture
     local = True,  # Run without sandbox - needs PostgreSQL, ClickHouse, Redis
