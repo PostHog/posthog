@@ -142,6 +142,7 @@ impl KafkaDeduplicatorService {
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
+            s3_max_retries: config.s3_max_retries,
             checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
             max_concurrent_checkpoint_file_downloads: config
                 .max_concurrent_checkpoint_file_downloads,
