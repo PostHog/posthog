@@ -125,7 +125,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             ),
         },
         {
-            title: 'Create a recording',
+            title: 'Watch session recordings',
+            badge: 'recommended',
             content: <>{SessionReplayFinalSteps && <SessionReplayFinalSteps />}</>,
         },
     ]

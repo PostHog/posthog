@@ -137,7 +137,8 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
             ),
         },
         {
-            title: 'Create a recording',
+            title: 'Watch session recordings',
+            badge: 'recommended',
             content: <>{SessionReplayFinalSteps && <SessionReplayFinalSteps />}</>,
         },
     ]

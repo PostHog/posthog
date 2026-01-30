@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = ctx
     const SessionReplayFinalSteps = snippets?.SessionReplayFinalSteps
 
     return [
@@ -187,45 +187,85 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <Markdown>
                         For Session Replay to work, wrap your app with `PostHogWidget` and add the `PosthogObserver`:
                     </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'dart',
-                                file: 'MyApp.dart',
-                                code: dedent`
-                                    import 'package:flutter/material.dart';
-                                    import 'package:posthog_flutter/posthog_flutter.dart';
+                    <Tab.Group tabs={['MaterialApp', 'go_router']}>
+                        <Tab.List>
+                            <Tab>MaterialApp</Tab>
+                            <Tab>go_router</Tab>
+                        </Tab.List>
+                        <Tab.Panels>
+                            <Tab.Panel>
+                                <CodeBlock
+                                    blocks={[
+                                        {
+                                            language: 'dart',
+                                            file: 'MyApp.dart',
+                                            code: dedent`
+                                                import 'package:flutter/material.dart';
+                                                import 'package:posthog_flutter/posthog_flutter.dart';
 
-                                    class MyApp extends StatelessWidget {
-                                      @override
-                                      Widget build(BuildContext context) {
-                                        // Wrap your App with PostHogWidget
-                                        return PostHogWidget(
-                                          child: MaterialApp(
-                                            // Add PosthogObserver to your navigatorObservers
-                                            navigatorObservers: [PosthogObserver()],
-                                            title: 'My App',
-                                            home: const HomeScreen(),
-                                          ),
-                                        );
-                                      }
-                                    }
-                                `,
-                            },
-                        ]}
-                    />
-                    <CalloutBox type="fyi" title="go_router">
-                        <Markdown>
-                            If you're using go_router, see our [Flutter
-                            docs](https://posthog.com/docs/libraries/flutter#capturing-screen-views) for how to set up
-                            the PosthogObserver.
-                        </Markdown>
-                    </CalloutBox>
+                                                class MyApp extends StatelessWidget {
+                                                  @override
+                                                  Widget build(BuildContext context) {
+                                                    return PostHogWidget(
+                                                      child: MaterialApp(
+                                                        navigatorObservers: [PosthogObserver()],
+                                                        title: 'My App',
+                                                        home: const HomeScreen(),
+                                                      ),
+                                                    );
+                                                  }
+                                                }
+                                            `,
+                                        },
+                                    ]}
+                                />
+                            </Tab.Panel>
+                            <Tab.Panel>
+                                <CodeBlock
+                                    blocks={[
+                                        {
+                                            language: 'dart',
+                                            file: 'MyApp.dart',
+                                            code: dedent`
+                                                import 'package:flutter/material.dart';
+                                                import 'package:go_router/go_router.dart';
+                                                import 'package:posthog_flutter/posthog_flutter.dart';
+
+                                                final GoRouter _router = GoRouter(
+                                                  observers: [PosthogObserver()],
+                                                  routes: [
+                                                    GoRoute(
+                                                      name: 'home',  // Name your routes for proper screen tracking
+                                                      path: '/',
+                                                      builder: (context, state) => const HomeScreen(),
+                                                    ),
+                                                  ],
+                                                );
+
+                                                class MyApp extends StatelessWidget {
+                                                  @override
+                                                  Widget build(BuildContext context) {
+                                                    return PostHogWidget(
+                                                      child: MaterialApp.router(
+                                                        routerConfig: _router,
+                                                        title: 'My App',
+                                                      ),
+                                                    );
+                                                  }
+                                                }
+                                            `,
+                                        },
+                                    ]}
+                                />
+                            </Tab.Panel>
+                        </Tab.Panels>
+                    </Tab.Group>
                 </>
             ),
         },
         {
-            title: 'Create a recording',
+            title: 'Watch session recordings',
+            badge: 'recommended',
             content: <>{SessionReplayFinalSteps && <SessionReplayFinalSteps />}</>,
         },
     ]
