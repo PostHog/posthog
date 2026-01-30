@@ -339,6 +339,9 @@ def ensure_events_table_exists(
     """Create the events table in the duckling's DuckLake catalog if it doesn't exist.
 
     Returns True if the table was created, False if it already existed.
+
+    Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
+    is idempotent and handles race conditions gracefully.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
@@ -347,14 +350,7 @@ def ensure_events_table_exists(
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
-
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            # Catalog may already be attached from a previous operation in this session
-            if alias not in str(exc):
-                raise
-            context.log.debug(f"Catalog '{alias}' already attached, continuing")
+        attach_catalog(conn, catalog_config, alias=alias)
 
         if table_exists(conn, alias, "main", "events"):
             context.log.info("Events table already exists in duckling catalog")
@@ -362,7 +358,16 @@ def ensure_events_table_exists(
 
         context.log.info("Creating events table in duckling catalog...")
         ddl = EVENTS_TABLE_DDL.format(catalog=alias)
-        conn.execute(ddl)
+        try:
+            conn.execute(ddl)
+        except duckdb.CatalogException:
+            # Race condition: another worker created the table between our check and create
+            # This is expected and safe - just verify the table now exists
+            if table_exists(conn, alias, "main", "events"):
+                context.log.info("Events table was created by another worker")
+                return False
+            raise  # Re-raise if it's a different error
+
         context.log.info("Successfully created events table")
         logger.info(
             "duckling_events_table_created",
@@ -382,6 +387,9 @@ def ensure_persons_table_exists(
     """Create the persons table in the duckling's DuckLake catalog if it doesn't exist.
 
     Returns True if the table was created, False if it already existed.
+
+    Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
+    is idempotent and handles race conditions gracefully.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
@@ -390,14 +398,7 @@ def ensure_persons_table_exists(
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
-
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            # Catalog may already be attached from a previous operation in this session
-            if alias not in str(exc):
-                raise
-            context.log.debug(f"Catalog '{alias}' already attached, continuing")
+        attach_catalog(conn, catalog_config, alias=alias)
 
         if table_exists(conn, alias, "main", "persons"):
             context.log.info("Persons table already exists in duckling catalog")
@@ -405,7 +406,16 @@ def ensure_persons_table_exists(
 
         context.log.info("Creating persons table in duckling catalog...")
         ddl = PERSONS_TABLE_DDL.format(catalog=alias)
-        conn.execute(ddl)
+        try:
+            conn.execute(ddl)
+        except duckdb.CatalogException:
+            # Race condition: another worker created the table between our check and create
+            # This is expected and safe - just verify the table now exists
+            if table_exists(conn, alias, "main", "persons"):
+                context.log.info("Persons table was created by another worker")
+                return False
+            raise  # Re-raise if it's a different error
+
         context.log.info("Successfully created persons table")
         logger.info(
             "duckling_persons_table_created",
