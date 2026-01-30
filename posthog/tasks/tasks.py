@@ -797,7 +797,7 @@ def clickhouse_send_license_usage() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def check_flags_to_rollback() -> None:
     try:
         from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
