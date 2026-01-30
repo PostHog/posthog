@@ -12,7 +12,6 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0979_survey_enable_iframe_embedding"),
         ("error_tracking", "0006_frame_idx_removal"),
     ]
 
