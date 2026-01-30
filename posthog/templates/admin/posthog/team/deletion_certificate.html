@@ -1,0 +1,410 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<style>
+    @media print {
+        /* Hide admin navigation when printing */
+        #header, #nav-sidebar, .breadcrumbs, .no-print {
+            display: none !important;
+        }
+        #content {
+            margin: 0 !important;
+            padding: 20px !important;
+        }
+        body {
+            background: white !important;
+        }
+    }
+
+    .certificate {
+        max-width: 900px;
+        margin: 0 auto;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .certificate-header {
+        text-align: center;
+        border-bottom: 3px solid #1d4ed8;
+        padding-bottom: 20px;
+        margin-bottom: 30px;
+    }
+
+    .certificate-header h1 {
+        color: #1d4ed8;
+        margin: 0 0 10px 0;
+        font-size: 28px;
+    }
+
+    .certificate-header .subtitle {
+        color: #666;
+        font-size: 14px;
+    }
+
+    .dry-run-warning {
+        background: #fef3c7;
+        border: 2px solid #f59e0b;
+        color: #92400e;
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        margin-bottom: 20px;
+        font-weight: bold;
+        font-size: 16px;
+    }
+
+    .section {
+        margin-bottom: 30px;
+    }
+
+    .section h2 {
+        font-size: 18px;
+        color: #333;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 8px;
+        margin-bottom: 15px;
+    }
+
+    .info-grid {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 10px 20px;
+    }
+
+    .info-grid dt {
+        font-weight: 600;
+        color: #555;
+    }
+
+    .info-grid dd {
+        margin: 0;
+        color: #333;
+        word-break: break-all;
+    }
+
+    .summary-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 15px;
+        margin-top: 15px;
+    }
+
+    .summary-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 15px;
+        text-align: center;
+    }
+
+    .summary-card.success {
+        background: #f0fdf4;
+        border-color: #bbf7d0;
+    }
+
+    .summary-card.warning {
+        background: #fffbeb;
+        border-color: #fde68a;
+    }
+
+    .summary-card.error {
+        background: #fef2f2;
+        border-color: #fecaca;
+    }
+
+    .summary-card .number {
+        font-size: 32px;
+        font-weight: bold;
+        color: #1e293b;
+    }
+
+    .summary-card.success .number { color: #16a34a; }
+    .summary-card.warning .number { color: #ca8a04; }
+    .summary-card.error .number { color: #dc2626; }
+
+    .summary-card .label {
+        font-size: 12px;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .recordings-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .recordings-table th,
+    .recordings-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .recordings-table th {
+        background: #f8fafc;
+        font-weight: 600;
+        color: #475569;
+    }
+
+    .recordings-table tr:hover {
+        background: #f8fafc;
+    }
+
+    .recordings-table .session-id {
+        font-family: monospace;
+        font-size: 12px;
+    }
+
+    .actions-bar {
+        margin-bottom: 20px;
+        display: flex;
+        gap: 10px;
+    }
+
+    .actions-bar a, .actions-bar button {
+        padding: 8px 16px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 14px;
+        cursor: pointer;
+    }
+
+    .btn-primary {
+        background: #1d4ed8;
+        color: white;
+        border: none;
+    }
+
+    .btn-primary:hover {
+        background: #1e40af;
+    }
+
+    .btn-secondary {
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+    }
+
+    .btn-secondary:hover {
+        background: #e2e8f0;
+    }
+
+    .collapsible-section {
+        margin-top: 10px;
+    }
+
+    .collapsible-section summary {
+        cursor: pointer;
+        padding: 8px;
+        background: #f8fafc;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .collapsible-section summary:hover {
+        background: #f1f5f9;
+    }
+
+    .footer {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 1px solid #ddd;
+        text-align: center;
+        color: #666;
+        font-size: 12px;
+    }
+</style>
+
+<div class="certificate">
+    <div class="actions-bar no-print">
+        <a href="{% url 'admin:posthog_team_delete_recordings' team.pk %}" class="btn-secondary">&larr; Back to deletion management</a>
+        <button onclick="window.print()" class="btn-primary">Print / Save as PDF</button>
+        <a href="{% url 'admin:posthog_team_download_deletion_certificate' team.pk certificate.workflow_id %}" class="btn-secondary">Download JSON</a>
+    </div>
+
+    <div class="certificate-header">
+        <h1>Session Recording Deletion Certificate</h1>
+        <p class="subtitle">Official record of session recording data deletion</p>
+    </div>
+
+    {% if certificate.dry_run %}
+    <div class="dry-run-warning">
+        DRY RUN - No recordings were actually deleted
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <h2>Workflow Information</h2>
+        <dl class="info-grid">
+            <dt>Workflow ID</dt>
+            <dd>{{ certificate.workflow_id }}</dd>
+
+            <dt>Workflow Type</dt>
+            <dd>{{ certificate.workflow_type }}</dd>
+
+            <dt>Team ID</dt>
+            <dd>{{ certificate.team_id }}</dd>
+
+            <dt>Started At</dt>
+            <dd>{{ certificate.started_at|date:"Y-m-d H:i:s T" }}</dd>
+
+            <dt>Completed At</dt>
+            <dd>{{ certificate.completed_at|date:"Y-m-d H:i:s T" }}</dd>
+
+            <dt>Dry Run</dt>
+            <dd>{{ certificate.dry_run|yesno:"Yes,No" }}</dd>
+
+            {% if certificate.distinct_ids %}
+            <dt>Distinct IDs</dt>
+            <dd>{{ certificate.distinct_ids|join:", " }}</dd>
+            {% endif %}
+
+            {% if certificate.query %}
+            <dt>Query</dt>
+            <dd style="font-family: monospace; font-size: 12px;">{{ certificate.query }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+
+    <div class="section">
+        <h2>Summary</h2>
+        <div class="summary-cards">
+            <div class="summary-card">
+                <div class="number">{{ certificate.total_recordings_found }}</div>
+                <div class="label">Recordings Found</div>
+            </div>
+            <div class="summary-card success">
+                <div class="number">{{ certificate.total_deleted }}</div>
+                <div class="label">Deleted</div>
+            </div>
+            <div class="summary-card warning">
+                <div class="number">{{ certificate.total_not_found }}</div>
+                <div class="label">Not Found</div>
+            </div>
+            <div class="summary-card warning">
+                <div class="number">{{ certificate.total_already_deleted }}</div>
+                <div class="label">Already Deleted</div>
+            </div>
+            <div class="summary-card error">
+                <div class="number">{{ certificate.total_errors }}</div>
+                <div class="label">Errors</div>
+            </div>
+        </div>
+    </div>
+
+    {% if certificate.deleted_recordings %}
+    <div class="section">
+        <h2>Deleted Recordings ({{ certificate.deleted_recordings|length }})</h2>
+        {% if certificate.deleted_recordings|length > 20 %}
+        <details class="collapsible-section">
+            <summary>Show all {{ certificate.deleted_recordings|length }} deleted recordings</summary>
+        {% endif %}
+            <table class="recordings-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Session ID</th>
+                        <th>Deleted At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for recording in certificate.deleted_recordings %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td class="session-id">{{ recording.session_id }}</td>
+                        <td>{{ recording.deleted_at|date:"Y-m-d H:i:s" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% if certificate.deleted_recordings|length > 20 %}
+        </details>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if certificate.not_found_session_ids %}
+    <div class="section">
+        <h2>Not Found Session IDs ({{ certificate.not_found_session_ids|length }})</h2>
+        <details class="collapsible-section">
+            <summary>Show {{ certificate.not_found_session_ids|length }} session IDs</summary>
+            <table class="recordings-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Session ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for session_id in certificate.not_found_session_ids %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td class="session-id">{{ session_id }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+    </div>
+    {% endif %}
+
+    {% if certificate.already_deleted_session_ids %}
+    <div class="section">
+        <h2>Already Deleted Session IDs ({{ certificate.already_deleted_session_ids|length }})</h2>
+        <details class="collapsible-section">
+            <summary>Show {{ certificate.already_deleted_session_ids|length }} session IDs</summary>
+            <table class="recordings-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Session ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for session_id in certificate.already_deleted_session_ids %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td class="session-id">{{ session_id }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+    </div>
+    {% endif %}
+
+    {% if certificate.errors %}
+    <div class="section">
+        <h2>Errors ({{ certificate.errors|length }})</h2>
+        <details class="collapsible-section" open>
+            <summary>Show {{ certificate.errors|length }} errors</summary>
+            <table class="recordings-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Session ID</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for error in certificate.errors %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td class="session-id">{{ error.session_id }}</td>
+                        <td>{{ error.error }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        <p>Generated by PostHog Session Recording Deletion System</p>
+        <p>Certificate generated at {% now "Y-m-d H:i:s T" %}</p>
+    </div>
+</div>
+{% endblock %}

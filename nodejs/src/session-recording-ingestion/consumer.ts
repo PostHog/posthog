@@ -6,10 +6,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { getKeyStore } from '../recording-api/keystore'
-import { MemoryCachedKeyStore } from '../recording-api/keystore-cache'
-import { getBlockEncryptor } from '../recording-api/recording-encryptor'
-import { BaseKeyStore, BaseRecordingEncryptor } from '../recording-api/types'
+import { getBlockEncryptor } from '../session-recording-api/encryptor'
+import { getKeyStore } from '../session-recording-api/keystore'
+import { MemoryCachedKeyStore } from '../session-recording-api/keystore-cache'
+import { BaseKeyStore, BaseRecordingEncryptor } from '../session-recording-api/types'
 import {
     HealthCheckResult,
     PluginServerService,
