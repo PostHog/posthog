@@ -366,11 +366,16 @@ def get_all_autocapture_controls(team_id: int) -> dict[str, dict]:
     for control in controls:
         library = control.get("library")
         if library:
-            if control.get("sample_rate") is not None:
-                control["sample_rate"] = float(control["sample_rate"])
-            if control.get("id") is not None:
-                control["id"] = str(control["id"])
-            result[library] = dict(control)
+            result[library] = {
+                "id": str(control["id"]) if control.get("id") else None,
+                "library": control.get("library"),
+                "matchType": control.get("match_type"),
+                "sampleRate": float(control["sample_rate"]) if control.get("sample_rate") is not None else None,
+                "linkedFeatureFlag": control.get("linked_feature_flag"),
+                "eventTriggers": control.get("event_triggers"),
+                "urlTriggers": control.get("url_triggers"),
+                "urlBlocklist": control.get("url_blocklist"),
+            }
     return result
 
 
