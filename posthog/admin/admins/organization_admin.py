@@ -24,7 +24,7 @@ from posthog.models.organization import Organization
 # Format: (model_import_path, filter_field, display_name)
 # This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
 # When bulk-delete changes, update this list accordingly.
-# Note: CohortPeople requires special handling due to cross-database constraint (see below)
+# Note: CohortPeople and BatchExport require special handling (see below)
 BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
     ("products.early_access_features.backend.models.EarlyAccessFeature", "team_id", "Early Access Features"),
     ("posthog.models.person.PersonDistinctId", "team_id", "Person Distinct IDs"),
@@ -39,7 +39,6 @@ BULK_DELETE_MODEL_REGISTRY: tuple[tuple[str, str, str], ...] = (
     ("posthog.models.group_type_mapping.GroupTypeMapping", "team_id", "Group Type Mappings"),
     ("posthog.models.person.Person", "team_id", "Persons"),
     ("posthog.models.insight_caching_state.InsightCachingState", "team_id", "Insight Caching States"),
-    ("posthog.batch_exports.models.BatchExport", "team_id", "Batch Exports"),
 )
 
 
@@ -92,6 +91,27 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
                 "name": "Cohort People",
                 "count": f"Error: {e}",
                 "model": "posthog.models.cohort.CohortPeople",
+            }
+        )
+
+    # BatchExport requires deleted=False filter to match delete_batch_exports() behavior
+    try:
+        from posthog.batch_exports.models import BatchExport
+
+        batch_export_count = BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
+        results.append(
+            {
+                "name": "Batch Exports",
+                "count": batch_export_count,
+                "model": BatchExport._meta.label,
+            }
+        )
+    except Exception as e:
+        results.append(
+            {
+                "name": "Batch Exports",
+                "count": f"Error: {e}",
+                "model": "posthog.batch_exports.models.BatchExport",
             }
         )
 
