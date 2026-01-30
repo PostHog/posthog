@@ -10,24 +10,28 @@ import { Trending } from './Trending'
 export function HomeTab(): JSX.Element {
     return (
         <div className="HomeTab">
-            <div className="HomeTab__grid">
-                <div className="HomeTab__card">
-                    <Recents />
+            <div className="HomeTab__columns">
+                <div className="HomeTab__column">
+                    <div className="HomeTab__card">
+                        <Recents />
+                    </div>
+                    <div className="HomeTab__card">
+                        <FiringAlerts />
+                    </div>
+                    <div className="HomeTab__card">
+                        <RecentPersons />
+                    </div>
                 </div>
-                <div className="HomeTab__card">
-                    <Trending />
-                </div>
-                <div className="HomeTab__card">
-                    <FiringAlerts />
-                </div>
-                <div className="HomeTab__card">
-                    <Activity />
-                </div>
-                <div className="HomeTab__card">
-                    <RecentPersons />
-                </div>
-                <div className="HomeTab__card">
-                    <NewEvents />
+                <div className="HomeTab__column">
+                    <div className="HomeTab__card">
+                        <Trending />
+                    </div>
+                    <div className="HomeTab__card">
+                        <Activity />
+                    </div>
+                    <div className="HomeTab__card">
+                        <NewEvents />
+                    </div>
                 </div>
             </div>
         </div>
