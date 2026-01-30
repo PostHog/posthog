@@ -7,13 +7,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { browserNotificationLogicType } from './browserNotificationLogicType'
+import type { NotificationPermission } from './types'
 
 const STORAGE_KEY_PREFIX = 'posthog-support-notifications'
 const NOTIFICATION_TAG = 'posthog-support-ticket'
 const NOTIFICATION_ICON = '/static/posthog-icon.svg'
 const NOTIFICATION_AUTO_CLOSE_MS = 5000
-
-type NotificationPermission = 'default' | 'granted' | 'denied'
 
 const getStorageKey = (): string => {
     const teamId = getCurrentTeamIdOrNone() ?? teamLogic.findMounted()?.values.currentTeamId ?? 'null'
