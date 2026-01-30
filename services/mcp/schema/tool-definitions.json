@@ -1,4 +1,74 @@
 {
+    "annotation-create": {
+        "description": "Create a new annotation to mark important events on dashboards. An annotation is a note or marker that appears on your analytics timeline to help you correlate events with your metrics.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Create a new annotation.",
+        "title": "Create annotation",
+        "required_scopes": ["annotation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-delete": {
+        "description": "Delete an annotation by ID (soft delete).",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Delete an annotation by ID.",
+        "title": "Delete annotation",
+        "required_scopes": ["annotation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-get": {
+        "description": "Get a specific annotation by ID.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Get a specific annotation by ID.",
+        "title": "Get annotation",
+        "required_scopes": ["annotation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-update": {
+        "description": "Update an existing annotation by ID.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Update an existing annotation by ID.",
+        "title": "Update annotation",
+        "required_scopes": ["annotation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-list": {
+        "description": "List all annotations in the project with optional filtering. Can filter by scope, limit results, and offset for pagination.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "List all annotations in the project.",
+        "title": "List annotations",
+        "required_scopes": ["annotation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "add-insight-to-dashboard": {
         "description": "Add an existing insight to a dashboard. Requires insight ID and dashboard ID. Optionally supports layout and color customization.",
         "category": "Dashboards",
