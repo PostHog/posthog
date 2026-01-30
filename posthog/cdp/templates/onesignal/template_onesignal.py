@@ -57,7 +57,7 @@ if (res.status >= 200 and res.status < 300) {
             "label": "OneSignal REST API Key",
             "description": "Your OneSignal REST API Key. You can find this in your OneSignal dashboard under Settings > Keys & IDs.",
             "default": "",
-            "secret": False,
+            "secret": True,
             "required": True,
         },
         {
