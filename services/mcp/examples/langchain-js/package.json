@@ -7,11 +7,11 @@
         "dev": "tsx src/index.ts"
     },
     "dependencies": {
-        "@langchain/core": "^0.3.72",
+        "@langchain/core": "^0.3.80",
         "@langchain/openai": "^0.6.9",
         "@posthog/agent-toolkit": "^0.2.1",
         "dotenv": "^16.4.7",
-        "langchain": "^0.3.31",
+        "langchain": "^1.2.15",
         "zod": "^3.24.4"
     },
     "devDependencies": {
