@@ -123,6 +123,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         PLUGIN_SERVER_MODE: null,
+        NODEJS_CAPABILITY_GROUPS: null, // Set via hogli dev:setup - e.g. "cdp_workflows,session_replay"
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
