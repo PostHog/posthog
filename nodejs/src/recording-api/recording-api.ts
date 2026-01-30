@@ -18,6 +18,18 @@ import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
 import { getBlockDecryptor } from './recording-decryptor'
 import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
+/**
+ * Parse and validate team_id from request params.
+ * Returns the parsed number if valid, or null if invalid.
+ */
+function parseTeamId(teamIdParam: string): number | null {
+    const teamId = parseInt(teamIdParam, 10)
+    if (isNaN(teamId) || teamId <= 0) {
+        return null
+    }
+    return teamId
+}
+
 export class RecordingApi {
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
@@ -99,13 +111,14 @@ export class RecordingApi {
     async stop(): Promise<void> {
         this.s3Client?.destroy()
         this.keyStore?.stop()
-        if (this.keystoreRedisPool) {
-            await this.keystoreRedisPool.drain()
-            await this.keystoreRedisPool.clear()
-        }
-        if (this.retentionRedisPool) {
-            await this.retentionRedisPool.drain()
-            await this.retentionRedisPool.clear()
+        await this.drainRedisPool(this.keystoreRedisPool)
+        await this.drainRedisPool(this.retentionRedisPool)
+    }
+
+    private async drainRedisPool(pool: RedisPool | null): Promise<void> {
+        if (pool) {
+            await pool.drain()
+            await pool.clear()
         }
     }
 
@@ -149,14 +162,14 @@ export class RecordingApi {
         const { team_id, session_id } = req.params
         const { key, start, end } = req.query
 
-        const teamId = parseInt(team_id, 10)
-        if (isNaN(teamId) || teamId <= 0) {
+        const teamId = parseTeamId(team_id)
+        if (teamId === null) {
             res.status(400).json({ error: 'Invalid team_id parameter' })
             return
         }
 
         logger.info('[RecordingApi] getBlock request', {
-            team_id,
+            teamId,
             session_id,
             key,
             start,
@@ -237,7 +250,7 @@ export class RecordingApi {
 
             logger.debug('[RecordingApi] Decrypted block', {
                 session_id,
-                team_id,
+                teamId,
                 inputSize: bodyContents.length,
                 outputSize: decrypted.length,
             })
@@ -250,7 +263,7 @@ export class RecordingApi {
         } catch (error) {
             if (error instanceof SessionKeyDeletedError) {
                 logger.info('[RecordingApi] Session key has been deleted', {
-                    team_id,
+                    teamId,
                     session_id,
                     deleted_at: error.deletedAt,
                 })
@@ -266,7 +279,7 @@ export class RecordingApi {
                 key,
                 start: startByte,
                 end: endByte,
-                team_id,
+                teamId,
                 session_id,
             })
             res.status(500).json({ error: 'Failed to fetch block from S3' })
@@ -276,13 +289,13 @@ export class RecordingApi {
     private deleteRecording = async (req: express.Request, res: express.Response): Promise<void> => {
         const { team_id, session_id } = req.params
 
-        const teamId = parseInt(team_id, 10)
-        if (isNaN(teamId) || teamId <= 0) {
+        const teamId = parseTeamId(team_id)
+        if (teamId === null) {
             res.status(400).json({ error: 'Invalid team_id parameter' })
             return
         }
 
-        logger.info('[RecordingApi] deleteRecording request', { team_id: teamId, session_id })
+        logger.info('[RecordingApi] deleteRecording request', { teamId, session_id })
 
         if (!this.keyStore) {
             res.status(503).json({ error: 'KeyStore not initialized' })
@@ -291,16 +304,16 @@ export class RecordingApi {
 
         try {
             const deleted = await this.keyStore.deleteKey(session_id, teamId)
-            logger.debug('[RecordingApi] deleteKey result', { team_id, session_id, deleted })
+            logger.debug('[RecordingApi] deleteKey result', { teamId, session_id, deleted })
             if (deleted) {
-                res.json({ team_id, session_id, status: 'deleted' })
+                res.json({ team_id: teamId, session_id, status: 'deleted' })
             } else {
                 res.status(404).json({ error: 'Recording key not found' })
             }
         } catch (error) {
             if (error instanceof SessionKeyDeletedError) {
                 logger.info('[RecordingApi] Recording already deleted', {
-                    team_id,
+                    teamId,
                     session_id,
                     deleted_at: error.deletedAt,
                 })
@@ -311,7 +324,7 @@ export class RecordingApi {
                 return
             }
 
-            logger.error('[RecordingApi] Error deleting recording key', { error, team_id, session_id })
+            logger.error('[RecordingApi] Error deleting recording key', { error, teamId, session_id })
             res.status(500).json({ error: 'Failed to delete recording key' })
         }
     }

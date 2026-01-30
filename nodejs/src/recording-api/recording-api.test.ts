@@ -498,7 +498,7 @@ describe('RecordingApi', () => {
             await (recordingApi as any).deleteRecording(mockReq, mockRes)
 
             expect(mockKeyStore.deleteKey).toHaveBeenCalledWith('session-123', 1)
-            expect(jsonMock).toHaveBeenCalledWith({ team_id: '1', session_id: 'session-123', status: 'deleted' })
+            expect(jsonMock).toHaveBeenCalledWith({ team_id: 1, session_id: 'session-123', status: 'deleted' })
         })
 
         it('should return 404 when key not found', async () => {
