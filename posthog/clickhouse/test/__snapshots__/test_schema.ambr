@@ -471,7 +471,12 @@
       properties VARCHAR,
       is_identified Int8,
       is_deleted Int8,
-      version UInt64
+      version UInt64,
+      group_0_key VARCHAR,
+      group_1_key VARCHAR,
+      group_2_key VARCHAR,
+      group_3_key VARCHAR,
+      group_4_key VARCHAR
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
@@ -1894,7 +1899,12 @@
       properties VARCHAR,
       is_identified Int8,
       is_deleted Int8,
-      version UInt64
+      version UInt64,
+      group_0_key VARCHAR,
+      group_1_key VARCHAR,
+      group_2_key VARCHAR,
+      group_3_key VARCHAR,
+      group_4_key VARCHAR
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_person_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
@@ -2237,7 +2247,12 @@
       properties VARCHAR,
       is_identified Int8,
       is_deleted Int8,
-      version UInt64
+      version UInt64,
+      group_0_key VARCHAR DEFAULT '',
+      group_1_key VARCHAR DEFAULT '',
+      group_2_key VARCHAR DEFAULT '',
+      group_3_key VARCHAR DEFAULT '',
+      group_4_key VARCHAR DEFAULT ''
       
       
   , _timestamp DateTime
@@ -2387,6 +2402,11 @@
   is_identified,
   is_deleted,
   version,
+  group_0_key,
+  group_1_key,
+  group_2_key,
+  group_3_key,
+  group_4_key,
   _timestamp,
   _offset
   FROM kafka_person
@@ -5340,7 +5360,12 @@
       properties VARCHAR,
       is_identified Int8,
       is_deleted Int8,
-      version UInt64
+      version UInt64,
+      group_0_key VARCHAR DEFAULT '',
+      group_1_key VARCHAR DEFAULT '',
+      group_2_key VARCHAR DEFAULT '',
+      group_3_key VARCHAR DEFAULT '',
+      group_4_key VARCHAR DEFAULT ''
       
   , _timestamp DateTime
   , _offset UInt64
@@ -6178,7 +6203,12 @@
       properties VARCHAR,
       is_identified Int8,
       is_deleted Int8,
-      version UInt64
+      version UInt64,
+      group_0_key VARCHAR DEFAULT '',
+      group_1_key VARCHAR DEFAULT '',
+      group_2_key VARCHAR DEFAULT '',
+      group_3_key VARCHAR DEFAULT '',
+      group_4_key VARCHAR DEFAULT ''
       
       
   , _timestamp DateTime
