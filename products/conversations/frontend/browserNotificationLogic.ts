@@ -52,7 +52,6 @@ export const browserNotificationLogic = kea<browserNotificationLogicType>([
         requestPermission: true,
         setPermission: (permission: NotificationPermission) => ({ permission }),
         setEnabled: (enabled: boolean) => ({ enabled }),
-        toggleEnabled: true,
         showNotification: (count: number) => ({ count }),
     }),
     reducers({
@@ -69,7 +68,7 @@ export const browserNotificationLogic = kea<browserNotificationLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         requestPermission: async () => {
             if (!isNotificationSupported()) {
                 return
@@ -87,13 +86,6 @@ export const browserNotificationLogic = kea<browserNotificationLogicType>([
                 // Permission request failed - likely user dismissed
                 actions.setPermission(Notification.permission as NotificationPermission)
             }
-        },
-        toggleEnabled: () => {
-            // Toggle is only meaningful if permission is granted
-            if (!isNotificationSupported() || Notification.permission !== 'granted') {
-                return
-            }
-            actions.setEnabled(!values.enabled)
         },
         setEnabled: ({ enabled }) => {
             setStoredPreference(enabled)

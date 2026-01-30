@@ -86,7 +86,6 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     })),
     selectors({
         isSupportEnabled: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.conversations_enabled],
-        hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
     listeners(({ actions, values, cache }) => ({
         togglePolling: ({ pageIsVisible }) => {
@@ -100,10 +99,6 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             // Public action for other logics to trigger immediate refresh (e.g., after viewing a ticket)
             cache.disposables.dispose('pollTimeout')
             actions.loadUnreadCount()
-        },
-        resetCount: () => {
-            // Stop polling when count is reset (team change/logout)
-            // Note: pollTimeout is already disposed in subscriptions
         },
     })),
     subscriptions(({ actions, values, cache }) => ({
