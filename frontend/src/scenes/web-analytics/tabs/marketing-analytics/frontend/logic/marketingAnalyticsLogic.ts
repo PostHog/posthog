@@ -551,9 +551,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         hasNoConfiguredSources: [
-            (s) => [s.validExternalTables, s.validNativeSources, s.loading],
-            (validExternalTables, validNativeSources, loading): boolean => {
-                if (loading) {
+            (s) => [s.validExternalTables, s.validNativeSources, s.loading, s.dataWarehouseTables],
+            (validExternalTables, validNativeSources, loading, dataWarehouseTables): boolean => {
+                // Don't show error banner while data is loading or if tables haven't been fetched yet
+                if (loading || dataWarehouseTables === null) {
                     return false
                 }
                 return validExternalTables.length === 0 && validNativeSources.length === 0
