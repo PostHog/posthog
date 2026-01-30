@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     error::{PipelineFailure, UnhandledError},
     fingerprinting::grouping_rules::GroupingRule,
-    metric_consts::ANCILLARY_CACHE,
+    metric_consts::{ANCILLARY_CACHE, TEAM_FIRST_INGESTION_SET},
     pipeline::IncomingEvent,
     sanitize_string, WithIndices,
 };
@@ -145,6 +145,27 @@ impl TeamManager {
         self.group_type_indices.insert(team_id, indices.clone());
         Ok(indices)
     }
+
+    /// Sets ingested_event=true for a team.
+    pub async fn set_team_ingested_event<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query!(
+            "UPDATE posthog_team SET ingested_event = true WHERE id = $1",
+            team_id
+        )
+        .execute(e)
+        .await?;
+
+        metrics::counter!(TEAM_FIRST_INGESTION_SET).increment(1);
+
+        Ok(())
+    }
 }
 
 pub async fn do_team_lookups(
@@ -190,6 +211,23 @@ pub async fn do_team_lookups(
             Ok(maybe_team) => {
                 if maybe_team.is_none() {
                     warn!("Received event for unknown team token: {}", token);
+                }
+                // Set ingested_event=true for this team if not already set
+                if let Some(ref team) = maybe_team {
+                    if !team.ingested_event {
+                        // Fire and forget - we don't want to fail the pipeline if this fails
+                        let ctx = context.clone();
+                        let team_id = team.id;
+                        tokio::spawn(async move {
+                            if let Err(e) = ctx
+                                .team_manager
+                                .set_team_ingested_event(&ctx.posthog_pool, team_id)
+                                .await
+                            {
+                                warn!("Failed to set ingested_event for team {}: {}", team_id, e);
+                            }
+                        });
+                    }
                 }
                 results.insert(token, maybe_team);
             }
