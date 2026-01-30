@@ -360,13 +360,14 @@ def ensure_events_table_exists(
         ddl = EVENTS_TABLE_DDL.format(catalog=alias)
         try:
             conn.execute(ddl)
-        except duckdb.CatalogException:
-            # Race condition: another worker created the table between our check and create
-            # This is expected and safe - just verify the table now exists
+        except duckdb.CatalogException as exc:
+            # Check if this was a race condition (another worker created the table)
             if table_exists(conn, alias, "main", "events"):
                 context.log.info("Events table was created by another worker")
                 return False
-            raise  # Re-raise if it's a different error
+            # Real error - log and re-raise
+            context.log.exception(f"Failed to create events table: {exc}")
+            raise
 
         context.log.info("Successfully created events table")
         logger.info(
@@ -408,13 +409,14 @@ def ensure_persons_table_exists(
         ddl = PERSONS_TABLE_DDL.format(catalog=alias)
         try:
             conn.execute(ddl)
-        except duckdb.CatalogException:
-            # Race condition: another worker created the table between our check and create
-            # This is expected and safe - just verify the table now exists
+        except duckdb.CatalogException as exc:
+            # Check if this was a race condition (another worker created the table)
             if table_exists(conn, alias, "main", "persons"):
                 context.log.info("Persons table was created by another worker")
                 return False
-            raise  # Re-raise if it's a different error
+            # Real error - log and re-raise
+            context.log.exception(f"Failed to create persons table: {exc}")
+            raise
 
         context.log.info("Successfully created persons table")
         logger.info(
@@ -444,12 +446,7 @@ def validate_duckling_schema(
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
-
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
+        attach_catalog(conn, catalog_config, alias=alias)
 
         result = conn.execute(f"DESCRIBE {alias}.main.events").fetchall()
         ducklake_columns = {row[0] for row in result}
@@ -498,12 +495,7 @@ def validate_duckling_persons_schema(
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
-
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
+        attach_catalog(conn, catalog_config, alias=alias)
 
         result = conn.execute(f"DESCRIBE {alias}.main.persons").fetchall()
         ducklake_columns = {row[0] for row in result}
