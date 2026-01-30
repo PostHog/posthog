@@ -250,7 +250,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Tags & Evaluation Contexts card */}
+                            {/* Tags card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonLabel
                                     info={
@@ -259,7 +259,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             : 'Use tags to organize and filter your feature flags.'
                                     }
                                 >
-                                    Tags & evaluation contexts
+                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
                                 </LemonLabel>
                                 {hasEvaluationTags ? (
                                     <LemonField name="tags">
@@ -288,6 +288,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <ObjectTags
                                                 tags={formTags}
                                                 onChange={onChangeTags}
+                                                saving={false}
                                                 tagsAvailable={availableTags.filter(
                                                     (tag: string) => !formTags?.includes(tag)
                                                 )}
