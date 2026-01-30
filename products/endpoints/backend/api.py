@@ -52,6 +52,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.schema_migrations.upgrade import upgrade
@@ -957,6 +958,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
         data = self.get_model(request.data, EndpointRunRequest)
+
+        # Track deprecated parameter usage before introducing breaking changes
+        if data.query_override:
+            TOMBSTONE_COUNTER.labels(
+                namespace="endpoints",
+                operation="query_override",
+                component="api",
+            ).inc()
+        if data.filters_override:
+            TOMBSTONE_COUNTER.labels(
+                namespace="endpoints",
+                operation="filters_override",
+                component="api",
+            ).inc()
 
         # Support version from request body or query params (for backwards compatibility)
         version_number = data.version
