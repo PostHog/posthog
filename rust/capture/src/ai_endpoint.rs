@@ -62,15 +62,9 @@ struct BlobPart {
 }
 
 /// Generate a placeholder string for external property references.
-/// Format: $posthog_external_property_<index>_<random>
+/// Format: $posthog_external_property_<index>
 fn generate_placeholder(index: usize) -> String {
-    use rand::Rng;
-    let random_suffix: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(8)
-        .map(char::from)
-        .collect();
-    format!("$posthog_external_property_{}_{}", index, random_suffix)
+    format!("$posthog_external_property_{}", index)
 }
 
 /// Process blobs: insert placeholders at paths, build external_properties map.
@@ -1085,21 +1079,9 @@ mod tests {
 
     #[test]
     fn test_generate_placeholder() {
-        let p0 = generate_placeholder(0);
-        let p1 = generate_placeholder(1);
-        let p42 = generate_placeholder(42);
-
-        // Check prefix format: $posthog_external_property_<index>_<random>
-        assert!(p0.starts_with("$posthog_external_property_0_"));
-        assert!(p1.starts_with("$posthog_external_property_1_"));
-        assert!(p42.starts_with("$posthog_external_property_42_"));
-
-        // Check that random suffix is 8 characters
-        assert_eq!(p0.len(), "$posthog_external_property_0_".len() + 8);
-
-        // Check that each call generates unique placeholder
-        let p0_again = generate_placeholder(0);
-        assert_ne!(p0, p0_again);
+        assert_eq!(generate_placeholder(0), "$posthog_external_property_0");
+        assert_eq!(generate_placeholder(1), "$posthog_external_property_1");
+        assert_eq!(generate_placeholder(42), "$posthog_external_property_42");
     }
 
     #[test]
@@ -1141,23 +1123,25 @@ mod tests {
         let mut properties = serde_json::Map::new();
         let external_props = process_blob_placeholders(&uploaded, &blob_parts, &mut properties);
 
-        // Check placeholders inserted in properties (with random suffix)
-        let input_placeholder = properties.get("$ai_input").unwrap().as_str().unwrap();
-        let output_placeholder = properties.get("$ai_output").unwrap().as_str().unwrap();
-        assert!(input_placeholder.starts_with("$posthog_external_property_0_"));
-        assert!(output_placeholder.starts_with("$posthog_external_property_1_"));
+        // Check placeholders inserted in properties
+        assert_eq!(
+            properties.get("$ai_input").unwrap(),
+            "$posthog_external_property_0"
+        );
+        assert_eq!(
+            properties.get("$ai_output").unwrap(),
+            "$posthog_external_property_1"
+        );
 
-        // Check external_properties structure - keys match placeholders
+        // Check external_properties structure
         assert_eq!(external_props.len(), 2);
-        assert!(external_props.contains_key(input_placeholder));
-        assert!(external_props.contains_key(output_placeholder));
 
-        let ext_input = external_props.get(input_placeholder).unwrap();
+        let ext_input = external_props.get("$posthog_external_property_0").unwrap();
         assert_eq!(ext_input["type"], "s3");
         assert_eq!(ext_input["path"], "s3://capture/llma/hash/uuid");
         assert_eq!(ext_input["range"], json!([0, 99]));
 
-        let ext_output = external_props.get(output_placeholder).unwrap();
+        let ext_output = external_props.get("$posthog_external_property_1").unwrap();
         assert_eq!(ext_output["type"], "s3");
         assert_eq!(ext_output["path"], "s3://capture/llma/hash/uuid");
         assert_eq!(ext_output["range"], json!([100, 249]));
@@ -1188,17 +1172,14 @@ mod tests {
 
         // Check nested structure created with placeholder
         let ai_input = properties.get("$ai_input").unwrap().as_array().unwrap();
-        let content_placeholder = ai_input[0]["content"].as_str().unwrap();
-        assert!(content_placeholder.starts_with("$posthog_external_property_0_"));
+        assert_eq!(ai_input[0]["content"], "$posthog_external_property_0");
 
-        // Check external_properties - key matches placeholder
+        // Check external_properties
         assert_eq!(external_props.len(), 1);
-        assert!(external_props.contains_key(content_placeholder));
 
-        let ext = external_props.get(content_placeholder).unwrap();
+        let ext = external_props.get("$posthog_external_property_0").unwrap();
         assert_eq!(ext["type"], "s3");
         assert_eq!(ext["path"], "s3://capture/llma/hash/uuid");
-        assert_eq!(ext["range"], json!([0, 99])
-        );
+        assert_eq!(ext["range"], json!([0, 99]));
     }
 }

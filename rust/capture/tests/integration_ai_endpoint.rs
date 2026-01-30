@@ -2023,31 +2023,27 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     let event = &events[0];
     let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
 
-    // Verify properties contain placeholders (with random suffix)
+    // Verify properties contain placeholders
     let props = event_json["properties"].as_object().unwrap();
-    let input_placeholder = props["$ai_input"].as_str().unwrap();
-    let output_placeholder = props["$ai_output"].as_str().unwrap();
-    assert!(
-        input_placeholder.starts_with("$posthog_external_property_0_"),
-        "Input should have placeholder, got: {input_placeholder}"
-    );
-    assert!(
-        output_placeholder.starts_with("$posthog_external_property_1_"),
-        "Output should have placeholder, got: {output_placeholder}"
-    );
+    assert_eq!(props["$ai_input"], "$posthog_external_property_0");
+    assert_eq!(props["$ai_output"], "$posthog_external_property_1");
 
     // Verify external_properties contains S3 references
     let external_props = event_json["external_properties"].as_object().unwrap();
     assert_eq!(external_props.len(), 2, "Should have 2 external properties");
 
-    // Verify structure of external_properties entries (keys match placeholders)
-    let ext_input = external_props[input_placeholder].as_object().unwrap();
+    // Verify structure of external_properties entries
+    let ext_input = external_props["$posthog_external_property_0"]
+        .as_object()
+        .unwrap();
     assert_eq!(ext_input["type"].as_str().unwrap(), "s3");
     assert!(ext_input["path"].as_str().unwrap().starts_with("s3://"));
     let input_range = ext_input["range"].as_array().unwrap();
     assert_eq!(input_range.len(), 2);
 
-    let ext_output = external_props[output_placeholder].as_object().unwrap();
+    let ext_output = external_props["$posthog_external_property_1"]
+        .as_object()
+        .unwrap();
     assert_eq!(ext_output["type"].as_str().unwrap(), "s3");
     assert!(ext_output["path"].as_str().unwrap().starts_with("s3://"));
     let output_range = ext_output["range"].as_array().unwrap();
@@ -2155,22 +2151,25 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
     let props = event_json["properties"].as_object().unwrap();
 
-    // Verify properties contain placeholders (with random suffix)
-    let placeholder1 = props["$ai_blob1"].as_str().unwrap();
-    let placeholder2 = props["$ai_blob2"].as_str().unwrap();
-    let placeholder3 = props["$ai_blob3"].as_str().unwrap();
-    assert!(placeholder1.starts_with("$posthog_external_property_0_"));
-    assert!(placeholder2.starts_with("$posthog_external_property_1_"));
-    assert!(placeholder3.starts_with("$posthog_external_property_2_"));
+    // Verify properties contain placeholders
+    assert_eq!(props["$ai_blob1"], "$posthog_external_property_0");
+    assert_eq!(props["$ai_blob2"], "$posthog_external_property_1");
+    assert_eq!(props["$ai_blob3"], "$posthog_external_property_2");
 
     // Verify external_properties structure
     let external_props = event_json["external_properties"].as_object().unwrap();
     assert_eq!(external_props.len(), 3, "Should have 3 external properties");
 
-    // Extract ranges from external_properties (keys match placeholders)
-    let ext1 = external_props[placeholder1].as_object().unwrap();
-    let ext2 = external_props[placeholder2].as_object().unwrap();
-    let ext3 = external_props[placeholder3].as_object().unwrap();
+    // Extract ranges from external_properties
+    let ext1 = external_props["$posthog_external_property_0"]
+        .as_object()
+        .unwrap();
+    let ext2 = external_props["$posthog_external_property_1"]
+        .as_object()
+        .unwrap();
+    let ext3 = external_props["$posthog_external_property_2"]
+        .as_object()
+        .unwrap();
 
     // Verify all point to same S3 path
     assert_eq!(ext1["path"], ext2["path"]);
@@ -2263,17 +2262,15 @@ async fn test_ai_event_with_nested_blob_path_creates_structure() {
     let props = event_json["properties"].as_object().unwrap();
     let ai_input = props["$ai_input"].as_array().unwrap();
     assert_eq!(ai_input.len(), 1);
-    let placeholder = ai_input[0]["content"].as_str().unwrap();
-    assert!(
-        placeholder.starts_with("$posthog_external_property_0_"),
-        "Should have placeholder with random suffix, got: {placeholder}"
-    );
+    assert_eq!(ai_input[0]["content"], "$posthog_external_property_0");
 
-    // Verify external_properties (key matches placeholder)
+    // Verify external_properties
     let external_props = event_json["external_properties"].as_object().unwrap();
     assert_eq!(external_props.len(), 1);
 
-    let ext = external_props[placeholder].as_object().unwrap();
+    let ext = external_props["$posthog_external_property_0"]
+        .as_object()
+        .unwrap();
     assert_eq!(ext["type"].as_str().unwrap(), "s3");
     assert!(ext["path"].as_str().unwrap().contains(event_uuid));
 }
