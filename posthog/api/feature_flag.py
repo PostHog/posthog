@@ -45,7 +45,6 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -1696,37 +1695,6 @@ class FeatureFlagViewSet(
                 }
                 for flag in dependent_flags
             ],
-            status=200,
-        )
-
-    @action(methods=["POST"], detail=True)
-    def has_active_dependents(self, request: request.Request, **kwargs):
-        """
-        Deprecated: Use GET /dependent_flags instead.
-        Safe to delete after usage falls to zero, expected by Jan 22, 2026.
-        """
-        response = self.dependent_flags(request, **kwargs)
-        dependent_flags = response.data
-        TOMBSTONE_COUNTER.labels(
-            namespace="feature_flags",
-            operation="has_active_dependents",
-            component="api",
-        ).inc()
-        return Response(
-            {
-                "has_active_dependents": len(dependent_flags) > 0,
-                "dependent_flags": dependent_flags,
-                "warning": (
-                    (
-                        f"This feature flag is used by {len(dependent_flags)} other active "
-                        f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
-                        f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
-                        f"to evaluate this condition as false."
-                    )
-                    if dependent_flags
-                    else None
-                ),
-            },
             status=200,
         )
 
