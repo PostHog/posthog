@@ -151,7 +151,7 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 normalized_name=normalized_name,
                 source_table_uri=model.table_uri,
                 schema_name=_sanitize_ducklake_identifier(
-                    f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
+                    f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}",
                     default_prefix=DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX,
                 ),
                 table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
