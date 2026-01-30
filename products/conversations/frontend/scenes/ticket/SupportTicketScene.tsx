@@ -122,6 +122,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         olderMessagesLoading={olderMessagesLoading}
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
+                        showPrivateOption
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} />

@@ -230,6 +230,7 @@ import {
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
+import { ErrorTrackingAutoCaptureControls, ErrorTrackingLibrary } from './components/IngestionControls/types'
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
@@ -1191,6 +1192,14 @@ export class ApiRequest {
         return this.errorTrackingReleases().addPathComponent(id)
     }
 
+    public errorTrackingAutoCaptureControls(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('autocapture_controls')
+    }
+
+    public errorTrackingAutoCaptureControl(id: ErrorTrackingAutoCaptureControls['id']): ApiRequest {
+        return this.errorTrackingAutoCaptureControls().addPathComponent(id)
+    }
+
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
@@ -1952,8 +1961,12 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<EndpointType>> {
             return await new ApiRequest().endpoint().get()
         },
-        async get(name: string): Promise<EndpointType> {
-            return await new ApiRequest().endpointDetail(name).get()
+        async get(name: string, version?: number): Promise<EndpointVersionType> {
+            let request = new ApiRequest().endpointDetail(name)
+            if (version !== undefined) {
+                request = request.withQueryString({ version })
+            }
+            return await request.get()
         },
         async create(data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpoint().create({ data })
@@ -1961,8 +1974,12 @@ const api = {
         async delete(name: string): Promise<void> {
             return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: EndpointRequest): Promise<EndpointType> {
-            return await new ApiRequest().endpointDetail(name).update({ data })
+        async update(name: string, data: EndpointRequest, version?: number): Promise<EndpointType> {
+            const request = new ApiRequest().endpointDetail(name)
+            if (version !== undefined) {
+                request.withQueryString({ version })
+            }
+            return await request.update({ data })
         },
         async run(name: string, data: EndpointRunRequest): Promise<AnyResponseType> {
             return await new ApiRequest().endpointDetail(name).withAction('run').create({ data })
@@ -1990,14 +2007,15 @@ const api = {
 
             return result
         },
-        async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
-            return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
+        async getMaterializationStatus(name: string, version?: number): Promise<EndpointType['materialization']> {
+            let request = new ApiRequest().endpointDetail(name).withAction('materialization_status')
+            if (version !== undefined) {
+                request = request.withQueryString({ version })
+            }
+            return await request.get()
         },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
-        },
-        async getVersion(name: string, version: number): Promise<EndpointVersionType> {
-            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
         },
     },
 
@@ -3474,6 +3492,21 @@ const api = {
             },
         },
 
+        autoCaptureControls: {
+            async get(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls | null> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).get()
+            },
+            async create(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).create()
+            },
+            async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(data.id).update({ data })
+            },
+            async delete(id: ErrorTrackingAutoCaptureControls['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(id).delete()
+            },
+        },
+
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
@@ -3858,6 +3891,28 @@ const api = {
             data: { code: string; return_variables?: boolean; timeout?: number }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async kernelExecuteStream(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number },
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
+            await api.stream(url, {
+                method: 'POST',
+                data,
+                onMessage,
+                onError,
+                signal,
+            })
         },
         async kernelDataframe(
             notebookId: NotebookType['short_id'],

@@ -8,7 +8,13 @@ from __future__ import annotations
 import click
 from hogli.core.cli import cli
 
-from .generator import DevenvConfig, MprocsGenerator, get_generated_mprocs_path, load_devenv_config
+from .generator import (
+    DevenvConfig,
+    MprocsGenerator,
+    build_docker_compose_command,
+    get_generated_mprocs_path,
+    load_devenv_config,
+)
 from .registry import create_mprocs_registry
 from .resolver import IntentResolver, load_intent_map
 
@@ -176,3 +182,55 @@ def dev_setup(log_to_files: bool) -> None:
         raise SystemExit(1)
 
     run_setup_wizard(intent_map, log_to_files=log_to_files)
+
+
+def _get_docker_profiles_from_config() -> list[str]:
+    """Get docker profiles from saved intent config."""
+    try:
+        resolver = _create_resolver()
+    except FileNotFoundError:
+        return []
+
+    output_path = get_generated_mprocs_path()
+    saved_config = load_devenv_config(output_path)
+
+    if saved_config is None:
+        return []
+
+    try:
+        resolved = resolver.resolve(
+            saved_config.intents,
+            include_units=saved_config.include_units,
+            exclude_units=saved_config.exclude_units,
+        )
+        return sorted(resolved.docker_profiles)
+    except ValueError:
+        return []
+
+
+@cli.command(
+    name="docker:services:up",
+    help="Start Docker services based on your intent config",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.option("--yes", is_flag=True, hidden=True, help="Ignored, for composite command compatibility")
+def docker_services_up(yes: bool) -> None:
+    """Start Docker infrastructure services respecting intent configuration.
+
+    Uses docker compose profiles based on your configured intents.
+    Run 'hogli dev:setup' to configure which services to start.
+    """
+    import subprocess
+
+    profiles = _get_docker_profiles_from_config()
+    cmd = build_docker_compose_command(profiles, "up -d")
+
+    if profiles:
+        click.echo(f"Starting Docker services with profiles: {', '.join(profiles)}")
+    else:
+        click.echo("Starting Docker core services only (no intent config found)")
+    click.echo(f"  {cmd}")
+
+    # cmd is built from internal config (intent-map.yaml), not user input
+    result = subprocess.run(cmd, shell=True)  # nosemgrep: subprocess-shell-true
+    raise SystemExit(result.returncode)

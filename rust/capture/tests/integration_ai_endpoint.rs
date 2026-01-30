@@ -173,6 +173,7 @@ fn setup_ai_test_router() -> Router {
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -1627,6 +1628,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2533,16 +2535,17 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,
         quota_limiter,
         token_dropper,
-        false,
+        None,  // event_restriction_service
+        false, // metrics
         CaptureMode::Events,
         String::from("capture-ai"),
-        None,
-        25 * 1024 * 1024,
-        false,
-        1_i64,
-        false,
-        0.0_f32,
-        26_214_400,
+        None,                             // concurrency_limit
+        25 * 1024 * 1024,                 // event_size_limit
+        false,                            // enable_historical_rerouting
+        1,                                // historical_rerouting_threshold_days
+        false,                            // is_mirror_deploy
+        0.0,                              // verbose_sample_percent
+        26_214_400,                       // ai_max_sum_of_parts_bytes
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
@@ -2734,6 +2737,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,
         quota_limiter,
         TokenDropper::default(),
+        None, // event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),

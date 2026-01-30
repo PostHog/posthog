@@ -327,11 +327,19 @@ export const productTourLogic = kea<productTourLogicType>([
                 }
 
                 for (const step of content.steps || []) {
-                    const error =
-                        step.type === 'banner'
-                            ? validateBannerAction(step.bannerConfig?.action, 'Banner click action')
-                            : validateButton(step.buttons?.primary, 'Primary button') ||
-                              validateButton(step.buttons?.secondary, 'Secondary button')
+                    let error: string | undefined
+
+                    if (step.type === 'banner') {
+                        if (step.bannerConfig?.behavior === 'custom' && !step.bannerConfig?.selector?.trim()) {
+                            error = 'Custom banner position requires a CSS selector'
+                        } else {
+                            error = validateBannerAction(step.bannerConfig?.action, 'Banner click action')
+                        }
+                    } else {
+                        error =
+                            validateButton(step.buttons?.primary, 'Primary button') ||
+                            validateButton(step.buttons?.secondary, 'Secondary button')
+                    }
 
                     if (error) {
                         errors._form = error
@@ -418,7 +426,11 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         submitProductTourFormFailure: () => {
-            lemonToast.error('Failed to save product tour')
+            const errorMessage =
+                values.productTourFormAllErrors._form ||
+                values.productTourFormAllErrors.name ||
+                'Failed to save product tour'
+            lemonToast.error(errorMessage)
         },
         launchProductTour: async () => {
             if (values.productTour) {
