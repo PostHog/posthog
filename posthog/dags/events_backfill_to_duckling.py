@@ -1228,33 +1228,30 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     default_status=DefaultSensorStatus.RUNNING,  # Always on
 )
 def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical backfill sensor - runs daily, can be triggered manually.
+    """Full historical backfill sensor - runs once daily, can be triggered manually.
 
-    This sensor automatically runs once per day to backfill any missing historical
-    events data. It will:
+    This sensor runs once per day to backfill missing historical events data:
 
     1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
-    2. Create partitions for dates from earliest event to yesterday (batched)
-    3. Trigger backfill runs for historical partitions
-
-    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation. If there are more partitions to create, it will continue
-    processing until caught up, then wait until the next day.
+    2. Create up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions (default 100)
+    3. Wait until tomorrow to process the next batch
 
     Manual trigger:
-        To run immediately (without waiting for the next day), reset the sensor
-        cursor in Dagster UI: Sensors -> duckling_full_backfill_sensor -> Reset cursor
+        To run immediately, reset the cursor in Dagster UI:
+        Sensors -> duckling_full_backfill_sensor -> Reset cursor
 
-    The daily `duckling_backfill_discovery_sensor` handles ongoing daily top-ups
+    The daily `duckling_backfill_discovery_sensor` handles ongoing top-ups
     for yesterday's data specifically.
     """
     today = timezone.now().date().isoformat()
-    yesterday = (timezone.now() - timedelta(days=1)).date()
 
-    # Check cursor to see if we already completed today's scan
-    # Cursor format: "YYYY-MM-DD" (date of last completed scan)
+    # Already ran today? Skip until tomorrow (or cursor reset)
     last_completed_date = context.cursor
+    if last_completed_date == today:
+        context.log.debug("Full backfill: already ran today, skipping until tomorrow")
+        return SensorResult(run_requests=[], cursor=today)
 
+    yesterday = (timezone.now() - timedelta(days=1)).date()
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     new_partitions: list[str] = []
@@ -1266,7 +1263,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
             context.log.info(
                 f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue in next sensor evaluation"
+                "will continue tomorrow"
             )
             break
 
@@ -1315,27 +1312,24 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             )
 
     if new_partitions:
-        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions this evaluation")
+        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions")
         logger.info(
             "duckling_full_backfill_discovered",
             partition_count=len(new_partitions),
             run_count=len(run_requests),
             batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
         )
-        # Still have work to do, don't update cursor yet
-        return SensorResult(
-            run_requests=run_requests,
-            dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)],
-        )
     else:
-        # All caught up - check if we should skip until tomorrow
-        if last_completed_date == today:
-            context.log.debug("Full backfill: already completed today's scan, skipping")
-            return SensorResult(run_requests=[], cursor=today)
-
         context.log.info("Full backfill: no new partitions to create (all up to date)")
-        # Mark today as completed so we don't re-scan until tomorrow (or cursor reset)
-        return SensorResult(run_requests=[], cursor=today)
+
+    # Mark today as done - won't run again until tomorrow (or cursor reset)
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+        cursor=today,
+    )
 
 
 duckling_events_backfill_job = define_asset_job(
@@ -1440,25 +1434,26 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
     default_status=DefaultSensorStatus.RUNNING,  # Always on
 )
 def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical persons backfill sensor - runs daily, can be triggered manually.
+    """Full historical persons backfill sensor - runs once daily, can be triggered manually.
 
     Similar to duckling_full_backfill_sensor but for persons data.
     Queries min(_timestamp) from the person table to find the earliest date.
 
-    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation. If there are more partitions to create, it will continue
-    processing until caught up, then wait until the next day.
+    Creates up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions per day.
 
     Manual trigger:
-        To run immediately (without waiting for the next day), reset the sensor
-        cursor in Dagster UI: Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
+        To run immediately, reset the cursor in Dagster UI:
+        Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
     today = timezone.now().date().isoformat()
-    yesterday = (timezone.now() - timedelta(days=1)).date()
 
-    # Check cursor to see if we already completed today's scan
+    # Already ran today? Skip until tomorrow (or cursor reset)
     last_completed_date = context.cursor
+    if last_completed_date == today:
+        context.log.debug("Persons full backfill: already ran today, skipping until tomorrow")
+        return SensorResult(run_requests=[], cursor=today)
 
+    yesterday = (timezone.now() - timedelta(days=1)).date()
     existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
 
     new_partitions: list[str] = []
@@ -1470,7 +1465,7 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
         if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
             context.log.info(
                 f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue in next sensor evaluation"
+                "will continue tomorrow"
             )
             break
 
@@ -1519,27 +1514,24 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             )
 
     if new_partitions:
-        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions this evaluation")
+        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions")
         logger.info(
             "duckling_persons_full_backfill_discovered",
             partition_count=len(new_partitions),
             run_count=len(run_requests),
             batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
         )
-        # Still have work to do, don't update cursor yet
-        return SensorResult(
-            run_requests=run_requests,
-            dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)],
-        )
     else:
-        # All caught up - check if we should skip until tomorrow
-        if last_completed_date == today:
-            context.log.debug("Persons full backfill: already completed today's scan, skipping")
-            return SensorResult(run_requests=[], cursor=today)
-
         context.log.info("Persons full backfill: no new partitions to create (all up to date)")
-        # Mark today as completed so we don't re-scan until tomorrow (or cursor reset)
-        return SensorResult(run_requests=[], cursor=today)
+
+    # Mark today as done - won't run again until tomorrow (or cursor reset)
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+        cursor=today,
+    )
 
 
 duckling_persons_backfill_job = define_asset_job(
