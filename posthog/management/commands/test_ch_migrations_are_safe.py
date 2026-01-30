@@ -36,7 +36,7 @@ def get_all_migrations() -> list[tuple[str, str]]:
         if match:
             groups = match.groups()
             migrations.append((groups[0], groups[1]))
-    return sorted(migrations)
+    return sorted(migrations, key=lambda x: (int(x[0]), x[1]))
 
 
 def check_no_duplicate_migration_numbers() -> bool:
