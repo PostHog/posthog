@@ -63,6 +63,21 @@ pub struct CheckpointConfig {
     /// storage. A failed download or corrupt files will result in fallback
     /// to the next most recent checkpoint attempt this many times
     pub checkpoint_import_attempt_depth: usize,
+
+    /// Maximum concurrent S3 file downloads during checkpoint import.
+    /// Limits memory usage by bounding the number of in-flight HTTP connections.
+    /// This is critical during rebalance when many partitions are assigned simultaneously.
+    pub max_concurrent_checkpoint_file_downloads: usize,
+
+    /// Maximum concurrent S3 file uploads during checkpoint export.
+    /// Less critical than downloads since uploads are already bounded by max_concurrent_checkpoints,
+    /// but provides additional defense in depth.
+    pub max_concurrent_checkpoint_file_uploads: usize,
+
+    /// Maximum time allowed for a complete checkpoint import for a single partition.
+    /// This includes listing checkpoints, downloading metadata, and downloading all files.
+    /// Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
+    pub checkpoint_partition_import_timeout: Duration,
 }
 
 impl Default for CheckpointConfig {
@@ -87,6 +102,9 @@ impl Default for CheckpointConfig {
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
             checkpoint_import_attempt_depth: 10,
+            max_concurrent_checkpoint_file_downloads: 50,
+            max_concurrent_checkpoint_file_uploads: 25,
+            checkpoint_partition_import_timeout: Duration::from_secs(240),
         }
     }
 }

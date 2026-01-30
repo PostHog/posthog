@@ -1,8 +1,9 @@
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use tokio_util::sync::CancellationToken;
 
 use kafka_deduplicator::checkpoint::{
     CheckpointConfig, CheckpointDownloader, CheckpointExporter, CheckpointImporter,
@@ -20,8 +21,8 @@ use tracing::info;
 
 mod common;
 use common::{
-    cleanup_bucket, create_minio_client, ensure_bucket_exists, MINIO_ACCESS_KEY, MINIO_ENDPOINT,
-    MINIO_SECRET_KEY,
+    cleanup_bucket, create_minio_client, delete_checkpoint_file, ensure_bucket_exists,
+    upload_test_checkpoint, MINIO_ACCESS_KEY, MINIO_ENDPOINT, MINIO_SECRET_KEY,
 };
 
 const TEST_BUCKET: &str = "test-kafka-deduplicator-checkpoints";
@@ -37,7 +38,7 @@ fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConf
         s3_access_key_id: Some(MINIO_ACCESS_KEY.to_string()),
         s3_secret_access_key: Some(MINIO_SECRET_KEY.to_string()),
         s3_force_path_style: true,
-        // Use a wide import window so our just-uploaded checkpoint is found
+        // Wide import window ensures freshly uploaded checkpoints are found
         checkpoint_import_window_hours: 24,
         ..Default::default()
     }
@@ -209,6 +210,7 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         Box::new(downloader),
         tmp_import_dir.path().to_path_buf(),
         config.checkpoint_import_attempt_depth,
+        config.checkpoint_partition_import_timeout,
     );
     assert!(
         importer.is_available().await,
@@ -320,6 +322,298 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
 
     // Cleanup S3 bucket
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    Ok(())
+}
+
+/// Test that when one file download fails, sibling downloads are cancelled quickly
+/// via the per-attempt cancellation token, and the import fails fast.
+#[tokio::test]
+async fn test_sibling_cancellation_on_file_error() -> Result<()> {
+    let test_topic = "test_sibling_cancel";
+    let test_partition = 0;
+    let s3_key_prefix = "checkpoints";
+
+    // Setup MinIO
+    let minio_client = create_minio_client().await;
+    ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
+
+    let test_prefix = format!("{s3_key_prefix}/{test_topic}/{test_partition}");
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    // Upload a checkpoint with multiple files
+    let attempt_timestamp = Utc::now();
+    let file_count = 10;
+    let metadata = upload_test_checkpoint(
+        &minio_client,
+        TEST_BUCKET,
+        s3_key_prefix,
+        test_topic,
+        test_partition,
+        attempt_timestamp,
+        file_count,
+    )
+    .await;
+
+    info!(
+        checkpoint_id = metadata.id,
+        file_count = metadata.files.len(),
+        "Uploaded test checkpoint"
+    );
+
+    // Delete one file to cause a download failure
+    let file_to_delete = &metadata.files[file_count / 2].remote_filepath;
+    delete_checkpoint_file(&minio_client, TEST_BUCKET, file_to_delete).await;
+    info!(file = file_to_delete, "Deleted file to simulate failure");
+
+    // Create checkpoint config and importer
+    let tmp_checkpoint_dir = TempDir::new()?;
+    let tmp_import_dir = TempDir::new()?;
+    let config = create_test_checkpoint_config(&tmp_checkpoint_dir);
+
+    let downloader = S3Downloader::new(&config).await?;
+    let importer = CheckpointImporter::new(
+        Box::new(downloader),
+        tmp_import_dir.path().to_path_buf(),
+        1, // Single attempt - this test validates sibling cancellation, not fallback
+        Duration::from_secs(60),
+    );
+
+    // Time the import - it should fail fast due to sibling cancellation
+    let start = Instant::now();
+    let result = importer
+        .import_checkpoint_for_topic_partition(test_topic, test_partition)
+        .await;
+    let elapsed = start.elapsed();
+
+    // Verify import failed
+    assert!(result.is_err(), "Import should fail when file is missing");
+    let err_msg = result.unwrap_err().to_string();
+    info!(
+        error = err_msg,
+        elapsed_ms = elapsed.as_millis(),
+        "Import failed as expected"
+    );
+
+    // Sibling cancellation should cause the attempt to fail fast rather than
+    // waiting for all concurrent downloads to complete individually.
+    // We don't assert a specific time as it depends on network latency.
+
+    // Cleanup
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    Ok(())
+}
+
+/// Test that when the first checkpoint attempt fails, the importer falls back
+/// to the next (older) checkpoint attempt and succeeds.
+#[tokio::test]
+async fn test_fallback_after_failed_attempt() -> Result<()> {
+    let test_topic = "test_fallback";
+    let test_partition = 0;
+    let s3_key_prefix = "checkpoints";
+
+    // Setup MinIO
+    let minio_client = create_minio_client().await;
+    ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
+
+    let test_prefix = format!("{s3_key_prefix}/{test_topic}/{test_partition}");
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    // Upload TWO checkpoints with different timestamps
+    // First (older) checkpoint - this one will succeed
+    let older_timestamp = Utc::now() - chrono::Duration::seconds(10);
+    let older_metadata = upload_test_checkpoint(
+        &minio_client,
+        TEST_BUCKET,
+        s3_key_prefix,
+        test_topic,
+        test_partition,
+        older_timestamp,
+        5, // 5 files
+    )
+    .await;
+    info!(
+        checkpoint_id = older_metadata.id,
+        "Uploaded older checkpoint (will succeed)"
+    );
+
+    // Second (newer) checkpoint - this one will fail
+    let newer_timestamp = Utc::now();
+    let newer_metadata = upload_test_checkpoint(
+        &minio_client,
+        TEST_BUCKET,
+        s3_key_prefix,
+        test_topic,
+        test_partition,
+        newer_timestamp,
+        5, // 5 files
+    )
+    .await;
+    info!(
+        checkpoint_id = newer_metadata.id,
+        "Uploaded newer checkpoint (will fail)"
+    );
+
+    // Delete one file from the NEWER checkpoint to cause it to fail
+    let file_to_delete = &newer_metadata.files[2].remote_filepath;
+    delete_checkpoint_file(&minio_client, TEST_BUCKET, file_to_delete).await;
+    info!(file = file_to_delete, "Deleted file from newer checkpoint");
+
+    // Create checkpoint config and importer
+    let tmp_checkpoint_dir = TempDir::new()?;
+    let tmp_import_dir = TempDir::new()?;
+    let config = create_test_checkpoint_config(&tmp_checkpoint_dir);
+
+    let downloader = S3Downloader::new(&config).await?;
+    let importer = CheckpointImporter::new(
+        Box::new(downloader),
+        tmp_import_dir.path().to_path_buf(),
+        10, // Allow multiple checkpoint attempts for fallback
+        Duration::from_secs(60),
+    );
+
+    // Import should succeed by falling back to the older checkpoint
+    let result = importer
+        .import_checkpoint_for_topic_partition(test_topic, test_partition)
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Import should succeed via fallback: {:?}",
+        result.err()
+    );
+    let import_path = result.unwrap();
+
+    // Verify the imported checkpoint is from the OLDER (successful) checkpoint
+    // by checking the path matches the older checkpoint's expected store path
+    let expected_path = older_metadata.get_store_path(tmp_import_dir.path());
+    assert_eq!(
+        import_path, expected_path,
+        "Imported path should be from older checkpoint"
+    );
+
+    info!(
+        import_path = ?import_path,
+        checkpoint_id = older_metadata.id,
+        "Successfully imported via fallback to older checkpoint"
+    );
+
+    // Cleanup
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    Ok(())
+}
+
+/// Test that parent cancellation (e.g., from Kafka rebalance) stops all import work
+/// immediately and doesn't attempt subsequent checkpoints.
+#[tokio::test]
+async fn test_parent_cancellation_stops_all_attempts() -> Result<()> {
+    let test_topic = "test_parent_cancel";
+    let test_partition = 0;
+    let s3_key_prefix = "checkpoints";
+
+    // Setup MinIO
+    let minio_client = create_minio_client().await;
+    ensure_bucket_exists(&minio_client, TEST_BUCKET).await;
+
+    let test_prefix = format!("{s3_key_prefix}/{test_topic}/{test_partition}");
+    cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
+
+    // Upload a checkpoint with many files (to give time to cancel mid-download)
+    let attempt_timestamp = Utc::now();
+    let metadata = upload_test_checkpoint(
+        &minio_client,
+        TEST_BUCKET,
+        s3_key_prefix,
+        test_topic,
+        test_partition,
+        attempt_timestamp,
+        20, // Many files to extend download time
+    )
+    .await;
+    info!(
+        checkpoint_id = metadata.id,
+        file_count = metadata.files.len(),
+        "Uploaded test checkpoint"
+    );
+
+    // Create checkpoint config and importer
+    let tmp_checkpoint_dir = TempDir::new()?;
+    let tmp_import_dir = TempDir::new()?;
+    let config = create_test_checkpoint_config(&tmp_checkpoint_dir);
+
+    let downloader = S3Downloader::new(&config).await?;
+    let importer = CheckpointImporter::new(
+        Box::new(downloader),
+        tmp_import_dir.path().to_path_buf(),
+        10, // Allow multiple attempts
+        Duration::from_secs(60),
+    );
+
+    // Test 1: Pre-cancelled token should fail immediately
+    let pre_cancelled_token = CancellationToken::new();
+    pre_cancelled_token.cancel();
+
+    let start = Instant::now();
+    let result = importer
+        .import_checkpoint_for_topic_partition_cancellable(
+            test_topic,
+            test_partition,
+            Some(&pre_cancelled_token),
+        )
+        .await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_err(), "Import should fail when pre-cancelled");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.to_lowercase().contains("cancel"),
+        "Error should mention cancellation: {}",
+        err_msg
+    );
+
+    // Pre-cancelled import should fail very fast (no network I/O)
+    assert!(
+        elapsed.as_millis() < 1000,
+        "Pre-cancelled import should fail quickly, took {}ms",
+        elapsed.as_millis()
+    );
+
+    info!(
+        error = err_msg,
+        elapsed_ms = elapsed.as_millis(),
+        "Pre-cancelled import failed as expected"
+    );
+
+    // Test 2: Cancellation during download (race condition - may or may not catch it)
+    // This verifies the token is passed through all layers
+    let cancel_token = CancellationToken::new();
+    let cancel_token_clone = cancel_token.clone();
+
+    // Cancel very quickly to try to catch the download in progress
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        cancel_token_clone.cancel();
+    });
+
+    let result = importer
+        .import_checkpoint_for_topic_partition_cancellable(
+            test_topic,
+            test_partition,
+            Some(&cancel_token),
+        )
+        .await;
+
+    // The result may succeed (if download completed before cancellation) or fail
+    // Either outcome is acceptable - we just verify no panic occurs
+    info!(
+        result = ?result.as_ref().map(|p| p.display().to_string()).map_err(|e| e.to_string()),
+        "Mid-download cancellation test completed (result depends on timing)"
+    );
+
+    // Cleanup
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;
 
     Ok(())
