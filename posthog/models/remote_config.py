@@ -177,7 +177,7 @@ class RemoteConfig(UUIDTModel):
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
-            "autoCapture": autocapture_controls,
+            "autoCaptureControls": autocapture_controls,
         }
 
         # MARK: Logs
