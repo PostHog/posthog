@@ -387,14 +387,13 @@ export const FEATURE_FLAGS = {
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     EXPERIMENTS_SAMPLE_RATIO_MISMATCH: 'experiments-sample-ratio-mismatch', // owner: @jurajmajerik #team-experiments
-    NEW_SEARCH_UX: 'new-search-ux', // owner: @adamleithp #team-platform-ux
     // PLEASE KEEP THIS ALPHABETICALLY ORDERED
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE
+    (flag) => flag !== FEATURE_FLAGS.AI_ONLY_MODE && flag !== FEATURE_FLAGS.UX_REMOVE_SIDEPANEL
 )
 
 export const INSIGHT_VISUAL_ORDER = {

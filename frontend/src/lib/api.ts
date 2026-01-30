@@ -3620,6 +3620,13 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
+        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('batch_check_exists')
+                .create({ data: { session_ids: sessionIds } })
+        },
+
         async createExternalReference(
             sessionRecordingId: SessionRecordingType['id'],
             integrationId: number,
@@ -3851,6 +3858,28 @@ const api = {
             data: { code: string; return_variables?: boolean; timeout?: number }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async kernelExecuteStream(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number },
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
+            await api.stream(url, {
+                method: 'POST',
+                data,
+                onMessage,
+                onError,
+                signal,
+            })
         },
         async kernelDataframe(
             notebookId: NotebookType['short_id'],
