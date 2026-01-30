@@ -121,6 +121,54 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
 
+# SQL for creating the events table in DuckLake if it doesn't exist
+# Types are chosen to match the Parquet output from ClickHouse
+EVENTS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.main.events (
+    uuid VARCHAR,
+    event VARCHAR,
+    properties VARCHAR,
+    timestamp TIMESTAMP,
+    team_id BIGINT,
+    project_id BIGINT,
+    distinct_id VARCHAR,
+    elements_chain VARCHAR,
+    created_at TIMESTAMP,
+    person_id VARCHAR,
+    person_created_at TIMESTAMP,
+    person_properties VARCHAR,
+    group0_properties VARCHAR,
+    group1_properties VARCHAR,
+    group2_properties VARCHAR,
+    group3_properties VARCHAR,
+    group4_properties VARCHAR,
+    group0_created_at TIMESTAMP,
+    group1_created_at TIMESTAMP,
+    group2_created_at TIMESTAMP,
+    group3_created_at TIMESTAMP,
+    group4_created_at TIMESTAMP,
+    person_mode VARCHAR,
+    historical_migration VARCHAR,
+    _inserted_at TIMESTAMP
+)
+"""
+
+# SQL for creating the persons table in DuckLake if it doesn't exist
+PERSONS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.main.persons (
+    team_id BIGINT,
+    distinct_id VARCHAR,
+    id VARCHAR,
+    properties VARCHAR,
+    created_at TIMESTAMP,
+    is_identified BOOLEAN,
+    person_distinct_id_version BIGINT,
+    person_version BIGINT,
+    _timestamp TIMESTAMP,
+    _inserted_at TIMESTAMP
+)
+"""
+
 
 class DucklingBackfillConfig(Config):
     """Config for duckling events backfill job."""
@@ -129,6 +177,7 @@ class DucklingBackfillConfig(Config):
     skip_ducklake_registration: bool = False
     skip_schema_validation: bool = False
     cleanup_prior_run_files: bool = True
+    create_tables_if_missing: bool = True
     dry_run: bool = False
 
 
@@ -241,6 +290,132 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
         workload=workload,
         node_role=NodeRole.DATA,
     ).result()
+
+
+def _validate_identifier(identifier: str) -> None:
+    """Validate that an identifier is safe for SQL interpolation.
+
+    Only allows alphanumeric characters and underscores to prevent SQL injection.
+    """
+    if not identifier.replace("_", "").isalnum():
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+
+
+def table_exists(
+    conn: duckdb.DuckDBPyConnection,
+    catalog_alias: str,
+    schema: str,
+    table: str,
+) -> bool:
+    """Check if a table exists in the DuckLake catalog.
+
+    Args:
+        conn: DuckDB connection with catalog already attached
+        catalog_alias: Catalog alias (must be alphanumeric/underscore only)
+        schema: Schema name (must be alphanumeric/underscore only)
+        table: Table name (must be alphanumeric/underscore only)
+
+    Returns:
+        True if the table exists, False otherwise.
+
+    Raises:
+        ValueError: If any identifier contains invalid characters.
+    """
+    _validate_identifier(catalog_alias)
+    _validate_identifier(schema)
+    _validate_identifier(table)
+
+    try:
+        conn.execute(f"DESCRIBE {catalog_alias}.{schema}.{table}")
+        return True
+    except duckdb.CatalogException:
+        return False
+
+
+def ensure_events_table_exists(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Create the events table in the duckling's DuckLake catalog if it doesn't exist.
+
+    Returns True if the table was created, False if it already existed.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "duckling"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+
+        try:
+            attach_catalog(conn, catalog_config, alias=alias)
+        except duckdb.CatalogException as exc:
+            # Catalog may already be attached from a previous operation in this session
+            if alias not in str(exc):
+                raise
+            context.log.debug(f"Catalog '{alias}' already attached, continuing")
+
+        if table_exists(conn, alias, "main", "events"):
+            context.log.info("Events table already exists in duckling catalog")
+            return False
+
+        context.log.info("Creating events table in duckling catalog...")
+        ddl = EVENTS_TABLE_DDL.format(catalog=alias)
+        conn.execute(ddl)
+        context.log.info("Successfully created events table")
+        logger.info(
+            "duckling_events_table_created",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def ensure_persons_table_exists(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Create the persons table in the duckling's DuckLake catalog if it doesn't exist.
+
+    Returns True if the table was created, False if it already existed.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "duckling"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+
+        try:
+            attach_catalog(conn, catalog_config, alias=alias)
+        except duckdb.CatalogException as exc:
+            # Catalog may already be attached from a previous operation in this session
+            if alias not in str(exc):
+                raise
+            context.log.debug(f"Catalog '{alias}' already attached, continuing")
+
+        if table_exists(conn, alias, "main", "persons"):
+            context.log.info("Persons table already exists in duckling catalog")
+            return False
+
+        context.log.info("Creating persons table in duckling catalog...")
+        ddl = PERSONS_TABLE_DDL.format(catalog=alias)
+        conn.execute(ddl)
+        context.log.info("Successfully created persons table")
+        logger.info(
+            "duckling_persons_table_created",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
 
 
 def validate_duckling_schema(
@@ -744,10 +919,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     This asset:
     1. Parses the partition key to get team_id and date
     2. Looks up the DuckLakeCatalog for the team
-    3. Validates the duckling's schema compatibility (optional)
-    4. Cleans up orphaned files from prior failed runs (optional)
-    5. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
-    6. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
+    3. Creates the events table if it doesn't exist (optional, enabled by default)
+    4. Validates the duckling's schema compatibility (optional)
+    5. Cleans up orphaned files from prior failed runs (optional)
+    6. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
+    7. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
     team_id, date_str = parse_partition_key(context.partition_key)
     partition_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -767,6 +943,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Create events table if it doesn't exist
+    if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.info("Ensuring events table exists in duckling catalog...")
+        ensure_events_table_exists(context, catalog)
 
     # Validate schema before starting export (skip if dry_run or skip_ducklake_registration)
     if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
@@ -851,10 +1032,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     Steps:
     1. Parses the partition key to get team_id and date
     2. Looks up the DuckLakeCatalog for the team
-    3. Validates the duckling's persons schema compatibility (optional)
-    4. Cleans up orphaned files from prior failed runs (optional)
-    5. Exports persons+distinct_ids to the duckling's S3 bucket
-    6. Registers the Parquet file with the duckling's DuckLake catalog
+    3. Creates the persons table if it doesn't exist (optional, enabled by default)
+    4. Validates the duckling's persons schema compatibility (optional)
+    5. Cleans up orphaned files from prior failed runs (optional)
+    6. Exports persons+distinct_ids to the duckling's S3 bucket
+    7. Registers the Parquet file with the duckling's DuckLake catalog
     """
     team_id, date_str = parse_partition_key(context.partition_key)
     partition_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -873,6 +1055,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Create persons table if it doesn't exist
+    if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.info("Ensuring persons table exists in duckling catalog...")
+        ensure_persons_table_exists(context, catalog)
 
     if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
         context.log.info("Validating duckling persons schema compatibility...")
