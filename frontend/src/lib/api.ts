@@ -2518,6 +2518,7 @@ const api = {
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
             search?: string
+            ordering?: string
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)

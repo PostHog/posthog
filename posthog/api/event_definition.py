@@ -180,7 +180,7 @@ class EventDefinitionViewSet(
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
-    ordering_fields = ["name", "last_seen_at"]
+    ordering_fields = ["name", "last_seen_at", "created_at"]
 
     def dangerously_get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -248,7 +248,13 @@ class EventDefinitionViewSet(
         orderings = self.request.GET.getlist("ordering")
 
         for ordering in orderings:
-            if ordering and ordering.replace("-", "") in ["name", "last_seen_at", "last_seen_at::date"]:
+            if ordering and ordering.replace("-", "") in [
+                "name",
+                "last_seen_at",
+                "last_seen_at::date",
+                "created_at",
+                "created_at::date",
+            ]:
                 order = ordering.replace("-", "")
                 if "-" in ordering:
                     order_direction = "DESC"

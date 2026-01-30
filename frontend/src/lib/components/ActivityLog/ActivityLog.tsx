@@ -143,7 +143,7 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
                         email: logItem.email ?? undefined,
                     }}
                     type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
-                    size="xl"
+                    size="lg"
                 />
                 <div className="ActivityLogRow__details flex-grow">
                     <div className="ActivityLogRow__description">{logItem.description}</div>

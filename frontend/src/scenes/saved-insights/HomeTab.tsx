@@ -2,6 +2,7 @@ import './HomeTab.scss'
 
 import { Activity } from './Activity'
 import { FiringAlerts } from './FiringAlerts'
+import { NewEvents } from './NewEvents'
 import { RecentPersons } from './RecentPersons'
 import { Recents } from './Recents'
 import { Trending } from './Trending'
@@ -22,8 +23,11 @@ export function HomeTab(): JSX.Element {
                 <div className="HomeTab__card">
                     <Activity />
                 </div>
-                <div className="HomeTab__card HomeTab__card--full">
+                <div className="HomeTab__card">
                     <RecentPersons />
+                </div>
+                <div className="HomeTab__card">
+                    <NewEvents />
                 </div>
             </div>
         </div>
