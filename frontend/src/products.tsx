@@ -1485,6 +1485,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'RevenueAnalytics',
         sceneKeys: ['RevenueAnalytics'],
     },
+    { path: 'SQL variables', category: 'Schema', href: urls.variables(), sceneKeys: ['SqlVariableEdit'] },
     {
         path: `Sources`,
         category: 'Pipeline',
