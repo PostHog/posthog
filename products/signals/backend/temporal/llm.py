@@ -94,7 +94,7 @@ async def match_signal_with_llm(
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = await client.chat.completions.create(
+            response = await client.chat.completions.create(  # type: ignore[call-overload]
                 model=MATCHING_MODEL,
                 messages=messages,
                 response_format={"type": "json_object"},
@@ -105,7 +105,7 @@ async def match_signal_with_llm(
             if not content:
                 raise ValueError("Empty response from LLM")
 
-            parsed = TypeAdapter(LLMMatchResponse).validate_json(content)
+            parsed: LLMMatchFound | LLMNewGroup = TypeAdapter(LLMMatchResponse).validate_json(content)
 
             if isinstance(parsed, LLMMatchFound):
                 if parsed.match_index < 0 or parsed.match_index >= len(candidates):
