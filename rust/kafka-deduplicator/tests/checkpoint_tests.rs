@@ -115,7 +115,11 @@ impl Default for MockUploader {
 
 #[async_trait]
 impl CheckpointUploader for MockUploader {
-    async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+    async fn upload_checkpoint_with_plan_cancellable(
+        &self,
+        plan: &CheckpointPlan,
+        _cancel_token: Option<&tokio_util::sync::CancellationToken>,
+    ) -> Result<Vec<String>> {
         info!(
             "Mock uploading checkpoint with plan: {} files to upload to remote path: {}",
             plan.files_to_upload.len(),

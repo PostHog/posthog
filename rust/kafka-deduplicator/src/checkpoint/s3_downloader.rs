@@ -108,7 +108,7 @@ impl S3Downloader {
             .with_bucket_name(&config.s3_bucket)
             .with_client_options(client_options)
             .with_retry(object_store::RetryConfig {
-                max_retries: 3,
+                max_retries: config.s3_max_retries,
                 // Total retry budget (analogous to operation_timeout in aws_sdk_s3)
                 retry_timeout: config.s3_operation_timeout,
                 ..Default::default()
