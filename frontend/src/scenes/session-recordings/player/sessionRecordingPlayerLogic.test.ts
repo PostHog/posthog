@@ -605,4 +605,83 @@ describe('sessionRecordingPlayerLogic', () => {
             // seekForward should call seekToTime with current time + 20000
         })
     })
+
+    describe('setCurrentSegment graceful fallback', () => {
+        it('does not call tryInitReplayer when segment has no snapshots, starts buffering instead', async () => {
+            silenceKeaLoadersErrors()
+
+            // Wait for initial load
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            // Create a segment with a windowId that has no snapshots
+            const segmentWithNoSnapshots = {
+                kind: 'window' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 'non-existent-window-id',
+                isActive: true,
+                durationMs: 1000,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentSegment(segmentWithNoSnapshots)
+            })
+                .toDispatchActions(['setCurrentSegment', 'startBuffer', 'loadNextSnapshotSource'])
+                .toNotHaveDispatchedActions(['tryInitReplayer'])
+
+            resumeKeaLoadersErrors()
+        })
+
+        it('does not call tryInitReplayer for gap segments', async () => {
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            const gapSegment = {
+                kind: 'gap' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 'some-window-id',
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentSegment(gapSegment)
+            })
+                .toDispatchActions(['setCurrentSegment'])
+                .toNotHaveDispatchedActions(['tryInitReplayer', 'startBuffer'])
+
+            resumeKeaLoadersErrors()
+        })
+
+        it('does not call tryInitReplayer when segment has no windowId', async () => {
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            const segmentWithNoWindowId = {
+                kind: 'buffer' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: undefined,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentSegment(segmentWithNoWindowId)
+            })
+                .toDispatchActions(['setCurrentSegment'])
+                .toNotHaveDispatchedActions(['tryInitReplayer'])
+
+            resumeKeaLoadersErrors()
+        })
+    })
 })
