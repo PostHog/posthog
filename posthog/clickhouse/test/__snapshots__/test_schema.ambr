@@ -131,7 +131,7 @@
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_distinct_id_usage]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_distinct_id_usage
   (
       uuid UUID,
@@ -144,7 +144,7 @@
       created_at DateTime64(6, 'UTC')
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_embeddings]
@@ -1554,7 +1554,7 @@
 # ---
 # name: test_create_table_query[kafka_distinct_id_usage]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_distinct_id_usage
   (
       uuid UUID,
@@ -1567,7 +1567,7 @@
       created_at DateTime64(6, 'UTC')
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_error_tracking_issue_fingerprint_embeddings]
