@@ -12,14 +12,20 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.hog_functions import HogFunction
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
+
+
+class FakeKafka:
+    def produce(self, *args, **kwargs):
+        pass
+
+    def flush(self, *args, **kwargs):
+        pass
 
 
 class CDPProducer:
@@ -123,6 +129,9 @@ class CDPProducer:
             use_dictionary=True,
         )
 
+    def _kafka_producer(self) -> FakeKafka:
+        return FakeKafka()
+
     def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
 
@@ -132,7 +141,7 @@ class CDPProducer:
 
         self.logger.debug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
-        kafka_producer = KafkaProducer()
+        kafka_producer = self._kafka_producer()
 
         for file_path in files_to_produce:
             self.logger.debug(f"Producing file {file_path} to Kafka")
@@ -148,9 +157,7 @@ class CDPProducer:
 
                         for row in batch.to_pylist():
                             row_as_props = {"team_id": self.team_id, "properties": row}
-                            kafka_producer.produce(
-                                topic=KAFKA_DWH_CDP_RAW_TABLE, data=row_as_props, value_serializer=self._serialize_json
-                            )
+                            kafka_producer.produce(topic="", data=row_as_props, value_serializer=self._serialize_json)
                             row_index = row_index + 1
 
                 kafka_producer.flush()

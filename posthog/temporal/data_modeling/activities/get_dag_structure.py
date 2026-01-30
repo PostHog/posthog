@@ -37,6 +37,9 @@ class DAG:
 def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
+    # TODO: view nodes should not be materialized. we should probably leave them in this set
+    # for dependency tracking's sake but we should have a check in the materialize job to skip
+    # view nodes immediately and to not create modeling jobs for them.
     executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW])
     edges = (
         Edge.objects.prefetch_related("source", "target")

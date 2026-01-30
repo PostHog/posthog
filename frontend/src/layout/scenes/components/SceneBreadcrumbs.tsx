@@ -22,7 +22,7 @@ export function SceneBreadcrumbBackButton({
     const backTo = forceBackTo || breadcrumbs[breadcrumbs.length - 2]
 
     const BackToProps = {
-        ariaLabel: `Go back to ${backTo.name}`,
+        'aria-label': `Go back to ${backTo.name}`,
         to: backTo.path,
     }
 

@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getAPISteps = (CodeBlock: any, Markdown: any, CalloutBox: any, dedent: any): StepDefinition[] => {
+export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+
     return [
         {
             title: 'Send events via the API',
@@ -18,20 +21,20 @@ export const getAPISteps = (CodeBlock: any, Markdown: any, CalloutBox: any, dede
                                 language: 'http',
                                 file: 'HTTP',
                                 code: dedent`
-                                    POST <ph_client_api_host>/capture/
-                                    Content-Type: application/json
+                                POST <ph_client_api_host>/capture/
+                                Content-Type: application/json
 
-                                    {
-                                        "api_key": "<ph_project_api_key>",
-                                        "event": "[event name]",
-                                        "properties": {
-                                            "distinct_id": "[your users' distinct id]",
-                                            "key1": "value1",
-                                            "key2": "value2"
-                                        },
-                                        "timestamp": "[optional timestamp in ISO 8601 format]"
-                                    }
-                                `,
+                                {
+                                    "api_key": "<ph_project_api_key>",
+                                    "event": "[event name]",
+                                    "properties": {
+                                        "distinct_id": "[your users' distinct id]",
+                                        "key1": "value1",
+                                        "key2": "value2"
+                                    },
+                                    "timestamp": "[optional timestamp in ISO 8601 format]"
+                                }
+                            `,
                             },
                         ]}
                     />
@@ -53,15 +56,15 @@ export const getAPISteps = (CodeBlock: any, Markdown: any, CalloutBox: any, dede
                                 language: 'json',
                                 file: 'JSON',
                                 code: dedent`
-                                    {
-                                        "api_key": "<ph_project_api_key>",
-                                        "event": "page_viewed",
-                                        "properties": {
-                                            "distinct_id": "user_123",
-                                            "$process_person_profile": false
-                                        }
+                                {
+                                    "api_key": "<ph_project_api_key>",
+                                    "event": "page_viewed",
+                                    "properties": {
+                                        "distinct_id": "user_123",
+                                        "$process_person_profile": false
                                     }
-                                `,
+                                }
+                            `,
                             },
                         ]}
                     />
@@ -77,17 +80,4 @@ export const getAPISteps = (CodeBlock: any, Markdown: any, CalloutBox: any, dede
     ]
 }
 
-export const APIInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, CalloutBox, dedent } = useMDXComponents()
-    const steps = getAPISteps(CodeBlock, Markdown, CalloutBox, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const APIInstallation = createInstallation(getAPISteps)

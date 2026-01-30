@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "PropertyDefinition",
     "Notebook",
     "Endpoint",
+    "EndpointVersion",
     "Dashboard",
     "Replay",
     "Experiment",
@@ -411,6 +412,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "deleted_name",
     ],
     "Endpoint": [
+        "saved_query",
+    ],
+    "EndpointVersion": [
         "saved_query",
     ],
     "Organization": [

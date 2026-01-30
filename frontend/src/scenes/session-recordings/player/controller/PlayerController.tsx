@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { isChristmas, isHalloween } from 'lib/holidays'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen, IconGhost, IconSanta } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconFullScreen, IconGhost, IconSanta, IconSkipEnd, IconSkipStart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import {
     CommentOnRecordingButton,
     EmojiCommentOnRecordingButton,
@@ -87,6 +89,96 @@ function FullScreen(): JSX.Element {
     )
 }
 
+function SkipToStart(): JSX.Element {
+    const { seekToStart } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="small"
+            noPadding={true}
+            onClick={seekToStart}
+            tooltip="Go to start"
+            data-attr="recording-skip-to-start"
+        >
+            <IconSkipStart className="text-2xl" />
+        </LemonButton>
+    )
+}
+
+function SkipToNext(): JSX.Element | null {
+    const timeoutRef = useRef<NodeJS.Timeout>()
+    const { endReached, playNextAnimationInterrupted, playNextRecording } = useValues(sessionRecordingPlayerLogic)
+    const { reportNextRecordingTriggered, setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic)
+    const [animate, setAnimate] = useState(false)
+
+    useKeyboardHotkeys(
+        {
+            n: {
+                action: () => {
+                    if (playNextRecording) {
+                        reportNextRecordingTriggered(false)
+                        playNextRecording(false)
+                    }
+                },
+            },
+        },
+        [playNextRecording]
+    )
+
+    const goToRecording = (automatic: boolean): void => {
+        if (!playNextRecording) {
+            return
+        }
+        reportNextRecordingTriggered(automatic)
+        playNextRecording(automatic)
+    }
+
+    useEffect(() => {
+        clearTimeout(timeoutRef.current)
+
+        if (endReached && playNextRecording) {
+            setAnimate(true)
+            setPlayNextAnimationInterrupted(false)
+            timeoutRef.current = setTimeout(() => {
+                goToRecording(true)
+            }, 3000)
+        }
+
+        return () => clearTimeout(timeoutRef.current)
+    }, [endReached, !!playNextRecording]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (playNextAnimationInterrupted) {
+            clearTimeout(timeoutRef.current)
+            setAnimate(false)
+        }
+    }, [playNextAnimationInterrupted])
+
+    if (!playNextRecording) {
+        return null
+    }
+
+    return (
+        <Tooltip
+            title={
+                <>
+                    Play the next recording <KeyboardShortcut n />
+                </>
+            }
+        >
+            <LemonButton
+                size="small"
+                noPadding={true}
+                onClick={() => goToRecording(false)}
+                data-attr="recording-skip-to-next"
+                className={cn('SkipToNextButton', animate && 'SkipToNextButton--animating')}
+            >
+                <IconSkipEnd className="text-2xl" />
+            </LemonButton>
+        </Tooltip>
+    )
+}
+
 export function Screenshot({ className }: { className?: string }): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
@@ -134,12 +226,12 @@ export function PlayerController(): JSX.Element {
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <div className="flex gap-0.5 items-center justify-center">
-                    <PlayPauseButton />
                     <SeekSkip direction="backward" />
+                    <PlayPauseButton />
                     <SeekSkip direction="forward" />
                     <Timestamp size={size} />
                 </div>
-                <div className="flex justify-end items-center">
+                <div className="flex gap-0.5 justify-end items-center">
                     {ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
@@ -148,8 +240,8 @@ export function PlayerController(): JSX.Element {
                             <ClipRecording />
                         </>
                     )}
-                    {(ModesWithInteractions.includes(playerMode) ||
-                        playerMode === SessionRecordingPlayerMode.Kiosk) && <PlayerUpNext />}
+                    <SkipToStart />
+                    <SkipToNext />
                     <FullScreen />
                 </div>
             </div>

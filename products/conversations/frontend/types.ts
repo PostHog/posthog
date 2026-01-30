@@ -1,3 +1,6 @@
+import type { TicketAssignee } from './components/Assignee'
+
+export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
@@ -5,6 +8,7 @@ export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {
     id: number
@@ -22,8 +26,7 @@ export interface Ticket {
     distinct_id: string
     status: TicketStatus
     priority?: TicketPriority
-    assigned_to?: number | null
-    assigned_to_user?: UserBasic | null
+    assignee?: TicketAssignee
     channel_source: TicketChannel
     anonymous_traits: Record<string, any>
     ai_resolved: boolean
@@ -82,6 +85,7 @@ export interface ChatMessage {
     authorName: string
     createdBy?: MessageAuthor | null
     createdAt: string
+    isPrivate?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -101,10 +105,26 @@ export const statusOptionsWithoutAll: { value: TicketStatus; label: string }[] =
     { value: 'resolved', label: 'Resolved' },
 ]
 
+// Multiselect-compatible options for LemonInputSelect
+export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = [
+    { key: 'new', label: 'New' },
+    { key: 'open', label: 'Open' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'on_hold', label: 'On hold' },
+    { key: 'resolved', label: 'Resolved' },
+]
+
 export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+]
+
+// Multiselect-compatible options for LemonInputSelect
+export const priorityMultiselectOptions: { key: TicketPriority; label: string }[] = [
+    { key: 'low', label: 'Low' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'high', label: 'High' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [

@@ -32,7 +32,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import (
+    MAX_SELECT_POSTHOG_AI_LIMIT,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLQuerySettings,
+    LimitContext,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
@@ -1517,6 +1524,13 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000)) WITH TIES",
         )
 
+    def test_select_limit_with_posthog_ai_context(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
+        self.assertEqual(
+            self._select("select 1 limit 500", context=context),
+            f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
+        )
+
     def test_select_offset(self):
         # Only the default limit if OFFSET is specified alone
         self.assertEqual(
@@ -2515,7 +2529,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2528,7 +2542,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2558,61 +2572,49 @@ class TestPrinter(BaseTest):
         )
 
     def test_get_survey_response(self):
-        # Test with just question index
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
+        # Test with just question index (0) - dynamic key
+        printed = self._print(
+            "select getSurveyResponse(0) from events",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Dynamic key (no question_id) uses concat for key construction
+        self.assertIn("coalesce", printed)
+        self.assertIn("nullIf", printed)
+        self.assertIn("concat", printed)
 
-            printed = self._print(
-                "select getSurveyResponse(0) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(0, None, False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
-
-        # Test with question index and specific ID
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
-
-            printed = self._print(
-                "select getSurveyResponse(1, 'question123') from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(1, "question123", False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
+        # Test with question index and specific ID - static key uses ast.Field
+        printed = self._print(
+            "select getSurveyResponse(1, 'question123') from events",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Static key uses ast.Field which resolves to JSONExtractRaw (enables materialization)
+        self.assertIn("coalesce", printed)
+        self.assertIn("nullIf", printed)
+        self.assertIn("JSONExtractRaw", printed)
 
         # Test with multiple choice question
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
-
-            printed = self._print(
-                "select getSurveyResponse(2, 'abc123', true) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(2, "abc123", True)
+        printed = self._print(
+            "select getSurveyResponse(2, 'abc123', true) from events",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
+        self.assertIn("JSONHas", printed)
+        self.assertIn("JSONExtractArrayRaw", printed)
+        self.assertIn("if(", printed)
 
     def test_unique_survey_submissions_filter(self):
-        with patch(
-            "posthog.hogql.printer.base.filter_survey_sent_events_by_unique_submission"
-        ) as mock_filter_survey_sent_events_by_unique_submission:
-            mock_filter_survey_sent_events_by_unique_submission.return_value = (
-                "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
-            )
-            printed = self._print(
-                "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123", self.team.pk)
-            self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Should contain subquery with argMax for deduplication
+        # String literals are parameterized, so check for structure instead
+        self.assertIn("argMax", printed)
+        self.assertIn("in(events.uuid", printed)
+        self.assertIn("SELECT argMax(events.uuid", printed)
+        self.assertIn("FROM events WHERE", printed)
+        self.assertIn("GROUP BY", printed)
+        self.assertIn("JSONExtractString", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -3140,6 +3142,15 @@ class TestPrinter(BaseTest):
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    def test_final_keyword_not_supported(self):
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
 
 
 @snapshot_clickhouse_queries

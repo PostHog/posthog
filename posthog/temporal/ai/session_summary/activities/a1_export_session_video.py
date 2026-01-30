@@ -13,6 +13,7 @@ from django.utils.timezone import now
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -116,15 +117,26 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
 
         # Actually export the video
         client = await async_connect()
-        await client.execute_workflow(
-            VideoExportWorkflow.run,
-            VideoExportInputs(exported_asset_id=exported_asset.id),
-            id=f"session-video-summary-export_{inputs.session_id}",
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
-            # Allow duplicates for testing purposes - this shouldn't happen in prod anyway
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-        )
+        workflow_id = f"session-video-summary-export_{inputs.team_id}_{inputs.session_id}"
+        try:
+            await client.execute_workflow(
+                VideoExportWorkflow.run,
+                VideoExportInputs(exported_asset_id=exported_asset.id),
+                id=workflow_id,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        except WorkflowAlreadyStartedError:
+            # Another request already started exporting this session - wait for it to complete
+            logger.debug(
+                f"Video export workflow already running for session {inputs.session_id}, waiting for completion",
+                session_id=inputs.session_id,
+                workflow_id=workflow_id,
+                signals_type="session-summaries",
+            )
+            handle = client.get_workflow_handle(workflow_id)
+            await handle.result()
 
         logger.debug(
             f"Video exported successfully for session {inputs.session_id}",

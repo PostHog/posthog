@@ -216,6 +216,48 @@ pub async fn setup_team_hypercache_reader(
     )
 }
 
+/// Create a HyperCacheReader for remote config (array/config.json).
+/// Uses token_based=true for token-based lookups (api_token).
+/// Returns Arc<HyperCacheReader> to match the production pattern.
+pub async fn setup_config_hypercache_reader(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    let mut config = HyperCacheConfig::new(
+        "array".to_string(),
+        "config.json".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    config.token_based = true;
+    Arc::new(
+        HyperCacheReader::new(redis_client, config)
+            .await
+            .expect("Failed to create config HyperCacheReader"),
+    )
+}
+
+/// Generate the HyperCache key for remote config.
+/// Format: posthog:1:cache/team_tokens/{api_token}/array/config.json
+pub fn config_hypercache_key(api_token: &str) -> String {
+    format!("posthog:1:cache/team_tokens/{api_token}/array/config.json")
+}
+
+/// Insert remote config data in HyperCache for testing.
+/// Use this when testing the config cache reader.
+/// Format: Pickle(JSON string) to match Django's cache format.
+pub async fn insert_config_in_hypercache(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    api_token: &str,
+    config_json: serde_json::Value,
+) -> Result<(), Error> {
+    let json_string = serde_json::to_string(&config_json)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle config");
+    let cache_key = config_hypercache_key(api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     let payload = match json_value {
         Some(value) => value,

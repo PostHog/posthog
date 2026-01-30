@@ -1,6 +1,7 @@
+use crate::api::errors::FlagError;
+use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
-use crate::{flags::flag_match_reason::FeatureFlagMatchReason, site_apps::WebJsUrl};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
@@ -107,105 +108,71 @@ pub enum ServiceResponse {
     DecideV2(DecideV2Response),
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+/// Config response that passes through Python's cached config as raw JSON.
+///
+/// This is a thin wrapper around a JSON map that allows Rust to pass through
+/// config fields without knowing their structure. Only fields that Rust must
+/// modify (like `sessionRecording` for quota limiting) are accessed directly.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 pub struct ConfigResponse {
-    // Config fields - only present when config=true
-    /// Supported compression algorithms
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub supported_compression: Vec<String>,
-
-    /// If set, disables autocapture
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "autocapture_opt_out")]
-    pub autocapture_opt_out: Option<bool>,
-
-    /// Originally capturePerformance was replay only and so boolean true
-    /// is equivalent to { network_timing: true }
-    /// now capture performance can be separately enabled within replay
-    /// and as a standalone web vitals tracker
-    /// people can have them enabled separately
-    /// they work standalone but enhance each other
-    /// TODO: deprecate this so we make a new config that doesn't need this explanation
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capture_performance: Option<Value>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<Value>,
-
-    /// Whether we should use a custom endpoint for analytics
-    ///
-    /// Default: { endpoint: "/e" }
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub analytics: Option<AnalyticsConfig>,
-
-    /// Whether the `$elements_chain` property should be sent as a string or as an array
-    ///
-    /// Default: false
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub elements_chain_as_string: Option<bool>,
-
-    /// This is currently in development and may have breaking changes without a major version bump
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub autocapture_exceptions: Option<Value>,
-
-    /// Session recording configuration options
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_recording: Option<SessionRecordingField>,
-
-    /// Whether surveys are enabled
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub surveys: Option<Value>,
-
-    /// Whether product tours are enabled
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub product_tours: Option<Value>,
-
-    /// Logs product options
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logs: Option<LogsConfig>,
-
-    /// Parameters for the toolbar
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub toolbar_params: Option<Value>,
-
-    /// Whether the user is authenticated
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_authenticated: Option<bool>,
-
-    /// List of site apps with their IDs and URLs
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub site_apps: Option<Vec<WebJsUrl>>,
-
-    /// Whether heatmaps are enabled
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub heatmaps: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flags_persistence_default: Option<bool>,
-
-    /// Whether to only capture identified users by default
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_identified_only: Option<bool>,
-
-    /// Whether to capture dead clicks
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capture_dead_clicks: Option<bool>,
-
-    /// Error tracking configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_tracking: Option<ErrorTrackingConfig>,
-
-    /// Conversations configuration
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub conversations: Option<Value>,
+    #[serde(flatten)]
+    inner: HashMap<String, Value>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ErrorTrackingConfig {
-    pub autocapture_exceptions: bool,
-    pub suppression_rules: Vec<Value>,
+impl ConfigResponse {
+    /// Create an empty config response
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+
+    /// Create a minimal fallback config for cache miss/error scenarios.
+    ///
+    /// This config disables optional features (session recording, surveys, heatmaps, etc.)
+    /// to ensure safe degradation when the full config from Python's HyperCache is unavailable.
+    pub fn fallback(api_token: &str, has_feature_flags: bool) -> Self {
+        let fallback = serde_json::json!({
+            "token": api_token,
+            "hasFeatureFlags": has_feature_flags,
+            "supportedCompression": ["gzip", "gzip-js"],
+            "sessionRecording": false,
+            "surveys": false,
+            "heatmaps": false,
+            "capturePerformance": false,
+            "autocaptureExceptions": false,
+            "isAuthenticated": false,
+            "toolbarParams": {},
+            "config": {"enable_collect_everything": true}
+        });
+
+        Self::from_value(fallback)
+    }
+
+    /// Create from a raw JSON Value (must be an object)
+    pub fn from_value(value: Value) -> Self {
+        match value {
+            Value::Object(map) => Self {
+                inner: map.into_iter().collect(),
+            },
+            _ => Self::new(),
+        }
+    }
+
+    /// Set a field in the config
+    pub fn set(&mut self, key: &str, value: Value) {
+        self.inner.insert(key.to_string(), value);
+    }
+
+    /// Get a field from the config
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.inner.get(key)
+    }
+
+    /// Check if config is empty
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -388,6 +355,8 @@ pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
     pub variant: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
 }
@@ -428,7 +397,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
-    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self;
+    fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
@@ -438,6 +407,7 @@ impl FromFeatureAndMatch for FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
             variant: flag_match.variant.clone(),
+            failed: false,
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
@@ -452,15 +422,16 @@ impl FromFeatureAndMatch for FlagDetails {
         }
     }
 
-    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self {
+    fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
             variant: None,
+            failed: true,
             reason: FlagEvaluationReason {
-                code: error_reason.to_string(),
+                code: error.evaluation_error_code(),
                 condition_index,
-                description: None,
+                description: Some(error.evaluation_error_description()),
             },
             metadata: FlagDetailsMetadata {
                 id: flag.id,
@@ -737,6 +708,7 @@ mod tests {
                 key: "flag_with_payload".to_string(),
                 enabled: true,
                 variant: None,
+                failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -758,6 +730,7 @@ mod tests {
                 key: "flag2".to_string(),
                 enabled: true,
                 variant: None,
+                failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -779,6 +752,7 @@ mod tests {
                 key: "flag_with_null_payload".to_string(),
                 enabled: true,
                 variant: None,
+                failed: false,
                 reason: FlagEvaluationReason {
                     code: "condition_match".to_string(),
                     condition_index: Some(0),
@@ -849,11 +823,11 @@ mod tests {
     fn test_config_fields_are_included_when_set() {
         let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
 
-        // Set some config fields
-        response.config.analytics = Some(AnalyticsConfig {
-            endpoint: Some("/analytics".to_string()),
-        });
-        response.config.supported_compression = vec!["gzip".to_string()];
+        // Set some config fields using the new passthrough API
+        response
+            .config
+            .set("analytics", json!({"endpoint": "/analytics"}));
+        response.config.set("supportedCompression", json!(["gzip"]));
 
         let json = serde_json::to_value(&response).unwrap();
 

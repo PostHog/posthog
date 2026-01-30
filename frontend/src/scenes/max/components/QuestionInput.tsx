@@ -14,6 +14,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
 import { ContextDisplay } from '../Context'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -64,11 +65,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         isImpersonatingExistingConversation,
         supportOverrideEnabled,
         streamingActive,
+        agentMode,
+        threadMessageCount,
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
-    const isAiUx = useFeatureFlag('AI_UX')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -92,7 +95,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         if (!streamingActive && textAreaRef?.current) {
             textAreaRef.current.focus()
         }
-    }, [streamingActive])
+    }, [streamingActive]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div
@@ -113,6 +116,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {/* Have to increase z-index to overlay ToolsDisplay */}
                 <div className="relative w-full flex flex-col z-1">
                     {children}
+                    {agentMode === AgentMode.Research && threadMessageCount === 0 && (
+                        <div className="flex justify-center items-center gap-1 w-full px-2 py-1.5 mb-2 bg-warning/10 text-primary text-xs rounded-lg border-primary">
+                            Research mode is a free beta feature with lower daily limits
+                        </div>
+                    )}
                     <label
                         htmlFor="question-input"
                         className={clsx(
@@ -121,10 +129,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'bg-[var(--color-bg-fill-input)]',
                             isThreadVisible ? 'border-primary m-0.5 rounded-[7px]' : 'rounded-lg',
                             // for flag, we change the ring size and color
-                            isAiUx && '[--input-ring-size:2px]',
+                            isRemovingSidePanelFlag && '[--input-ring-size:2px]',
                             // when streaming, we make the ring default color, and when done streaming pop back to very this purple to let users know it's their turn to type
                             // When we allow appending messages, this ux will likely not be useful
-                            isAiUx && !streamingActive && '[--input-ring-color:#b62ad9]'
+                            isRemovingSidePanelFlag && !streamingActive && '[--input-ring-color:#b62ad9]'
                         )}
                     >
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>

@@ -14,6 +14,7 @@ from ee.models.property_definition import EnterprisePropertyDefinition
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
+    is_seen_on_filtered_events = serializers.BooleanField(allow_null=True, read_only=True)
 
     class Meta:
         model = EnterprisePropertyDefinition

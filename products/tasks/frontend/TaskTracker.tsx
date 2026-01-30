@@ -7,6 +7,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { TasksList } from './components/TasksList'
 import { taskTrackerSceneLogic } from './logics/taskTrackerSceneLogic'
@@ -14,6 +15,7 @@ import { taskTrackerSceneLogic } from './logics/taskTrackerSceneLogic'
 export const scene: SceneExport = {
     component: TaskTracker,
     logic: taskTrackerSceneLogic,
+    productKey: ProductKey.TASKS,
 }
 
 export function TaskTracker(): JSX.Element {

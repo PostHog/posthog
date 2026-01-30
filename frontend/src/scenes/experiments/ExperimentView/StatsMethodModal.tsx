@@ -6,14 +6,9 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { ExperimentStatsMethod } from '~/types'
 
 import { StatsMethodSelector } from '../components/StatsMethodSelector'
+import { CONFIDENCE_LEVEL_OPTIONS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-
-const CONFIDENCE_LEVEL_OPTIONS = [
-    { value: 0.9, label: '90%' },
-    { value: 0.95, label: '95%' },
-    { value: 0.99, label: '99%' },
-]
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)

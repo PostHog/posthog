@@ -10,6 +10,8 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import type { TicketAssignee } from '../../components/Assignee'
+import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -100,12 +102,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
+        sendMessage: (content: string, isPrivate: boolean, onSuccess?: () => void) => ({
+            content,
+            isPrivate,
+            onSuccess,
+        }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
-        setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
+        setAssignee: (assignee: TicketAssignee) => ({ assignee }),
 
         // Session context actions
         loadPerson: true,
@@ -203,11 +209,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setTicket: (_, { ticket }) => ticket?.priority || null,
             },
         ],
-        assignedTo: [
-            null as number | string | null,
+        assignee: [
+            null as TicketAssignee,
             {
-                setAssignedTo: (_, { assignedTo }) => assignedTo,
-                setTicket: (_, { ticket }) => ticket?.assigned_to || null,
+                setAssignee: (_, { assignee }) => assignee,
+                setTicket: (_, { ticket }) => ticket?.assignee || null,
             },
         ],
         messages: [
@@ -249,6 +255,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        chatPanelWidth: [
+            () => [],
+            () =>
+                (desiredSize: number | null): number => {
+                    const minWidth = 400
+                    const defaultWidth = 600
+                    if (desiredSize === null) {
+                        return defaultWidth
+                    }
+                    return desiredSize < minWidth ? minWidth : desiredSize
+                },
+        ],
         chatMessages: [
             (s) => [s.messages, s.ticket],
             (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>
@@ -271,6 +289,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         authorName: displayName,
                         createdBy: message.created_by,
                         createdAt: message.created_at,
+                        isPrivate: message.item_context?.is_private || false,
                     }
                 }),
         ],
@@ -307,15 +326,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // Load session context data
                 actions.loadPerson()
 
-                // Clear any existing interval
-                if (cache.pollingInterval) {
-                    clearInterval(cache.pollingInterval)
-                }
+                // Refresh the unread count since viewing a ticket marks it as read
+                supportTicketCounterLogic.findMounted()?.actions.refreshCount()
 
-                // Start new polling interval
-                cache.pollingInterval = setInterval(() => {
-                    actions.loadMessages()
-                }, MESSAGE_POLL_INTERVAL)
+                // Start message polling using disposables pattern
+                cache.disposables.dispose('messagePolling')
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        actions.loadMessages()
+                    }, MESSAGE_POLL_INTERVAL)
+                    return () => clearInterval(intervalId)
+                }, 'messagePolling')
             } catch (error) {
                 console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
@@ -334,7 +355,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const data: Partial<{
                     status: string
                     priority: string
-                    assigned_to: number | null
+                    assignee: TicketAssignee
                 }> = {}
 
                 if (values.status) {
@@ -343,12 +364,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.priority) {
                     data.priority = values.priority
                 }
-                data.assigned_to =
-                    values.assignedTo === 'All users' || !values.assignedTo
-                        ? null
-                        : typeof values.assignedTo === 'string'
-                          ? parseInt(values.assignedTo, 10)
-                          : values.assignedTo
+                data.assignee = values.assignee
 
                 const ticket = await api.conversationsTickets.update(props.id.toString(), data)
                 actions.setTicket(ticket)
@@ -401,7 +417,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
+        sendMessage: async ({ content, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -414,12 +430,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         item_id: props.id.toString(),
                         item_context: {
                             author_type: 'support',
-                            is_private: false,
+                            is_private: isPrivate,
                         },
                     },
                     {}
                 )
-                lemonToast.success('Message sent')
+                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
                 setTimeout(() => {
@@ -437,8 +453,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
-        if (cache.pollingInterval) {
-            clearInterval(cache.pollingInterval)
-        }
+        cache.disposables.disposeAll()
     }),
 ])

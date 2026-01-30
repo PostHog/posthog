@@ -103,7 +103,7 @@ export const VariantsPanelLinkFeatureFlag = ({
 
     return (
         <div>
-            <label className="text-sm font-semibold">Linked Feature Flag</label>
+            <label className="text-sm font-semibold">Linked feature flag</label>
             <div className="mt-2 border rounded-lg bg-bg-light p-4 space-y-2">
                 {/* Header: Flag key + link + change button */}
                 <div className="flex flex-row gap-4">

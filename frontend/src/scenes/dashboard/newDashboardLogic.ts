@@ -270,12 +270,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     })),
     actionToUrl({
         hideNewDashboardModal: () => {
-            const hashParams = router.values.hashParams
+            const hashParams = { ...router.values.hashParams }
             delete hashParams['newDashboard']
             return [router.values.location.pathname, router.values.searchParams, hashParams]
         },
         showNewDashboardModal: () => {
-            const hashParams = router.values.hashParams
+            const hashParams = { ...router.values.hashParams }
             hashParams['newDashboard'] = 'modal'
             return [router.values.location.pathname, router.values.searchParams, hashParams]
         },

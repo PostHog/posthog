@@ -1505,6 +1505,84 @@ class TestUserSlackWebhook(APIBaseTest):
         self.assertEqual(response.json()["error"], "invalid webhook URL")
 
 
+class TestSessionAuthEndpoints(APIBaseTest):
+    """
+    Tests that certain endpoints require session authentication and reject Personal API Keys.
+
+    These endpoints (redirect_to_site, test_slack_webhook, etc.) are browser-interactive
+    features that should not be accessible via API keys.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test API Key",
+            user=self.user,
+            secure_value=hash_key_value(self.api_key_value),
+            scopes=["*"],
+        )
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+    def test_redirect_to_site_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call redirect_to_site to mint temporary tokens."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+    def test_redirect_to_site_works_with_session_auth(self):
+        """Session authentication should still work for redirect_to_site."""
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+    def test_test_slack_webhook_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call test_slack_webhook."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "https://hooks.slack.com/test"})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+    def test_test_slack_webhook_works_with_session_auth(self):
+        """Session authentication should still work for test_slack_webhook."""
+        response = self.client.post("/api/user/test_slack_webhook/", {"webhook": "invalid"})
+
+        # Returns 200 with error message (not 401) - endpoint is accessible
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_prepare_toolbar_preloaded_flags_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call prepare_toolbar_preloaded_flags."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.post(
+            "/api/user/prepare_toolbar_preloaded_flags/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+    def test_get_toolbar_preloaded_flags_rejects_personal_api_key(self):
+        """Personal API Keys should not be able to call get_toolbar_preloaded_flags."""
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.api_key_value}")
+
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "Authentication credentials were not provided.")
+
+
 class TestLoginViews(APIBaseTest):
     def test_redirect_to_preflight_when_no_users(self):
         User.objects.all().delete()
