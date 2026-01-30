@@ -38,7 +38,7 @@ class RecordingResult:
     playback_speed: int
     measured_width: Optional[int]
     inactivity_periods: list[ReplayInactivityPeriod] | None
-    segment_start_timestamps: dict[int, float]
+    segment_start_timestamps: dict[float, float]
     custom_fps: int | None = None
 
 
@@ -182,7 +182,7 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             # Parse segment timestamps
             segment_start_timestamps = {}
             if output.get("segment_start_timestamps"):
-                segment_start_timestamps = {int(k): float(v) for k, v in output["segment_start_timestamps"].items()}
+                segment_start_timestamps = {float(k): float(v) for k, v in output["segment_start_timestamps"].items()}
             # Return the result
             return RecordingResult(
                 video_path=output["video_path"],
@@ -422,7 +422,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
         self,
         page: Page,
         playback_speed: int,
-        segment_start_timestamps: dict[int, float] | None = None,
+        segment_start_timestamps: dict[float, float] | None = None,
     ) -> list[ReplayInactivityPeriod] | None:
         """
         Detect inactivity periods when recording session videos.
@@ -481,7 +481,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
         """
 
         # Track time from the video start related to the in-player start timestamps
-        segment_start_timestamps: dict[int, float] = {}
+        segment_start_timestamps: dict[float, float] = {}
         last_counter = 0
         while True:
             # Check if the recording should be ended by now and stop it manually
