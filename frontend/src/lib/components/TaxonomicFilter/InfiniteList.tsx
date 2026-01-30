@@ -348,6 +348,8 @@ const InfiniteListRow = ({
                     isDisabledItem && 'cursor-not-allowed opacity-60'
                 )}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
+                role="button"
+                aria-disabled={isDisabledItem}
                 onClick={(event) => {
                     // Prevent selection of disabled items
                     if (isDisabledItem) {
