@@ -146,7 +146,6 @@ impl TeamManager {
         Ok(indices)
     }
 
-    /// Sets ingested_event=true for a team.
     pub async fn set_team_ingested_event<'c, E>(
         &self,
         e: E,
