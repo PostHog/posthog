@@ -4,20 +4,20 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay, asLink } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
 import { PersonType } from '~/types'
 
 import { ProjectHomePageCompactListItem } from '../project-homepage/ProjectHomePageCompactListItem'
-import { recentPersonsLogic } from './recentPersonsLogic'
+import { activeUsersLogic } from './activeUsersLogic'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)
 
     return (
         <ProjectHomePageCompactListItem
-            to={urls.personByDistinctId(person.distinct_ids[0])}
+            to={person.uuid ? urls.personByUUID(person.uuid) : asLink(person) || urls.persons()}
             title={asDisplay(person)}
             subtitle={`First seen ${dayjs(person.created_at).fromNow()}`}
             prefix={<ProfilePicture name={asDisplay(person)} />}
@@ -28,16 +28,16 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
-export function RecentPersons(): JSX.Element {
-    const { persons, personsLoading } = useValues(recentPersonsLogic)
+export function ActiveUsers(): JSX.Element {
+    const { persons, personsLoading } = useValues(activeUsersLogic)
 
     return (
         <CompactList
-            title="Recently seen people"
+            title="Most active users"
             viewAllURL={urls.persons()}
             loading={personsLoading}
             emptyMessage={{
-                title: 'No recently active people',
+                title: 'No active people',
                 description: 'People who have been active in your product will appear here.',
                 buttonText: 'View all people',
                 buttonTo: urls.persons(),

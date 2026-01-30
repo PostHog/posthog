@@ -1,9 +1,9 @@
 import './HomeTab.scss'
 
+import { ActiveUsers } from './ActiveUsers'
 import { Activity } from './Activity'
 import { FiringAlerts } from './FiringAlerts'
 import { NewEvents } from './NewEvents'
-import { RecentPersons } from './RecentPersons'
 import { Recents } from './Recents'
 import { Trending } from './Trending'
 
@@ -19,7 +19,7 @@ export function HomeTab(): JSX.Element {
                         <FiringAlerts />
                     </div>
                     <div className="HomeTab__card">
-                        <RecentPersons />
+                        <ActiveUsers />
                     </div>
                 </div>
                 <div className="HomeTab__column">
