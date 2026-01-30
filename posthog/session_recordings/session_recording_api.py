@@ -1174,12 +1174,13 @@ class SessionRecordingViewSet(
                 event_label="session-summary-stream",
                 event_data=json.dumps(summary_result),
             )
+
         except Exception as e:
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
                 event_data=str(e),
             )
-            raise
+
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
