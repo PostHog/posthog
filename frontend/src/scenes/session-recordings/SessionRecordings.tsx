@@ -196,7 +196,7 @@ function Warnings(): JSX.Element {
                     productName="session replay"
                     productKey={ProductKey.SESSION_REPLAY}
                     thingName="playlist"
-                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
+                    description="Use session replay collections to easily group and analyze user sessions. Curate collections based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
                     docsURL="https://posthog.com/docs/session-replay/manual"
                     customHog={FilmCameraHog}
                 />
