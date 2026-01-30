@@ -1,8 +1,17 @@
 import pytest
 
+import duckdb
 from parameterized import parameterized
 
-from posthog.dags.events_backfill_to_duckling import get_s3_url_for_clickhouse, parse_partition_key
+from posthog.dags.events_backfill_to_duckling import (
+    EVENTS_TABLE_DDL,
+    EXPECTED_DUCKLAKE_COLUMNS,
+    EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
+    PERSONS_TABLE_DDL,
+    get_s3_url_for_clickhouse,
+    parse_partition_key,
+    table_exists,
+)
 
 
 class TestParsePartitionKey:
@@ -52,3 +61,60 @@ class TestGetS3UrlForClickhouse:
     )
     def test_url_format(self, bucket, region, path, expected):
         assert get_s3_url_for_clickhouse(bucket, region, path) == expected
+
+
+class TestTableExists:
+    def test_returns_true_when_table_exists(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE TABLE test_table (id INTEGER)")
+        assert table_exists(conn, "memory", "main", "test_table") is True
+        conn.close()
+
+    def test_returns_false_when_table_does_not_exist(self):
+        conn = duckdb.connect()
+        assert table_exists(conn, "memory", "main", "nonexistent_table") is False
+        conn.close()
+
+
+class TestEventsDDL:
+    def test_events_ddl_is_valid_sql(self):
+        conn = duckdb.connect()
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        conn.execute(ddl)
+
+        # Verify table was created with expected columns
+        result = conn.execute("DESCRIBE memory.main.events").fetchall()
+        column_names = {row[0] for row in result}
+
+        assert column_names == EXPECTED_DUCKLAKE_COLUMNS
+        conn.close()
+
+    def test_events_ddl_is_idempotent(self):
+        conn = duckdb.connect()
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        # Should not raise on second execution
+        conn.execute(ddl)
+        conn.execute(ddl)
+        conn.close()
+
+
+class TestPersonsDDL:
+    def test_persons_ddl_is_valid_sql(self):
+        conn = duckdb.connect()
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        conn.execute(ddl)
+
+        # Verify table was created with expected columns
+        result = conn.execute("DESCRIBE memory.main.persons").fetchall()
+        column_names = {row[0] for row in result}
+
+        assert column_names == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+        conn.close()
+
+    def test_persons_ddl_is_idempotent(self):
+        conn = duckdb.connect()
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        # Should not raise on second execution
+        conn.execute(ddl)
+        conn.execute(ddl)
+        conn.close()
