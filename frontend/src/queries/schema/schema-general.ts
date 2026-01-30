@@ -1728,6 +1728,8 @@ export interface EndpointRequest {
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
+    /** Target a specific version for updates (optional, defaults to current version) */
+    version?: integer
 }
 
 /**
@@ -4787,6 +4789,7 @@ export const externalDataSources = [
     'Vitally',
     'BigQuery',
     'Chargebee',
+    'Clerk',
     'RevenueCat',
     'Polar',
     'GoogleAds',

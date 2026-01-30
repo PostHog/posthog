@@ -1037,7 +1037,7 @@
             "fireworks": {
                 "prompt_token": 9.000000000000001e-7,
                 "completion_token": 9.000000000000001e-7,
-                "cache_read_token": 9.000000000000001e-7
+                "cache_read_token": 4.5000000000000003e-7
             },
             "gmicloud-fp8": {
                 "prompt_token": 2.8e-7,
@@ -1100,7 +1100,7 @@
             "fireworks": {
                 "prompt_token": 5.6e-7,
                 "completion_token": 0.00000168,
-                "cache_read_token": 5.6e-7
+                "cache_read_token": 2.8e-7
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
@@ -1343,7 +1343,7 @@
             },
             "deepinfra-fp4": {
                 "prompt_token": 2.6e-7,
-                "completion_token": 3.9e-7,
+                "completion_token": 3.8e-7,
                 "cache_read_token": 1.3e-7
             },
             "deepseek": {
@@ -1476,19 +1476,6 @@
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7,
                 "internal_reasoning": 4e-7
-            }
-        }
-    },
-    {
-        "model": "google/gemini-2.0-flash-exp:free",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "google-vertex": {
-                "prompt_token": 0,
-                "completion_token": 0
             }
         }
     },
@@ -2578,7 +2565,7 @@
             "fireworks-fp16": {
                 "prompt_token": 9.000000000000001e-7,
                 "completion_token": 9.000000000000001e-7,
-                "cache_read_token": 9.000000000000001e-7
+                "cache_read_token": 4.5000000000000003e-7
             },
             "friendli": {
                 "prompt_token": 6e-7,
@@ -2913,7 +2900,7 @@
             "fireworks": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
-                "cache_read_token": 3e-7
+                "cache_read_token": 1.5e-7
             },
             "friendli": {
                 "prompt_token": 3e-7,
@@ -3499,7 +3486,7 @@
             "fireworks-fp8": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000025,
-                "cache_read_token": 6e-7
+                "cache_read_token": 3e-7
             },
             "groq": {
                 "prompt_token": 0.000001,
@@ -3641,8 +3628,13 @@
         "model": "moonshotai/kimi-k2.5",
         "cost": {
             "default": {
-                "prompt_token": 5.7e-7,
-                "completion_token": 0.00000285
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000028
+            },
+            "atlas-cloud-int4": {
+                "prompt_token": 5.6e-7,
+                "completion_token": 0.0000028,
+                "cache_read_token": 2.8e-7
             },
             "chutes": {
                 "prompt_token": 6e-7,
@@ -3650,11 +3642,12 @@
             },
             "fireworks": {
                 "prompt_token": 6e-7,
-                "completion_token": 0.000003
+                "completion_token": 0.000003,
+                "cache_read_token": 1.0000000000000001e-7
             },
             "gmicloud-int4": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.000003
+                "prompt_token": 5.7e-7,
+                "completion_token": 0.00000285
             },
             "moonshotai": {
                 "prompt_token": 6e-7,
@@ -3663,7 +3656,16 @@
             },
             "novita": {
                 "prompt_token": 5.7e-7,
-                "completion_token": 0.00000285
+                "completion_token": 0.00000285,
+                "cache_read_token": 9.5e-8
+            },
+            "parasail-bf16": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000032
+            },
+            "together": {
+                "prompt_token": 5e-7,
+                "completion_token": 0.0000028
             }
         }
     },
@@ -4734,7 +4736,7 @@
             "fireworks": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 6e-7,
-                "cache_read_token": 1.5e-7
+                "cache_read_token": 7.5e-8
             },
             "google-vertex": {
                 "prompt_token": 9e-8,
@@ -4847,7 +4849,7 @@
             "fireworks": {
                 "prompt_token": 7e-8,
                 "completion_token": 3e-7,
-                "cache_read_token": 7e-8
+                "cache_read_token": 3.5e-8
             },
             "google-vertex": {
                 "prompt_token": 7e-8,
@@ -5439,7 +5441,7 @@
             "fireworks": {
                 "prompt_token": 9.000000000000001e-7,
                 "completion_token": 9.000000000000001e-7,
-                "cache_read_token": 9.000000000000001e-7
+                "cache_read_token": 4.5000000000000003e-7
             }
         }
     },
@@ -5507,7 +5509,7 @@
             "fireworks": {
                 "prompt_token": 2.2e-7,
                 "completion_token": 8.8e-7,
-                "cache_read_token": 2.2e-7
+                "cache_read_token": 1.1e-7
             },
             "together-fp8": {
                 "prompt_token": 2e-7,
@@ -5552,7 +5554,7 @@
             "fireworks-fp8": {
                 "prompt_token": 2.2e-7,
                 "completion_token": 8.8e-7,
-                "cache_read_token": 2.2e-7
+                "cache_read_token": 1.1e-7
             },
             "friendli": {
                 "prompt_token": 2e-7,
@@ -5813,7 +5815,7 @@
             "fireworks": {
                 "prompt_token": 2.0000000000000002e-7,
                 "completion_token": 2.0000000000000002e-7,
-                "cache_read_token": 2.0000000000000002e-7
+                "cache_read_token": 1.0000000000000001e-7
             }
         }
     },
@@ -5852,7 +5854,7 @@
             "fireworks": {
                 "prompt_token": 4.5000000000000003e-7,
                 "completion_token": 0.0000018000000000000001,
-                "cache_read_token": 4.5000000000000003e-7
+                "cache_read_token": 2.2500000000000002e-7
             },
             "google-vertex": {
                 "prompt_token": 2.2e-7,
@@ -6120,7 +6122,7 @@
             "fireworks": {
                 "prompt_token": 2.2e-7,
                 "completion_token": 8.8e-7,
-                "cache_read_token": 2.2e-7
+                "cache_read_token": 1.1e-7
             },
             "gmicloud-fp8": {
                 "prompt_token": 3e-7,
@@ -6163,7 +6165,7 @@
             "default": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 6e-7,
-                "cache_read_token": 1.5e-7
+                "cache_read_token": 7.5e-8
             },
             "deepinfra-fp8": {
                 "prompt_token": 1.5e-7,
@@ -6172,7 +6174,7 @@
             "fireworks": {
                 "prompt_token": 1.5e-7,
                 "completion_token": 6e-7,
-                "cache_read_token": 1.5e-7
+                "cache_read_token": 7.5e-8
             },
             "novita-bf16": {
                 "prompt_token": 2e-7,
@@ -6941,7 +6943,7 @@
             "fireworks": {
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000021899999999999998,
-                "cache_read_token": 5.5e-7
+                "cache_read_token": 2.75e-7
             },
             "friendli": {
                 "prompt_token": 6e-7,

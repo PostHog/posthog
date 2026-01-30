@@ -3052,7 +3052,7 @@ export interface FunnelTimeConversionMetrics {
 
 export interface FunnelConversionWindow {
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
-    funnelWindowInterval: number
+    funnelWindowInterval?: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -3354,7 +3354,13 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {
-    behavior: 'sticky' | 'static'
+    /**
+     * sticky: injected at top of body, fixed pos, stays visible on scroll
+     * static: injected at top of body, fixed pos, scrolls away with page
+     * custom: injected into a container from user-supplied css selector
+     */
+    behavior: 'sticky' | 'static' | 'custom'
+    selector?: string
     action?: {
         type: 'none' | 'link' | 'trigger_tour'
         link?: string
@@ -6681,6 +6687,7 @@ export interface ApprovalPolicy {
     conditions: Record<string, any>
     approver_config: Record<string, any>
     allow_self_approve: boolean
+    bypass_org_membership_levels: string[]
     bypass_roles: string[]
     expires_after: string
     enabled: boolean
