@@ -87,113 +87,87 @@ pub fn insert_at_path(
     path: &[PathSegment],
     value: Value,
 ) -> Result<(), CaptureError> {
-    if path.is_empty() {
-        return Err(CaptureError::RequestParsingError(
-            "Cannot insert at empty path".to_string(),
-        ));
-    }
-
-    // Handle the first segment specially since root is a Map
-    let first = &path[0];
-    let PathSegment::Property(name) = first else {
+    let PathSegment::Property(name) = path.first().ok_or_else(|| {
+        CaptureError::RequestParsingError("Cannot insert at empty path".to_string())
+    })?
+    else {
         return Err(CaptureError::RequestParsingError(
             "Path must start with a property segment".to_string(),
         ));
     };
 
-    if path.len() == 1 {
-        root.insert(name.clone(), value);
+    insert_into_object(root, name, &path[1..], value)
+}
+
+/// Insert a value into a JSON object at the given property name.
+fn insert_into_object(
+    obj: &mut serde_json::Map<String, Value>,
+    name: &str,
+    rest: &[PathSegment],
+    value: Value,
+) -> Result<(), CaptureError> {
+    if rest.is_empty() {
+        obj.insert(name.to_string(), value);
         return Ok(());
     }
 
-    // Ensure the property exists with appropriate type for next segment
-    let next_segment = &path[1];
-    let entry = root
-        .entry(name.clone())
-        .or_insert_with(|| match next_segment {
-            PathSegment::Property(_) => Value::Object(serde_json::Map::new()),
-            PathSegment::Index(_) => Value::Array(Vec::new()),
-        });
+    let entry = obj
+        .entry(name.to_string())
+        .or_insert_with(|| default_value_for_segment(&rest[0]));
 
-    insert_at_path_recursive(entry, &path[1..], value)
+    dispatch_next(entry, rest, value)
 }
 
-fn insert_at_path_recursive(
+/// Insert a value into a JSON array at the given index.
+fn insert_into_array(
+    arr: &mut Vec<Value>,
+    idx: usize,
+    rest: &[PathSegment],
+    value: Value,
+) -> Result<(), CaptureError> {
+    // Extend array with nulls if needed
+    if arr.len() <= idx {
+        arr.resize(idx + 1, Value::Null);
+    }
+
+    if rest.is_empty() {
+        arr[idx] = value;
+        return Ok(());
+    }
+
+    if arr[idx].is_null() {
+        arr[idx] = default_value_for_segment(&rest[0]);
+    }
+
+    dispatch_next(&mut arr[idx], rest, value)
+}
+
+/// Create the appropriate default Value for the given path segment.
+fn default_value_for_segment(segment: &PathSegment) -> Value {
+    match segment {
+        PathSegment::Property(_) => Value::Object(serde_json::Map::new()),
+        PathSegment::Index(_) => Value::Array(Vec::new()),
+    }
+}
+
+/// Dispatch to the appropriate insert function based on the next path segment.
+fn dispatch_next(
     current: &mut Value,
     path: &[PathSegment],
     value: Value,
 ) -> Result<(), CaptureError> {
-    if path.is_empty() {
-        *current = value;
-        return Ok(());
-    }
-
-    let segment = &path[0];
-
-    if path.len() == 1 {
-        // Last segment - insert the value
-        match segment {
-            PathSegment::Property(name) => {
-                if !current.is_object() {
-                    *current = Value::Object(serde_json::Map::new());
-                }
-                current
-                    .as_object_mut()
-                    .unwrap()
-                    .insert(name.clone(), value);
-            }
-            PathSegment::Index(idx) => {
-                if !current.is_array() {
-                    *current = Value::Array(Vec::new());
-                }
-                let arr = current.as_array_mut().unwrap();
-                // Extend array with nulls if needed
-                while arr.len() <= *idx {
-                    arr.push(Value::Null);
-                }
-                arr[*idx] = value;
-            }
-        }
-        return Ok(());
-    }
-
-    // Navigate/create intermediate structure
-    let next_segment = &path[1];
-
-    match segment {
+    match &path[0] {
         PathSegment::Property(name) => {
-            if !current.is_object() {
-                *current = Value::Object(serde_json::Map::new());
-            }
-            let obj = current.as_object_mut().unwrap();
-
-            let entry = obj.entry(name.clone()).or_insert_with(|| match next_segment {
-                PathSegment::Property(_) => Value::Object(serde_json::Map::new()),
-                PathSegment::Index(_) => Value::Array(Vec::new()),
-            });
-
-            insert_at_path_recursive(entry, &path[1..], value)
+            let obj = current.as_object_mut().ok_or_else(|| {
+                CaptureError::RequestParsingError("Expected object at path".to_string())
+            })?;
+            insert_into_object(obj, name, &path[1..], value)
         }
         PathSegment::Index(idx) => {
-            if !current.is_array() {
-                *current = Value::Array(Vec::new());
-            }
-            let arr = current.as_array_mut().unwrap();
-
-            // Extend array if needed
-            while arr.len() <= *idx {
-                arr.push(Value::Null);
-            }
-
-            // Initialize the element with appropriate type for next segment
-            if arr[*idx].is_null() {
-                arr[*idx] = match next_segment {
-                    PathSegment::Property(_) => Value::Object(serde_json::Map::new()),
-                    PathSegment::Index(_) => Value::Array(Vec::new()),
-                };
-            }
-
-            insert_at_path_recursive(&mut arr[*idx], &path[1..], value)
+            let arr = current.as_array_mut().ok_or_else(|| {
+                CaptureError::RequestParsingError("Expected array at path".to_string())
+            })?;
+            insert_into_array(arr, *idx, &path[1..], value)
         }
     }
 }
