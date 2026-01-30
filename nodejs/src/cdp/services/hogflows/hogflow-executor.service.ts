@@ -568,7 +568,7 @@ export class HogFlowExecutorService {
         }
 
         const triggeredByEvent = hasAssociatedEvent
-            ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
+            ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
 
         return {
