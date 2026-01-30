@@ -57,22 +57,15 @@ class RecordingDeletedError(Exception):
 @runtime_checkable
 class BlockStorage(Protocol):
     """
-    Protocol for fetching recording blocks.
+    Async protocol for fetching recording blocks.
 
-    Both the S3 storage client and the Recording API client implement this interface,
-    allowing them to be used interchangeably when fetching blocks.
-
-    The session_id and team_id parameters are required for the Recording API client
-    to construct the correct URL, but are ignored by the S3 storage client.
+    Implemented by AsyncSessionRecordingV2ObjectStorage (direct S3) and
+    EncryptedBlockStorage (Recording API with decryption).
     """
 
-    async def fetch_block(self, block_url: str, session_id: str, team_id: int) -> str:
-        """Fetch and decompress a recording block. Returns decompressed content."""
-        ...
+    async def fetch_block(self, block_url: str, session_id: str, team_id: int) -> str: ...
 
-    async def fetch_block_bytes(self, block_url: str, session_id: str, team_id: int) -> bytes:
-        """Fetch a recording block. Returns compressed bytes."""
-        ...
+    async def fetch_block_bytes(self, block_url: str, session_id: str, team_id: int) -> bytes: ...
 
 
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
@@ -824,7 +817,6 @@ class EncryptedBlockStorage:
                 session_id=session_id,
                 team_id=team_id,
                 error=str(e),
-                exc_info=False,
             )
             raise RecordingApiFetchError(f"Failed to fetch block from Recording API: {str(e)}")
 
@@ -850,7 +842,6 @@ class EncryptedBlockStorage:
                 session_id=session_id,
                 team_id=team_id,
                 error=str(e),
-                exc_info=False,
             )
             raise RecordingApiFetchError(f"Failed to decompress block: {str(e)}")
 
@@ -891,7 +882,6 @@ class EncryptedBlockStorage:
                 session_id=session_id,
                 team_id=team_id,
                 error=str(e),
-                exc_info=False,
             )
             raise RecordingApiFetchError(f"Failed to delete recording: {str(e)}")
 

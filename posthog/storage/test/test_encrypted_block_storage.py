@@ -7,6 +7,7 @@ import aiohttp
 from posthog.storage.session_recording_v2_object_storage import (
     EncryptedBlockStorage,
     RecordingApiFetchError,
+    RecordingDeletedError,
     encrypted_block_storage,
 )
 
@@ -75,6 +76,25 @@ class TestFetchBlockBytes:
                 "session-123",
                 1,
             )
+
+    @pytest.mark.asyncio
+    async def test_410_raises_recording_deleted_error(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 410
+        mock_response.json = AsyncMock(return_value={"deleted_at": 1700000000})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
+            await client.fetch_block_bytes(
+                "s3://bucket/key?range=bytes=0-100",
+                "session-123",
+                1,
+            )
+
+        assert exc_info.value.deleted_at == 1700000000
 
     @pytest.mark.asyncio
     async def test_client_error_raises_error(self, client, mock_session):
@@ -187,6 +207,25 @@ class TestFetchBlock:
                 1,
             )
 
+    @pytest.mark.asyncio
+    async def test_propagates_recording_deleted_error(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 410
+        mock_response.json = AsyncMock(return_value={"deleted_at": 1700000000})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
+            await client.fetch_block(
+                "s3://bucket/key?range=bytes=0-100",
+                "session-123",
+                1,
+            )
+
+        assert exc_info.value.deleted_at == 1700000000
+
 
 class TestDeleteRecording:
     @pytest.fixture
@@ -223,6 +262,21 @@ class TestDeleteRecording:
 
         with pytest.raises(RecordingApiFetchError, match="Recording key not found"):
             await client.delete_recording("session-123", 1)
+
+    @pytest.mark.asyncio
+    async def test_410_raises_recording_deleted_error(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 410
+        mock_response.json = AsyncMock(return_value={"deleted_at": 1700000000})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.delete = MagicMock(return_value=mock_response)
+
+        with pytest.raises(RecordingDeletedError, match="Recording has already been deleted") as exc_info:
+            await client.delete_recording("session-123", 1)
+
+        assert exc_info.value.deleted_at == 1700000000
 
     @pytest.mark.asyncio
     async def test_client_error_raises_error(self, client, mock_session):

@@ -334,6 +334,13 @@ export class RateLimitError extends Error {
     }
 }
 
+export class RecordingDeletedError extends Error {
+    constructor(public deletedAt: number | null) {
+        super('Recording has been permanently deleted')
+        this.name = 'RecordingDeletedError'
+    }
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -3762,6 +3769,12 @@ const api = {
                 .withAction('snapshots')
                 .withQueryString(params)
                 .getResponse({ headers })
+
+            // Check for 410 Gone (recording permanently deleted)
+            if (response.status === 410) {
+                const data = await getJSONOrNull(response)
+                throw new RecordingDeletedError(data?.deleted_at ?? null)
+            }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
 

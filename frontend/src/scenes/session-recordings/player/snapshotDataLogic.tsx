@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { EventType } from '@posthog/rrweb-types'
 
-import api from 'lib/api'
+import api, { RecordingDeletedError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -153,6 +153,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     metas: [...new Set([...state.metas, ...markers.metas])].sort((a, b) => a - b),
                 }),
                 // Only reset when loading a new recording (logic is keyed by sessionRecordingId)
+            },
+        ],
+        snapshotLoadError: [
+            null as Error | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
             },
         ],
     })),
@@ -870,6 +878,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 }
                 // We have a target timestamp but no playable FullSnapshot yet
                 return true
+            },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): boolean => {
+                return snapshotLoadError instanceof RecordingDeletedError
+            },
+        ],
+
+        recordingDeletedAt: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): number | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedAt
+                }
+                return null
             },
         ],
     })),
