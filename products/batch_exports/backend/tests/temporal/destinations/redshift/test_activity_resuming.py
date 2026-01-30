@@ -149,6 +149,7 @@ async def test_insert_into_redshift_activity_resumes_from_heartbeat(
         task_token=b"test",
         workflow_namespace="default",
         priority=temporalio.common.Priority(priority_key=None),
+        retry_policy=temporalio.common.RetryPolicy(),
     )
 
     activity_environment.info = fake_info
@@ -257,6 +258,7 @@ async def test_insert_into_redshift_activity_completes_range(
         task_token=b"test",
         workflow_namespace="default",
         priority=temporalio.common.Priority(priority_key=None),
+        retry_policy=temporalio.common.RetryPolicy(),
     )
 
     activity_environment.info = fake_info
