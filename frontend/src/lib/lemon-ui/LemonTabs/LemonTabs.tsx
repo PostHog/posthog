@@ -1,7 +1,5 @@
 import './LemonTabs.scss'
 
-import { router } from 'kea-router'
-
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -69,7 +67,6 @@ export function LemonTabs<T extends string | number>({
     /** Tabs with falsy entries filtered out. */
     const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
     const activeTab = realTabs.find((tab) => tab.key === activeKey)
-    const currentPath = router.values.location
 
     return (
         <div
@@ -118,11 +115,7 @@ export function LemonTabs<T extends string | number>({
                                 docLink={tab.tooltipDocLink}
                             >
                                 <li
-                                    className={cn(
-                                        'LemonTabs__tab',
-                                        tab.key === activeKey ||
-                                            (currentPath.pathname === tab.link && 'LemonTabs__tab--active')
-                                    )}
+                                    className={cn('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
                                     onClick={onChange ? () => onChange(tab.key) : undefined}
                                     role="tab"
                                     aria-selected={tab.key === activeKey}
