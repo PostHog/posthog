@@ -38,8 +38,7 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
-            const cohortProperty = property
-            value = cohortProperty.cohort_name || `ID ${cohortProperty.value}`
+            value = property.cohort_name || `ID ${property.value}`
         } else if (Array.isArray(property.value)) {
             value = property.value.slice(0, 2).join(', ') + (property.value.length > 2 ? '...' : '')
         } else if (property.value === null || property.value === undefined) {
