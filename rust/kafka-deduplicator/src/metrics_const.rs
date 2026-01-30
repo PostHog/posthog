@@ -94,6 +94,18 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
 
+/// Histogram for total checkpoint import duration from start to completion
+/// This measures the end-to-end time for import_checkpoint_for_topic_partition_cancellable,
+/// including listing checkpoints, downloading metadata files, downloading all SST files,
+/// and any fallback attempts. Tags: result=success|failed|cancelled|timeout
+pub const CHECKPOINT_IMPORT_DURATION_HISTOGRAM: &str = "checkpoint_import_duration_seconds";
+
+/// Histogram for per-checkpoint-attempt duration during import
+/// This measures the time for each individual checkpoint attempt (downloading one checkpoint's files).
+/// Multiple attempts may occur if earlier checkpoints fail. Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
+    "checkpoint_import_attempt_duration_seconds";
+
 /// Record outcomes for attempts to restore checkpoints
 /// when local store is missing after Kafka rebalances
 pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
