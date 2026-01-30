@@ -6,6 +6,7 @@ import { IconClock } from '@posthog/icons'
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { toSentenceCase } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -533,8 +534,8 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         settingsItems: [
-            (s) => [s.featureFlags, s.isDev],
-            (featureFlags, isDev): SearchItem[] => {
+            (s) => [s.featureFlags],
+            (featureFlags): SearchItem[] => {
                 const items: SearchItem[] = []
 
                 const checkFlag = (flag: string): boolean => {
@@ -545,6 +546,11 @@ export const searchLogic = kea<searchLogicType>([
                 }
 
                 for (const section of SETTINGS_MAP) {
+                    if (section.level === 'environment') {
+                        // temporary until we finish removing environments entirely
+                        continue
+                    }
+
                     // Filter by feature flag if required
                     if (section.flag) {
                         if (Array.isArray(section.flag)) {
@@ -559,28 +565,30 @@ export const searchLogic = kea<searchLogicType>([
                         }
                     }
 
-                    // Skip sections only visible in dev mode
-                    const titleString = typeof section.title === 'string' ? section.title : ''
-                    if (!isDev && titleString === 'Unreleased') {
-                        continue
-                    }
-
                     // Create a search item for each settings section
-                    const levelPrefix =
-                        section.level === 'environment'
-                            ? 'Environment'
-                            : section.level === 'project'
-                              ? 'Project'
-                              : section.level === 'organization'
-                                ? 'Organization'
-                                : 'User'
+                    const levelPrefix = toSentenceCase(section.level)
 
-                    const displayName = typeof section.title === 'string' ? section.title : section.id
+                    const settings = section.settings.flatMap((setting) => [
+                        toSentenceCase(setting.id.replace(/[-]/, ' ')),
+                        ...(typeof setting.title === 'string' ? [setting.title] : []),
+                        ...(typeof setting.description === 'string' ? [setting.description] : []),
+                    ])
+
+                    // Create the display name for each settings section
+                    const displayName =
+                        typeof section.title === 'string'
+                            ? section.title
+                            : toSentenceCase(section.id.replace(/[-]/, ' '))
+
+                    const displayNameSuffix =
+                        displayName === 'General' || displayName === 'Danger zone'
+                            ? ` (${toSentenceCase(section.level)})`
+                            : ''
 
                     items.push({
                         id: `settings-${section.id}`,
-                        name: `${levelPrefix}: ${displayName}`,
-                        displayName,
+                        name: `${levelPrefix}: ${displayName} (${settings})`,
+                        displayName: `${displayName}${displayNameSuffix}`,
                         category: 'settings',
                         href: section.to || urls.settings(section.id),
                         itemType: 'settings',
@@ -762,7 +770,7 @@ export const searchLogic = kea<searchLogicType>([
                         return items
                     }
                     const searchLower = search.toLowerCase()
-                    const searchChunks = searchLower.split(' ').filter((chunk) => chunk)
+                    const searchChunks = searchLower.split(' ').filter((s) => s)
                     return items.filter((item) =>
                         searchChunks.every(
                             (chunk) =>
@@ -814,7 +822,7 @@ export const searchLogic = kea<searchLogicType>([
                 // Show "create" category only when searching and matching "new" or relevant keywords
                 if (hasSearch) {
                     const searchLower = search.toLowerCase()
-                    const searchChunks = searchLower.split(' ').filter((chunk) => chunk)
+                    const searchChunks = searchLower.split(' ').filter((s) => s)
 
                     // Filter new items - ALL search chunks must match
                     const filteredNewItems = newItems.filter((item) => {
