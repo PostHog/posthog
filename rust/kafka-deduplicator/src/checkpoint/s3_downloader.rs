@@ -2,6 +2,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+use tokio_util::bytes::Bytes;
+
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
 use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
@@ -23,6 +25,46 @@ use object_store::{ClientOptions, ObjectStore, ObjectStoreExt};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+/// Result of attempting to read the next chunk from a stream with cancellation support
+enum ChunkResult {
+    Data(Bytes),
+    EndOfStream,
+    Cancelled,
+    Error(object_store::Error),
+}
+
+/// Read next chunk from stream with cancellation support.
+/// Uses `tokio::select!` with `biased;` to ensure cancellation is checked promptly,
+/// even if the stream is slow or stalled.
+async fn next_chunk_cancellable<S>(
+    stream: &mut S,
+    cancel_token: Option<&CancellationToken>,
+) -> ChunkResult
+where
+    S: futures::Stream<Item = Result<Bytes, object_store::Error>> + Unpin,
+{
+    match cancel_token {
+        Some(token) => {
+            tokio::select! {
+                biased;
+
+                _ = token.cancelled() => ChunkResult::Cancelled,
+
+                result = stream.try_next() => match result {
+                    Ok(Some(chunk)) => ChunkResult::Data(chunk),
+                    Ok(None) => ChunkResult::EndOfStream,
+                    Err(e) => ChunkResult::Error(e),
+                }
+            }
+        }
+        None => match stream.try_next().await {
+            Ok(Some(chunk)) => ChunkResult::Data(chunk),
+            Ok(None) => ChunkResult::EndOfStream,
+            Err(e) => ChunkResult::Error(e),
+        },
+    }
+}
 
 /// Build the S3 key prefix for listing checkpoints for a specific topic/partition.
 /// The trailing slash is critical: ensures partition "41" doesn't prefix-match "410", "419", etc.
@@ -219,21 +261,10 @@ impl CheckpointDownloader for S3Downloader {
 
         // Process stream with cancellation support
         loop {
-            // Check cancellation before each chunk
-            if let Some(token) = cancel_token {
-                if token.is_cancelled() {
-                    // Drop file handle before cleanup
-                    drop(file);
-                    let _ = tokio::fs::remove_file(local_filepath).await;
-                    metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
-                        .increment(1);
-                    warn!("Download of {remote_key} cancelled mid-stream");
-                    return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
-                }
-            }
+            let chunk_result = next_chunk_cancellable(&mut stream, cancel_token).await;
 
-            match stream.try_next().await {
-                Ok(Some(chunk)) => {
+            match chunk_result {
+                ChunkResult::Data(chunk) => {
                     if let Err(e) = file.write_all(&chunk).await {
                         metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                             .increment(1);
@@ -242,8 +273,16 @@ impl CheckpointDownloader for S3Downloader {
                         });
                     }
                 }
-                Ok(None) => break, // Stream complete
-                Err(e) => {
+                ChunkResult::EndOfStream => break,
+                ChunkResult::Cancelled => {
+                    drop(file);
+                    let _ = tokio::fs::remove_file(local_filepath).await;
+                    metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "cancelled")
+                        .increment(1);
+                    warn!("Download of {remote_key} cancelled mid-stream");
+                    return Err(anyhow::anyhow!("Download cancelled: {remote_key}"));
+                }
+                ChunkResult::Error(e) => {
                     metrics::counter!(CHECKPOINT_FILE_DOWNLOADS_COUNTER, "status" => "error")
                         .increment(1);
                     return Err(anyhow::anyhow!(e)).with_context(|| {
