@@ -127,6 +127,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                # Keep hard limit to avoid hanging workflows
+                execution_timeout=timedelta(hours=3),
             )
         except WorkflowAlreadyStartedError:
             # Another request already started exporting this session - wait for it to complete
