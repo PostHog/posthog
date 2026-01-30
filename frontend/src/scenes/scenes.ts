@@ -388,6 +388,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Data management',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
     },
+    [Scene.SqlVariableEdit]: {
+        projectBased: true,
+        name: 'SQL variable',
+        defaultDocsPath: '/docs/sql',
+    },
     [Scene.PropertyDefinitions]: {
         projectBased: true,
         name: 'Property definitions',
@@ -755,6 +760,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
+    [urls.variables()]: [Scene.DataManagement, 'variables'],
+    [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
