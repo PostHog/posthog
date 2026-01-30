@@ -2901,6 +2901,40 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    def test_filter_for_recordings_by_snapshot_library(self):
+        user = "test_library_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = "session one id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_library="posthog-ios",
+        )
+
+        session_id_two = "session two id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_library="posthog-react-native",
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "snapshot_library", "value": ["posthog-ios"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_one],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "snapshot_library", "value": ["posthog-react-native"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_two],
+        )
+
     def test_filter_for_recordings_by_visited_page(self):
         user = "test_visited_page_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
