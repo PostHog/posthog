@@ -13,7 +13,7 @@ use crate::{
     metric_consts::ANCILLARY_CACHE,
     pipeline::IncomingEvent,
     sanitize_string, WithIndices,
-};              
+};
 
 pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
