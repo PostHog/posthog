@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<h1>Model Counts for {{ organization.name }}</h1>
+<p><strong>Organization ID:</strong> {{ organization.id }}</p>
+<p>These are the Postgres models that would be deleted during organization bulk-delete.</p>
+
+<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+    <thead>
+        <tr style="background: #f5f5f5;">
+            <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Model</th>
+            <th style="text-align: right; padding: 10px; border: 1px solid #ddd;">Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in counts %}
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ item.name }}</td>
+            <td style="text-align: right; padding: 10px; border: 1px solid #ddd;">
+                {% if item.count is not None %}
+                    {{ item.count|default:0 }}
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr style="background: #f5f5f5; font-weight: bold;">
+            <td style="padding: 10px; border: 1px solid #ddd;">Total Records</td>
+            <td style="text-align: right; padding: 10px; border: 1px solid #ddd;">{{ total|default:0 }}</td>
+        </tr>
+    </tfoot>
+</table>
+
+<p style="margin-top: 20px;">
+    <a href="{% url 'admin:posthog_organization_change' organization.id %}">&larr; Back to Organization</a>
+</p>
+{% endblock %}
