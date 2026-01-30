@@ -774,6 +774,14 @@ class Team(UUIDTClassicModel):
             ),
         )
 
+        self._notify_vercel_of_token_rotation()
+
+    def _notify_vercel_of_token_rotation(self) -> None:
+        """Push updated API token to Vercel integrations in the background."""
+        from posthog.tasks.integrations import push_vercel_secrets
+
+        push_vercel_secrets.delay(self.id)
+
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
