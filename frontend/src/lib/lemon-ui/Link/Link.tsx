@@ -5,7 +5,8 @@ import React from 'react'
 
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -148,9 +149,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-        const shouldOpenInDocsPanel =
-            !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to) && !isRemovingSidePanelFlag
+        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -166,8 +165,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             }
 
             const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
+            const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
+            const { featureFlags } = mountedFeatureFlagLogic?.values || {}
 
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic) {
+            const isRemovingSidePanelFlag = featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+
+            if (shouldOpenInDocsPanel && mountedSidePanelLogic && !isRemovingSidePanelFlag) {
                 // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
                 const { sidePanelOpen } = mountedSidePanelLogic.values
                 const { openSidePanel } = mountedSidePanelLogic.actions
