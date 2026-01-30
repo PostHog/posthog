@@ -2423,7 +2423,6 @@
     "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_conversation_summarization_flow": 0.14660040899997284,
     "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_conversation_summarization_includes_mode_reminder_when_feature_flag_enabled": 0.14548162199997705,
     "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_conversation_summarization_on_first_turn": 0.1430955079999876,
-    "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_get_updated_agent_mode": 0.1335482360000242,
     "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_hard_limit_removes_tools": 0.14296308699999827,
     "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_is_hard_limit_reached_boundary_conditions_0": 0.13443169999999327,
     "ee/hogai/core/agent_modes/test/test_executables.py::TestAgentNode::test_is_hard_limit_reached_boundary_conditions_1": 0.13244502899993904,
