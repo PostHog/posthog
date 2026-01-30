@@ -5,9 +5,17 @@ import { SpanEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/sp
 import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/trace-event'
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
 import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/autogen'
+import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/azure-openai'
+import { BedrockInstallation } from '@posthog/shared-onboarding/llm-analytics/bedrock'
+import { CerebrasInstallation } from '@posthog/shared-onboarding/llm-analytics/cerebras'
+import { CohereInstallation } from '@posthog/shared-onboarding/llm-analytics/cohere'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
+import { DeepSeekInstallation } from '@posthog/shared-onboarding/llm-analytics/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
+import { FireworksAIInstallation } from '@posthog/shared-onboarding/llm-analytics/fireworks-ai'
 import { GoogleInstallation } from '@posthog/shared-onboarding/llm-analytics/google'
+import { GroqInstallation } from '@posthog/shared-onboarding/llm-analytics/groq'
+import { HuggingFaceInstallation } from '@posthog/shared-onboarding/llm-analytics/hugging-face'
 import { InstructorInstallation } from '@posthog/shared-onboarding/llm-analytics/instructor'
 import { LangChainInstallation } from '@posthog/shared-onboarding/llm-analytics/langchain'
 import { LangGraphInstallation } from '@posthog/shared-onboarding/llm-analytics/langgraph'
@@ -16,12 +24,18 @@ import { LlamaIndexInstallation } from '@posthog/shared-onboarding/llm-analytics
 import { ManualInstallation } from '@posthog/shared-onboarding/llm-analytics/manual'
 import { MastraInstallation } from '@posthog/shared-onboarding/llm-analytics/mastra'
 import { MirascopeInstallation } from '@posthog/shared-onboarding/llm-analytics/mirascope'
+import { MistralInstallation } from '@posthog/shared-onboarding/llm-analytics/mistral'
+import { OllamaInstallation } from '@posthog/shared-onboarding/llm-analytics/ollama'
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
+import { PerplexityInstallation } from '@posthog/shared-onboarding/llm-analytics/perplexity'
+import { PortkeyInstallation } from '@posthog/shared-onboarding/llm-analytics/portkey'
 import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
 import { SemanticKernelInstallation } from '@posthog/shared-onboarding/llm-analytics/semantic-kernel'
 import { SmolagentsInstallation } from '@posthog/shared-onboarding/llm-analytics/smolagents'
+import { TogetherAIInstallation } from '@posthog/shared-onboarding/llm-analytics/together-ai'
 import { VercelAIInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai'
+import { XAIInstallation } from '@posthog/shared-onboarding/llm-analytics/xai'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
@@ -118,6 +132,62 @@ const LLMMirascopeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: MirascopeInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMGroqInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GroqInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMMistralInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: MistralInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOllamaInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OllamaInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDeepSeekInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DeepSeekInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMBedrockInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: BedrockInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMTogetherAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: TogetherAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMFireworksAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FireworksAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAzureOpenAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AzureOpenAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCerebrasInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CerebrasInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMPerplexityInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PerplexityInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMPortkeyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PortkeyInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCohereInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CohereInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMHuggingFaceInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HuggingFaceInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMXAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: XAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
@@ -138,5 +208,19 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.LANGGRAPH]: LLMLangGraphInstructionsWrapper,
     [SDKKey.MASTRA]: LLMMastraInstructionsWrapper,
     [SDKKey.MIRASCOPE]: LLMMirascopeInstructionsWrapper,
+    [SDKKey.GROQ]: LLMGroqInstructionsWrapper,
+    [SDKKey.MISTRAL]: LLMMistralInstructionsWrapper,
+    [SDKKey.OLLAMA]: LLMOllamaInstructionsWrapper,
+    [SDKKey.DEEPSEEK]: LLMDeepSeekInstructionsWrapper,
+    [SDKKey.BEDROCK]: LLMBedrockInstructionsWrapper,
+    [SDKKey.TOGETHER_AI]: LLMTogetherAIInstructionsWrapper,
+    [SDKKey.FIREWORKS_AI]: LLMFireworksAIInstructionsWrapper,
+    [SDKKey.AZURE_OPENAI]: LLMAzureOpenAIInstructionsWrapper,
+    [SDKKey.CEREBRAS]: LLMCerebrasInstructionsWrapper,
+    [SDKKey.PERPLEXITY]: LLMPerplexityInstructionsWrapper,
+    [SDKKey.PORTKEY]: LLMPortkeyInstructionsWrapper,
+    [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
+    [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
+    [SDKKey.XAI]: LLMXAIInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }
