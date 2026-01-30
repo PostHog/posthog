@@ -97,7 +97,8 @@ class ClerkSourceConfig(config.Config):
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_region: Literal["US", "EU"] = config.value(default="US")
 
 
 @config.config
@@ -230,6 +231,11 @@ class ShopifySourceConfig(config.Config):
 
 
 @config.config
+class SnapchatAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
@@ -275,11 +281,6 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
-class SnapchatAdsSourceConfig(config.Config):
-    pass
-
-
-@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -321,12 +322,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
-        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]
