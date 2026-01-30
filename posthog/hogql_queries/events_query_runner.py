@@ -312,9 +312,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
                 # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
                 if (
-                    use_presorted_events_query(self.team)
-                    and self._can_use_presorted_optimization(order_by)
+                    self._can_use_presorted_optimization(order_by)
                     and not has_any_aggregation
+                    and use_presorted_events_query(self.team)
                 ):
                     logger.info(
                         "events_query_runner_presorted_optimization",
