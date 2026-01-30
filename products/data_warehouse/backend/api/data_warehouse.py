@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from django.db import connection
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate, TruncHour
+from django.utils import timezone
 
 import structlog
 from dateutil import parser
@@ -530,11 +531,18 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = []
 
             # Get failed materializations from DataWarehouseSavedQuery
-            failed_materializations = DataWarehouseSavedQuery.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-            ).filter(
-                Q(status=DataWarehouseSavedQuery.Status.FAILED) | Q(is_materialized=False, latest_error__isnull=False)
+            # Only include materialized views that failed within the last day
+            one_day_ago = timezone.now() - timedelta(days=1)
+            failed_materializations = (
+                DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                )
+                .filter(
+                    Q(status=DataWarehouseSavedQuery.Status.FAILED)
+                    | Q(is_materialized=False, latest_error__isnull=False)
+                )
+                .filter(Q(last_run_at__gte=one_day_ago) | Q(last_run_at__isnull=True))
             )
 
             for query in failed_materializations:
@@ -606,7 +614,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get failed batch exports
-            # get latest run per export, then filter for failures
+            # get latest run per export, then filter for failures within the last day
             latest_run_ids = (
                 BatchExportRun.objects.filter(
                     batch_export__team_id=self.team_id,
@@ -617,15 +625,19 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 .values_list("id", flat=True)
             )
 
-            failed_runs = BatchExportRun.objects.filter(
-                id__in=latest_run_ids,
-                status__in=[
-                    BatchExportRun.Status.FAILED,
-                    BatchExportRun.Status.FAILED_RETRYABLE,
-                    BatchExportRun.Status.TIMEDOUT,
-                    BatchExportRun.Status.TERMINATED,
-                ],
-            ).select_related("batch_export")
+            failed_runs = (
+                BatchExportRun.objects.filter(
+                    id__in=latest_run_ids,
+                    status__in=[
+                        BatchExportRun.Status.FAILED,
+                        BatchExportRun.Status.FAILED_RETRYABLE,
+                        BatchExportRun.Status.TIMEDOUT,
+                        BatchExportRun.Status.TERMINATED,
+                    ],
+                )
+                .filter(Q(finished_at__gte=one_day_ago) | Q(finished_at__isnull=True))
+                .select_related("batch_export")
+            )
 
             for run in failed_runs:
                 results.append(
