@@ -51,6 +51,7 @@ describe('RecordingApi', () => {
             SESSION_RECORDING_V2_S3_REGION: 'us-west-2',
             SESSION_RECORDING_V2_S3_ENDPOINT: undefined,
             SESSION_RECORDING_V2_S3_BUCKET: 'test-bucket',
+            SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
             REDIS_URL: 'rediss://localhost:6379',
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
@@ -218,12 +219,35 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Expected string, received number' })
         })
 
+        it.each([
+            ['../etc/passwd', 'path traversal'],
+            ['other_prefix/30d/123-abcdef0123456789', 'wrong prefix'],
+            ['session_recordings/7d/123-abcdef0123456789', 'invalid retention period'],
+            ['session_recordings/30d/file', 'missing timestamp-hex format'],
+            ['session_recordings/30d/123', 'missing hex suffix'],
+            ['session_recordings/30d/123-abc', 'hex suffix too short'],
+            ['session_recordings/30d/123-abcdef012345678z', 'hex suffix contains non-hex'],
+            ['session_recordings/30d/-abcdef0123456789', 'missing timestamp'],
+        ])('should return 400 for invalid S3 key: %s (%s)', async (key, _description) => {
+            await recordingApi.start()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key, start: '0', end: '100' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock.mock.calls[0][0].error).toMatch(/Invalid key/)
+        })
+
         it('should return 400 if start is missing', async () => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -237,7 +261,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -251,7 +275,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: 'abc', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: 'abc', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -270,7 +294,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: teamId, session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -290,7 +314,7 @@ describe('RecordingApi', () => {
                 const { statusMock, jsonMock, ...mockRes } = createMockResponse()
                 const mockReq = {
                     params: { team_id: '1', session_id: 'session-123' },
-                    query: { key: 'path/to/file', start, end },
+                    query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start, end },
                 }
 
                 await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -305,7 +329,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '100', end: '50' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '100', end: '50' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -326,7 +350,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, setMock, sendMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '50', end: '50' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '50', end: '50' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -339,7 +363,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -356,7 +380,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -377,7 +401,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, setMock, sendMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -397,7 +421,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -420,7 +444,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -445,7 +469,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start: '0', end: '100' },
+                query: { key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
