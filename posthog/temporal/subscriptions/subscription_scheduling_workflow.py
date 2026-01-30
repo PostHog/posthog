@@ -148,7 +148,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(minutes=5),
                     maximum_attempts=3,
-                    non_retryable_error_types=[],
+                    non_retryable_error_types=["NotImplementedError"],
                 ),
             )
             tasks.append(task)
@@ -174,5 +174,6 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 initial_interval=dt.timedelta(seconds=5),
                 maximum_interval=dt.timedelta(minutes=2),
                 maximum_attempts=3,
+                non_retryable_error_types=["NotImplementedError"],
             ),
         )
