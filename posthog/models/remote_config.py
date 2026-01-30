@@ -28,7 +28,7 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+from products.error_tracking.backend.models import ErrorTrackingAutoCaptureControls, ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
 
 tracer = trace.get_tracer(__name__)
@@ -612,8 +612,13 @@ def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppre
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
-@receiver(post_save, sender="error_tracking.ErrorTrackingAutoCaptureControls")
-def error_tracking_autocapture_controls_saved(sender, instance, created, **kwargs):
+@receiver(post_save, sender=ErrorTrackingAutoCaptureControls)
+def error_tracking_autocapture_controls_saved(sender, instance: "ErrorTrackingAutoCaptureControls", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_delete, sender=ErrorTrackingAutoCaptureControls)
+def error_tracking_autocapture_controls_deleted(sender, instance: "ErrorTrackingAutoCaptureControls", **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

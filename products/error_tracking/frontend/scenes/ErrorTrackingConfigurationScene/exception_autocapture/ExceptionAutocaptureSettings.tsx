@@ -70,11 +70,11 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <FlaggedFeature flag={FEATURE_FLAGS.ERROR_TRACKING_INGESTION_CONTROLS}>
                 <div>
                     <div className="flex justify-between">
-                        <h3>Ingestion controls</h3>
+                        <h3>Autocapture controls</h3>
                         <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingSuppressionRules} />
                     </div>
                     <p>
-                        Setting ingestion controls allows you to selectively enable exception autocapture based on the
+                        Setting autocapture controls allows you to selectively enable exception autocapture based on the
                         user or scenario
                     </p>
                     <ErrorTrackingIngestionControls disabled={!checked} />
