@@ -69,13 +69,20 @@ pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 /// Histogram for checkpoint upload duration
+/// Tags: result=success|error|cancelled
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 
 /// Counter for checkpoint upload outcome status
+/// Tags: result=success|error|cancelled|unavailable
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint file downloads outcome status
+/// Tags: status=success|error|cancelled
 pub const CHECKPOINT_FILE_DOWNLOADS_COUNTER: &str = "checkpoint_file_downloads_status";
+
+/// Counter for checkpoint file uploads outcome status
+/// Tags: status=success|error|cancelled
+pub const CHECKPOINT_FILE_UPLOADS_COUNTER: &str = "checkpoint_file_uploads_status";
 
 /// Counter for checkpoint files tracked in each attempt plan tagged by action taken
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
