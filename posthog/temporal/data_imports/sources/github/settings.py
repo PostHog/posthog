@@ -39,21 +39,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         name="pull_requests",
         path="/repos/{repository}/pulls",
         partition_key="created_at",
-        incremental_fields=[
-            {
-                "label": "updated_at",
-                "type": IncrementalFieldType.DateTime,
-                "field": "updated_at",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-            {
-                "label": "created_at",
-                "type": IncrementalFieldType.DateTime,
-                "field": "created_at",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
-        default_incremental_field="updated_at",
+        incremental_fields=[],  # GitHub pulls API doesn't support 'since' parameter
     ),
     "commits": GithubEndpointConfig(
         name="commits",

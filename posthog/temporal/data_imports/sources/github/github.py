@@ -38,11 +38,10 @@ def get_resource(
         "state": "all",  # Get all states for issues/PRs
     }
 
-    # Handle incremental loading via 'since' parameter for issues
+    # Handle incremental loading via 'since' parameter (only issues endpoint supports this)
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
-        # GitHub uses 'since' for updated_at filtering on issues/pulls
-        if name in ("issues", "pull_requests"):
+        if name == "issues":
             params["since"] = formatted_value
 
     return {
