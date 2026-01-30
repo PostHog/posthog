@@ -15,15 +15,17 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
-from ee.hogai.core.agent_modes.presets.product_analytics import (
-    chat_agent_plan_product_analytics_agent,
-    product_analytics_agent,
-)
+from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import chat_agent_plan_session_replay_agent, session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import chat_agent_plan_sql_agent, sql_agent
+from ee.hogai.core.agent_modes.presets.survey import survey_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
-from ee.hogai.utils.feature_flags import has_error_tracking_mode_feature_flag, has_plan_mode_feature_flag
+from ee.hogai.utils.feature_flags import (
+    has_error_tracking_mode_feature_flag,
+    has_plan_mode_feature_flag,
+    has_survey_mode_feature_flag,
+)
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 # Execution and plan mode definitions - fictitious modes used to trigger transition in and out of plan mode
@@ -47,7 +49,6 @@ DEFAULT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
 }
 
 DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
-    AgentMode.PRODUCT_ANALYTICS: chat_agent_plan_product_analytics_agent,
     AgentMode.SQL: chat_agent_plan_sql_agent,
     AgentMode.SESSION_REPLAY: chat_agent_plan_session_replay_agent,
     AgentMode.EXECUTION: execution_agent,
@@ -76,10 +77,11 @@ class ChatAgentModeManager(AgentModeManager):
         self._supermode: AgentMode | None
         if state.agent_mode == AgentMode.PLAN:
             self._supermode = AgentMode.PLAN
-            self._mode = AgentMode.PRODUCT_ANALYTICS
+            self._mode = AgentMode.SQL
         else:
             self._supermode = cast(AgentMode | None, state.supermode)
-            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
+            default_mode = AgentMode.SQL if self._supermode == AgentMode.PLAN else AgentMode.PRODUCT_ANALYTICS
+            self._mode = state.agent_mode if state.agent_mode in self.mode_registry else default_mode
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
@@ -94,6 +96,8 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = chat_agent_plan_error_tracking_agent
             else:
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+        if has_survey_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.SURVEY] = survey_agent
         return registry
 
     @property

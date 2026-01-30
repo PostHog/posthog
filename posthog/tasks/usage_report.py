@@ -1037,6 +1037,10 @@ CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
     "US": 2,
 }
+CLOUD_REGION_TO_URL = {
+    "EU": "https://eu.posthog.com",
+    "US": "https://us.posthog.com",
+}
 
 
 @timed_log()
@@ -1065,8 +1069,7 @@ def get_teams_with_ai_credits_used_in_period(
     6. Convert 1:1 to credits
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
-    At time of writing, events in the US have a materialized region but nothing present in EU.
-    Using the field from properties to filter events instead.
+    We filter by $group_1 which contains the region URL (https://eu.posthog.com or https://us.posthog.com).
     """
     region = get_instance_region()
 
@@ -1134,7 +1137,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1158,7 +1161,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
@@ -1188,7 +1191,7 @@ def get_teams_with_ai_credits_used_in_period(
             """,
             {
                 "team_to_query": team_to_query,
-                "region": region,
+                "region_url": CLOUD_REGION_TO_URL[region],
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,

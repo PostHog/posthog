@@ -186,7 +186,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
-        setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
         setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
@@ -272,14 +271,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Trace ID is used for the conversation metrics in the UI
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
 
-        deepResearchMode: [
-            false,
-            {
-                setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
-                setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
-            },
-        ],
-
         agentMode: [
             null as AgentMode | null,
             {
@@ -353,6 +344,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 stopGeneration: () => true,
                 setCancelLoading: (_, { cancelLoading }) => cancelLoading,
+            },
+        ],
+
+        // Stable thinking message that doesn't change during streaming
+        currentThinkingMessage: [
+            null as string | null,
+            {
+                askMax: () => getRandomThinkingMessage(),
+                reconnectToStream: () => getRandomThinkingMessage(),
+                streamConversation: () => getRandomThinkingMessage(),
+                addMessage: () => getRandomThinkingMessage(),
+                completeThreadGeneration: () => null,
             },
         ],
 
@@ -496,10 +499,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
                     apiData.billing_context = values.billingContext
-                }
-
-                if (values.deepResearchMode) {
-                    apiData.deep_research_mode = true
                 }
 
                 if (agentMode) {
@@ -996,13 +995,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.toolCallUpdateMap,
                 s.pendingApprovalsData,
                 s.resolvedApprovalStatuses,
+                s.currentThinkingMessage,
             ],
             (
                 thread,
                 threadLoading,
                 toolCallUpdateMap,
                 pendingApprovalsData,
-                resolvedApprovalStatuses
+                resolvedApprovalStatuses,
+                currentThinkingMessage
             ): ThreadMessage[] => {
                 // Filter out messages that shouldn't be displayed
                 let processedThread: ThreadMessage[] = []
@@ -1046,7 +1047,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             thinking: [
                                 {
                                     type: 'thinking',
-                                    thinking: getRandomThinkingMessage(),
+                                    thinking: currentThinkingMessage ?? getRandomThinkingMessage(),
                                 },
                             ],
                         },
@@ -1272,7 +1273,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         showDeepResearchModeToggle: [
             (s) => [s.conversation, s.featureFlags],
             (conversation, featureFlags) =>
-                // if a conversation is already marked as deep research, or has already started (has title/is in progress), don't show the toggle
+                // if a conversation is already marked as research, or has already started (has title/is in progress), don't show the toggle
                 !!featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] &&
                 conversation?.type !== ConversationType.DeepResearch &&
                 !conversation?.title &&

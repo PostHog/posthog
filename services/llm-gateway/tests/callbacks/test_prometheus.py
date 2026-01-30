@@ -33,7 +33,7 @@ class TestPrometheusCallback:
                 provider="anthropic", model="claude-3-haiku", product="test_product"
             )._value.get()
 
-            await callback._on_success(kwargs, None, 0.0, 1.0)
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             assert (
                 TOKENS_INPUT.labels(provider="anthropic", model="claude-3-haiku", product="test_product")._value.get()
@@ -56,7 +56,7 @@ class TestPrometheusCallback:
         with patch("llm_gateway.callbacks.prometheus.get_product", return_value="test_product"):
             initial_input = TOKENS_INPUT.labels(provider="openai", model="gpt-4", product="test_product")._value.get()
 
-            await callback._on_success(kwargs, None, 0.0, 1.0)
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             # Should not change when tokens are None
             assert (
@@ -78,7 +78,7 @@ class TestPrometheusCallback:
         with patch("llm_gateway.callbacks.prometheus.get_product", return_value="test_product"):
             initial = TOKENS_INPUT.labels(provider="anthropic", model="test-model", product="test_product")._value.get()
 
-            await callback._on_success(kwargs, None, 0.0, 1.0)
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             # Input tokens should not change (over limit)
             assert (
@@ -93,7 +93,7 @@ class TestPrometheusCallback:
         with patch("llm_gateway.callbacks.prometheus.get_product", return_value="test_product"):
             initial = TOKENS_INPUT.labels(provider="unknown", model="unknown", product="test_product")._value.get()
 
-            await callback._on_success(kwargs, None, 0.0, 1.0)
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             assert (
                 TOKENS_INPUT.labels(provider="unknown", model="unknown", product="test_product")._value.get()

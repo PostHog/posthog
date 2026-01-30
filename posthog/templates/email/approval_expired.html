@@ -1,0 +1,16 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Your change request timed out{% endblock %}
+{% block section %}
+<p>
+    Your change in <b>{{ team_name }}</b> expired before getting all the approvals it needed. No worries though – you can submit a new one whenever you're ready.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ change_request_url }}">View expired request</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ change_request_url }}">{{ change_request_url }}</a>
+    </p>
+</div>
+{% endblock %}

@@ -30,6 +30,17 @@ jobs:
                           - 'rust/cyclotron-core/migrations/*.sql'
                       nodejs:
                           - 'nodejs/**'
+
+            # Separate step with predicate-quantifier: 'every' so that the
+            # negative patterns actually exclude migration directories.
+            # The default quantifier is 'some' (OR logic), which means a file
+            # matching ANY pattern (including the positive rust/**) passes the
+            # filter — the ! patterns are silently ignored.
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: rust-filter
+              with:
+                  predicate-quantifier: 'every'
+                  filters: |
                       rust_services:
                           - 'rust/**'
                           - '!rust/persons_migrations/**'
@@ -55,7 +66,7 @@ jobs:
                   fi
 
                   # Check rust services + sqlx migrations
-                  if [ "${{ steps.filter.outputs.sqlx_migrations }}" == "true" ] && [ "${{ steps.filter.outputs.rust_services }}" == "true" ]; then
+                  if [ "${{ steps.filter.outputs.sqlx_migrations }}" == "true" ] && [ "${{ steps.rust-filter.outputs.rust_services }}" == "true" ]; then
                       error_messages="${error_messages}❌ Found both sqlx migration and rust service changes\n"
                       has_error=true
                   fi
