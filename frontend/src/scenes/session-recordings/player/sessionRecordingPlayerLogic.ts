@@ -1290,11 +1290,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     segment.windowId !== undefined &&
                     values.sessionPlayerData.snapshotsByWindowId[segment.windowId]?.length >= 2
 
-                if (canReinit) {
+                if (canReinit || segment.kind === 'gap') {
+                    // Can reinitialize, or it's a gap segment (should show black screen)
                     values.player?.replayer?.pause()
                     actions.tryInitReplayer()
-                } else if (segment.kind === 'gap') {
-                    // Gap segment - keep current player visible, updateAnimation handles time
                 } else if (segment.windowId !== undefined) {
                     // WindowId exists but snapshots not loaded - buffer and load
                     actions.startBuffer()

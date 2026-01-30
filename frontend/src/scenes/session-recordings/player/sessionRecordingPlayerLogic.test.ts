@@ -631,7 +631,7 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(startBufferSpy).toHaveBeenCalled()
         })
 
-        it('keeps current player for gap segments without calling tryInitReplayer', () => {
+        it('calls tryInitReplayer for gap segments to show black screen', () => {
             const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
             const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
 
@@ -650,7 +650,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             logic.actions.setCurrentSegment(gapSegment)
 
-            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(tryInitReplayerSpy).toHaveBeenCalled()
             expect(startBufferSpy).not.toHaveBeenCalled()
         })
 
