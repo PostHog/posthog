@@ -18,6 +18,44 @@ from products.workflows.backend.models.push_subscription import PushPlatform, Pu
 
 logger = structlog.get_logger(__name__)
 
+PLATFORM_CHOICES = [p.value for p in PushPlatform]
+PROVIDER_CHOICES = [p.value for p in PushProvider]
+
+
+class RegisterPushSubscriptionRequestSerializer(serializers.Serializer):
+    """Request body validation for register (ViewSet and SDK)."""
+
+    distinct_id = serializers.CharField(
+        required=True,
+        error_messages={"required": "distinct_id is required"},
+    )
+    token = serializers.CharField(
+        required=True,
+        error_messages={"required": "token is required"},
+    )
+    platform = serializers.ChoiceField(
+        choices=PLATFORM_CHOICES,
+        required=True,
+        error_messages={
+            "required": "platform is required",
+            "invalid_choice": f"Invalid platform. Must be one of: {PLATFORM_CHOICES}",
+        },
+    )
+    provider = serializers.ChoiceField(
+        choices=PROVIDER_CHOICES,
+        required=True,
+        error_messages={
+            "required": "provider is required",
+            "invalid_choice": f"Invalid provider. Must be one of: {PROVIDER_CHOICES}",
+        },
+    )
+    firebase_app_id = serializers.CharField(required=False, allow_blank=True, allow_null=True, default=None)
+
+    def validate(self, attrs):
+        if attrs.get("provider") == PushProvider.FCM.value and not attrs.get("firebase_app_id"):
+            raise serializers.ValidationError({"firebase_app_id": ["firebase_app_id is required when provider is fcm"]})
+        return attrs
+
 
 class PushSubscriptionSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
@@ -74,50 +112,17 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "firebase_app_id": "app-id-123" (required if provider is fcm)
         }
         """
-        distinct_id = request.data.get("distinct_id")
-        token = request.data.get("token")
-        platform = request.data.get("platform")
-        provider = request.data.get("provider")
-        firebase_app_id = request.data.get("firebase_app_id")
+        serializer = RegisterPushSubscriptionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if not distinct_id:
-            return Response({"error": "distinct_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if not token:
-            return Response({"error": "token is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if not platform:
-            return Response({"error": "platform is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if not provider:
-            return Response({"error": "provider is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            platform_enum = PushPlatform(platform)
-        except ValueError:
-            return Response(
-                {"error": f"Invalid platform. Must be one of: {[p.value for p in PushPlatform]}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            provider_enum = PushProvider(provider)
-        except ValueError:
-            return Response(
-                {"error": f"Invalid provider. Must be one of: {[p.value for p in PushProvider]}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if provider_enum == PushProvider.FCM and not firebase_app_id:
-            return Response(
-                {"error": "firebase_app_id is required when provider is fcm"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        data = serializer.validated_data
         subscription = PushSubscription.upsert_token(
             team_id=self.team_id,
-            distinct_id=distinct_id,
-            token=token,
-            platform=platform_enum,
-            provider=provider_enum,
-            firebase_app_id=firebase_app_id,
+            distinct_id=data["distinct_id"],
+            token=data["token"],
+            platform=PushPlatform(data["platform"]),
+            provider=PushProvider(data["provider"]),
+            firebase_app_id=data.get("firebase_app_id") or None,
         )
 
         return Response(PushSubscriptionSerializer(subscription).data, status=status.HTTP_200_OK)
@@ -189,63 +194,25 @@ def sdk_push_subscription_register(request: HttpRequest):
     if not team:
         return cors_response(request, JsonResponse({"error": "Invalid API key"}, status=401))
 
-    distinct_id = data.get("distinct_id")
-    token = data.get("token")
-    platform = data.get("platform")
-    provider = data.get("provider")
-    firebase_app_id = data.get("firebase_app_id")
+    serializer = RegisterPushSubscriptionRequestSerializer(data=data)
+    if not serializer.is_valid():
+        return cors_response(request, JsonResponse(serializer.errors, status=400))
 
-    if not distinct_id:
-        return cors_response(request, JsonResponse({"error": "distinct_id is required"}, status=400))
-    if not token:
-        return cors_response(request, JsonResponse({"error": "token is required"}, status=400))
-    if not platform:
-        return cors_response(request, JsonResponse({"error": "platform is required"}, status=400))
-    if not provider:
-        return cors_response(request, JsonResponse({"error": "provider is required"}, status=400))
-
-    try:
-        platform_enum = PushPlatform(platform)
-    except ValueError:
-        return cors_response(
-            request,
-            JsonResponse(
-                {"error": f"Invalid platform. Must be one of: {[p.value for p in PushPlatform]}"},
-                status=400,
-            ),
-        )
-
-    try:
-        provider_enum = PushProvider(provider)
-    except ValueError:
-        return cors_response(
-            request,
-            JsonResponse(
-                {"error": f"Invalid provider. Must be one of: {[p.value for p in PushProvider]}"},
-                status=400,
-            ),
-        )
-
-    if provider_enum == PushProvider.FCM and not firebase_app_id:
-        return cors_response(
-            request,
-            JsonResponse({"error": "firebase_app_id is required when provider is fcm"}, status=400),
-        )
-
+    validated = serializer.validated_data
     subscription = PushSubscription.upsert_token(
         team_id=team.id,
-        distinct_id=distinct_id,
-        token=token,
-        platform=platform_enum,
-        provider=provider_enum,
-        firebase_app_id=firebase_app_id,
+        distinct_id=validated["distinct_id"],
+        token=validated["token"],
+        platform=PushPlatform(validated["platform"]),
+        provider=PushProvider(validated["provider"]),
+        firebase_app_id=validated.get("firebase_app_id") or None,
     )
 
     logger.info(
         "push_subscription_registered",
         team_id=team.id,
-        distinct_id=distinct_id,
-        platform=platform,
+        distinct_id=validated["distinct_id"],
+        platform=validated["platform"],
     )
 
     return cors_response(

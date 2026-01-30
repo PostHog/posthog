@@ -9,7 +9,38 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogInputsService, formatHogInput } from './hog-inputs.service'
+import { HogInputsService, formatHogInput, getFirebaseAppIdForPush } from './hog-inputs.service'
+
+describe('getFirebaseAppIdForPush', () => {
+    it('throws when firebase_account or value is missing', () => {
+        expect(() => getFirebaseAppIdForPush({})).toThrow(
+            /firebase_account integration is required for push subscription inputs but was not found/
+        )
+        expect(() => getFirebaseAppIdForPush({ firebase_account: { value: null } })).toThrow(
+            /firebase_account integration is required for push subscription inputs but was not found/
+        )
+    })
+
+    it('throws when project_id is missing in firebase_account', () => {
+        expect(() =>
+            getFirebaseAppIdForPush({
+                firebase_account: { value: {} },
+            })
+        ).toThrow(/Firebase app ID \(project_id\) not found in firebase_account integration/)
+        expect(() =>
+            getFirebaseAppIdForPush({
+                firebase_account: { value: { key_info: {} } },
+            })
+        ).toThrow(/Firebase app ID \(project_id\) not found in firebase_account integration/)
+    })
+
+    it('returns project_id when firebase_account has key_info.project_id', () => {
+        const result = getFirebaseAppIdForPush({
+            firebase_account: { value: { key_info: { project_id: 'my-project' } } },
+        })
+        expect(result).toBe('my-project')
+    })
+})
 
 describe('Hog Inputs', () => {
     let hub: Hub

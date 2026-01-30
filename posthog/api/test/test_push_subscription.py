@@ -172,7 +172,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("distinct_id is required", data["error"])
+        self.assertIn("distinct_id is required", data["distinct_id"][0])
 
     def test_sdk_register_push_subscription_missing_token(self):
         payload = {
@@ -191,7 +191,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("token is required", data["error"])
+        self.assertIn("token is required", data["token"][0])
 
     def test_sdk_register_push_subscription_missing_platform(self):
         payload = {
@@ -210,7 +210,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("platform is required", data["error"])
+        self.assertIn("platform is required", data["platform"][0])
 
     def test_sdk_register_push_subscription_invalid_platform(self):
         payload = {
@@ -230,7 +230,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("Invalid platform", data["error"])
+        self.assertIn("Invalid platform", data["platform"][0])
 
     def test_sdk_register_push_subscription_missing_provider(self):
         payload = {
@@ -249,7 +249,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("provider is required", data["error"])
+        self.assertIn("provider is required", data["provider"][0])
 
     def test_sdk_register_push_subscription_invalid_provider(self):
         payload = {
@@ -269,7 +269,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("Invalid provider", data["error"])
+        self.assertIn("Invalid provider", data["provider"][0])
 
     def test_sdk_register_push_subscription_fcm_requires_firebase_app_id(self):
         payload = {
@@ -288,7 +288,7 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
-        self.assertIn("firebase_app_id is required when provider is fcm", data["error"])
+        self.assertIn("firebase_app_id is required when provider is fcm", data["firebase_app_id"][0])
 
     def test_sdk_register_push_subscription_apns_does_not_require_firebase_app_id(self):
         payload = {
@@ -368,7 +368,7 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Invalid platform", response.json()["error"])
+        self.assertIn("Invalid platform", response.json()["platform"][0])
 
     def test_viewset_register_missing_provider(self):
         """Test register action requires provider."""
@@ -383,7 +383,7 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("provider is required", response.json()["error"])
+        self.assertIn("provider is required", response.json()["provider"][0])
 
     def test_viewset_register_invalid_provider(self):
         """Test register action rejects invalid provider."""
@@ -399,7 +399,7 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Invalid provider", response.json()["error"])
+        self.assertIn("Invalid provider", response.json()["provider"][0])
 
     def test_viewset_register_fcm_requires_firebase_app_id(self):
         """Test register action requires firebase_app_id when provider is fcm."""
@@ -414,7 +414,10 @@ class TestPushSubscriptionViewSet(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("firebase_app_id is required when provider is fcm", response.json()["error"])
+        self.assertIn(
+            "firebase_app_id is required when provider is fcm",
+            response.json()["firebase_app_id"][0],
+        )
 
     def test_viewset_register_apns_does_not_require_firebase_app_id(self):
         """Test register action does not require firebase_app_id when provider is apns."""
