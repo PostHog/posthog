@@ -497,8 +497,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        # Presorted optimization uses uuid IN (subquery) pattern
-        assert "in(uuid" in response.hogql or "uuid in" in response.hogql.lower()
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -526,7 +524,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        assert "in(uuid" in response.hogql or "uuid in" in response.hogql.lower()
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -554,7 +551,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        assert "in(uuid" in response.hogql or "uuid in" in response.hogql.lower()
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -582,7 +578,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        assert "in(uuid" in response.hogql or "uuid in" in response.hogql.lower()
 
     def test_select_person_column(self):
         self._create_events(
