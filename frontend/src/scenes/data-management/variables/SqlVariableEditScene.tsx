@@ -10,23 +10,15 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { VariableType } from '~/queries/nodes/DataVisualization/types'
+import { ListVariable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
-import { VARIABLE_TYPE_OPTIONS, formatVariableReference } from './constants'
+import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
 import { SqlVariableEditSceneLogicProps, sqlVariableEditSceneLogic } from './sqlVariableEditSceneLogic'
 
 export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
     component: SqlVariableEditScene,
     logic: sqlVariableEditSceneLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
-}
-
-const getCodeName = (name: string): string => {
-    return name
-        .trim()
-        .replace(/[^a-zA-Z0-9\s_]/g, '')
-        .replace(/\s/g, '_')
-        .toLowerCase()
 }
 
 function VariableTypeFields(): JSX.Element {
@@ -88,7 +80,10 @@ function VariableTypeFields(): JSX.Element {
                             className="w-full"
                             placeholder="Select default value"
                             value={value}
-                            options={(variableForm.values || []).map((n: string) => ({ label: n, value: n }))}
+                            options={((variableForm as ListVariable).values || []).map((n: string) => ({
+                                label: n,
+                                value: n,
+                            }))}
                             onChange={(val) => onChange(val ?? '')}
                             allowClear
                             dropdownMaxContentWidth
@@ -111,7 +106,7 @@ function VariableTypeFields(): JSX.Element {
 }
 
 export function SqlVariableEditScene(): JSX.Element {
-    const { isNew, variableLoading, variableType, variableFormSubmitting, variableForm } =
+    const { isNew, variableLoading, variableType, isVariableFormSubmitting, variableForm } =
         useValues(sqlVariableEditSceneLogic)
     const { setVariableType, submitVariableForm } = useActions(sqlVariableEditSceneLogic)
 
@@ -135,7 +130,7 @@ export function SqlVariableEditScene(): JSX.Element {
                                 type="primary"
                                 size="small"
                                 onClick={submitVariableForm}
-                                loading={variableFormSubmitting}
+                                loading={isVariableFormSubmitting}
                             >
                                 Save
                             </LemonButton>

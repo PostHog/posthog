@@ -25,91 +25,118 @@ export const AddVariableButton = ({
         return <></>
     }
 
+    const variableMenuItems = filteredVariables.length
+        ? filteredVariables.map((n) => ({
+              label: (
+                  <span className="flex items-center justify-between w-full gap-2 group">
+                      <span className="flex items-center gap-2">
+                          <span>{n.name}</span>
+                          <span className="text-xs text-muted-alt">{n.type}</span>
+                      </span>
+                  </span>
+              ),
+              onClick: () => clickVariable(n),
+              active: n.selected,
+              sideAction: {
+                  icon: <IconGear />,
+                  onClick: (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+                      e.stopPropagation()
+                      openExistingVariableModal(n)
+                  },
+              },
+          }))
+        : [
+              {
+                  label: 'No variables found',
+                  disabledReason: 'No variables match your search',
+                  onClick: () => {},
+              },
+          ]
+
+    const menuItems = variablesLoading
+        ? [
+              {
+                  label: 'Loading...',
+                  onClick: () => {},
+              },
+          ]
+        : [
+              {
+                  custom: true,
+                  items: [
+                      {
+                          label: () => (
+                              <>
+                                  <div className="pb-1">
+                                      <LemonInput
+                                          data-attr="insight-variable-search"
+                                          type="search"
+                                          placeholder="Search variables"
+                                          value={searchTerm}
+                                          onChange={setSearchTerm}
+                                          autoFocus
+                                      />
+                                  </div>
+                                  <div className="max-h-[280px] overflow-y-auto -mx-1">
+                                      {variableMenuItems.map((item, index) => (
+                                          <div key={index}>
+                                              <div
+                                                  className={`cursor-pointer hover:bg-bg-3000 px-3 py-1.5 flex items-center justify-between gap-2 group ${
+                                                      item.active ? 'bg-bg-3000' : ''
+                                                  }`}
+                                                  onClick={item.onClick}
+                                              >
+                                                  {typeof item.label === 'function' ? item.label() : item.label}
+                                                  {item.sideAction && (
+                                                      <button
+                                                          className="opacity-0 group-hover:opacity-100 flex items-center"
+                                                          onClick={(e) => {
+                                                              e.stopPropagation()
+                                                              item.sideAction?.onClick?.(e)
+                                                          }}
+                                                      >
+                                                          {item.sideAction.icon}
+                                                      </button>
+                                                  )}
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </>
+                          ),
+                      },
+                  ],
+              },
+              {
+                  label: 'New variable',
+                  items: [
+                      {
+                          label: 'String',
+                          onClick: () => openNewVariableModal('String'),
+                      },
+                      {
+                          label: 'Number',
+                          onClick: () => openNewVariableModal('Number'),
+                      },
+                      {
+                          label: 'Boolean',
+                          onClick: () => openNewVariableModal('Boolean'),
+                      },
+                      {
+                          label: 'List',
+                          onClick: () => openNewVariableModal('List'),
+                      },
+                      {
+                          label: 'Date',
+                          onClick: () => openNewVariableModal('Date'),
+                      },
+                  ],
+              },
+          ]
+
     return (
         <>
-            <LemonMenu
-                items={[
-                    {
-                        title: 'New variable',
-                        items: [
-                            {
-                                label: 'String',
-                                onClick: () => openNewVariableModal('String'),
-                            },
-                            {
-                                label: 'Number',
-                                onClick: () => openNewVariableModal('Number'),
-                            },
-                            {
-                                label: 'Boolean',
-                                onClick: () => openNewVariableModal('Boolean'),
-                            },
-                            {
-                                label: 'List',
-                                onClick: () => openNewVariableModal('List'),
-                            },
-                            {
-                                label: 'Date',
-                                onClick: () => openNewVariableModal('Date'),
-                            },
-                        ],
-                    },
-                    {
-                        label: 'Existing variable',
-                        custom: true,
-                        items: variablesLoading
-                            ? [
-                                  {
-                                      label: 'Loading...',
-                                      onClick: () => {},
-                                  },
-                              ]
-                            : [
-                                  {
-                                      label: () => (
-                                          <div className="pb-1">
-                                              <LemonInput
-                                                  data-attr="insight-variable-search"
-                                                  type="search"
-                                                  placeholder="Search variables"
-                                                  value={searchTerm}
-                                                  onChange={setSearchTerm}
-                                                  autoFocus
-                                              />
-                                          </div>
-                                      ),
-                                  },
-                                  ...(filteredVariables.length
-                                      ? filteredVariables.map((n) => ({
-                                            label: (
-                                                <span className="flex items-center justify-between w-full gap-2 group">
-                                                    <span className="flex items-center gap-2">
-                                                        <span>{n.name}</span>
-                                                        <span className="text-xs text-muted-alt">{n.type}</span>
-                                                    </span>
-                                                </span>
-                                            ),
-                                            onClick: () => clickVariable(n),
-                                            active: n.selected,
-                                            sideAction: {
-                                                icon: <IconGear />,
-                                                onClick: (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
-                                                    e.stopPropagation()
-                                                    openExistingVariableModal(n)
-                                                },
-                                            },
-                                        }))
-                                      : [
-                                            {
-                                                label: 'No variables found',
-                                                disabledReason: 'No variables match your search',
-                                                onClick: () => {},
-                                            },
-                                        ]),
-                              ],
-                    },
-                ]}
-            >
+            <LemonMenu items={menuItems}>
                 <LemonButton type="secondary" icon={<IconPlus />} sideIcon={null} {...buttonProps}>
                     {title}
                 </LemonButton>

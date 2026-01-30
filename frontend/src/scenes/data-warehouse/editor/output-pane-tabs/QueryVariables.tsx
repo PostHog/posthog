@@ -57,7 +57,7 @@ export function QueryVariables(): JSX.Element {
                     />
                 ))}
             </div>
-            <div className="self-start">
+            <div className="self-start mt-4">
                 <AddVariableButton buttonProps={{ type: 'primary', size: 'small' }} title="Add variable" />
             </div>
             <NewVariableModal />
