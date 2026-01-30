@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -77,6 +78,7 @@ export const manifest: ProductManifest = {
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
+            flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
         },
     ],
     treeItemsMetadata: [
