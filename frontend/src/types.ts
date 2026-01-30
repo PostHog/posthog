@@ -2236,16 +2236,6 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface EndpointVersionType {
-    id: string
-    version: number
-    query: HogQLQuery | InsightQueryNode
-    is_active: boolean
-    created_at: string
-    created_by: UserBasicType | null
-    change_summary: string
-}
-
 export interface EndpointType extends WithAccessControl {
     id: string
     name: string
@@ -2257,7 +2247,7 @@ export interface EndpointType extends WithAccessControl {
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
-    cache_age_seconds: number
+    cache_age_seconds: number | null
     is_materialized: boolean
     current_version: number
     versions_count: number
@@ -2265,10 +2255,19 @@ export interface EndpointType extends WithAccessControl {
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
-    materialization?: EndpointMaterializationType
+    materialization?: EndpointVersionMaterializationType
 }
 
-export interface EndpointMaterializationType {
+/** Extends EndpointType with version-specific fields when fetching a specific version */
+export interface EndpointVersionType extends EndpointType {
+    version: number
+    version_id: string
+    endpoint_is_active: boolean
+    version_created_at: string
+    version_created_by: UserBasicType | null
+}
+
+export interface EndpointVersionMaterializationType {
     can_materialize: boolean
     reason?: string
     status?: string
@@ -5087,6 +5086,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
+    ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
     LLM_TRACE = 'LLMTrace',

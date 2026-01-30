@@ -39,6 +39,7 @@ from posthog.rate_limit import (
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.summarization.constants import EVALUATION_SUMMARY_MAX_RUNS
 from products.llm_analytics.backend.summarization.llm.evaluation_summary import summarize_evaluation_runs
 from products.llm_analytics.backend.summarization.models import OpenAIModel
 
@@ -58,8 +59,8 @@ class EvaluationSummaryRequestSerializer(serializers.Serializer):
     generation_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
-        max_length=100,
-        help_text="Optional: specific generation IDs to include in summary (max 100)",
+        max_length=EVALUATION_SUMMARY_MAX_RUNS,
+        help_text=f"Optional: specific generation IDs to include in summary (max {EVALUATION_SUMMARY_MAX_RUNS})",
     )
     force_refresh = serializers.BooleanField(
         default=False,
@@ -97,7 +98,7 @@ def _fetch_evaluation_runs(
     evaluation_id: str,
     filter_type: str = "all",
     generation_ids: list[str] | None = None,
-    limit: int = 100,
+    limit: int = EVALUATION_SUMMARY_MAX_RUNS,
 ) -> list[dict]:
     """
     Fetch evaluation runs from ClickHouse using HogQL.
@@ -374,7 +375,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
                 evaluation_id=evaluation_id,
                 filter_type=filter_type,
                 generation_ids=generation_id_strs,
-                limit=100,
+                limit=EVALUATION_SUMMARY_MAX_RUNS,
             )
 
             if len(runs) == 0:

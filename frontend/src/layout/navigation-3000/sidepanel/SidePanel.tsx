@@ -3,16 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import {
-    IconBook,
-    IconEllipsis,
-    IconGear,
-    IconInfo,
-    IconLock,
-    IconLogomark,
-    IconNotebook,
-    IconSupport,
-} from '@posthog/icons'
+import { IconBook, IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -31,6 +22,8 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
+
+import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
 import { SidePanelNavigation } from './SidePanelNavigation'
 import { SidePanelChangelog } from './panels/SidePanelChangelog'
@@ -70,7 +63,7 @@ export const SIDE_PANEL_TABS: Record<
     },
     [SidePanelTab.Support]: {
         label: 'Help',
-        Icon: IconSupport,
+        Icon: SidePanelSupportIcon,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
