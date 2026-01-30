@@ -146,17 +146,21 @@ impl TeamManager {
         Ok(indices)
     }
 
-    pub async fn set_team_ingested_event<'c, E>(
+    pub async fn set_teams_ingested_event<'c, E>(
         &self,
         e: E,
-        team_id: TeamId,
+        team_ids: &[TeamId],
     ) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
+        if team_ids.is_empty() {
+            return Ok(());
+        }
+
         sqlx::query!(
-            "UPDATE posthog_team SET ingested_event = true WHERE id = $1",
-            team_id
+            "UPDATE posthog_team SET ingested_event = true WHERE id = ANY($1)",
+            team_ids
         )
         .execute(e)
         .await?;
@@ -202,6 +206,8 @@ pub async fn do_team_lookups(
     }
 
     let mut results = HashMap::new();
+    let mut teams_needing_ingested_update: Vec<TeamId> = Vec::new();
+
     for (token, lookup) in team_lookups {
         let (indices, task) = (lookup.indices, lookup.inner);
         match task.await.expect("Task was not cancelled") {
@@ -211,24 +217,29 @@ pub async fn do_team_lookups(
                 }
                 if let Some(ref team) = maybe_team {
                     if !team.ingested_event {
-                        // Fire and forget - we don't want to fail the pipeline if this fails
-                        let ctx = context.clone();
-                        let team_id = team.id;
-                        tokio::spawn(async move {
-                            if let Err(e) = ctx
-                                .team_manager
-                                .set_team_ingested_event(&ctx.posthog_pool, team_id)
-                                .await
-                            {
-                                warn!("Failed to set ingested_event for team {}: {}", team_id, e);
-                            }
-                        });
+                        teams_needing_ingested_update.push(team.id);
                     }
                 }
                 results.insert(token, maybe_team);
             }
             Err(err) => return Err((indices[0], err).into()),
         };
+    }
+
+    if !teams_needing_ingested_update.is_empty() {
+        let ctx = context.clone();
+        tokio::spawn(async move {
+            if let Err(e) = ctx
+                .team_manager
+                .set_teams_ingested_event(&ctx.posthog_pool, &teams_needing_ingested_update)
+                .await
+            {
+                warn!(
+                    "Failed to set ingested_event for teams {:?}: {}",
+                    teams_needing_ingested_update, e
+                );
+            }
+        });
     }
 
     Ok(results)
