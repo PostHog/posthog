@@ -177,7 +177,7 @@ const Component = ({
     }
 
     return (
-        <div data-attr="notebook-node-hogql-sql" className="flex h-full flex-col gap-2">
+        <div data-attr="notebook-node-hogql-sql" className="flex h-full flex-col">
             {expanded ? (
                 <div
                     ref={outputRef}
@@ -235,7 +235,7 @@ const Component = ({
                             ) : null}
                         </>
                     ) : (
-                        <div className="text-xs text-muted font-mono">Run the query to see execution results.</div>
+                        <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                     )}
                 </div>
             ) : null}
