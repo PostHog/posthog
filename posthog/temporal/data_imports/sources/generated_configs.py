@@ -107,7 +107,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    repository: str
 
 
 @config.config
