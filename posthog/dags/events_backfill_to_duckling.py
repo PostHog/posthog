@@ -1533,3 +1533,184 @@ duckling_persons_backfill_job = define_asset_job(
         **PERSONS_CONCURRENCY_TAG,
     },
 )
+
+
+# =============================================================================
+# Manual Backfill Jobs
+# =============================================================================
+# These jobs can be manually triggered to backfill all missing data for all teams.
+# They discover missing partitions and submit backfill runs in one operation.
+
+
+@sensor(
+    name="backfill_all_duckling_events",
+    job_name="duckling_events_backfill_job",
+    minimum_interval_seconds=60,
+    default_status=DefaultSensorStatus.STOPPED,
+)
+def backfill_all_duckling_events(context: SensorEvaluationContext) -> SensorResult:
+    """One-shot backfill of all missing events partitions for all teams.
+
+    This sensor is disabled by default and meant to be manually triggered via the
+    Dagster UI. It will:
+
+    1. Find all teams with DuckLakeCatalog configurations
+    2. Query ClickHouse for the earliest event date for each team
+    3. Create partitions for all dates from earliest to yesterday
+    4. Submit backfill runs (batched to avoid overwhelming the system)
+
+    Usage:
+        1. Go to Dagster UI → Sensors
+        2. Find "backfill_all_duckling_events" and click "Start"
+        3. The sensor will create partitions and submit runs
+        4. Monitor progress in the Runs tab
+        5. Stop the sensor when backfill is complete (no new partitions created)
+
+    The sensor batches partition creation to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION
+    per tick to avoid memory issues. Keep it running until all partitions are created.
+    """
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+
+    new_partitions: list[str] = []
+    run_requests: list[RunRequest] = []
+    total_created = 0
+
+    for catalog in DuckLakeCatalog.objects.all():
+        if total_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+            context.log.info(
+                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION}, will continue next tick"
+            )
+            break
+
+        team_id = catalog.team_id
+        earliest_date = get_earliest_event_date_for_team(team_id)
+
+        if earliest_date is None:
+            context.log.info(f"Team {team_id}: no events found, skipping")
+            continue
+
+        earliest = earliest_date.date()
+        current = earliest
+
+        while current <= yesterday and total_created < MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+            partition_key = f"{team_id}_{current.strftime('%Y-%m-%d')}"
+
+            if partition_key not in existing:
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_manual_backfill",
+                    )
+                )
+                total_created += 1
+
+            current += timedelta(days=1)
+
+        if total_created > 0:
+            context.log.info(f"Team {team_id}: queued partitions from {earliest} to {current - timedelta(days=1)}")
+
+    if new_partitions:
+        context.log.info(f"Created {len(new_partitions)} new partitions this tick")
+        logger.info(
+            "backfill_all_events_partitions_created",
+            count=len(new_partitions),
+            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+        )
+    else:
+        context.log.info("No new partitions to create - backfill complete!")
+
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+    )
+
+
+@sensor(
+    name="backfill_all_duckling_persons",
+    job_name="duckling_persons_backfill_job",
+    minimum_interval_seconds=60,
+    default_status=DefaultSensorStatus.STOPPED,
+)
+def backfill_all_duckling_persons(context: SensorEvaluationContext) -> SensorResult:
+    """One-shot backfill of all missing persons partitions for all teams.
+
+    This sensor is disabled by default and meant to be manually triggered via the
+    Dagster UI. It will:
+
+    1. Find all teams with DuckLakeCatalog configurations
+    2. Query ClickHouse for the earliest person date for each team
+    3. Create partitions for all dates from earliest to yesterday
+    4. Submit backfill runs (batched to avoid overwhelming the system)
+
+    Usage:
+        1. Go to Dagster UI → Sensors
+        2. Find "backfill_all_duckling_persons" and click "Start"
+        3. The sensor will create partitions and submit runs
+        4. Monitor progress in the Runs tab
+        5. Stop the sensor when backfill is complete (no new partitions created)
+
+    The sensor batches partition creation to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION
+    per tick to avoid memory issues. Keep it running until all partitions are created.
+    """
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+
+    new_partitions: list[str] = []
+    run_requests: list[RunRequest] = []
+    total_created = 0
+
+    for catalog in DuckLakeCatalog.objects.all():
+        if total_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+            context.log.info(
+                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION}, will continue next tick"
+            )
+            break
+
+        team_id = catalog.team_id
+        earliest_date = get_earliest_person_date_for_team(team_id)
+
+        if earliest_date is None:
+            context.log.info(f"Team {team_id}: no persons found, skipping")
+            continue
+
+        earliest = earliest_date.date()
+        current = earliest
+
+        while current <= yesterday and total_created < MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+            partition_key = f"{team_id}_{current.strftime('%Y-%m-%d')}"
+
+            if partition_key not in existing:
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_manual_backfill",
+                    )
+                )
+                total_created += 1
+
+            current += timedelta(days=1)
+
+        if total_created > 0:
+            context.log.info(f"Team {team_id}: queued partitions from {earliest} to {current - timedelta(days=1)}")
+
+    if new_partitions:
+        context.log.info(f"Created {len(new_partitions)} new partitions this tick")
+        logger.info(
+            "backfill_all_persons_partitions_created",
+            count=len(new_partitions),
+            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+        )
+    else:
+        context.log.info("No new partitions to create - backfill complete!")
+
+    return SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
+        if new_partitions
+        else [],
+    )

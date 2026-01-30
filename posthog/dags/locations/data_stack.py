@@ -23,6 +23,9 @@ defs = dagster.Definitions(
         events_backfill_to_duckling.duckling_full_backfill_sensor,
         events_backfill_to_duckling.duckling_persons_discovery_sensor,
         events_backfill_to_duckling.duckling_persons_full_backfill_sensor,
+        # Manual backfill sensors (disabled by default, start via UI)
+        events_backfill_to_duckling.backfill_all_duckling_events,
+        events_backfill_to_duckling.backfill_all_duckling_persons,
     ],
     resources=resources,
 )
