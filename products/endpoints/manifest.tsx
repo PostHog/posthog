@@ -88,7 +88,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: 'Unreleased',
+            category: 'Tools',
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,
@@ -101,7 +101,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Endpoints',
-            category: 'Unreleased',
+            category: 'Tools',
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
