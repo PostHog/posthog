@@ -3,7 +3,7 @@ import './Variables.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCodeInsert, IconCopy, IconGear, IconTrash } from '@posthog/icons'
+import { IconCodeInsert, IconCopy, IconGear, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -318,13 +318,12 @@ export const VariableComponent = ({
 
     const variableAsHogQL = `{variables.${variable.code_name}}`
 
-    const tooltip = (
-        <div className="flex flex-col gap-1">
-            {insightsUsingVariable && insightsUsingVariable.length > 0 && (
+    const tooltip =
+        insightsUsingVariable && insightsUsingVariable.length > 0 ? (
+            <div className="flex flex-col gap-1">
                 <span>Insights using this variable: {insightsUsingVariable.join(', ')}</span>
-            )}
-        </div>
-    )
+            </div>
+        ) : undefined
 
     // Don't show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
@@ -379,23 +378,25 @@ export const VariableComponent = ({
                                   ? emptyState
                                   : (variable.value?.toString() ?? variable.default_value?.toString())}
                         </LemonButton>
-                        <LemonButton
-                            icon={<IconCopy />}
-                            onClick={() => {
-                                navigator.clipboard.writeText(variableAsHogQL)
-                                lemonToast.success(
-                                    <span>
-                                        <code className="text-sm">{variableAsHogQL}</code> copied to clipboard. Use it
-                                        anywhere in HogQL.
-                                    </span>
-                                )
-                            }}
-                            type="secondary"
-                            tooltip="Copy variable HogQL"
-                            noPadding
-                            size="small"
-                        />
-                        {onInsertAtCursor && (
+                        {showEditingUI && (
+                            <LemonButton
+                                icon={<IconCopy />}
+                                onClick={() => {
+                                    navigator.clipboard.writeText(variableAsHogQL)
+                                    lemonToast.success(
+                                        <span>
+                                            <code className="text-sm">{variableAsHogQL}</code> copied to clipboard. Use
+                                            it anywhere in HogQL.
+                                        </span>
+                                    )
+                                }}
+                                type="secondary"
+                                tooltip="Copy variable HogQL"
+                                noPadding
+                                size="small"
+                            />
+                        )}
+                        {showEditingUI && onInsertAtCursor && (
                             <LemonButton
                                 icon={<IconCodeInsert />}
                                 onClick={() => {
@@ -408,6 +409,19 @@ export const VariableComponent = ({
                                 }}
                                 type="secondary"
                                 tooltip="Insert into query at cursor"
+                                noPadding
+                                size="small"
+                            />
+                        )}
+                        {onRemove && showEditingUI && (
+                            <LemonButton
+                                icon={<IconX className="h-4 w-4" />}
+                                onClick={() => {
+                                    onRemove(variable.id)
+                                }}
+                                type="secondary"
+                                status="danger"
+                                tooltip="Remove from this query"
                                 noPadding
                                 size="small"
                             />
