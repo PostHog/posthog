@@ -217,6 +217,14 @@ async fn main() -> Result<()> {
         .with(otel_layer)
         .init();
 
+    // Create a root span with pod hostname for all logs
+    // This adds "pod" field to every log line for Loki/Grafana filtering
+    let pod = config
+        .pod_hostname
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+    let _root_span = tracing::info_span!("service", pod = %pod).entered();
+
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     // NOTE: Must be after tracing is initialized so logs are visible
     let _profiling_agent = match config.continuous_profiling.start_agent() {

@@ -1,0 +1,69 @@
+syntax = "proto3";
+package personhog.types.v1;
+
+import "personhog/types/v1/common.proto";
+
+// HashKeyOverride represents a feature flag hash key override for a person
+message HashKeyOverride {
+  string feature_flag_key = 1;
+  string hash_key = 2;
+}
+
+// HashKeyOverrideContext contains the context needed for hash key override decisions.
+// This includes the resolved person ID, existing overrides, and which flags already
+// have overrides (to avoid duplicate writes).
+message HashKeyOverrideContext {
+  int64 person_id = 1;
+  string distinct_id = 2;
+  // The actual hash key override values for this person
+  repeated HashKeyOverride overrides = 3;
+  // Feature flag keys that already have overrides (useful for upsert logic)
+  repeated string existing_feature_flag_keys = 4;
+}
+
+// GetHashKeyOverrideContextRequest fetches the context needed for hash key override
+// decisions. This resolves distinct IDs to person IDs and returns existing override
+// information.
+message GetHashKeyOverrideContextRequest {
+  int64 team_id = 1;
+  repeated string distinct_ids = 2;
+  // When true, only returns results for persons that exist in posthog_person table
+  bool check_person_exists = 3;
+  ReadOptions read_options = 4;
+}
+
+message GetHashKeyOverrideContextResponse {
+  repeated HashKeyOverrideContext results = 1;
+}
+
+// HashKeyOverrideInput represents a single override to upsert.
+// The hash_key is specified at the request level since all overrides
+// in a batch share the same hash key (for experience continuity).
+message HashKeyOverrideInput {
+  int64 person_id = 1;
+  string feature_flag_key = 2;
+}
+
+// UpsertHashKeyOverridesRequest batch upserts hash key overrides.
+// All overrides in a batch share the same hash_key, which is used for
+// experience continuity - ensuring consistent flag values when a user
+// logs in with a new distinct_id.
+message UpsertHashKeyOverridesRequest {
+  int64 team_id = 1;
+  repeated HashKeyOverrideInput overrides = 2;
+  // The hash key to use for all overrides (typically the $anon_distinct_id)
+  string hash_key = 3;
+}
+
+message UpsertHashKeyOverridesResponse {
+  int64 inserted_count = 1;
+}
+
+// DeleteHashKeyOverridesByTeamsRequest deletes all hash key overrides for the specified teams
+message DeleteHashKeyOverridesByTeamsRequest {
+  repeated int64 team_ids = 1;
+}
+
+message DeleteHashKeyOverridesByTeamsResponse {
+  int64 deleted_count = 1;
+}

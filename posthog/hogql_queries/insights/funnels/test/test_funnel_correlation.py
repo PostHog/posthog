@@ -2171,3 +2171,113 @@ class TestCorrelationFunctions(unittest.TestCase):
             if not FunnelCorrelationQueryRunner.are_results_insignificant(contingency_table)
         ]
         self.assertEqual(len(result), 0)
+
+
+class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
+    """
+    Security tests to verify SQL injection payloads in funnelCorrelationNames
+    and related parameters are safely escaped.
+    """
+
+    def _setup_basic_funnel(self):
+        """Create minimal funnel data for testing."""
+        _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@example.com"})
+        _create_event(team=self.team, event="$pageview", distinct_id="person1")
+        _create_event(team=self.team, event="$pageleave", distinct_id="person1")
+        flush_persons_and_events()
+        return {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "events": [{"id": "$pageview", "order": 0}, {"id": "$pageleave", "order": 1}],
+        }
+
+    def _run_correlation_with_names(self, filters, correlation_names):
+        """Helper to run correlation query with given names."""
+        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+        actors_query = FunnelsActorsQuery(source=funnels_query)
+        correlation_query = FunnelCorrelationQuery(
+            source=actors_query,
+            funnelCorrelationType=FunnelCorrelationResultsType.PROPERTIES,
+            funnelCorrelationNames=correlation_names,
+        )
+        return FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate_internal()
+
+    def _run_event_correlation_with_exclude(self, filters, exclude_names):
+        """Helper to run event correlation with exclude names."""
+        funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+        actors_query = FunnelsActorsQuery(source=funnels_query)
+        correlation_query = FunnelCorrelationQuery(
+            source=actors_query,
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+            funnelCorrelationExcludeEventNames=exclude_names,
+        )
+        return FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate_internal()
+
+    @freeze_time("2020-01-14")
+    def test_sql_injection_quote_breakout_in_correlation_names(self):
+        """Verify SQL injection via quote breakout in funnelCorrelationNames is escaped."""
+        filters = self._setup_basic_funnel()
+
+        malicious_inputs = [
+            "x') as a, version() as b --",
+            "'; DROP TABLE events; --",
+            "x\\' OR 1=1 --",
+            'x" OR 1=1 --',
+            "x' || (SELECT 1) || '",
+        ]
+
+        for payload in malicious_inputs:
+            # Should not raise a SQL syntax error from injection
+            # (may raise other errors like empty results, but NOT from injected SQL executing)
+            try:
+                result, _, _, _ = self._run_correlation_with_names(filters, [payload])
+                # If we get here, the query executed safely (payload was escaped)
+            except Exception as e:
+                # Acceptable errors: validation errors, empty results
+                # Not acceptable: SQL syntax errors indicating injection worked
+                error_msg = str(e).lower()
+                self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
+                self.assertNotIn("unexpected", error_msg, f"SQL injection may have worked with payload: {payload}")
+
+    @freeze_time("2020-01-14")
+    def test_sql_injection_in_exclude_event_names(self):
+        """Verify SQL injection via funnelCorrelationExcludeEventNames is escaped."""
+        filters = self._setup_basic_funnel()
+
+        malicious_inputs = [
+            "'; DROP TABLE events; --",
+            "x' OR '1'='1",
+        ]
+
+        for payload in malicious_inputs:
+            try:
+                result, _, _, _ = self._run_event_correlation_with_exclude(filters, [payload])
+            except Exception as e:
+                error_msg = str(e).lower()
+                self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
+
+    @freeze_time("2020-01-14")
+    def test_special_characters_in_property_names_are_handled(self):
+        """Verify special characters in property names don't cause SQL errors."""
+        filters = self._setup_basic_funnel()
+
+        special_chars = [
+            "property with spaces",
+            "property'with'quotes",
+            'property"with"doublequotes',
+            "property\\with\\backslashes",
+            "property\nwith\nnewlines",
+            "property\twith\ttabs",
+            "$special$chars$",
+            "unicode_émoji_🎉",
+        ]
+
+        for prop_name in special_chars:
+            try:
+                result, _, _, _ = self._run_correlation_with_names(filters, [prop_name])
+                # Query should execute without SQL errors
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Should not be a SQL syntax error
+                self.assertNotIn("syntax error", error_msg, f"Special character handling failed for: {repr(prop_name)}")

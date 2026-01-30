@@ -11,7 +11,7 @@ use crate::checkpoint::{
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
-use crate::metrics_const::CHECKPOINT_STORE_NOT_FOUND_COUNTER;
+use crate::metrics_const::CHECKPOINT_WORKER_STATUS_COUNTER;
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
@@ -184,6 +184,14 @@ impl CheckpointManager {
                         'inner: for partition in candidates {
                             let partition_tag = partition.to_string();
 
+                            // Skip checkpoint attempts during rebalancing - favor reassignment over checkpointing
+                            if store_manager.rebalance_tracker().is_rebalancing() {
+                                let tags = [("result", "skipped"), ("cause", "rebalancing_loop")];
+                                metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                                info!("Checkpoint manager: rebalancing in progress, skipping remaining partitions");
+                                break 'inner;
+                            }
+
                             // wait for a slot to become available in the gating loop.
                             // if the attempt is cleared to proceed, the is_checkpointing
                             // lock will have atomically registered the partition as in-flight
@@ -256,13 +264,14 @@ impl CheckpointManager {
                                     return Ok(None);
                                 }
 
-                                // best efort to bail if the partition is no longer owned by the
+                                // best effort to bail if the partition is no longer owned by the
                                 // store manager when the worker thread has started executing
                                 let target_store = match worker_store_manager.get(partition.topic(), partition.partition_number()) {
                                     Some(store) => store,
                                     _ => {
-                                        metrics::counter!(CHECKPOINT_STORE_NOT_FOUND_COUNTER).increment(1);
-                                        warn!(partition = partition_tag, "Checkpoint worker thread: partition no longer owned by store manager, skipping");
+                                        let tags = [("result", "skipped"), ("cause", "store_not_found")];
+                                        metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                                        info!(partition = partition_tag, "Checkpoint worker: store not found at start, skipping");
                                         // free the slot up since we're skipping this round and/or shutting down the process
                                         {
                                             let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
@@ -297,8 +306,36 @@ impl CheckpointManager {
                                         "Checkpoint worker thread: performing incremental checkpoint");
                                 }
 
+                                // Re-verify conditions before expensive I/O (may have changed during scheduling)
+                                if worker_store_manager.rebalance_tracker().is_rebalancing() {
+                                    let tags = [("result", "skipped"), ("cause", "rebalancing_worker")];
+                                    metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                                    warn!(partition = partition_tag, "Checkpoint worker: rebalancing started, skipping checkpoint");
+                                    {
+                                        let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
+                                        is_checkpointing_guard.remove(&partition);
+                                    }
+                                    return Ok(None);
+                                }
+
+                                if worker_store_manager.get(partition.topic(), partition.partition_number()).is_none() {
+                                    let tags = [("result", "skipped"), ("cause", "store_removed")];
+                                    metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
+                                    warn!(partition = partition_tag, "Checkpoint worker: store removed during scheduling, skipping checkpoint");
+                                    {
+                                        let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
+                                        is_checkpointing_guard.remove(&partition);
+                                    }
+                                    return Ok(None);
+                                }
+
                                 // Execute checkpoint operation with previous metadata for deduplication
-                                let result = worker.checkpoint_partition(&target_store, incremental_or_full).await;
+                                // Pass the cancel token for cancellation support during export
+                                let result = worker.checkpoint_partition_cancellable(
+                                    &target_store,
+                                    incremental_or_full,
+                                    Some(&worker_cancel_token),
+                                ).await;
 
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
@@ -309,8 +346,12 @@ impl CheckpointManager {
                                     },
                                     Ok(None) => "skipped",
                                     Err(e) => {
-                                        error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
-                                        "error"
+                                        // Cancellation is NOT an error - don't log as error
+                                        let is_cancelled = e.to_string().contains("cancelled");
+                                        if !is_cancelled {
+                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
+                                        }
+                                        if is_cancelled { "cancelled" } else { "error" }
                                     },
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,
@@ -331,7 +372,7 @@ impl CheckpointManager {
                 } // end tokio::select! block
             } // end 'outer loop
 
-            info!("Checkpoint manager: submit loop shutting down");
+            info!("Checkpoint manager: exiting submit loop");
             checkpoint_health_reporter.store(false, Ordering::SeqCst);
         });
         self.checkpoint_task = Some(checkpoint_task_handle);
@@ -382,7 +423,9 @@ impl CheckpointManager {
         self.exporter.is_some()
     }
 
-    /// Trigger an immediate flush of all stores (currenty used only in tests)
+    /// Trigger an immediate flush of all stores (currently used only in tests).
+    /// Uses the cancellable checkpoint method with the manager's cancel token
+    /// for consistency with the main checkpoint loop.
     pub async fn flush_all(&self) -> Result<()> {
         info!("Triggering manual flush of all stores");
 
@@ -408,7 +451,10 @@ impl CheckpointManager {
                 self.offset_tracker.clone(),
             );
 
-            worker.checkpoint_partition(&store, None).await?;
+            // Use cancellable variant with the manager's cancel token
+            worker
+                .checkpoint_partition_cancellable(&store, None, Some(&self.cancel_token))
+                .await?;
         }
 
         Ok(())
@@ -458,6 +504,7 @@ mod tests {
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
     };
+    use crate::test_utils::create_test_tracker;
     use async_trait::async_trait;
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -477,7 +524,11 @@ mod tests {
 
     #[async_trait]
     impl CheckpointUploader for FilesystemUploader {
-        async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+        async fn upload_checkpoint_with_plan_cancellable(
+            &self,
+            plan: &CheckpointPlan,
+            _cancel_token: Option<&tokio_util::sync::CancellationToken>,
+        ) -> Result<Vec<String>> {
             // simulate remote upload path with local temp dir
             let dest_dir = self
                 .export_base_dir
@@ -516,7 +567,7 @@ mod tests {
             path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
         };
-        Arc::new(StoreManager::new(config))
+        Arc::new(StoreManager::new(config, create_test_tracker()))
     }
 
     fn create_test_store(topic: &str, partition: i32) -> DeduplicationStore {
@@ -702,7 +753,8 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let tmp_export_dir = TempDir::new().unwrap();
 
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
+        let uploader: Box<dyn CheckpointUploader> =
+            Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
@@ -827,7 +879,8 @@ mod tests {
         let tmp_export_dir = TempDir::new().unwrap();
 
         // configure moderate checkpoints with reasonable intervals and filesystem exporter
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
+        let uploader: Box<dyn CheckpointUploader> =
+            Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50), // Submit frequent checkpoints during test run
             max_concurrent_checkpoints: 2,
@@ -880,5 +933,141 @@ mod tests {
 
         let found_files = find_local_checkpoint_files(tmp_export_dir.path()).unwrap();
         assert!(!found_files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_loop_skips_on_rebalancing() {
+        // Verify that the checkpoint loop breaks when is_rebalancing() is true
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("rebalancing_loop_test", 0);
+
+        // Add an event to ensure there's data to checkpoint
+        let event = create_test_event();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+
+        // Add store to manager
+        let stores = store_manager.stores();
+        stores.insert(
+            Partition::new("rebalancing_loop_test".to_string(), 0),
+            store,
+        );
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(50),
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        // Start rebalancing BEFORE starting checkpoint manager
+        store_manager.rebalance_tracker().start_rebalancing();
+
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+
+        // Let the manager run a few cycles
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        manager.stop().await;
+
+        // No checkpoint files should be created because rebalancing skips the loop
+        let expected_base_path = Path::new(&config.local_checkpoint_dir);
+        let files_found = find_local_checkpoint_files(expected_base_path).unwrap();
+        assert!(
+            files_found.is_empty(),
+            "No checkpoints should be created during rebalancing"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_worker_skips_when_store_removed() {
+        // Verify that a worker skips gracefully when the store is removed mid-flight
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("store_removed_test", 0);
+
+        // Add an event
+        let event = create_test_event();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+
+        // Add store to manager
+        let partition = Partition::new("store_removed_test".to_string(), 0);
+        let stores = store_manager.stores();
+        stores.insert(partition.clone(), store);
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(100),
+            max_concurrent_checkpoints: 1,
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+
+        // Wait briefly for the manager to pick up the partition
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Remove the store mid-flight (simulating rebalance revocation)
+        store_manager.unregister_store("store_removed_test", 0);
+
+        // Let the manager run - it should handle the removed store gracefully
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        manager.stop().await;
+
+        // The manager should have handled this gracefully without panicking
+        // We just verify it completes without error
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_worker_skips_during_rebalancing() {
+        // Verify that a worker that was scheduled before rebalancing started
+        // will skip gracefully when is_rebalancing() becomes true
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("rebalancing_worker_test", 0);
+
+        // Add an event
+        let event = create_test_event();
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+
+        // Add store to manager
+        let partition = Partition::new("rebalancing_worker_test".to_string(), 0);
+        let stores = store_manager.stores();
+        stores.insert(partition.clone(), store);
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(100),
+            max_concurrent_checkpoints: 1,
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+
+        // Wait for the first checkpoint cycle to potentially start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Start rebalancing mid-flight
+        store_manager.rebalance_tracker().start_rebalancing();
+
+        // Let the manager process - workers should skip due to rebalancing
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Finish rebalancing to allow clean shutdown
+        store_manager.rebalance_tracker().finish_rebalancing();
+
+        manager.stop().await;
+
+        // The manager should have handled this gracefully without panicking
+        // We just verify it completes without error
     }
 }

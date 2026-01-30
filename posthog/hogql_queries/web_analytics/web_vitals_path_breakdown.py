@@ -75,6 +75,7 @@ HAVING value >= 0
         percentile_function = PROPERTY_MATH_FUNCTIONS[self.query.percentile]
         metric_value_field = f"properties.$web_vitals_{self.query.metric.value}_value"
 
+        # nosemgrep: hogql-injection-taint - percentile_function from dict lookup, metric from enum
         return parse_expr(f"{percentile_function}(toFloat({metric_value_field}))")
 
     def _calculate(self):

@@ -244,6 +244,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         revenueEnabledEvents: [(s) => [s.events], (events) => events],
+
         revenueEnabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
             (dataWarehouseSources) =>
@@ -275,6 +276,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 }
 
                 return Boolean(dataWarehouseSources.length)
+            },
+        ],
+
+        isRevenueAnalyticsEnabled: [
+            (s) => [s.hasRevenueTables, s.hasRevenueEvents],
+            (hasRevenueTables, hasRevenueEvents): boolean => {
+                return hasRevenueTables || hasRevenueEvents
             },
         ],
 

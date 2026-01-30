@@ -22,6 +22,7 @@ import {
     ElementPropertyFilter,
     FlattenedFunnelStepByBreakdown,
     FunnelConversionWindow,
+    FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelResultType,
@@ -32,6 +33,15 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
+    [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
+    [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
+    [FunnelConversionWindowTimeUnit.Hour]: [1, 24],
+    [FunnelConversionWindowTimeUnit.Day]: [1, 365],
+    [FunnelConversionWindowTimeUnit.Week]: [1, 53],
+    [FunnelConversionWindowTimeUnit.Month]: [1, 12],
+}
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -264,7 +274,7 @@ export function getIncompleteConversionWindowStartDate(
     window: FunnelConversionWindow,
     startDate: dayjs.Dayjs = dayjs()
 ): dayjs.Dayjs {
-    const { funnelWindowInterval, funnelWindowIntervalUnit } = window
+    const { funnelWindowInterval = 14, funnelWindowIntervalUnit } = window
     return startDate.subtract(funnelWindowInterval, funnelWindowIntervalUnit)
 }
 

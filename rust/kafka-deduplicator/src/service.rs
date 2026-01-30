@@ -27,6 +27,7 @@ use crate::{
         PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
     processor_rebalance_handler::ProcessorRebalanceHandler,
+    rebalance_tracker::RebalanceTracker,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
 };
@@ -97,8 +98,14 @@ impl KafkaDeduplicatorService {
                 .context("Failed to parse max_store_capacity")?,
         };
 
+        // Create rebalance coordinator first (other components depend on it)
+        let rebalance_tracker = Arc::new(RebalanceTracker::new());
+
         // Create store manager for handling concurrent store creation
-        let store_manager = Arc::new(StoreManager::new(store_config.clone()));
+        let store_manager = Arc::new(StoreManager::new(
+            store_config.clone(),
+            rebalance_tracker.clone(),
+        ));
 
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
@@ -135,7 +142,12 @@ impl KafkaDeduplicatorService {
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             s3_operation_timeout: config.s3_operation_timeout(),
             s3_attempt_timeout: config.s3_attempt_timeout(),
+            s3_max_retries: config.s3_max_retries,
             checkpoint_import_attempt_depth: config.checkpoint_import_attempt_depth,
+            max_concurrent_checkpoint_file_downloads: config
+                .max_concurrent_checkpoint_file_downloads,
+            max_concurrent_checkpoint_file_uploads: config.max_concurrent_checkpoint_file_uploads,
+            checkpoint_partition_import_timeout: config.checkpoint_partition_import_timeout(),
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
@@ -178,6 +190,7 @@ impl KafkaDeduplicatorService {
                 downloader,
                 store_config.path.clone(),
                 config.checkpoint_import_attempt_depth,
+                config.checkpoint_partition_import_timeout(),
             )))
         } else {
             None
@@ -310,8 +323,11 @@ impl KafkaDeduplicatorService {
             },
         };
 
+        // Get rebalance coordinator from store manager (created in new())
+        let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
+
         // Create offset tracker for tracking processed offsets
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
 
         let router = Arc::new(PartitionRouter::new(
             processor,
@@ -328,6 +344,7 @@ impl KafkaDeduplicatorService {
         // Create rebalance handler with the router for partition worker management
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
             self.store_manager.clone(),
+            rebalance_tracker,
             router,
             offset_tracker.clone(),
             self.checkpoint_importer.clone(),
@@ -355,6 +372,8 @@ impl KafkaDeduplicatorService {
                 .with_queued_max_messages_kbytes(
                     self.config.kafka_consumer_queued_max_messages_kbytes,
                 )
+                // Consumer group membership settings
+                .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
                 .build();
 
         // Create shutdown channel

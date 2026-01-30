@@ -271,6 +271,37 @@ where
             }
         };
 
+    // Create HyperCacheReader for remote config (array/config.json)
+    // This reads the pre-computed config blob from Python's RemoteConfig.build_config()
+    // Uses token-based lookup (api_token) to match Python's HyperCache key pattern
+    let config_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut config_hypercache_config = HyperCacheConfig::new(
+        "array".to_string(),
+        "config.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+    config_hypercache_config.token_based = true;
+
+    if !config.object_storage_endpoint.is_empty() {
+        config_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let config_hypercache_reader =
+        match HyperCacheReader::new(config_redis_client, config_hypercache_config).await {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for remote config");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                return;
+            }
+        };
+
     // Warn about deprecated environment variables
     if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {
         tracing::warn!(
@@ -298,6 +329,7 @@ where
         flags_hypercache_reader,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
+        config_hypercache_reader,
         config,
     );
 

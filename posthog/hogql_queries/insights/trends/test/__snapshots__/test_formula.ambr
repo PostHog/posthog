@@ -723,6 +723,44 @@
                        use_hive_partitioning=0
   '''
 # ---
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events
+  '''
+  SELECT ifNull(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 0) AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'nonexistent_event_that_has_no_data'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events.1
+  '''
+  SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
 # name: TestFormula.test_formula_with_unique_sessions
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,

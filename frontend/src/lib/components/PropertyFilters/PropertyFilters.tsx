@@ -33,6 +33,7 @@ export interface PropertyFiltersProps {
     showNestedArrow?: boolean
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    dataWarehouseTableName?: string
     logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
@@ -67,6 +68,7 @@ export function PropertyFilters({
     showNestedArrow = false,
     eventNames = [],
     schemaColumns = [],
+    dataWarehouseTableName,
     orFiltering = false,
     logicalRowDivider = false,
     propertyGroupType = null,
@@ -143,6 +145,7 @@ export function PropertyFilters({
                                             metadataSource={metadataSource}
                                             eventNames={eventNames}
                                             schemaColumns={schemaColumns}
+                                            dataWarehouseTableName={dataWarehouseTableName}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
                                             addText={addText}

@@ -4,6 +4,7 @@ from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_EVENTS_JSON,
     KAFKA_COLUMNS,
     KAFKA_COLUMNS_WITH_PARTITION,
     KAFKA_TIMESTAMP_MS_COLUMN,
@@ -241,7 +242,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     ).format(
         table_name="kafka_events_json",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
-        engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",

@@ -37,7 +37,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -46,8 +45,7 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
-from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -59,6 +57,7 @@ from posthog.permissions import (
     get_organization_from_view,
 )
 from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
@@ -175,6 +174,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "business_model",  # Compat with TeamSerializer
             "conversations_enabled",  # Compat with TeamSerializer
             "conversations_settings",  # Compat with TeamSerializer
+            "logs_settings",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -247,6 +247,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "business_model",
             "conversations_enabled",
             "conversations_settings",
+            "logs_settings",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -302,6 +303,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_receive_org_level_activity_logs(cast(TeamSerializer, self), value)
+
+    def validate_logs_settings(self, value: dict | None) -> dict | None:
+        return TeamSerializer.validate_logs_settings(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -598,24 +602,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         user = cast(User, self.request.user)
 
         teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
-        delete_bulky_postgres_data(team_ids=[team.id for team in teams])
-        delete_batch_exports(team_ids=[team.id for team in teams])
+        team_ids = [team.id for team in teams]
 
-        with mute_selected_signals():
-            super().perform_destroy(project)
-
-        # Once the project is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team.id,
-                    key=str(team.id),
-                    created_by=user,
-                )
-                for team in teams
-            ],
-            ignore_conflicts=True,
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, project/team records, ClickHouse, email
+        delete_project_data_and_notify_task.delay(
+            team_ids=team_ids,
+            project_id=project_id,
+            user_id=user.id,
+            project_name=project_name,
         )
 
         for team in teams:

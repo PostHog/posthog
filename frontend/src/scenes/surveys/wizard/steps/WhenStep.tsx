@@ -118,7 +118,7 @@ export function WhenStep(): JSX.Element {
             )}
 
             <div className="border-t border-border pt-6 space-y-2">
-                <label className="text-sm font-medium">Wait before showing</label>
+                <label className="text-sm font-medium">Delay before showing</label>
                 <div className="flex items-center gap-2">
                     <LemonInput
                         type="number"
@@ -127,9 +127,11 @@ export function WhenStep(): JSX.Element {
                         onChange={(val) => setDelaySeconds(Number(val) || 0)}
                         className="w-20"
                     />
-                    <span className="text-secondary text-sm">seconds after trigger</span>
+                    <span className="text-secondary text-sm">seconds after conditions are met</span>
                 </div>
-                <p className="text-muted text-xs">Give users time to settle on the page before showing the survey</p>
+                <p className="text-muted text-xs">
+                    Once a user matches the targeting conditions, wait this long before displaying the survey
+                </p>
             </div>
         </div>
     )

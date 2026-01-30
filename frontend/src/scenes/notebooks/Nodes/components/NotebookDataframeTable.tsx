@@ -107,7 +107,7 @@ export const NotebookDataframeTable = ({
                         }))}
                     />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pr-2">
                     <span>{rowCount === 0 ? 'No rows' : `${startIndex}-${endIndex} of ${rowCount}`}</span>
                     <LemonButton
                         size="small"

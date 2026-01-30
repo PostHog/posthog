@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,6 +21,8 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { groupLogicType } from './groupLogicType'
 
@@ -62,6 +65,8 @@ export const groupLogic = kea<groupLogicType>([
             ['groupTypes', 'aggregationLabel'],
             featureFlagLogic,
             ['featureFlags'],
+            revenueAnalyticsLogic,
+            ['isRevenueAnalyticsEnabled'],
         ],
     })),
     actions(() => ({
@@ -79,6 +84,47 @@ export const groupLogic = kea<groupLogicType>([
                     const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
                     const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
                     return await api.get(url)
+                },
+            },
+        ],
+        groupRevenueAnalyticsData: [
+            null as { mrr: number | null; lifetimeValue: number | null } | null,
+            {
+                loadGroupRevenueAnalyticsData: async () => {
+                    // Check if revenue analytics is available
+                    if (!values.isRevenueAnalyticsEnabled) {
+                        return null
+                    }
+
+                    try {
+                        const query = {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                                SELECT
+                                    mrr,
+                                    revenue as lifetimeValue
+                                FROM groups_revenue_analytics
+                                WHERE group_key = {groupKey}
+                            `,
+                            values: { groupKey: props.groupKey },
+                        }
+
+                        const result = await api.query(query)
+
+                        const row = (result as any).results?.[0]
+                        if (!row) {
+                            return null
+                        }
+
+                        return {
+                            mrr: row[0] ?? null,
+                            lifetimeValue: row[1] ?? null,
+                        }
+                    } catch (error) {
+                        // Silently fall back to group properties
+                        posthog.captureException(error, { tag: 'group_revenue_analytics_data_query_failed' })
+                        return null
+                    }
                 },
             },
         ],
@@ -184,6 +230,41 @@ export const groupLogic = kea<groupLogicType>([
             (s, p) => [s.groupTypes, p.groupTypeIndex],
             (groupTypes, index): number | null => groupTypes.get(index as GroupTypeIndex)?.detail_dashboard ?? null,
         ],
+        // Combine revenue analytics with group properties, prioritizing analytics
+        effectiveMRR: [
+            (s) => [s.groupRevenueAnalyticsData, s.groupData],
+            (revenueData, groupData): { value: number | null; source: 'revenue-analytics' | 'properties' | null } => {
+                // Use pre-calculated data if available
+                if (revenueData?.mrr !== null && revenueData?.mrr !== undefined) {
+                    return { value: revenueData.mrr, source: 'revenue-analytics' }
+                }
+                // Fallback to group properties
+                const mrrValue = groupData?.group_properties?.mrr
+                if (typeof mrrValue === 'number' && !isNaN(mrrValue)) {
+                    return { value: mrrValue, source: 'properties' }
+                }
+                return { value: null, source: null }
+            },
+        ],
+        effectiveLifetimeValue: [
+            (s) => [s.groupRevenueAnalyticsData, s.groupData],
+            (revenueData, groupData): { value: number | null; source: 'revenue-analytics' | 'properties' | null } => {
+                // Use pre-calculated data if available
+                if (revenueData?.lifetimeValue !== null && revenueData?.lifetimeValue !== undefined) {
+                    return { value: revenueData.lifetimeValue, source: 'revenue-analytics' }
+                }
+                // Fallback to group properties
+                const ltv = groupData?.group_properties?.customer_lifetime_value
+                if (typeof ltv === 'number' && !isNaN(ltv)) {
+                    return { value: ltv, source: 'properties' }
+                }
+                return { value: null, source: null }
+            },
+        ],
+        hasRevenueData: [
+            (s) => [s.effectiveMRR, s.effectiveLifetimeValue],
+            (mrr, ltv): boolean => mrr.value !== null || ltv.value !== null,
+        ],
         breadcrumbs: [
             (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
             (groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => {
@@ -232,5 +313,6 @@ export const groupLogic = kea<groupLogicType>([
     afterMount(({ actions, props }) => {
         actions.loadGroup()
         actions.setGroupEventsQuery(getGroupEventsQuery(props.groupTypeIndex, props.groupKey))
+        actions.loadGroupRevenueAnalyticsData()
     }),
 ])

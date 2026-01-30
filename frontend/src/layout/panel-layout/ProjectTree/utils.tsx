@@ -8,6 +8,7 @@ import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
+import { getCustomIcon } from './customIconRegistry'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
@@ -104,7 +105,13 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon = iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+        // Check for custom icon component first (e.g., badges), then fall back to static icon
+        const CustomIcon = getCustomIcon(item.type)
+        const icon = CustomIcon ? (
+            <CustomIcon />
+        ) : (
+            iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+        )
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
@@ -439,7 +446,20 @@ export function appendResultsToFolders(
     // Append search results into the loaded state to persist data and help with multi-selection between panels
     const newState: Record<string, FileSystemEntry[]> = { ...folders }
     const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
+
+    // Track IDs we've already processed to avoid duplicates within the incoming results
+    const processedIds = new Set<string>()
+
     for (const result of newResults) {
+        // Skip items without IDs or that we've already processed in this batch
+        if (!result.id) {
+            continue
+        }
+        if (processedIds.has(result.id)) {
+            continue
+        }
+        processedIds.add(result.id)
+
         const folder = joinPath(splitPath(result.path).slice(0, -1))
         if (newState[folder]) {
             const existingItem = newState[folder].find((item) => item.id === result.id)

@@ -1,6 +1,7 @@
 import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -17,7 +18,7 @@ export const createLinearIssueForm = (
         title: 'Create Linear issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             description: '',
             integrationId: integration.id,
             teamIds: [],
@@ -52,7 +53,7 @@ export const createGitHubIssueForm = (
         title: 'Create GitHub issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             body: '',
             integrationId: integration.id,
             repositories: [],
@@ -88,7 +89,7 @@ export const createGitLabIssueForm = (
         title: 'Create GitLab issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             body: '',
             integrationId: integration.id,
         },
@@ -107,6 +108,42 @@ export const createGitLabIssueForm = (
         },
         onSubmit: ({ title, body }) => {
             onSubmit(integration.id, { title, body })
+        },
+    })
+}
+
+export const createJiraIssueForm = (
+    sessionRecordingId: string,
+    integration: IntegrationType,
+    onSubmit: (integrationId: number, config: IssueConfig) => void
+): void => {
+    LemonDialog.openForm({
+        title: 'Create Jira issue',
+        shouldAwaitSubmit: true,
+        initialValues: {
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
+            description: '',
+            integrationId: integration.id,
+            projectKeys: [],
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <JiraProjectSelectField integrationId={integration.id} />
+                <LemonField name="title" label="Summary">
+                    <LemonInput data-attr="jira-issue-title" placeholder="Issue summary" size="small" />
+                </LemonField>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a summary' : undefined),
+            projectKeys: (projectKeys) =>
+                !projectKeys || projectKeys.length === 0 ? 'You must choose a project' : undefined,
+        },
+        onSubmit: ({ title, description, projectKeys }) => {
+            onSubmit(integration.id, { project_key: projectKeys[0], title, description })
         },
     })
 }

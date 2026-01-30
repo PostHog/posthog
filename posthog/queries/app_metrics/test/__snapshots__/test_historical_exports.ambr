@@ -93,6 +93,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -105,6 +106,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -153,6 +155,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -165,6 +168,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -213,6 +217,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -225,6 +230,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -273,6 +279,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -285,6 +292,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"

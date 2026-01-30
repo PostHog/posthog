@@ -2,6 +2,12 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -42,6 +48,26 @@ The assistant used the todo list because:
 4. Breaking this into steps ensures the assistant gets all necessary data before explaining
 """.strip()
 
+POSITIVE_EXAMPLE_IMPACT_ANALYSIS = """
+User: What's the impact of errors on our checkout flow?
+Assistant: I'll help you analyze how error tracking issues are impacting your checkout flow.
+*Uses read_taxonomy to find checkout-related events*
+Based on your event taxonomy, the checkout-related events are: checkout_started, payment_submitted, and order_completed. These are the events you should analyze to understand which issues may be blocking or affecting your checkout conversion.
+""".strip()
+
+MODE_DESCRIPTION = "Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause."
+
+POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
+The assistant used the read_taxonomy tool because:
+1. The user wants to understand how issues affect a specific product flow (checkout)
+2. read_taxonomy is used to find relevant event names for the checkout flow
+3. The assistant identifies which events relate to the user's query:
+   - "issues blocking signup" → signup-related events (sign_up_started, signup_complete)
+   - "notebook errors" → notebook events (notebook_created, notebook_updated)
+   - "checkout problems" → checkout events (checkout_started, payment_submitted, order_completed)
+4. The assistant explains which events are relevant for impact analysis
+""".strip()
+
 
 class ErrorTrackingAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -52,6 +78,10 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN,
             reasoning=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_IMPACT_ANALYSIS,
+            reasoning=POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING,
         ),
     ]
 
@@ -65,6 +95,17 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause.",
+    mode_description=MODE_DESCRIPTION,
     toolkit_class=ErrorTrackingAgentToolkit,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
+)
+
+
+chat_agent_plan_error_tracking_agent = AgentModeDefinition(
+    mode=AgentMode.ERROR_TRACKING,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=ErrorTrackingAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

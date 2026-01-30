@@ -104,6 +104,18 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorTypeMismatch(err.message, code=err.code, code_name="type_mismatch")
     elif name == "ILLEGAL_AGGREGATION":
         return CHQueryErrorIllegalAggregation(err.message, code=err.code, code_name="illegal_aggregation")
+    elif name == "NUMBER_OF_ARGUMENTS_DOESNT_MATCH":
+        return CHQueryErrorNumberOfArgumentsDoesntMatch(
+            err.message, code=err.code, code_name="number_of_arguments_doesnt_match"
+        )
+    elif name == "UNKNOWN_IDENTIFIER":
+        return CHQueryErrorUnknownIdentifier(err.message, code=err.code, code_name="unknown_identifier")
+    elif name == "TOO_MANY_BYTES":
+        return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
+    elif name == "CANNOT_PARSE_UUID":
+        return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
+    elif name == "UNSUPPORTED_METHOD":
+        return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
 
     # all other errors
     else:
@@ -156,6 +168,26 @@ class CHQueryErrorTypeMismatch(ExposedCHQueryError):
 
 
 class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownIdentifier(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorTooManyBytes(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorCannotParseUuid(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
     pass
 
 

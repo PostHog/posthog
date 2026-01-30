@@ -26,6 +26,8 @@ from posthog.schema import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
+from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
 from ee.api.conversation import ConversationViewSet
 from ee.models.assistant import Conversation
@@ -610,18 +612,22 @@ class TestConversation(APIBaseTest):
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
+        # get_throttles checks organization.customer_id - no customer_id means rate limits apply
+        viewset.organization = self.organization
         throttles = viewset.get_throttles()
         self.assertIsInstance(throttles[0], AIBurstRateThrottle)
         self.assertIsInstance(throttles[1], AISustainedRateThrottle)
 
     @override_settings(DEBUG=True)
-    def test_get_throttles_skips_rate_limits_for_debug_mode(self):
-        """Test that rate limits are skipped in debug mode."""
+    def test_get_throttles_skips_rate_limits_for_create_action_in_debug_mode(self):
+        """Test that AI rate limits are skipped in debug mode (falls back to default throttles)."""
 
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
+        viewset.organization = self.organization
         throttles = viewset.get_throttles()
+        # In debug mode, AI-specific throttles are skipped, default throttles are returned
         self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
         self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)
 
@@ -715,3 +721,102 @@ class TestConversation(APIBaseTest):
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 mock_is_team_limited.assert_called_once()
+
+    def test_create_conversation_with_research_agent_mode(self):
+        """Test that agent_mode=RESEARCH routes to ResearchAgentWorkflow."""
+
+        conversation_id = str(uuid.uuid4())
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": trace_id,
+                        "conversation": conversation_id,
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                mock_start_workflow_and_stream.assert_called_once()
+                call_args = mock_start_workflow_and_stream.call_args
+
+                # Verify workflow class is ResearchAgentWorkflow
+                workflow_class = call_args[0][0]
+                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+
+                # Verify workflow_inputs is ResearchAgentWorkflowInputs
+                workflow_inputs = call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
+
+                # Verify is_agent_billable=False for research mode
+                self.assertEqual(workflow_inputs.is_agent_billable, False)
+
+                # Verify agent_mode and contextual_tools are NOT passed in research mode
+                self.assertFalse(hasattr(workflow_inputs, "agent_mode"))
+                self.assertFalse(hasattr(workflow_inputs, "contextual_tools"))
+
+    def test_research_mode_billing_is_always_false(self):
+        """Test that research mode is always non-billable, even when not impersonated."""
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # Not patching is_impersonated_session, so it defaults to False (not impersonated)
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_start_workflow_and_stream.call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
+                # Even without impersonation, research mode is non-billable
+                self.assertEqual(workflow_inputs.is_agent_billable, False)
+
+    def test_chat_mode_uses_chat_agent_workflow(self):
+        """Test that non-research modes use ChatAgentWorkflow."""
+
+        conversation_id = str(uuid.uuid4())
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": conversation_id,
+                        "agent_mode": AgentMode.SQL.value,  # Not RESEARCH
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                call_args = mock_start_workflow_and_stream.call_args
+
+                # Verify workflow class is ChatAgentWorkflow
+                workflow_class = call_args[0][0]
+                self.assertEqual(workflow_class, ChatAgentWorkflow)
+
+                # Verify workflow_inputs is ChatAgentWorkflowInputs
+                workflow_inputs = call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ChatAgentWorkflowInputs)
+
+                # Verify agent_mode is passed for chat mode
+                self.assertEqual(workflow_inputs.agent_mode, AgentMode.SQL)

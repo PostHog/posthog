@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -44,6 +45,9 @@ export type CohortLogicProps = {
     id?: CohortType['id']
     tabId?: string
 }
+
+const checkIsPendingCalculation = (cohort: CohortType): boolean =>
+    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -268,6 +272,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return cohort.is_static && typeof cohort.id === 'number'
             },
         ],
+        isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
+        isCalculatingOrPending: [
+            (s) => [s.cohort, s.isPendingCalculation],
+            (cohort: CohortType, isPendingCalculation: boolean) => {
+                return cohort.is_calculating || isPendingCalculation
+            },
+        ],
     }),
 
     forms(({ actions, values }) => ({
@@ -351,6 +362,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
+                            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpCohorts)
                         }
                     } catch (error: any) {
                         breakpoint()
@@ -521,7 +533,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            if (cohort.is_calculating) {
+            const isPendingCalculation = checkIsPendingCalculation(cohort)
+            const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
+
+            if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
@@ -536,6 +551,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     errors_calculating: cohort.errors_calculating,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
+                    version: cohort.version,
+                    pending_version: cohort.pending_version,
                 }
                 actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)

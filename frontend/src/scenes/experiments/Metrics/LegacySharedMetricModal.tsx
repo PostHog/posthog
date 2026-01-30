@@ -7,10 +7,8 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
@@ -30,8 +28,6 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
     const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'
-
-    const { hasAvailableFeature } = useValues(userLogic)
 
     if (!compatibleSharedMetrics) {
         return <></>
@@ -120,7 +116,7 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
-                            {hasAvailableFeature(AvailableFeature.TAGGING) && availableTags.length > 0 && (
+                            {availableTags.length > 0 && (
                                 <div className="flex flex-wrap gap-2">
                                     <LemonLabel>Quick select:</LemonLabel>
                                     {availableTags.map((tag: string, index: number) => (
@@ -173,18 +169,14 @@ export function LegacySharedMetricModal({ isSecondary }: { isSecondary?: boolean
                                         dataIndex: 'description',
                                         key: 'description',
                                     },
-                                    ...(hasAvailableFeature(AvailableFeature.TAGGING)
-                                        ? [
-                                              {
-                                                  title: 'Tags',
-                                                  dataIndex: 'tags' as keyof SharedMetric,
-                                                  key: 'tags',
-                                                  render: (_: any, metric: SharedMetric) => (
-                                                      <ObjectTags tags={metric.tags || []} staticOnly />
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
+                                    {
+                                        title: 'Tags',
+                                        dataIndex: 'tags' as keyof SharedMetric,
+                                        key: 'tags',
+                                        render: (_: any, metric: SharedMetric) => (
+                                            <ObjectTags tags={metric.tags || []} staticOnly />
+                                        ),
+                                    },
                                     {
                                         title: 'Type',
                                         key: 'type',

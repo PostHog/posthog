@@ -6,6 +6,7 @@ import dataclasses
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from math import ceil
+from typing import Literal
 
 from django.conf import settings
 
@@ -34,16 +35,13 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     get_patterns_from_redis_outside_workflow,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.activities.video_validation import (
-    validate_llm_single_session_summary_with_videos_activity,
-)
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_id_from_session_ids,
     generate_state_key,
     store_data_in_redis,
 )
-from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
+from posthog.temporal.ai.session_summary.summarize_session import ensure_llm_single_session_summary
 from posthog.temporal.ai.session_summary.types.group import (
     SessionBatchFetchOutput,
     SessionGroupSummaryInputs,
@@ -399,23 +397,11 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     async def _run_summary(self, inputs: SingleSessionSummaryInputs) -> None | Exception:
         """
         Run and handle the summary for a single session to avoid one activity failing the whole group.
+        Supports both regular event-based summarization and video-based summarization.
         """
         try:
             # Generate session summary
-            await temporalio.workflow.execute_activity(
-                get_llm_single_session_summary_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # Validate session summary with videos and apply updates
-            if inputs.video_validation_enabled:
-                await temporalio.workflow.execute_activity(
-                    validate_llm_single_session_summary_with_videos_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
+            await ensure_llm_single_session_summary(inputs)
             # Keep track of processed summaries
             self._processed_single_summaries += 1
             self._current_status.append(
@@ -758,7 +744,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool | None = None,
+    video_validation_enabled: bool | Literal["full"] | None = None,
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,

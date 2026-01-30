@@ -11,6 +11,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     AvailableFeature,
     SurveyAppearance,
@@ -31,9 +32,12 @@ export function AppearanceStep(): JSX.Element {
     const { setSurveyValue } = useActions(surveyLogic)
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
-    const [previewBackground, setPreviewBackground] = useState<'light' | 'dark'>('light')
+    const [previewBackground, setPreviewBackground] = useState<'light' | 'dark'>(() =>
+        isDarkModeOn ? 'dark' : 'light'
+    )
     const [selectedThemeId, setSelectedThemeId] = useState<string | null>(() => {
         const currentAppearance = survey.appearance
         if (!currentAppearance) {
@@ -230,39 +234,6 @@ export function AppearanceStep(): JSX.Element {
                                             />
                                         </LemonField.Pure>
                                     </div>
-                                    <LemonField.Pure className="gap-1">
-                                        <div className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={!!appearance.surveyPopupDelaySeconds}
-                                                onChange={(checked) => {
-                                                    onAppearanceChange({
-                                                        surveyPopupDelaySeconds: checked ? 5 : undefined,
-                                                    })
-                                                }}
-                                                disabled={!surveysStylingAvailable}
-                                            />
-                                            <span className="text-sm">
-                                                Delay survey popup by{' '}
-                                                <LemonInput
-                                                    type="number"
-                                                    size="small"
-                                                    min={1}
-                                                    max={3600}
-                                                    value={appearance.surveyPopupDelaySeconds}
-                                                    onChange={(newValue) => {
-                                                        if (newValue && newValue > 0) {
-                                                            onAppearanceChange({ surveyPopupDelaySeconds: newValue })
-                                                        } else {
-                                                            onAppearanceChange({ surveyPopupDelaySeconds: undefined })
-                                                        }
-                                                    }}
-                                                    className="w-16 inline-block mx-1"
-                                                    disabled={!surveysStylingAvailable}
-                                                />{' '}
-                                                seconds
-                                            </span>
-                                        </div>
-                                    </LemonField.Pure>
                                 </div>
                             ),
                         },

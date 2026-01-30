@@ -169,13 +169,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         pythonExecutionSandboxId?: string | null
     }
     const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
-    const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
+    const pythonCodeHash = hashCodeForString(typeof pythonAttributes.code === 'string' ? pythonAttributes.code : '')
     const pythonExecutionSandboxId = pythonAttributes.pythonExecutionSandboxId ?? null
     const kernelSandboxId = kernelInfo?.sandbox_id ?? null
+    const kernelIsRunning = kernelInfo?.status === 'running'
     const pythonHasExecution = pythonExecutionCodeHash !== null
     const pythonSandboxMatches =
         pythonExecutionSandboxId !== null && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
-    const pythonIsFresh = pythonHasExecution && pythonExecutionCodeHash === pythonCodeHash && pythonSandboxMatches
+    const pythonIsFresh =
+        pythonHasExecution && pythonExecutionCodeHash === pythonCodeHash && pythonSandboxMatches && kernelIsRunning
     const pythonIsStale = pythonHasExecution && !pythonIsFresh
     const duckSqlAttributes = attributes as {
         code?: string
@@ -184,12 +186,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         returnVariable?: string
     }
     const duckSqlExecutionCodeHash = duckSqlAttributes.duckExecutionCodeHash ?? null
-    const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${duckSqlReturnVariable}`)
+    const duckSqlCodeHash = hashCodeForString(
+        `${typeof duckSqlAttributes.code === 'string' ? duckSqlAttributes.code : ''}\n${duckSqlReturnVariable}`
+    )
     const duckSqlExecutionSandboxId = duckSqlAttributes.duckExecutionSandboxId ?? null
     const duckSqlHasExecution = duckSqlExecutionCodeHash !== null
     const duckSqlSandboxMatches =
         duckSqlExecutionSandboxId !== null && kernelSandboxId !== null && duckSqlExecutionSandboxId === kernelSandboxId
-    const duckSqlIsFresh = duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches
+    const duckSqlIsFresh =
+        duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches && kernelIsRunning
     const duckSqlIsStale = duckSqlHasExecution && !duckSqlIsFresh
 
     const defaultMenuItems: LemonMenuItems = [
