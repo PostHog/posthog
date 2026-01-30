@@ -1,20 +1,19 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { LemonDivider } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import Rules from './rules/Rules'
-import { ErrorTrackingRuleType } from './rules/types'
-import { ErrorTrackingSuppressionRule } from './rules/types'
+import { ErrorTrackingIngestionControls } from './IngestionControls'
+import { ErrorTrackingClientSuppression } from './SuppressionRules'
 
 export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -67,48 +66,20 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 </p>
                 <ErrorTrackingClientSuppression disabled={!checked} />
             </div>
-        </div>
-    )
-}
 
-function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JSX.Element {
-    return (
-        <Rules<ErrorTrackingSuppressionRule>
-            ruleType={ErrorTrackingRuleType.Suppression}
-            disabledReason={
-                disabled
-                    ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
-                    : undefined
-            }
-        >
-            {({ rule, editing }) => {
-                return (
-                    <>
-                        <div className="flex gap-2 justify-between px-2 py-3">
-                            <div className="flex gap-1 items-center">
-                                <div>Ignore exceptions that match </div>
-                                <Rules.Operator rule={rule} editing={editing} />
-                                <div>of the following filters:</div>
-                            </div>
-                            {!disabled && <Rules.Actions rule={rule} editing={editing} />}
-                        </div>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2">
-                            <Rules.Filters
-                                rule={rule}
-                                editing={editing}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                                propertyAllowList={{
-                                    [TaxonomicFilterGroupType.EventProperties]: [
-                                        '$exception_types',
-                                        '$exception_values',
-                                    ],
-                                }}
-                            />
-                        </div>
-                    </>
-                )
-            }}
-        </Rules>
+            <FlaggedFeature flag={FEATURE_FLAGS.ERROR_TRACKING_INGESTION_CONTROLS}>
+                <div>
+                    <div className="flex justify-between">
+                        <h3>Autocapture controls</h3>
+                        <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingSuppressionRules} />
+                    </div>
+                    <p>
+                        Setting autocapture controls allows you to selectively enable exception autocapture based on the
+                        user or scenario
+                    </p>
+                    <ErrorTrackingIngestionControls disabled={!checked} />
+                </div>
+            </FlaggedFeature>
+        </div>
     )
 }
