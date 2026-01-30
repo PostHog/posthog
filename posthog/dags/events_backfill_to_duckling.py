@@ -178,6 +178,7 @@ class DucklingBackfillConfig(Config):
     skip_schema_validation: bool = False
     cleanup_prior_run_files: bool = True
     create_tables_if_missing: bool = True
+    delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
 
 
@@ -421,6 +422,82 @@ def ensure_persons_table_exists(
         context.log.info("Successfully created persons table")
         logger.info(
             "duckling_persons_table_created",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def delete_events_table(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Delete the events table from the duckling's DuckLake catalog.
+
+    WARNING: This will permanently delete all events data in the duckling.
+
+    Returns True if the table was deleted, False if it didn't exist.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "duckling"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if not table_exists(conn, alias, "main", "events"):
+            context.log.info("Events table does not exist, nothing to delete")
+            return False
+
+        context.log.warning("Deleting events table from duckling catalog...")
+        _validate_identifier(alias)
+        conn.execute(f"DROP TABLE {alias}.main.events")
+        context.log.warning("Successfully deleted events table")
+        logger.warning(
+            "duckling_events_table_deleted",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def delete_persons_table(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Delete the persons table from the duckling's DuckLake catalog.
+
+    WARNING: This will permanently delete all persons data in the duckling.
+
+    Returns True if the table was deleted, False if it didn't exist.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "duckling"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if not table_exists(conn, alias, "main", "persons"):
+            context.log.info("Persons table does not exist, nothing to delete")
+            return False
+
+        context.log.warning("Deleting persons table from duckling catalog...")
+        _validate_identifier(alias)
+        conn.execute(f"DROP TABLE {alias}.main.persons")
+        context.log.warning("Successfully deleted persons table")
+        logger.warning(
+            "duckling_persons_table_deleted",
             team_id=catalog.team_id,
             bucket=catalog.bucket,
         )
@@ -946,6 +1023,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
+    # Delete events table if requested (dangerous - loses all data)
+    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.warning("delete_tables=True: Deleting events table...")
+        delete_events_table(context, catalog)
+
     # Create events table if it doesn't exist
     if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
         context.log.info("Ensuring events table exists in duckling catalog...")
@@ -1057,6 +1139,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Delete persons table if requested (dangerous - loses all data)
+    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.warning("delete_tables=True: Deleting persons table...")
+        delete_persons_table(context, catalog)
 
     # Create persons table if it doesn't exist
     if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
