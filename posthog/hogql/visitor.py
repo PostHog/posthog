@@ -150,6 +150,9 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.having)
         for expr3 in node.group_by or []:
             self.visit(expr3)
+        for grouping_set in node.grouping_sets or []:
+            for expr in grouping_set:
+                self.visit(expr)
         for expr4 in node.order_by or []:
             self.visit(expr4)
         self.visit(node.limit_by)
@@ -633,6 +636,12 @@ class CloningVisitor(Visitor[Any]):
             prewhere=self.visit(node.prewhere),
             having=self.visit(node.having),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
+            group_by_modifier=node.group_by_modifier,
+            grouping_sets=(
+                [[self.visit(expr) for expr in grouping_set] for grouping_set in node.grouping_sets]
+                if node.grouping_sets
+                else None
+            ),
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),

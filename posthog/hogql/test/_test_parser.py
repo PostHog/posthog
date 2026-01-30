@@ -1260,6 +1260,40 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_group_by_cube(self):
+            """Test GROUP BY CUBE parsing"""
+            result = self._select("SELECT a, b, count() FROM events GROUP BY CUBE(a, b)")
+            self.assertEqual(result.group_by, [ast.Field(chain=["a"]), ast.Field(chain=["b"])])
+            self.assertEqual(result.group_by_modifier, "CUBE")
+            self.assertIsNone(result.grouping_sets)
+
+        def test_select_group_by_rollup(self):
+            """Test GROUP BY ROLLUP parsing"""
+            result = self._select("SELECT a, b, count() FROM events GROUP BY ROLLUP(a, b)")
+            self.assertEqual(result.group_by, [ast.Field(chain=["a"]), ast.Field(chain=["b"])])
+            self.assertEqual(result.group_by_modifier, "ROLLUP")
+            self.assertIsNone(result.grouping_sets)
+
+        def test_select_group_by_grouping_sets(self):
+            """Test GROUP BY GROUPING SETS parsing"""
+            result = self._select("SELECT a, b, count() FROM events GROUP BY GROUPING SETS ((a, b), (a), ())")
+            self.assertIsNone(result.group_by)
+            self.assertIsNone(result.group_by_modifier)
+            self.assertEqual(
+                result.grouping_sets,
+                [
+                    [ast.Field(chain=["a"]), ast.Field(chain=["b"])],
+                    [ast.Field(chain=["a"])],
+                    [],
+                ],
+            )
+
+        def test_select_group_by_grouping_sets_single(self):
+            """Test GROUP BY GROUPING SETS with a single set"""
+            result = self._select("SELECT a, count() FROM events GROUP BY GROUPING SETS ((a))")
+            self.assertIsNone(result.group_by)
+            self.assertEqual(result.grouping_sets, [[ast.Field(chain=["a"])]])
+
         def test_order_by(self):
             self.assertEqual(
                 parse_order_expr("1 ASC"),

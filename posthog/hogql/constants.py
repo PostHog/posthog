@@ -36,6 +36,12 @@ MAX_SELECT_POSTHOG_AI_LIMIT = 100  # 100 rows
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
+# Limits for GROUP BY modifiers to prevent resource exhaustion
+# CUBE with n columns creates 2^n combinations, so we limit to 2^10 = 1,024 max
+MAX_CUBE_ROLLUP_COLUMNS = 10
+# Max number of explicit grouping sets allowed
+MAX_GROUPING_SETS = 64
+
 CSV_EXPORT_LIMIT = 300000
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
 CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to

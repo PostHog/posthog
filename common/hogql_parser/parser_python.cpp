@@ -900,7 +900,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(SelectStmt) {
     // These are stolen by select_query
     PyObject *ctes = NULL, *select = NULL, *select_from = NULL, *where = NULL, *prewhere = NULL, *having = NULL,
-             *group_by = NULL, *order_by = NULL;
+             *group_by_result = NULL, *order_by = NULL;
+    PyObject *group_by = NULL, *group_by_modifier = NULL, *grouping_sets = NULL;
 
     try {
       ctes = visitAsPyObjectOrNone(ctx->withClause());
@@ -909,8 +910,43 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       where = visitAsPyObjectOrNone(ctx->whereClause());
       prewhere = visitAsPyObjectOrNone(ctx->prewhereClause());
       having = visitAsPyObjectOrNone(ctx->havingClause());
-      group_by = visitAsPyObjectOrNone(ctx->groupByClause());
+      group_by_result = visitAsPyObjectOrNone(ctx->groupByClause());
       order_by = visitAsPyObjectOrNone(ctx->orderByClause());
+      
+      // Process group_by_result - it can be:
+      // - None (no GROUP BY)
+      // - A list (plain GROUP BY)
+      // - A tuple ("CUBE"/"ROLLUP", exprs) or ("GROUPING_SETS", sets)
+      if (group_by_result && PyTuple_Check(group_by_result)) {
+        const char* modifier_str = NULL;
+        PyObject* data = NULL;
+        if (!PyArg_ParseTuple(group_by_result, "sO", &modifier_str, &data)) {
+          Py_DECREF(group_by_result);
+          throw ParsingError("Failed to parse GROUP BY modifier tuple");
+        }
+        
+        if (strcmp(modifier_str, "GROUPING_SETS") == 0) {
+          // GROUPING SETS: data is the list of sets
+          grouping_sets = Py_NewRef(data);
+          group_by = Py_NewRef(Py_None);
+          group_by_modifier = Py_NewRef(Py_None);
+        } else {
+          // CUBE or ROLLUP: data is the expression list
+          group_by = Py_NewRef(data);
+          group_by_modifier = PyUnicode_FromString(modifier_str);
+          if (!group_by_modifier) {
+            Py_DECREF(group_by_result);
+            throw PyInternalError();
+          }
+          grouping_sets = Py_NewRef(Py_None);
+        }
+        Py_DECREF(group_by_result);
+      } else {
+        // Plain GROUP BY or None
+        group_by = group_by_result ? group_by_result : Py_NewRef(Py_None);
+        group_by_modifier = Py_NewRef(Py_None);
+        grouping_sets = Py_NewRef(Py_None);
+      }
     } catch (...) {
       Py_XDECREF(ctes);
       Py_XDECREF(select);
@@ -919,14 +955,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_XDECREF(prewhere);
       Py_XDECREF(having);
       Py_XDECREF(group_by);
+      Py_XDECREF(group_by_modifier);
+      Py_XDECREF(grouping_sets);
       Py_XDECREF(order_by);
       throw;
     }
 
     PyObject* select_query = build_ast_node(
-        "SelectQuery", "{s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N}", "ctes", ctes, "select", select, "distinct",
+        "SelectQuery", "{s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N}", "ctes", ctes, "select", select, "distinct",
         Py_NewRef(ctx->DISTINCT() ? Py_True : Py_None), "select_from", select_from, "where", where, "prewhere",
-        prewhere, "having", having, "group_by", group_by, "order_by", order_by
+        prewhere, "having", having, "group_by", group_by, "group_by_modifier", group_by_modifier, 
+        "grouping_sets", grouping_sets, "order_by", order_by
     );
     if (!select_query) {
       throw PyInternalError();
@@ -1139,7 +1178,63 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(WhereClause) { return visit(ctx->columnExpr()); }
 
-  VISIT(GroupByClause) { return visit(ctx->columnExprList()); }
+  VISIT(GroupByClause) {
+    // Check for GROUPING SETS
+    if (ctx->GROUPING() && ctx->SETS()) {
+      auto grouping_sets_list = ctx->groupingSetsList();
+      if (!grouping_sets_list) {
+        throw ParsingError("GROUPING SETS requires a groupingSetsList");
+      }
+      
+      PyObject* sets = PyList_New(0);
+      if (!sets) {
+        throw PyInternalError();
+      }
+      
+      for (auto grouping_set : grouping_sets_list->groupingSet()) {
+        PyObject* exprs;
+        if (grouping_set->columnExprList()) {
+          exprs = visitAsPyObject(grouping_set->columnExprList());
+        } else {
+          // Empty grouping set ()
+          exprs = PyList_New(0);
+        }
+        if (!exprs) {
+          Py_DECREF(sets);
+          throw PyInternalError();
+        }
+        int err = PyList_Append(sets, exprs);
+        Py_DECREF(exprs);
+        if (err == -1) {
+          Py_DECREF(sets);
+          throw PyInternalError();
+        }
+      }
+      
+      return Py_BuildValue("(sN)", "GROUPING_SETS", sets);
+    }
+    
+    // Check for CUBE
+    if (ctx->CUBE()) {
+      PyObject* exprs = visitAsPyObject(ctx->columnExprList());
+      if (!exprs) {
+        throw PyInternalError();
+      }
+      return Py_BuildValue("(sN)", "CUBE", exprs);
+    }
+    
+    // Check for ROLLUP
+    if (ctx->ROLLUP()) {
+      PyObject* exprs = visitAsPyObject(ctx->columnExprList());
+      if (!exprs) {
+        throw PyInternalError();
+      }
+      return Py_BuildValue("(sN)", "ROLLUP", exprs);
+    }
+    
+    // Plain GROUP BY - return just the expression list
+    return visit(ctx->columnExprList());
+  }
 
   VISIT(HavingClause) { return visit(ctx->columnExpr()); }
 
