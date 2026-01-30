@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 use crate::config::CaptureMode;
 
 use super::repository::EventRestrictionsRepository;
-use super::types::{EventContext, Restriction, RestrictionType};
+use super::types::{EventContext, Restriction, RestrictionSet, RestrictionType};
 
 /// Manages restrictions by token.
 #[derive(Debug, Clone, Default)]
@@ -28,16 +28,18 @@ impl RestrictionManager {
     }
 
     /// Get all restriction types that apply to an event.
-    pub fn get_restrictions(&self, token: &str, event: &EventContext) -> HashSet<RestrictionType> {
+    pub fn get_restrictions(&self, token: &str, event: &EventContext) -> RestrictionSet {
         let Some(restrictions) = self.restrictions.get(token) else {
-            return HashSet::new();
+            return RestrictionSet::new();
         };
 
-        restrictions
-            .iter()
-            .filter(|r| r.matches(event))
-            .map(|r| r.restriction_type)
-            .collect()
+        let mut result = RestrictionSet::new();
+        for r in restrictions {
+            if r.matches(event) {
+                result.insert(r.restriction_type);
+            }
+        }
+        result
     }
 
     /// Build a RestrictionManager from repository data for a specific pipeline.
@@ -207,31 +209,26 @@ impl EventRestrictionService {
     }
 
     /// Check if the cache is stale (fail-open should be active).
-    fn is_stale(&self) -> bool {
+    fn is_stale_at(&self, now_ts: i64) -> bool {
         let last_refresh = self.last_successful_refresh.load(Ordering::SeqCst);
         if last_refresh == 0 {
             return true;
         }
 
-        let now = chrono::Utc::now().timestamp();
         // Use saturating_sub to handle potential clock skew (if now < last_refresh, age = 0)
-        let age_secs = (now as u64).saturating_sub(last_refresh as u64);
+        let age_secs = (now_ts as u64).saturating_sub(last_refresh as u64);
         Duration::from_secs(age_secs) > self.fail_open_after
     }
 
     /// Get restrictions for an event. Returns empty set if fail-open is active.
-    pub async fn get_restrictions(
-        &self,
-        token: &str,
-        event: &EventContext,
-    ) -> HashSet<RestrictionType> {
-        if self.is_stale() {
+    pub async fn get_restrictions(&self, token: &str, event: &EventContext<'_>) -> RestrictionSet {
+        if self.is_stale_at(event.now_ts) {
             gauge!(
                 "capture_event_restrictions_stale",
                 "pipeline" => self.pipeline.as_pipeline_name().to_string()
             )
             .set(1.0);
-            return HashSet::new();
+            return RestrictionSet::new();
         }
 
         let guard = self.manager.read().await;
@@ -311,19 +308,19 @@ mod tests {
         // Each token should have exactly its restriction type
         let drop_restrictions = manager.get_restrictions("token_drop", &event);
         assert_eq!(drop_restrictions.len(), 1);
-        assert!(drop_restrictions.contains(&RestrictionType::DropEvent));
+        assert!(drop_restrictions.contains(RestrictionType::DropEvent));
 
         let overflow_restrictions = manager.get_restrictions("token_overflow", &event);
         assert_eq!(overflow_restrictions.len(), 1);
-        assert!(overflow_restrictions.contains(&RestrictionType::ForceOverflow));
+        assert!(overflow_restrictions.contains(RestrictionType::ForceOverflow));
 
         let dlq_restrictions = manager.get_restrictions("token_dlq", &event);
         assert_eq!(dlq_restrictions.len(), 1);
-        assert!(dlq_restrictions.contains(&RestrictionType::RedirectToDlq));
+        assert!(dlq_restrictions.contains(RestrictionType::RedirectToDlq));
 
         let skip_restrictions = manager.get_restrictions("token_skip", &event);
         assert_eq!(skip_restrictions.len(), 1);
-        assert!(skip_restrictions.contains(&RestrictionType::SkipPersonProcessing));
+        assert!(skip_restrictions.contains(RestrictionType::SkipPersonProcessing));
 
         // Unknown token should have no restrictions
         let unknown = manager.get_restrictions("unknown_token", &event);
@@ -351,17 +348,17 @@ mod tests {
 
         // Should match when both distinct_id and event_name match
         let event_match = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_match);
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        assert!(restrictions.contains(RestrictionType::DropEvent));
 
         // Should NOT match when event_name doesn't match (AND logic)
         let event_wrong_name = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$identify".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$identify"),
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_wrong_name);
@@ -369,8 +366,8 @@ mod tests {
 
         // Should NOT match when distinct_id doesn't match
         let event_wrong_user = EventContext {
-            distinct_id: Some("user3".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user3"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         let restrictions = manager.get_restrictions("token1", &event_wrong_user);
@@ -459,7 +456,7 @@ mod tests {
 
         let event = EventContext::default();
         let restrictions = manager.get_restrictions("token1", &event);
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
+        assert!(restrictions.contains(RestrictionType::ForceOverflow));
     }
 
     #[tokio::test]
@@ -496,21 +493,26 @@ mod tests {
 
         let restrictions = manager.get_restrictions("token1", &EventContext::default());
         assert_eq!(restrictions.len(), 2);
-        assert!(restrictions.contains(&RestrictionType::ForceOverflow));
-        assert!(restrictions.contains(&RestrictionType::SkipPersonProcessing));
+        assert!(restrictions.contains(RestrictionType::ForceOverflow));
+        assert!(restrictions.contains(RestrictionType::SkipPersonProcessing));
     }
 
     // ========================================================================
     // EventRestrictionService tests
     // ========================================================================
 
+    fn event_ctx_now() -> EventContext<'static> {
+        EventContext {
+            now_ts: chrono::Utc::now().timestamp(),
+            ..Default::default()
+        }
+    }
+
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
         let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
-        let restrictions = service
-            .get_restrictions("token", &EventContext::default())
-            .await;
+        let restrictions = service.get_restrictions("token", &event_ctx_now()).await;
         assert!(restrictions.is_empty());
     }
 
@@ -528,9 +530,8 @@ mod tests {
         );
         service.update(manager).await;
 
-        let event = EventContext::default();
-        let restrictions = service.get_restrictions("token1", &event).await;
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions.contains(RestrictionType::DropEvent));
     }
 
     #[tokio::test]
@@ -551,10 +552,8 @@ mod tests {
         service.update(manager).await;
 
         // Immediately after update, should return restrictions
-        let restrictions = service
-            .get_restrictions("token1", &EventContext::default())
-            .await;
-        assert!(restrictions.contains(&RestrictionType::DropEvent));
+        let restrictions = service.get_restrictions("token1", &event_ctx_now()).await;
+        assert!(restrictions.contains(RestrictionType::DropEvent));
 
         // Manually set last_successful_refresh to 10 seconds ago
         let old_timestamp = chrono::Utc::now().timestamp() - 10;
@@ -563,9 +562,7 @@ mod tests {
             .store(old_timestamp, Ordering::SeqCst);
 
         // Now should be stale (fail-open)
-        let restrictions_after = service
-            .get_restrictions("token1", &EventContext::default())
-            .await;
+        let restrictions_after = service.get_restrictions("token1", &event_ctx_now()).await;
         assert!(restrictions_after.is_empty());
     }
 }

@@ -50,6 +50,48 @@ impl RestrictionType {
             Self::RedirectToDlq,
         ]
     }
+
+    /// Bit position for this restriction type (0-3).
+    const fn bit_pos(self) -> u8 {
+        match self {
+            Self::DropEvent => 0,
+            Self::ForceOverflow => 1,
+            Self::RedirectToDlq => 2,
+            Self::SkipPersonProcessing => 3,
+        }
+    }
+}
+
+/// A compact set of restriction types using a bitfield.
+/// Avoids heap allocation - just a u8 on the stack.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RestrictionSet(u8);
+
+impl RestrictionSet {
+    /// Create an empty set.
+    pub const fn new() -> Self {
+        Self(0)
+    }
+
+    /// Insert a restriction type into the set.
+    pub fn insert(&mut self, t: RestrictionType) {
+        self.0 |= 1 << t.bit_pos();
+    }
+
+    /// Check if the set contains a restriction type.
+    pub const fn contains(self, t: RestrictionType) -> bool {
+        (self.0 & (1 << t.bit_pos())) != 0
+    }
+
+    /// Check if the set is empty.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Count the number of restrictions in the set.
+    pub const fn len(self) -> usize {
+        self.0.count_ones() as usize
+    }
 }
 
 /// Result of applying restrictions to an event.
@@ -64,15 +106,12 @@ pub struct AppliedRestrictions {
 
 impl AppliedRestrictions {
     /// Apply restrictions and emit metrics.
-    pub fn from_restrictions(
-        restrictions: &HashSet<RestrictionType>,
-        pipeline: CaptureMode,
-    ) -> Self {
+    pub fn from_restrictions(restrictions: RestrictionSet, pipeline: CaptureMode) -> Self {
         let mut result = Self::default();
         let pipeline_str = pipeline.as_pipeline_name();
 
         for restriction_type in RestrictionType::all() {
-            if restrictions.contains(&restriction_type) {
+            if restrictions.contains(restriction_type) {
                 counter!(
                     "capture_event_restrictions_applied",
                     "restriction_type" => restriction_type.as_str(),
@@ -108,10 +147,10 @@ impl RestrictionFilters {
     /// AND logic between filter types, OR logic within each type.
     /// Empty filter = matches all for that field.
     pub fn matches(&self, event: &EventContext) -> bool {
-        self.matches_field(&self.distinct_ids, event.distinct_id.as_deref())
-            && self.matches_field(&self.session_ids, event.session_id.as_deref())
-            && self.matches_field(&self.event_names, event.event_name.as_deref())
-            && self.matches_field(&self.event_uuids, event.event_uuid.as_deref())
+        self.matches_field(&self.distinct_ids, event.distinct_id)
+            && self.matches_field(&self.session_ids, event.session_id)
+            && self.matches_field(&self.event_names, event.event_name)
+            && self.matches_field(&self.event_uuids, event.event_uuid)
     }
 
     fn matches_field(&self, filter: &HashSet<String>, value: Option<&str>) -> bool {
@@ -126,12 +165,15 @@ impl RestrictionFilters {
 }
 
 /// Event data for matching against restrictions.
-#[derive(Debug, Clone, Default)]
-pub struct EventContext {
-    pub distinct_id: Option<String>,
-    pub session_id: Option<String>,
-    pub event_name: Option<String>,
-    pub event_uuid: Option<String>,
+/// Uses references to avoid cloning strings for every event.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EventContext<'a> {
+    pub distinct_id: Option<&'a str>,
+    pub session_id: Option<&'a str>,
+    pub event_name: Option<&'a str>,
+    pub event_uuid: Option<&'a str>,
+    /// Pre-computed timestamp to avoid syscalls per event. Use `chrono::Utc::now().timestamp()`.
+    pub now_ts: i64,
 }
 
 /// What events a restriction applies to.
@@ -215,8 +257,8 @@ mod tests {
     fn test_restriction_filters_empty_matches_all() {
         let filters = RestrictionFilters::default();
         let event = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         assert!(filters.matches(&event));
@@ -229,13 +271,13 @@ mod tests {
         filters.distinct_ids.insert("user2".to_string());
 
         let event_match = EventContext {
-            distinct_id: Some("user1".to_string()),
+            distinct_id: Some("user1"),
             ..Default::default()
         };
         assert!(filters.matches(&event_match));
 
         let event_no_match = EventContext {
-            distinct_id: Some("user3".to_string()),
+            distinct_id: Some("user3"),
             ..Default::default()
         };
         assert!(!filters.matches(&event_no_match));
@@ -249,26 +291,106 @@ mod tests {
 
         // both match
         let event_both = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         assert!(filters.matches(&event_both));
 
         // only distinct_id matches
         let event_wrong_event = EventContext {
-            distinct_id: Some("user1".to_string()),
-            event_name: Some("$identify".to_string()),
+            distinct_id: Some("user1"),
+            event_name: Some("$identify"),
             ..Default::default()
         };
         assert!(!filters.matches(&event_wrong_event));
 
         // only event_name matches
         let event_wrong_user = EventContext {
-            distinct_id: Some("user2".to_string()),
-            event_name: Some("$pageview".to_string()),
+            distinct_id: Some("user2"),
+            event_name: Some("$pageview"),
             ..Default::default()
         };
         assert!(!filters.matches(&event_wrong_user));
+    }
+
+    #[test]
+    fn test_restriction_set_new_is_empty() {
+        let set = RestrictionSet::new();
+        assert!(set.is_empty());
+        assert_eq!(set.len(), 0);
+    }
+
+    #[test]
+    fn test_restriction_set_insert_and_contains() {
+        let mut set = RestrictionSet::new();
+
+        set.insert(RestrictionType::DropEvent);
+        assert!(set.contains(RestrictionType::DropEvent));
+        assert!(!set.contains(RestrictionType::ForceOverflow));
+        assert!(!set.contains(RestrictionType::RedirectToDlq));
+        assert!(!set.contains(RestrictionType::SkipPersonProcessing));
+        assert_eq!(set.len(), 1);
+        assert!(!set.is_empty());
+    }
+
+    #[test]
+    fn test_restriction_set_multiple_inserts() {
+        let mut set = RestrictionSet::new();
+
+        set.insert(RestrictionType::DropEvent);
+        set.insert(RestrictionType::ForceOverflow);
+        set.insert(RestrictionType::RedirectToDlq);
+
+        assert!(set.contains(RestrictionType::DropEvent));
+        assert!(set.contains(RestrictionType::ForceOverflow));
+        assert!(set.contains(RestrictionType::RedirectToDlq));
+        assert!(!set.contains(RestrictionType::SkipPersonProcessing));
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn test_restriction_set_all_types() {
+        let mut set = RestrictionSet::new();
+
+        for t in RestrictionType::all() {
+            set.insert(t);
+        }
+
+        assert_eq!(set.len(), 4);
+        for t in RestrictionType::all() {
+            assert!(set.contains(t));
+        }
+    }
+
+    #[test]
+    fn test_restriction_set_insert_idempotent() {
+        let mut set = RestrictionSet::new();
+
+        set.insert(RestrictionType::DropEvent);
+        set.insert(RestrictionType::DropEvent);
+        set.insert(RestrictionType::DropEvent);
+
+        assert_eq!(set.len(), 1);
+        assert!(set.contains(RestrictionType::DropEvent));
+    }
+
+    #[test]
+    fn test_restriction_set_default() {
+        let set = RestrictionSet::default();
+        assert!(set.is_empty());
+        assert_eq!(set.len(), 0);
+    }
+
+    #[test]
+    fn test_restriction_set_copy() {
+        let mut set1 = RestrictionSet::new();
+        set1.insert(RestrictionType::DropEvent);
+
+        let set2 = set1; // Copy
+        assert!(set2.contains(RestrictionType::DropEvent));
+
+        // set1 is still valid (Copy, not Move)
+        assert!(set1.contains(RestrictionType::DropEvent));
     }
 }
