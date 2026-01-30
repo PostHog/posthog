@@ -29,7 +29,11 @@ export function Activity(): JSX.Element {
                 buttonTo: urls.savedInsights(SavedInsightsTabs.History),
             }}
             items={humanizedActivity.slice(0, ACTIVITY_LIMIT)}
-            renderRow={(logItem: HumanizedActivityLogItem, index) => <ActivityLogRow key={index} logItem={logItem} />}
+            renderRow={(logItem: HumanizedActivityLogItem, index) => (
+                <div key={index} className="mb-2 last:mb-0">
+                    <ActivityLogRow logItem={logItem} />
+                </div>
+            )}
             contentHeightBehavior="fit-content"
         />
     )

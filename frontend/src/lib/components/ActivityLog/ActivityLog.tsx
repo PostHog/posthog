@@ -132,7 +132,7 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
     const [isExpanded, setIsExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
     return (
-        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
+        <div className={clsx('flex flex-col p-2', isExpanded && 'border rounded')}>
             <div
                 className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
             >
