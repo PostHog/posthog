@@ -332,13 +332,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
-            return Notebook(
+            notebook = Notebook(
                 short_id="scratchpad",
                 team=self.team,
                 created_by=self.request.user,
                 last_modified_by=self.request.user,
                 visibility=Notebook.Visibility.INTERNAL,
             )
+            self.check_object_permissions(self.request, notebook)
+            return notebook
 
         return self.get_object()
 

@@ -63,10 +63,13 @@ export const extractHogqlPlaceholders = (sql: string): string[] => {
     const cleanedSql = stripSqlComments(sql || '')
     const placeholders: string[] = []
     const placeholderPattern = /\{([A-Za-z_][\w$]*)\}/g
+    const excludedPlaceholderNames = new Set([
+        'filters', // Reserved for auto-injected global date/property filters in HogQL notebook queries.
+    ])
     let match = placeholderPattern.exec(cleanedSql)
     while (match) {
         const name = match[1]
-        if (name && name !== 'filters' && !placeholders.includes(name)) {
+        if (name && !excludedPlaceholderNames.has(name) && !placeholders.includes(name)) {
             placeholders.push(name)
         }
         match = placeholderPattern.exec(cleanedSql)
