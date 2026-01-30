@@ -1,3 +1,5 @@
+import os
+
 from django.conf import settings
 
 import temporalio.exceptions
@@ -6,6 +8,8 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.temporal.types import EmitSignalInputs
 from products.signals.backend.temporal.workflow import EmitSignalWorkflow
+
+EMIT_SIGNALS_ENABLED = os.getenv("EMIT_SIGNALS_ENABLED", "false").lower() == "true"
 
 
 async def emit_signal(
@@ -40,6 +44,9 @@ async def emit_signal(
             extra={"variant": "B", "p_value": 0.003},
         )
     """
+    if not EMIT_SIGNALS_ENABLED:
+        return
+
     client = await async_connect()
 
     inputs = EmitSignalInputs(
