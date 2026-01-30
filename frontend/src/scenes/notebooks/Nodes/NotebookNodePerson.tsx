@@ -9,16 +9,19 @@ import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { compactNumber } from 'lib/utils'
+import { formatCurrency } from 'lib/utils/geography/currency'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { personLogic } from 'scenes/persons/personLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PersonType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
@@ -108,7 +111,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
     return (
         <BindLogic logic={personLogic} props={personLogicProps}>
-            <div className="flex flex-col overflow-hidden">
+            <div className="flex flex-1 flex-col overflow-auto">
                 <div className={clsx('p-4 flex-0 flex flex-col gap-2 justify-between min-h-20 items-start')}>
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />
@@ -141,6 +144,8 @@ function PersonInfo(): JSX.Element | null {
         <div className="flex flex-col">
             <FirstSeen person={person} />
             <LastSeen />
+            <MRR />
+            <LifetimeValue />
             <SessionCount />
             <EventCount />
         </div>
@@ -204,6 +209,56 @@ function EventCount(): JSX.Element {
     )
 }
 
+function MRR(): JSX.Element | null {
+    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { baseCurrency } = useValues(teamLogic)
+
+    if (!isRevenueAnalyticsEnabled) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <span className="text-secondary">MRR:</span>{' '}
+            {revenueDataLoading ? (
+                <LemonSkeleton className="h-4 w-24" />
+            ) : revenueData?.mrr ? (
+                <div className="flex gap-2 items-center">
+                    {formatCurrency(revenueData.mrr, baseCurrency)}
+                    <DataSourceIcon source="revenue-analytics" />
+                </div>
+            ) : (
+                'unknown'
+            )}
+        </div>
+    )
+}
+
+function LifetimeValue(): JSX.Element | null {
+    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { baseCurrency } = useValues(teamLogic)
+
+    if (!isRevenueAnalyticsEnabled) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <span className="text-secondary">Lifetime value:</span>{' '}
+            {revenueDataLoading ? (
+                <LemonSkeleton className="h-4 w-24" />
+            ) : revenueData?.lifetimeValue ? (
+                <div className="flex gap-2 items-center">
+                    {formatCurrency(revenueData.lifetimeValue, baseCurrency)}
+                    <DataSourceIcon source="revenue-analytics" />
+                </div>
+            ) : (
+                'unknown'
+            )}
+        </div>
+    )
+}
+
 type NotebookNodePersonAttributes = {
     id: string | undefined
     distinctId: string | undefined
@@ -213,7 +268,6 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     nodeType: NotebookNodeType.Person,
     titlePlaceholder: 'Person',
     Component,
-    minHeight: '10rem',
     expandable: false,
     href: (attrs) => {
         if (attrs.distinctId) {
@@ -223,7 +277,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
             return urls.personByUUID(attrs.id)
         }
     },
-    resizeable: true,
+    resizeable: false,
     attributes: {
         id: {},
         distinctId: {},
