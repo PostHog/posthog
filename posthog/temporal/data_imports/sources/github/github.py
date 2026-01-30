@@ -166,7 +166,7 @@ def _flatten_stargazer(item: dict[str, Any]) -> dict[str, Any]:
     # response includes starred_at and nested user object
     if "user" in item and isinstance(item["user"], dict):
         user = item.pop("user")
-        item["id"] = user.get("id")
+        item["id"] = user["id"]
         item["login"] = user.get("login")
         item["avatar_url"] = user.get("avatar_url")
         item["type"] = user.get("type")
