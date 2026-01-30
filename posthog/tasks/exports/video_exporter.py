@@ -559,7 +559,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
 class ReplayVideoRenderer:
     def __init__(
         self,
-        tmp_webm: str,
+        temp_output_path: str,
         image_path: str,
         pre_roll: float,
         recording_duration: int,
@@ -567,7 +567,7 @@ class ReplayVideoRenderer:
         measured_width: int | None = None,
         custom_fps: int | None = None,
     ):
-        self.tmp_webm = tmp_webm
+        self.temp_output_path = temp_output_path
         self.image_path = image_path
         self.pre_roll = pre_roll
         self.recording_duration = recording_duration
@@ -585,7 +585,7 @@ class ReplayVideoRenderer:
         return video_filter
 
     def _convert_to_mp4(self) -> None:
-        """Convert WebM to MP4 using ffmpeg."""
+        """Render recording in MP4 using ffmpeg."""
         video_filter = self._define_video_filter()
         cmd = [
             "ffmpeg",
@@ -596,7 +596,7 @@ class ReplayVideoRenderer:
             "-ss",
             f"{self.pre_roll:.2f}",
             "-i",
-            self.tmp_webm,
+            self.temp_output_path,
             "-t",
             f"{float(self.recording_duration):.2f}",
             "-c:v",
@@ -635,7 +635,7 @@ class ReplayVideoRenderer:
             "-ss",
             f"{self.pre_roll:.2f}",
             "-i",
-            self.tmp_webm,
+            self.temp_output_path,
             "-t",
             f"{float(self.recording_duration):.2f}",
             "-c:v",
@@ -678,7 +678,7 @@ class ReplayVideoRenderer:
                     "-t",
                     f"{float(self.recording_duration):.2f}",
                     "-i",
-                    self.tmp_webm,
+                    self.temp_output_path,
                     "-vf",
                     f"{vf},split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
                     "-loop",
@@ -708,14 +708,14 @@ def record_replay_to_file(
         # Create temporary paths
         temp_dir_ctx = tempfile.TemporaryDirectory(prefix="ph-video-export-", ignore_cleanup_errors=True)
         record_dir = temp_dir_ctx.name
-        tmp_webm = os.path.join(record_dir, f"{uuid.uuid4()}.webm")
+        temp_output_path = os.path.join(record_dir, f"{uuid.uuid4()}{ext}")
         # Choose recording method: Puppeteer or Playwright
         use_puppeteer = opts.use_puppeteer
         if use_puppeteer:
             # ============ Node.js + Puppeteer recording ============
             logger.debug("Using Node.js + Puppeteer recorder.", options=asdict(opts), signals_type="video_export")
             result = PuppeteerRecorder(
-                output_path=tmp_webm,
+                output_path=temp_output_path,
                 record_dir=record_dir,
                 opts=opts,
             ).record()
@@ -723,7 +723,7 @@ def record_replay_to_file(
             # ============ Python + Playwright recording ============
             logger.debug("Using Python + Playwright recorder.", options=asdict(opts), signals_type="video_export")
             result = PlaywrightRecorder(
-                output_path=tmp_webm,
+                output_path=temp_output_path,
                 record_dir=record_dir,
                 opts=opts,
             ).record()
@@ -738,7 +738,7 @@ def record_replay_to_file(
             signals_type="video_export",
         )
         video_renderer = ReplayVideoRenderer(
-            tmp_webm=tmp_webm,
+            temp_output_path=temp_output_path,
             image_path=opts.image_path,
             pre_roll=result.pre_roll,
             recording_duration=opts.recording_duration,
@@ -754,9 +754,9 @@ def record_replay_to_file(
             if result.playback_speed > 1:
                 video_renderer._process_webm()
             else:
-                shutil.move(tmp_webm, opts.image_path)
+                shutil.move(temp_output_path, opts.image_path)
         else:
-            shutil.move(tmp_webm, opts.image_path)
+            shutil.move(temp_output_path, opts.image_path)
         return result.inactivity_periods
     except Exception as e:
         with posthoganalytics.new_context():
