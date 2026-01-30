@@ -343,7 +343,7 @@ export function SidePanel({
             )}
             {PanelContent && (
                 <>
-                    {PanelContent && !isRemovingSidePanelFlag ? (
+                    {!isRemovingSidePanelFlag ? (
                         <div
                             className={cn('SidePanel3000__content', contentClassName, {
                                 'border-l-0 h-full': isRemovingSidePanelFlag,
@@ -358,7 +358,9 @@ export function SidePanel({
                             activeTab={activeTab as SidePanelTab}
                             onTabChange={(tab) => openSidePanel(tab)}
                         >
-                            <PanelContent />
+                            <ErrorBoundary>
+                                <PanelContent />
+                            </ErrorBoundary>
                         </SidePanelNavigation>
                     )}
                 </>
