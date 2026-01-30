@@ -353,7 +353,16 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
+            "enum": [
+                "product_analytics",
+                "sql",
+                "session_replay",
+                "error_tracking",
+                "plan",
+                "execution",
+                "survey",
+                "onboarding"
+            ],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1985,7 +1994,8 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "finalize_plan"
+                "finalize_plan",
+                "recommend_products"
             ],
             "type": "string"
         },

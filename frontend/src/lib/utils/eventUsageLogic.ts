@@ -647,6 +647,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             recommendedProducts,
         }),
         reportOnboardingUseCaseSkipped: true,
+        reportAIChatOnboardingStarted: (variant: string) => ({ variant }),
+        reportAIChatOnboardingMessageSent: (stepKey: OnboardingStepKey, messageType: 'chat' | 'button') => ({
+            stepKey,
+            messageType,
+        }),
+        reportAIChatOnboardingStepTime: (stepKey: OnboardingStepKey, timeSeconds: number) => ({
+            stepKey,
+            timeSeconds,
+        }),
         reportOnboardingProductSelectionPath: (
             path: 'ai' | 'use_case' | 'browsing_history' | 'manual',
             properties?: {
@@ -1685,6 +1694,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 use_case: properties?.useCase,
                 recommended_products: properties?.recommendedProducts,
                 has_browsing_history: properties?.hasBrowsingHistory,
+            })
+        },
+        reportAIChatOnboardingStarted: ({ productKey }) => {
+            posthog.capture('ai chat onboarding started', {
+                product_key: productKey,
+            })
+        },
+        reportAIChatOnboardingMessageSent: ({ stepKey, messageType }) => {
+            posthog.capture('ai chat onboarding message sent', {
+                step_key: stepKey,
+                message_type: messageType,
+            })
+        },
+        reportAIChatOnboardingStepTime: ({ stepKey, timeSeconds }) => {
+            posthog.capture('ai chat onboarding step time', {
+                step_key: stepKey,
+                time_seconds: timeSeconds,
             })
         },
         reportSDKSelected: ({ sdk }) => {

@@ -15,6 +15,8 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
+from ee.hogai.core.agent_modes.presets.onboarding import onboarding_agent
+from ee.hogai.core.agent_modes.presets.onboarding_prompt_builder import OnboardingPromptBuilder
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     chat_agent_plan_product_analytics_agent,
     product_analytics_agent,
@@ -101,10 +103,17 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
         if has_survey_mode_feature_flag(self._team, self._user):
             registry[AgentMode.SURVEY] = survey_agent
+        # Only include onboarding mode in registry when already in onboarding mode
+        # This prevents it from showing in the mode picker in the main UI
+        # Use getattr to handle case where mode_registry is called before __init__ completes
+        if getattr(self, "_mode", None) == AgentMode.ONBOARDING:
+            registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:
+        if self._mode == AgentMode.ONBOARDING:
+            return OnboardingPromptBuilder
         if self._supermode == AgentMode.PLAN:
             return ChatAgentPlanPromptBuilder
         return ChatAgentPromptBuilder
