@@ -1083,7 +1083,22 @@ class InsightViewSet(
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
 
         response = InsightBasicSerializer(queryset, many=True)
-        return Response(data=response.data, status=status.HTTP_200_OK)
+        data = response.data
+
+        for item in data:
+            viewers = (
+                InsightViewed.objects.filter(
+                    team=self.team,
+                    insight_id=item["id"],
+                    last_viewed_at__gte=cutoff_date,
+                    user__isnull=False,
+                )
+                .select_related("user")
+                .order_by("-last_viewed_at")[:3]
+            )
+            item["viewers"] = UserBasicSerializer([v.user for v in viewers], many=True).data
+
+        return Response(data=data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()

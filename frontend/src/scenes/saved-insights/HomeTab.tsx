@@ -27,10 +27,10 @@ export function HomeTab(): JSX.Element {
                         <Trending />
                     </div>
                     <div className="HomeTab__card">
-                        <Activity />
+                        <NewEvents />
                     </div>
                     <div className="HomeTab__card">
-                        <NewEvents />
+                        <Activity />
                     </div>
                 </div>
             </div>

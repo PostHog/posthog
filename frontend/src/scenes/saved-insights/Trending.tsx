@@ -6,6 +6,7 @@ import { IconChevronRight, IconExternal } from '@posthog/icons'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +40,28 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
                         {`Last modified ${dayjs(insight.last_modified_at).fromNow()}`}
                     </span>
                 </div>
+                {insight.viewers && insight.viewers.length > 0 && (
+                    <div className="flex items-center -space-x-2 mr-2">
+                        {insight.viewers.slice(0, 3).map((viewer, index) => (
+                            <ProfilePicture
+                                key={viewer.uuid || index}
+                                user={viewer}
+                                size="md"
+                                showName={false}
+                                className="border-2 border-surface-primary"
+                                title={`Viewed by ${viewer.first_name || viewer.email}`}
+                            />
+                        ))}
+                        {insight.viewers.length > 3 && (
+                            <div
+                                className="w-6 h-6 rounded-full bg-surface-secondary border-2 border-surface-primary flex items-center justify-center text-xs font-semibold text-muted"
+                                title={`${insight.viewers.length - 3} more viewers`}
+                            >
+                                +{insight.viewers.length - 3}
+                            </div>
+                        )}
+                    </div>
+                )}
                 <LemonButton
                     size="small"
                     icon={<IconExternal />}
