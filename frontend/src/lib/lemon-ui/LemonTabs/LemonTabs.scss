@@ -111,9 +111,16 @@
             // Make tab labels that are links the same colors as regular tab labels
             text-decoration: none;
             transition: none;
+        }
+
+        &[aria-selected='true'] {
+            color: var(--color-accent);
 
             .reduce-visual-noise & {
-                color: var(--color-text-tertiary) !important;
+                div,
+                a {
+                    color: var(--color-accent);
+                }
             }
         }
 
