@@ -42,7 +42,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { TimestampFormatToLabel, getTimestampFormatMenuItems } from 'scenes/session-recordings/utils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -59,7 +59,7 @@ import {
 } from '~/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
-import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
@@ -235,23 +235,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                 <HideRecordingsMenu />
                 <SettingsMenu
                     highlightWhenActive={false}
-                    items={[
-                        {
-                            label: 'UTC',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                            active: playlistTimestampFormat === TimestampFormat.UTC,
-                        },
-                        {
-                            label: 'Device',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                            active: playlistTimestampFormat === TimestampFormat.Device,
-                        },
-                        {
-                            label: 'Relative',
-                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                            active: playlistTimestampFormat === TimestampFormat.Relative,
-                        },
-                    ]}
+                    items={getTimestampFormatMenuItems(setPlaylistTimestampFormat, playlistTimestampFormat)}
                     icon={<IconClock />}
                     label={TimestampFormatToLabel[playlistTimestampFormat]}
                     rounded={true}

@@ -9,10 +9,35 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-export const TimestampFormatToLabel = {
-    relative: 'Relative',
-    utc: 'UTC',
-    device: 'Device',
+import { TimestampFormat } from './player/playerSettingsLogic'
+
+export const TimestampFormatToLabel: Record<TimestampFormat, string> = {
+    [TimestampFormat.Relative]: 'Relative',
+    [TimestampFormat.UTC]: 'UTC',
+    [TimestampFormat.Device]: 'Device',
+}
+
+export function getTimestampFormatMenuItems(
+    setTimestampFormat: (format: TimestampFormat) => void,
+    currentFormat: TimestampFormat
+): Array<{ label: string; onClick: () => void; active: boolean }> {
+    return [
+        {
+            label: 'Relative',
+            onClick: () => setTimestampFormat(TimestampFormat.Relative),
+            active: currentFormat === TimestampFormat.Relative,
+        },
+        {
+            label: 'UTC',
+            onClick: () => setTimestampFormat(TimestampFormat.UTC),
+            active: currentFormat === TimestampFormat.UTC,
+        },
+        {
+            label: 'Device',
+            onClick: () => setTimestampFormat(TimestampFormat.Device),
+            active: currentFormat === TimestampFormat.Device,
+        },
+    ]
 }
 
 export const isUniversalFilters = (

@@ -12,6 +12,7 @@ import {
     ONE_SECOND_MS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { TimestampFormatToLabel, getTimestampFormatMenuItems } from 'scenes/session-recordings/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
@@ -83,41 +84,17 @@ export function Timestamp({
     )
 }
 
-const TIMESTAMP_FORMAT_LABELS: Record<TimestampFormat, string> = {
-    [TimestampFormat.Relative]: 'Relative',
-    [TimestampFormat.UTC]: 'UTC',
-    [TimestampFormat.Device]: 'Device',
-}
-
 export function TimestampFormatButton(): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
     const { setTimestampFormat } = useActions(playerSettingsLogic)
 
     return (
-        <LemonMenu
-            items={[
-                {
-                    label: 'Relative',
-                    active: timestampFormat === TimestampFormat.Relative,
-                    onClick: () => setTimestampFormat(TimestampFormat.Relative),
-                },
-                {
-                    label: 'UTC',
-                    active: timestampFormat === TimestampFormat.UTC,
-                    onClick: () => setTimestampFormat(TimestampFormat.UTC),
-                },
-                {
-                    label: 'Device',
-                    active: timestampFormat === TimestampFormat.Device,
-                    onClick: () => setTimestampFormat(TimestampFormat.Device),
-                },
-            ]}
-        >
+        <LemonMenu items={getTimestampFormatMenuItems(setTimestampFormat, timestampFormat)}>
             <LemonButton
                 size="xsmall"
                 noPadding
                 icon={<IconClock className="text-base" />}
-                tooltip={`Change timestamp (${TIMESTAMP_FORMAT_LABELS[timestampFormat]})`}
+                tooltip={`Change timestamp (${TimestampFormatToLabel[timestampFormat]})`}
                 data-attr="recording-timestamp-format"
             />
         </LemonMenu>

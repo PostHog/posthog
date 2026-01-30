@@ -32,8 +32,8 @@ import {
     InspectorListItem,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { TimestampFormatToLabel, getTimestampFormatMenuItems } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
@@ -282,23 +282,7 @@ function TimestampFormatSettingsButton(): JSX.Element {
     return (
         <SettingsMenu
             highlightWhenActive={false}
-            items={[
-                {
-                    label: 'Relative',
-                    onClick: () => setTimestampFormat(TimestampFormat.Relative),
-                    active: timestampFormat === TimestampFormat.Relative,
-                },
-                {
-                    label: 'UTC',
-                    onClick: () => setTimestampFormat(TimestampFormat.UTC),
-                    active: timestampFormat === TimestampFormat.UTC,
-                },
-                {
-                    label: 'Device',
-                    onClick: () => setTimestampFormat(TimestampFormat.Device),
-                    active: timestampFormat === TimestampFormat.Device,
-                },
-            ]}
+            items={getTimestampFormatMenuItems(setTimestampFormat, timestampFormat)}
             icon={<IconClock />}
             label={TimestampFormatToLabel[timestampFormat]}
         />
