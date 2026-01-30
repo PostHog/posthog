@@ -2,17 +2,67 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import { props } from 'kea'
-import React, { memo, useMemo } from 'react'
+import React, { memo, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+
+import { IconX } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { RichContentNodeType } from 'lib/components/RichContentEditor/types'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { Link } from '../Link'
 import remarkMentions from './mention'
+
+function ImageWithLightbox({ src, alt }: { src: string; alt?: string }): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    const [isLoading, setIsLoading] = useState(true)
+    const [hasError, setHasError] = useState(false)
+
+    if (hasError) {
+        return (
+            <span className="LemonMarkdown__image-error text-muted-alt text-xs italic">
+                Failed to load image{alt ? `: ${alt}` : ''}
+            </span>
+        )
+    }
+
+    return (
+        <>
+            <span className="LemonMarkdown__image-wrapper">
+                {isLoading && <LemonSkeleton className="LemonMarkdown__image-skeleton" />}
+                <img
+                    src={src}
+                    alt={alt || 'Image'}
+                    className={clsx('LemonMarkdown__image', isLoading && 'invisible')}
+                    onClick={() => setIsOpen(true)}
+                    onLoad={() => setIsLoading(false)}
+                    onError={() => {
+                        setIsLoading(false)
+                        setHasError(true)
+                    }}
+                    loading="lazy"
+                />
+            </span>
+            <LemonModal isOpen={isOpen} onClose={() => setIsOpen(false)} simple>
+                <div className="relative">
+                    <LemonButton
+                        icon={<IconX />}
+                        size="small"
+                        onClick={() => setIsOpen(false)}
+                        className="absolute top-2 right-2 z-10 bg-surface-primary"
+                    />
+                    <img src={src} alt={alt || 'Image'} className="max-w-[90vw] max-h-[90vh] rounded" />
+                </div>
+            </LemonModal>
+        </>
+    )
+}
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -52,6 +102,9 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 </CodeSnippet>
             ),
             [RichContentNodeType.Mention]: ({ id }): JSX.Element => <RichContentMention id={id} />,
+            image: ({ src, alt }: { src: string; alt?: string }): JSX.Element => (
+                <ImageWithLightbox src={src} alt={alt} />
+            ),
             listItem: ({ checked, children }: any): JSX.Element => {
                 // Handle task list items with LemonCheckbox
                 if (checked != null) {
