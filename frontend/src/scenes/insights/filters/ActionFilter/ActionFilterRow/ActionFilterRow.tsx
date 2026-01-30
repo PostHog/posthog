@@ -500,7 +500,7 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
+    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
     const hasMenuItems =
         isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
@@ -510,6 +510,7 @@ export function ActionFilterRow({
         !readOnly && !showPopupMenu
             ? [
                   !hideFilter && propertyFiltersButton,
+                  showCombine && combineInlineButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
                   !hideDeleteBtn && !singleFilter && deleteButton,
