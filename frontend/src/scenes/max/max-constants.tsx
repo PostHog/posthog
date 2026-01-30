@@ -143,7 +143,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return `Task (${title})`
             }
-            return `Running a task (${title})...`
+            return title ? `Running a task (${title})...` : 'Running a task...'
         },
     },
     create_form: {
@@ -172,7 +172,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             toolCall: EnhancedToolCall,
             context: DisplayFormatterContext
         ) {
-            if (this.subtools && 'kind' in toolCall.args && typeof toolCall.args.kind === 'string') {
+            if (
+                this.subtools &&
+                'kind' in toolCall.args &&
+                typeof toolCall.args.kind === 'string' &&
+                toolCall.args.kind in this.subtools
+            ) {
                 const { displayFormatter } = this.subtools[toolCall.args.kind]
                 if (displayFormatter) {
                     return displayFormatter(toolCall, context)
@@ -617,6 +622,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating surveys...'
         },
     },
+    edit_survey: {
+        name: 'Edit survey',
+        description: 'Edit survey',
+        product: Scene.Surveys,
+        icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited survey'
+            }
+            return 'Editing survey...'
+        },
+    },
     analyze_survey_responses: {
         name: 'Analyze survey responses',
         description: 'Analyze survey responses to extract themes and actionable insights',
@@ -838,6 +856,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Switched to plan mode'
                 }
                 return 'Switching to plan mode...'
+            } else if (toolCall.args.new_mode === AgentMode.Research) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to research mode'
+                }
+                return 'Switching to research mode...'
             }
             // Use optional chaining since Plan and Research modes are not in MODE_DEFINITIONS
             const newMode = toolCall.args.new_mode as string
@@ -927,7 +950,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
 }
 
-export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution>, ModeDefinition> = {
+export const MODE_DEFINITIONS: Record<
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research>,
+    ModeDefinition
+> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',

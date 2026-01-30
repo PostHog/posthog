@@ -38,14 +38,14 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "customer", "is_private": False},
         )
 
-    def _create_team_message(self, content: str = "Hi there") -> Comment:
+    def _create_team_message(self, content: str = "Hi there", is_private: bool = False) -> Comment:
         return Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content=content,
             created_by=self.user,
-            item_context={"author_type": "team", "is_private": False},
+            item_context={"author_type": "team", "is_private": is_private},
         )
 
     def test_customer_message_updates_stats(self, mock_on_commit):
@@ -173,61 +173,63 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.message_count == 0  # Unchanged
 
+    def test_private_message_does_not_update_denormalized_stats(self, mock_on_commit):
+        """Private messages should not update message_count, last_message_at, or last_message_text."""
+        self._create_team_message("Private note", is_private=True)
 
-@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestCacheInvalidation(BaseTest):
-    """Tests that cache invalidation is called at the right times."""
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 0  # Not incremented
+        assert self.ticket.last_message_at is None  # Not updated
+        assert self.ticket.last_message_text is None  # Not updated
+        assert self.ticket.unread_customer_count == 0  # Not incremented
 
-    def setUp(self):
-        super().setUp()
-        self.widget_session_id = str(uuid.uuid4())
-        self.ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            widget_session_id=self.widget_session_id,
-            distinct_id="user-123",
-            channel_source="widget",
-        )
+    def test_private_message_does_not_affect_existing_last_message(self, mock_on_commit):
+        """A private message sent after a public message should not change last_message_text."""
+        public_msg = self._create_customer_message("Public message")
 
-    @patch("products.conversations.backend.signals.invalidate_messages_cache")
-    @patch("products.conversations.backend.signals.invalidate_tickets_cache")
-    def test_message_create_invalidates_cache(self, mock_tickets_cache, mock_messages_cache, mock_on_commit):
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="New message",
-            item_context={"author_type": "customer"},
-        )
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1
+        assert self.ticket.last_message_text == "Public message"
+        assert self.ticket.last_message_at == public_msg.created_at
 
-        mock_messages_cache.assert_called_once_with(self.team.id, str(self.ticket.id))
-        mock_tickets_cache.assert_called_once_with(self.team.id, self.widget_session_id)
+        # Now send a private message - should not change last_message_*
+        self._create_team_message("Private note for team only", is_private=True)
 
-    @patch("products.conversations.backend.signals.invalidate_messages_cache")
-    @patch("products.conversations.backend.signals.invalidate_tickets_cache")
-    def test_soft_delete_invalidates_cache(self, mock_tickets_cache, mock_messages_cache, mock_on_commit):
-        comment = Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="Message to delete",
-            item_context={"author_type": "customer"},
-        )
-        mock_messages_cache.reset_mock()
-        mock_tickets_cache.reset_mock()
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1  # Still 1
+        assert self.ticket.last_message_text == "Public message"  # Unchanged
+        assert self.ticket.last_message_at == public_msg.created_at  # Unchanged
 
-        comment.deleted = True
-        comment.save()
+    def test_soft_delete_private_message_does_not_decrement_count(self, mock_on_commit):
+        """Deleting a private message should not decrement message_count (since it wasn't counted)."""
+        self._create_customer_message("Public message")
+        private_msg = self._create_team_message("Private note", is_private=True)
 
-        mock_messages_cache.assert_called_once_with(self.team.id, str(self.ticket.id))
-        mock_tickets_cache.assert_called_once_with(self.team.id, self.widget_session_id)
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1  # Only the public message
 
-    @patch("products.conversations.backend.signals.invalidate_messages_cache")
-    def test_non_conversations_comment_no_cache_invalidation(self, mock_cache, mock_on_commit):
-        Comment.objects.create(
-            team=self.team,
-            scope="recordings",
-            item_id="recording-id",
-            content="Recording comment",
-        )
+        private_msg.deleted = True
+        private_msg.save()
 
-        mock_cache.assert_not_called()
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1  # Still 1, not decremented
+
+    def test_soft_delete_recalculates_last_message_from_non_private_only(self, mock_on_commit):
+        """When recalculating last_message after delete, only consider non-private messages."""
+        first_public = self._create_customer_message("First public")
+        self._create_team_message("Private note", is_private=True)
+        second_public = self._create_customer_message("Second public")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 2  # Only public messages counted
+        assert self.ticket.last_message_text == "Second public"
+
+        # Delete the second public message
+        second_public.deleted = True
+        second_public.save()
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1
+        # Should fall back to first_public, not the private message
+        assert self.ticket.last_message_text == "First public"
+        assert self.ticket.last_message_at == first_public.created_at

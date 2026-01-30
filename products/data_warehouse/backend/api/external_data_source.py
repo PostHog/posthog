@@ -307,10 +307,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel auth is a special config not exposed in source fields - preserve its credentials too
+        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
+            # Deep-merge: start with existing, overlay incoming top-level keys
+            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
+
             # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
             existing_auth = (
                 (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
@@ -319,13 +322,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
             )
 
-            new_ssh_tunnel = new_job_inputs.get("ssh_tunnel") or {}
-            new_job_inputs["ssh_tunnel"] = new_ssh_tunnel
-            new_auth = new_ssh_tunnel.setdefault("auth", {})
+            if not incoming_auth:
+                # No auth in incoming request - preserve entire existing auth
+                merged_ssh_tunnel["auth"] = {**existing_auth}
+            else:
+                # Merge auth, preserving sensitive fields not explicitly provided
+                merged_auth = {**incoming_auth}
+                for key in ("password", "passphrase", "private_key"):
+                    if existing_auth.get(key) and not incoming_auth.get(key):
+                        merged_auth[key] = existing_auth[key]
+                merged_ssh_tunnel["auth"] = merged_auth
 
-            for key in ("password", "passphrase", "private_key"):
-                if existing_auth.get(key) and not incoming_auth.get(key):
-                    new_auth[key] = existing_auth[key]
+            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:

@@ -10,12 +10,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { BrowserNotificationsSection } from './BrowserNotificationsSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export const scene: SceneExport = {
     component: SupportSettingsScene,
+    productKey: ProductKey.CONVERSATIONS,
 }
 
 function AuthorizedDomains(): JSX.Element {
@@ -170,13 +173,19 @@ export function SupportSettingsScene(): JSX.Element {
                     <>
                         <div className="mb-8 mt-2 max-w-[800px]">
                             <h3>Email notifications</h3>
-                            <p>Team members who will receive email notifications when new tickets are created.</p>
+                            <h4 className="mt-2">New tickets</h4>
+                            <p>
+                                Team members who will receive email notifications when <strong>new tickets</strong> are
+                                created.
+                            </p>
                             <MemberSelectMultiple
                                 idKey="id"
                                 value={notificationRecipients}
                                 onChange={setNotificationRecipients}
                             />
                         </div>
+
+                        <BrowserNotificationsSection />
 
                         <div>
                             <h3>In-app widget</h3>

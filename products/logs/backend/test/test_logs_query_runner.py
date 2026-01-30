@@ -505,6 +505,23 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 10)
         self.assertEqual(len(queries), 2)
 
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_trace_and_span_ids_returned_as_hex(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:01:22.139425Z", "date_to": "2025-12-16 09:01:22.139426Z"},
+            "limit": 1,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertEqual(len(response["results"]), 1)
+
+        result = response["results"][0]
+        # trace_id stored as base64 "ASNFZ4mrze8BI0VniavN7w==" should be returned as hex
+        self.assertEqual(result["trace_id"], "0123456789ABCDEF0123456789ABCDEF")
+        # span_id stored as base64 "/ty6mHZUMhA=" should be returned as hex
+        self.assertEqual(result["span_id"], "FEDCBA9876543210")
+
     def test_logs_attributes_endpoint(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/logs/attributes",

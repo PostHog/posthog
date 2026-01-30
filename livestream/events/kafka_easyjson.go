@@ -179,6 +179,8 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 			out.Lat = float64(in.Float64())
 		case "Lng":
 			out.Lng = float64(in.Float64())
+		case "CountryCode":
+			out.CountryCode = string(in.String())
 		default:
 			in.SkipRecursive()
 		}
@@ -266,6 +268,11 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 		const prefix string = ",\"Lng\":"
 		out.RawString(prefix)
 		out.Float64(float64(in.Lng))
+	}
+	{
+		const prefix string = ",\"CountryCode\":"
+		out.RawString(prefix)
+		out.String(string(in.CountryCode))
 	}
 	out.RawByte('}')
 }

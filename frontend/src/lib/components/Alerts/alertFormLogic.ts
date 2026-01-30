@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -137,6 +138,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         lemonToast.success(`Alert created.`)
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLogAlerts)
                         props.onEditSuccess(updatedAlert.id)
 
                         return updatedAlert

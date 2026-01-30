@@ -8,6 +8,7 @@ from posthog.clickhouse.query_log_archive import (
     SHARDED_QUERY_LOG_ARCHIVE_MV,
     SHARDED_QUERY_LOG_ARCHIVE_TABLE,
     SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
+    SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL,
 )
 
 operations = [
@@ -17,6 +18,10 @@ operations = [
         node_roles=[NodeRole.DATA],
         sharded=True,
         is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL(),
+        node_roles=[NodeRole.COORDINATOR, NodeRole.ENDPOINTS],
     ),
     # Add columns to the writable distributed table
     run_sql_with_exceptions(
