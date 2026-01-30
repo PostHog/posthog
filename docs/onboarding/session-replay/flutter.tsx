@@ -185,7 +185,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        For session replay to work, wrap your app with `PostHogWidget` and add the `PosthogObserver`:
+                        For Session Replay to work, wrap your app with `PostHogWidget` and add the `PosthogObserver`:
                     </Markdown>
                     <CodeBlock
                         blocks={[
