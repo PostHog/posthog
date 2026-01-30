@@ -1728,6 +1728,8 @@ export interface EndpointRequest {
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
+    /** Target a specific version for updates (optional, defaults to current version) */
+    version?: integer
 }
 
 /**
@@ -1771,6 +1773,8 @@ export interface EndpointRunRequest {
      * @default false
      */
     debug?: boolean
+    /** Maximum number of results to return. If not provided, returns all results. */
+    limit?: integer
 }
 
 export interface EndpointLastExecutionTimesRequest {

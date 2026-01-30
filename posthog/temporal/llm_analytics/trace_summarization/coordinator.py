@@ -25,7 +25,6 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     DEFAULT_WINDOW_MINUTES,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
@@ -36,7 +35,7 @@ from posthog.temporal.llm_analytics.trace_summarization.models import (
 )
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
-from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import SummarizationMode
 
 logger = structlog.get_logger(__name__)
 
@@ -50,7 +49,6 @@ class BatchTraceSummarizationCoordinatorInputs:
     batch_size: int = DEFAULT_BATCH_SIZE
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES
-    provider: SummarizationProvider = DEFAULT_PROVIDER
     model: str = DEFAULT_MODEL
 
 
@@ -86,8 +84,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             batch_size=int(inputs[2]) if len(inputs) > 2 else DEFAULT_BATCH_SIZE,
             mode=SummarizationMode(inputs[3]) if len(inputs) > 3 else DEFAULT_MODE,
             window_minutes=int(inputs[4]) if len(inputs) > 4 else DEFAULT_WINDOW_MINUTES,
-            provider=SummarizationProvider(inputs[5]) if len(inputs) > 5 else DEFAULT_PROVIDER,
-            model=inputs[6] if len(inputs) > 6 else DEFAULT_MODEL,
+            model=inputs[5] if len(inputs) > 5 else DEFAULT_MODEL,
         )
 
     @temporalio.workflow.run
@@ -131,7 +128,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         batch_size=inputs.batch_size,
                         mode=inputs.mode,
                         window_minutes=inputs.window_minutes,
-                        provider=inputs.provider,
                         model=inputs.model,
                     ),
                     id=f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{temporalio.workflow.now().isoformat()}",
