@@ -191,6 +191,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data warehouse (sources)',
             },
             {
+                value: 'data_modeling',
+                'data-attr': `support-form-target-area-data_modeling`,
+                label: 'Data modeling (views, matviews, endpoints)',
+            },
+            {
                 value: 'batch_exports',
                 'data-attr': `support-form-target-area-batch_exports`,
                 label: 'Destinations (batch exports)',
@@ -284,11 +289,6 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'logs',
                 'data-attr': `support-form-target-area-logs`,
                 label: 'Logs',
-            },
-            {
-                value: 'endpoints',
-                'data-attr': `support-form-target-area-endpoints`,
-                label: 'Endpoints',
             },
         ],
     },
