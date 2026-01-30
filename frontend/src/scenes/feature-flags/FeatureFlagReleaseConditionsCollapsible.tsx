@@ -35,9 +35,17 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
     const parts = properties.slice(0, 2).map((property) => {
         const key = property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key || 'property'
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
-        const value = Array.isArray(property.value)
-            ? property.value.slice(0, 2).join(', ') + (property.value.length > 2 ? '...' : '')
-            : property.value
+
+        let value: string | number
+        if (property.type === PropertyFilterType.Cohort) {
+            value = property.cohort_name || `ID ${property.value}`
+        } else if (Array.isArray(property.value)) {
+            value = property.value.slice(0, 2).join(', ') + (property.value.length > 2 ? '...' : '')
+        } else if (property.value === null || property.value === undefined) {
+            value = ''
+        } else {
+            value = String(property.value)
+        }
 
         return `${key} ${operator} ${value}`
     })

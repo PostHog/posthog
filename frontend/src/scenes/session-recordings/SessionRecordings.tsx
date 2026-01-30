@@ -8,8 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -191,16 +190,7 @@ function Warnings(): JSX.Element {
                         </div>
                     </div>
                 </LemonBanner>
-            ) : (
-                <ProductIntroduction
-                    productName="session replay"
-                    productKey={ProductKey.SESSION_REPLAY}
-                    thingName="playlist"
-                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
-                    docsURL="https://posthog.com/docs/session-replay/manual"
-                    customHog={FilmCameraHog}
-                />
-            )}
+            ) : null}
         </>
     )
 }

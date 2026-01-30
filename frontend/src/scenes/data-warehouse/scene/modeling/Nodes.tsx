@@ -69,6 +69,8 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const canRun = type !== 'table'
     const canOpenInEditor = type !== 'table' && savedQueryId
+    const hasUpstream = props.data.upstreamCount > 0
+    const hasDownstream = props.data.downstreamCount > 0
 
     const handleRunUpstream = (e: React.MouseEvent): void => {
         e.stopPropagation()
@@ -127,24 +129,28 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
             {canRun && isHovered && !isRunning && (
                 <>
-                    <Tooltip title="Run all upstream nodes including this one">
-                        <button
-                            type="button"
-                            onClick={handleRunUpstream}
-                            className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
-                        >
-                            <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip title="Run all downstream nodes including this one">
-                        <button
-                            type="button"
-                            onClick={handleRunDownstream}
-                            className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
-                        >
-                            <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
-                        </button>
-                    </Tooltip>
+                    {hasUpstream && (
+                        <Tooltip title="Run all upstream nodes including this one">
+                            <button
+                                type="button"
+                                onClick={handleRunUpstream}
+                                className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
+                            >
+                                <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
+                            </button>
+                        </Tooltip>
+                    )}
+                    {hasDownstream && (
+                        <Tooltip title="Run all downstream nodes including this one">
+                            <button
+                                type="button"
+                                onClick={handleRunDownstream}
+                                className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
+                            >
+                                <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
+                            </button>
+                        </Tooltip>
+                    )}
                 </>
             )}
 

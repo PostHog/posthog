@@ -27,6 +27,7 @@ from posthog.temporal.llm_analytics.metrics import (
 )
 
 from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm.config import get_eval_config
 from products.llm_analytics.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
@@ -353,9 +354,13 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
 
 Output: {output_data}"""
 
+    # Get eval-specific config when using PostHog defaults (no provider_key)
+    config = get_eval_config(provider) if provider_key is None else None
+
     # Create unified Client with analytics disabled to prevent eval loops
     client = Client(
         provider_key=provider_key,
+        config=config,
         capture_analytics=False,
     )
 

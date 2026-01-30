@@ -161,6 +161,11 @@ pub struct Config {
     #[envconfig(default = "20")] // 20 seconds
     pub s3_attempt_timeout_secs: u64,
 
+    /// Maximum number of retries for S3 operations before giving up.
+    /// Works in conjunction with s3_operation_timeout which provides the total retry budget.
+    #[envconfig(default = "3")]
+    pub s3_max_retries: usize,
+
     /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
     pub s3_endpoint: Option<String>,
 
