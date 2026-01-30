@@ -254,8 +254,8 @@ async function main() {
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
                 '--use-gl=swiftshader',
-                '--disable-software-rasterizer',
-                '--force-device-scale-factor=2',
+                '--disable-software-rasterizer', // Seems counterintuitive, because of GL, keeping just in case (copied from image export)
+                // Not applying `force-device-scale-factor`, as the original resolution should be high enough
                 '--window-size=1920,1080', // Enable for debugging when in non-headless mode
             ],
         })
