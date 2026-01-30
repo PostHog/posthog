@@ -59,8 +59,8 @@
         "langchain": "^0.3.31"
     },
     "dependencies": {
-        "@modelcontextprotocol/ext-apps": "^0.4.1",
-        "@modelcontextprotocol/sdk": "^1.24.2",
+        "@modelcontextprotocol/ext-apps": "^1.0.1",
+        "@modelcontextprotocol/sdk": "^1.25.3",
         "@toon-format/toon": "^2.1.0",
         "agents": "^0.0.113",
         "ai": "^5.0.18",

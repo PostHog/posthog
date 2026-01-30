@@ -2606,17 +2606,17 @@ importers:
   services/mcp/typescript:
     dependencies:
       '@modelcontextprotocol/ext-apps':
-        specifier: ^0.4.1
-        version: 0.4.1(@modelcontextprotocol/sdk@1.24.2(@cfworker/json-schema@4.1.1)(zod@3.25.76))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(zod@3.25.76)
+        specifier: ^1.0.1
+        version: 1.0.1(@modelcontextprotocol/sdk@1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(zod@3.25.76)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.24.2
-        version: 1.24.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+        specifier: ^1.25.3
+        version: 1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76)
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0
       agents:
         specifier: ^0.0.113
-        version: 0.0.113(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251004.0)(react@18.2.0)
+        version: 0.0.113(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251004.0)(hono@4.11.7)(react@18.2.0)
       ai:
         specifier: ^5.0.18
         version: 5.0.60(zod@3.25.76)
@@ -5302,6 +5302,12 @@ packages:
   '@hapi/topo@5.1.0':
     resolution: {integrity: sha512-foQZKJig7Ob0BMAYBfcJk8d77QtOe7Wo4ox7ff1lQYoNNAb6jwcY1ncdoy2e9wQZzvNy7ODZCYJkK8kzmcAnAg==}
 
+  '@hono/node-server@1.19.9':
+    resolution: {integrity: sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==}
+    engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
+
   '@humanwhocodes/config-array@0.11.14':
     resolution: {integrity: sha512-3T8LkOmg45BV5FICb15QQMsyUSWrQ8AygVfC7ZG32zOalnqrilm018ZVCw0eapXux8FtA33q8PSRSstjee3jSg==}
     engines: {node: '>=10.10.0'}
@@ -5807,8 +5813,8 @@ packages:
     resolution: {integrity: sha512-iA7+tyVqfrATAIsIRWQG+a7ZLLD0VaOCKV2Wd/v4mqIU3J9c4jx9p7S0nw1XH3gJCKNBOOwACOPYYSUu9pgT+w==}
     engines: {node: '>=12.0.0'}
 
-  '@modelcontextprotocol/ext-apps@0.4.1':
-    resolution: {integrity: sha512-LUw6NidwWInzWVF8OSPw/Mtdz5ES2qF+yBze2h+WRARdSbXf+agTkZLCGFtdkogI64W6mDlJnSTp/k5W+FZ84A==}
+  '@modelcontextprotocol/ext-apps@1.0.1':
+    resolution: {integrity: sha512-rAPzBbB5GNgYk216paQjGKUgbNXSy/yeR95c0ni6Y4uvhWI2AeF+ztEOqQFLBMQy/MPM+02pbVK1HaQmQjMwYQ==}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.24.0
       react: ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -5820,8 +5826,8 @@ packages:
       react-dom:
         optional: true
 
-  '@modelcontextprotocol/sdk@1.24.2':
-    resolution: {integrity: sha512-hS/kzSfchqzvUeJUsdiDHi84/kNhLIZaZ6coGQVwbYIelOBbcAwUohUfaQTLa1MvFOK/jbTnGFzraHSFwB7pjQ==}
+  '@modelcontextprotocol/sdk@1.25.3':
+    resolution: {integrity: sha512-vsAMBMERybvYgKbg/l4L1rhS7VXV1c0CtyJg72vwxONVX0l4ZfKVAnZEWTQixJGTzKnELjQ59e4NbdFDALRiAQ==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -13982,6 +13988,10 @@ packages:
     resolution: {integrity: sha512-eSmmWE5bZTK2Nou4g0AI3zZ9rswp7GRKoKXS1BLUkvPviOqs4YTN1djQIqrXy9k5gEtdLPy86JjRwsNM9tnDcA==}
     engines: {node: '>=0.10.0'}
 
+  hono@4.11.7:
+    resolution: {integrity: sha512-l7qMiNee7t82bH3SeyUCt9UF15EVmaBvsppY2zQtrbIhl/yzBTny+YUxsVjSjQ6gaqaeVtZmGocom8TzBlA4Yw==}
+    engines: {node: '>=16.9.0'}
+
   hosted-git-info@2.8.9:
     resolution: {integrity: sha512-mxIDAb9Lsm6DoOJ7xH+5+X4y1LU/4Hi50L9C5sIswK3JzULS4bwk1FvjdBgvYR4bzT4tuUQiC15FE2f5HbLvYw==}
 
@@ -15060,6 +15070,9 @@ packages:
 
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
+
+  json-schema-typed@8.0.2:
+    resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
 
   json-schema@0.4.0:
     resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
@@ -20049,8 +20062,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.364.0:
-    resolution: {integrity: sha512-napzlO1ui26ePQ4+h3uCaoxbQocBxuSCI/Ef81aSf3/I9+M3iKXlpOnQuFEzipShlNjIxczEj2Z2T/JTsS4Hzw==}
+  unlayer-types@1.361.0:
+    resolution: {integrity: sha512-7COdU2qEuJ4xz/mzC2xHqw2yoaw2X/e5s580tx8wf4uib2e/cmbmpLU7i/2ECoIwJXG+uPIwPlOvRzYLu6Ag2Q==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -24638,6 +24651,10 @@ snapshots:
     dependencies:
       '@hapi/hoek': 9.3.0
 
+  '@hono/node-server@1.19.9(hono@4.11.7)':
+    dependencies:
+      hono: 4.11.7
+
   '@humanwhocodes/config-array@0.11.14':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
@@ -25331,9 +25348,9 @@ snapshots:
       '@lezer/lr': 1.4.2
       json5: 2.2.3
 
-  '@modelcontextprotocol/ext-apps@0.4.1(@modelcontextprotocol/sdk@1.24.2(@cfworker/json-schema@4.1.1)(zod@3.25.76))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(zod@3.25.76)':
+  '@modelcontextprotocol/ext-apps@1.0.1(@modelcontextprotocol/sdk@1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(zod@3.25.76)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.24.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+      '@modelcontextprotocol/sdk': 1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76)
       zod: 3.25.76
     optionalDependencies:
       '@oven/bun-darwin-aarch64': 1.3.6
@@ -25356,8 +25373,9 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@modelcontextprotocol/sdk@1.24.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76)':
     dependencies:
+      '@hono/node-server': 1.19.9(hono@4.11.7)
       ajv: 8.17.1
       ajv-formats: 3.0.1(ajv@8.17.1)
       content-type: 1.0.5
@@ -25368,6 +25386,7 @@ snapshots:
       express: 5.1.0
       express-rate-limit: 7.5.1(express@5.1.0)
       jose: 6.1.3
+      json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
       raw-body: 3.0.1
       zod: 3.25.76
@@ -25375,6 +25394,7 @@ snapshots:
     optionalDependencies:
       '@cfworker/json-schema': 4.1.1
     transitivePeerDependencies:
+      - hono
       - supports-color
 
   '@monaco-editor/loader@1.6.1':
@@ -30000,7 +30020,7 @@ snapshots:
     dependencies:
       '@storybook/client-logger': 7.6.4
       memoizerific: 1.11.3
-      qs: 6.14.0
+      qs: 6.14.1
 
   '@storybook/source-loader@7.6.4':
     dependencies:
@@ -31871,9 +31891,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agents@0.0.113(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251004.0)(react@18.2.0):
+  agents@0.0.113(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251004.0)(hono@4.11.7)(react@18.2.0):
     dependencies:
-      '@modelcontextprotocol/sdk': 1.24.2(@cfworker/json-schema@4.1.1)(zod@3.25.76)
+      '@modelcontextprotocol/sdk': 1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.7)(zod@3.25.76)
       ai: 4.3.19(react@18.2.0)(zod@3.25.76)
       cron-schedule: 5.0.4
       mimetext: 3.0.27
@@ -31885,6 +31905,7 @@ snapshots:
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - '@cloudflare/workers-types'
+      - hono
       - supports-color
 
   aggregate-error@3.1.0:
@@ -32578,7 +32599,7 @@ snapshots:
       http-errors: 2.0.0
       iconv-lite: 0.6.3
       on-finished: 2.4.1
-      qs: 6.14.0
+      qs: 6.14.1
       raw-body: 3.0.1
       type-is: 2.0.1
     transitivePeerDependencies:
@@ -34858,7 +34879,7 @@ snapshots:
       once: 1.4.0
       parseurl: 1.3.3
       proxy-addr: 2.0.7
-      qs: 6.14.0
+      qs: 6.14.1
       range-parser: 1.2.1
       router: 2.2.0
       send: 1.2.0
@@ -35781,6 +35802,8 @@ snapshots:
   homedir-polyfill@1.0.3:
     dependencies:
       parse-passwd: 1.0.0
+
+  hono@4.11.7: {}
 
   hosted-git-info@2.8.9: {}
 
@@ -37496,6 +37519,8 @@ snapshots:
   json-schema-traverse@0.4.1: {}
 
   json-schema-traverse@1.0.0: {}
+
+  json-schema-typed@8.0.2: {}
 
   json-schema@0.4.0: {}
 
@@ -41233,7 +41258,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.364.0
+      unlayer-types: 1.361.0
 
   react-error-overlay@6.0.9: {}
 
@@ -43463,7 +43488,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.364.0: {}
+  unlayer-types@1.361.0: {}
 
   unpipe@1.0.0: {}
 
@@ -43531,7 +43556,7 @@ snapshots:
   url@0.11.1:
     dependencies:
       punycode: 1.4.1
-      qs: 6.14.0
+      qs: 6.14.1
 
   use-callback-ref@1.3.3(@types/react@18.3.27)(react@18.2.0):
     dependencies:

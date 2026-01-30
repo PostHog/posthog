@@ -4,9 +4,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import { Context } from '@/tools'
 
-import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
 // Import bundled HTML at build time (wrangler Text rule)
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
+import demoHtml from '../../ui-apps-dist/src/ui-apps/apps/demo/index.html'
 import queryResultsHtml from '../../ui-apps-dist/src/ui-apps/apps/query-results/index.html'
 import { DEMO_RESOURCE_URI, QUERY_RESULTS_RESOURCE_URI } from './ui-apps-constants'
 
@@ -64,8 +64,6 @@ function registerApp(server: McpServer, context: Context, { name, uri, descripti
                     uri: uri.toString(),
                     mimeType: RESOURCE_MIME_TYPE,
                     text: html,
-                    // NOTE: You can also specify _meta inside the `configuration` object
-                    // but Claude Desktop does NOT respect that if not specified in the `contents` array
                     _meta: { ui: uiMetadata },
                 },
             ],
