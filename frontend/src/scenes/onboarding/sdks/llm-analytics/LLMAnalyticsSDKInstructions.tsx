@@ -15,6 +15,7 @@ import { LiteLLMInstallation } from '@posthog/shared-onboarding/llm-analytics/li
 import { LlamaIndexInstallation } from '@posthog/shared-onboarding/llm-analytics/llamaindex'
 import { ManualInstallation } from '@posthog/shared-onboarding/llm-analytics/manual'
 import { MastraInstallation } from '@posthog/shared-onboarding/llm-analytics/mastra'
+import { MirascopeInstallation } from '@posthog/shared-onboarding/llm-analytics/mirascope'
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
 import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
@@ -113,6 +114,10 @@ const LLMMastraInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: MastraInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMMirascopeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: MirascopeInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
@@ -132,5 +137,6 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.SMOLAGENTS]: LLMSmolagentsInstructionsWrapper,
     [SDKKey.LANGGRAPH]: LLMLangGraphInstructionsWrapper,
     [SDKKey.MASTRA]: LLMMastraInstructionsWrapper,
+    [SDKKey.MIRASCOPE]: LLMMirascopeInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }
