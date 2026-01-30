@@ -33,6 +33,26 @@ class DevenvConfig(BaseModel):
     log_to_files: bool = False
 
 
+# Docker compose command building
+DOCKER_COMPOSE_BASE = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+
+def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
+    """Build docker compose command with profile flags.
+
+    Args:
+        profiles: List of docker compose profiles to activate
+        action: The docker compose action (e.g., "up -d", "down", "down -v")
+
+    Returns:
+        Complete docker compose command string
+    """
+    if profiles:
+        profile_flags = " ".join(f"--profile {p}" for p in profiles)
+        return f"{DOCKER_COMPOSE_BASE} {profile_flags} {action}"
+    return f"{DOCKER_COMPOSE_BASE} {action}"
+
+
 class ConfigGenerator(ABC):
     """Abstract generator for process manager configurations."""
 
@@ -133,6 +153,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "docker-compose":
                 proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
+            # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
+            if name == "nodejs":
+                proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -179,23 +203,43 @@ class MprocsGenerator(ConfigGenerator):
         Returns:
             Process configuration dict with modified shell command
         """
-        # Build the compose command with profiles overlay
-        compose_base = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
-
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
-            profile_flags = " " + " ".join(f"--profile {p}" for p in profiles)
             message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "
         else:
-            profile_flags = ""
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
-        up_cmd = f"{compose_base}{profile_flags} up --pull always -d"
-        logs_cmd = f"{compose_base}{profile_flags} logs --tail=0 -f"
+        up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
+        logs_cmd = build_docker_compose_command(profiles, "logs --tail=0 -f")
 
         return {
             "shell": f"{message}{up_cmd} && {logs_cmd}",
         }
+
+    def _add_nodejs_capability_groups(
+        self, proc_config: dict[str, Any], resolved: ResolvedEnvironment
+    ) -> dict[str, Any]:
+        """Add NODEJS_CAPABILITY_GROUPS env var based on resolved nodejs_* capabilities.
+
+        Strips 'nodejs_' prefix from capability names to get the group name.
+        e.g. nodejs_cdp -> cdp, nodejs_session_replay -> session_replay
+        """
+        prefix = "nodejs_"
+        enabled_groups = [cap.removeprefix(prefix) for cap in resolved.capabilities if cap.startswith(prefix)]
+
+        # If no specific groups are enabled, don't set the env var (use default behavior)
+        if not enabled_groups:
+            return proc_config
+
+        # Build the env var value
+        groups_value = ",".join(enabled_groups)
+
+        # Prepend the env var export to the shell command
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            proc_config["shell"] = f"export NODEJS_CAPABILITY_GROUPS='{groups_value}' && {original_shell}"
+
+        return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
         """Wrap shell command to log output to /tmp/posthog-{name}.log.
