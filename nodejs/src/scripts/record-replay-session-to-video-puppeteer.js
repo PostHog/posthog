@@ -256,6 +256,7 @@ async function main() {
                 '--use-gl=swiftshader',
                 '--disable-software-rasterizer',
                 '--force-device-scale-factor=2',
+                '--window-size=1920,1080', // Enable for debugging when in non-headless mode
             ],
         })
         // Detect or use provided dimensions
