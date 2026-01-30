@@ -1,1 +1,1 @@
-0007_autocapture_controls
+0007_auto_capture_controls
