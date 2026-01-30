@@ -345,7 +345,7 @@ const InfiniteListRow = ({
                 {...commonDivProps}
                 className={clsx(
                     commonDivProps.className,
-                    isDisabledItem && 'disabled-item cursor-not-allowed opacity-60'
+                    isDisabledItem && 'cursor-not-allowed opacity-60'
                 )}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 onClick={(event) => {
