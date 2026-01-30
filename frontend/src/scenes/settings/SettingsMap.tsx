@@ -1,5 +1,4 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
@@ -33,6 +32,7 @@ import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/a
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
