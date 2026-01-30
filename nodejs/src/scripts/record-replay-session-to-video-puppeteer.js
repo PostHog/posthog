@@ -338,6 +338,7 @@ async function main() {
             })
             const finalHeight = dimensions.height
             const widthCandidate = dimensions.width || width
+            // TODO: Decide why 1800 here and why we detect resolution twice
             measuredWidth = Math.max(width, Math.min(1800, Math.floor(widthCandidate)))
             await page.setViewport({
                 width: measuredWidth,
