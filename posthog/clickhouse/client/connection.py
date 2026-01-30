@@ -62,6 +62,7 @@ class ClickHouseUser(StrEnum):
     COHORTS = "cohorts"
     CACHE_WARMUP = "cache_warmup"
     # Whenever the HogQL needs to query CH to get some metadata
+    HOGQL = "hogql"  # deprecated, use META
     META = "meta"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
