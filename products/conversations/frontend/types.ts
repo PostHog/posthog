@@ -1,5 +1,6 @@
 import type { TicketAssignee } from './components/Assignee'
 
+export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
