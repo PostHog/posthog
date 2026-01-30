@@ -14,6 +14,7 @@ use crate::metrics_const::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt};
 use object_store::aws::AmazonS3Builder;
 use object_store::limit::LimitStore;
@@ -272,6 +273,7 @@ impl CheckpointDownloader for S3Downloader {
         cancel_token: Option<&CancellationToken>,
     ) -> Result<()> {
         let start_time = Instant::now();
+        let file_count = remote_keys.len();
 
         // Check cancellation before starting
         if let Some(token) = cancel_token {
@@ -281,36 +283,53 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        // Build download futures - LimitStore's semaphore automatically limits
-        // concurrent downloads. Each get() acquires a permit held until stream consumed.
-        let mut download_futures = Vec::with_capacity(remote_keys.len());
-        for remote_key in remote_keys {
-            let remote_filename = remote_key
-                .rsplit('/')
-                .next()
-                .with_context(|| {
-                    format!("Failed to extract remote filename from key: {remote_key}")
-                })?
-                .to_string();
-            let local_filepath = local_base_path.join(&remote_filename);
+        // Build download futures using FuturesUnordered for early exit with sibling cancellation.
+        // LimitStore's semaphore still limits concurrent S3 requests.
+        let mut futures: FuturesUnordered<_> = remote_keys
+            .iter()
+            .map(|remote_key| {
+                let remote_filename = remote_key
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(remote_key)
+                    .to_string();
+                let local_filepath = local_base_path.join(&remote_filename);
 
-            // Pass cancel_token to each individual download so they can bail mid-stream
-            download_futures.push(async move {
-                match self
-                    .download_and_store_file_cancellable(remote_key, &local_filepath, cancel_token)
+                async move {
+                    self.download_and_store_file_cancellable(
+                        remote_key,
+                        &local_filepath,
+                        cancel_token,
+                    )
                     .await
-                {
-                    Ok(()) => Ok::<String, anyhow::Error>(remote_filename),
-                    Err(e) => Err::<String, anyhow::Error>(e.context("In download_files")),
+                    .with_context(|| format!("Failed to download: {remote_key}"))
                 }
-            });
+            })
+            .collect();
+
+        let mut first_error: Option<anyhow::Error> = None;
+
+        // Process completions, cancel siblings on first error
+        while let Some(result) = futures.next().await {
+            if let Err(e) = result {
+                first_error = Some(e);
+                // Cancel siblings via the attempt token - they'll exit on next chunk iteration
+                if let Some(token) = cancel_token {
+                    token.cancel();
+                }
+                break;
+            }
         }
 
-        // try_join_all spawns all futures, but LimitStore's semaphore ensures
-        // only max_concurrent_checkpoint_file_downloads are actually in-flight
-        let results = futures::future::try_join_all(download_futures).await?;
+        // Drain remaining futures - they'll exit quickly due to cancellation check in their loop
+        if first_error.is_some() {
+            while futures.next().await.is_some() {}
+        }
 
-        let file_count = results.len();
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+
         let elapsed = start_time.elapsed();
         metrics::histogram!(CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM).record(elapsed.as_secs_f64());
         info!("Successfully downloaded checkpoint with {file_count} files to local path: {local_base_path:?}");

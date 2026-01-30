@@ -183,8 +183,20 @@ impl CheckpointImporter {
                 });
             }
 
+            // Create child token for this attempt - allows sibling download cancellation
+            // on error while preserving fallback to next checkpoint attempt.
+            // Child token is cancelled when parent is cancelled (rebalance), or when
+            // a file download fails (sibling cancellation).
+            let attempt_token = cancel_token
+                .map(|parent| parent.child_token())
+                .unwrap_or_default();
+
             match self
-                .fetch_checkpoint_files_cancellable(&attempt, &local_attempt_path, cancel_token)
+                .fetch_checkpoint_files_cancellable(
+                    &attempt,
+                    &local_attempt_path,
+                    Some(&attempt_token),
+                )
                 .await
             {
                 Ok(_) => {
