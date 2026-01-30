@@ -169,7 +169,7 @@ class SessionMomentsLLMAnalyzer:
             await client.execute_workflow(
                 VideoExportWorkflow.run,
                 # TODO: Enable Puppeteer for the previous video analysis flow after testing
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=False),
                 id=f"session-moment-video-export_{self.session_id}_{moment.moment_id}_{uuid.uuid4()}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),

@@ -203,7 +203,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     client = await async_connect()
                     await client.execute_workflow(
                         VideoExportWorkflow.run,
-                        VideoExportInputs(exported_asset_id=instance.id),
+                        VideoExportInputs(exported_asset_id=instance.id, use_puppeteer=False),
                         id=f"export-video-{instance.id}",
                         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),

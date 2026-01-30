@@ -122,7 +122,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         try:
             await client.execute_workflow(
                 VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=True),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
