@@ -69,7 +69,7 @@ pub struct GrpcMetricsFuture<F> {
     #[pin]
     inner: F,
     start: Instant,
-    method: &'static str,
+    method: String,
 }
 
 impl<F, ResBody, E> Future for GrpcMetricsFuture<F>
@@ -84,10 +84,10 @@ where
 
         if result.is_ready() {
             let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
-            let method = *this.method;
 
-            counter!("grpc_server_requests_total", "method" => method).increment(1);
-            histogram!("grpc_server_request_duration_ms", "method" => method).record(duration_ms);
+            counter!("grpc_server_requests_total", "method" => this.method.clone()).increment(1);
+            histogram!("grpc_server_request_duration_ms", "method" => this.method.clone())
+                .record(duration_ms);
         }
 
         result
@@ -95,46 +95,16 @@ where
 }
 
 /// Extract the gRPC method name from the URI path.
-/// Returns a static string for known methods, or "unknown" for unrecognized paths.
-fn extract_grpc_method(path: &str) -> &'static str {
-    // gRPC paths look like: /package.Service/Method
-    // We want just the Method part for cleaner metrics
-    match path.rsplit_once('/') {
-        Some((_, method)) => match method {
-            // Person lookups
-            "GetPerson" => "GetPerson",
-            "GetPersons" => "GetPersons",
-            "GetPersonByUuid" => "GetPersonByUuid",
-            "GetPersonsByUuids" => "GetPersonsByUuids",
-            "GetPersonByDistinctId" => "GetPersonByDistinctId",
-            "GetPersonsByDistinctIdsInTeam" => "GetPersonsByDistinctIdsInTeam",
-            "GetPersonsByDistinctIds" => "GetPersonsByDistinctIds",
-
-            // Distinct IDs
-            "GetDistinctIdsForPerson" => "GetDistinctIdsForPerson",
-            "GetDistinctIdsForPersons" => "GetDistinctIdsForPersons",
-
-            // Hash key overrides
-            "GetHashKeyOverrideContext" => "GetHashKeyOverrideContext",
-            "UpsertHashKeyOverrides" => "UpsertHashKeyOverrides",
-            "DeleteHashKeyOverridesByTeams" => "DeleteHashKeyOverridesByTeams",
-
-            // Cohorts
-            "CheckCohortMembership" => "CheckCohortMembership",
-
-            // Groups
-            "GetGroup" => "GetGroup",
-            "GetGroups" => "GetGroups",
-            "GetGroupsBatch" => "GetGroupsBatch",
-
-            // Group type mappings
-            "GetGroupTypeMappingsByTeamId" => "GetGroupTypeMappingsByTeamId",
-            "GetGroupTypeMappingsByTeamIds" => "GetGroupTypeMappingsByTeamIds",
-            "GetGroupTypeMappingsByProjectId" => "GetGroupTypeMappingsByProjectId",
-            "GetGroupTypeMappingsByProjectIds" => "GetGroupTypeMappingsByProjectIds",
-
-            _ => "unknown",
-        },
-        None => "unknown",
-    }
+///
+/// gRPC paths look like: `/package.Service/MethodName`
+/// We extract just the method name part for cleaner metrics.
+///
+/// Cardinality is bounded because tonic rejects requests to unknown methods
+/// before they reach this middleware.
+fn extract_grpc_method(path: &str) -> String {
+    path.rsplit_once('/')
+        .map(|(_, method)| method)
+        .filter(|m| !m.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }
