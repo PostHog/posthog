@@ -242,6 +242,8 @@ def sync_execute(
         # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
         # these disruptions
         settings["use_hedged_requests"] = "0"
+    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
+        settings["use_hedged_requests"] = "1"
     start_time = perf_counter()
 
     try:
