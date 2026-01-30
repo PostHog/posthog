@@ -115,10 +115,14 @@ async def emit_signal(
     description: str,         # plaintext, will be embedded
     weight: float = 0.5,      # 0.0-1.0
     extra: dict | None = None # product-specific metadata
-) -> str:  # returns signal UUID
+) -> None:  # fire-and-forget, returns nothing
 ```
 
-This is a **Temporal workflow** (`workflow_id = f"{team_id}:{source_type}:{source_id}"` for idempotency). The flow:
+This is a **fire-and-forget Temporal workflow**. The `workflow_id = f"{team_id}:{source_product}:{source_type}:{source_id}"` prevents the same signal from being processed simultaneously, but does NOT prevent re-running for the same source_id (will create duplicates).
+
+Controlled by `EMIT_SIGNALS_ENABLED` env var (default: false).
+
+The flow:
 
 1. Generates UUID for signal
 2. Calls `generate_embedding()` synchronously to get embedding in-memory for immediate use
@@ -348,10 +352,11 @@ ORDER BY timestamp ASC
 
 ```python
 # Environment variables with defaults
+EMIT_SIGNALS_ENABLED = os.getenv("EMIT_SIGNALS_ENABLED", "false").lower() == "true"  # master switch
 SIGNAL_WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 SIGNAL_REPORT_CANDIDATE_WAIT_HOURS = float(os.getenv("SIGNAL_REPORT_CANDIDATE_WAIT_HOURS", "3"))
-SIGNAL_EMBEDDING_MODEL = os.getenv("SIGNAL_EMBEDDING_MODEL", "text-embedding-3-small-1536")
 SIGNAL_MATCHING_LLM_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "gpt-4o-mini")  # for signal/report matching
+# Embedding model: uses EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536 from posthog.schema
 ```
 
 ## Example Usage
@@ -444,18 +449,20 @@ Guidance to product teams: "If your signal hits weight 1.0, it becomes a candida
 
 - [x] `SignalReport` model at `products/signals/backend/models.py`
 - [x] `SignalReportArtefact` model
-- [ ] Migration (pending)
-- [ ] Register in `INSTALLED_APPS`
+- [x] Migration
+- [x] Register in `INSTALLED_APPS`
 
-### Phase 2: Signal Creation Flow
+### Phase 2: Signal Creation Flow [DONE]
 
-- [ ] Implement `emit_signal()` Temporal workflow (`workflow_id = f"{team_id}:{source_type}:{source_id}"`)
-- [ ] Integrate with embedding worker to generate embeddings
-- [ ] Implement `get_nearest_assigned_signals_ch()` - ClickHouse query for similar signals
-- [ ] Implement `llm_match_signal()` - one-shot LLM matching
-- [ ] Implement `find_matching_report()` - orchestrates the two-phase lookup
-- [ ] Implement `assign_signal_to_report()` - creates or updates report
-- [ ] Implement `check_report_promotion()` - promotes to candidate if weight >= 1.0
+- [x] Implement `emit_signal()` fire-and-forget API at `products/signals/backend/api.py`
+- [x] Implement `EmitSignalWorkflow` Temporal workflow at `products/signals/backend/temporal/workflow.py`
+- [x] Integrate with embedding worker to generate embeddings (`get_embedding_activity`)
+- [x] Implement `get_nearest_assigned_signals_activity` - ClickHouse query for similar signals (last month)
+- [x] Implement `llm_match_signal_activity` / `match_signal_with_llm()` - one-shot LLM matching with retries
+- [x] Implement `assign_signal_to_report_activity` - creates or updates report, checks promotion
+- [x] Implement `emit_to_clickhouse_activity` - emits signal to Kafka with correct report_id
+
+Note: Currently disabled via `EMIT_SIGNALS_ENABLED=false`. Workflow not yet registered with Temporal worker.
 
 ### Phase 3: Research Workflow
 
