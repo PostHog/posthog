@@ -1086,7 +1086,7 @@ def delete_organization_data_and_notify_task(
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     autoretry_for=(Exception,),
     retry_backoff=30,
     retry_backoff_max=120,
