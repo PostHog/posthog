@@ -221,23 +221,11 @@ class MprocsGenerator(ConfigGenerator):
     ) -> dict[str, Any]:
         """Add NODEJS_CAPABILITY_GROUPS env var based on resolved nodejs_* capabilities.
 
-        Maps intent-map.yaml capabilities to Node.js capability groups
+        Strips 'nodejs_' prefix from capability names to get the group name.
+        e.g. nodejs_cdp -> cdp, nodejs_session_replay -> session_replay
         """
-        # Map from intent-map capability names to Node.js capability group names
-        capability_mapping = {
-            "nodejs_cdp": "cdp",
-            "nodejs_cdp_workflows": "cdp_workflows",
-            "nodejs_realtime_cohorts": "realtime_cohorts",
-            "nodejs_session_replay": "session_replay",
-            "nodejs_logs": "logs",
-            "nodejs_feature_flags": "feature_flags",
-        }
-
-        # Find which nodejs capabilities are in the resolved capabilities
-        enabled_groups = []
-        for cap_name, group_name in capability_mapping.items():
-            if cap_name in resolved.capabilities:
-                enabled_groups.append(group_name)
+        prefix = "nodejs_"
+        enabled_groups = [cap.removeprefix(prefix) for cap in resolved.capabilities if cap.startswith(prefix)]
 
         # If no specific groups are enabled, don't set the env var (use default behavior)
         if not enabled_groups:
