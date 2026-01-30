@@ -268,6 +268,18 @@ describe('KeyStore', () => {
 
             await expect(keyStore.getKey('session-123', 1)).rejects.toThrow('Failed to decrypt key from KMS')
         })
+
+        it('should throw error if returned team_id does not match requested team_id', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '999' },
+                    session_state: { S: 'cleartext' },
+                },
+            })
+
+            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow('Team ID mismatch: requested 1, got 999')
+        })
     })
 
     describe('deleteKey', () => {
@@ -366,6 +378,18 @@ describe('KeyStore', () => {
                 .mockRejectedValueOnce(new Error('DynamoDB update error'))
 
             await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB update error')
+        })
+
+        it('should throw error if returned team_id does not match requested team_id', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '999' },
+                    session_state: { S: 'ciphertext' },
+                },
+            })
+
+            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('Team ID mismatch: requested 1, got 999')
         })
     })
 

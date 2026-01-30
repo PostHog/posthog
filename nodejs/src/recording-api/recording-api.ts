@@ -16,12 +16,14 @@ import { logger } from '../utils/logger'
 import { getKeyStore } from './keystore'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
 import { getBlockDecryptor } from './recording-decryptor'
-import { GetBlockQuerySchema, RecordingParamsSchema } from './schemas'
+import { RecordingParamsSchema, createGetBlockQuerySchema } from './schemas'
 import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
+    private s3Prefix: string | null = null
+    private getBlockQuerySchema: ReturnType<typeof createGetBlockQuerySchema> | null = null
     private keyStore: BaseKeyStore | null = null
     private decryptor: BaseRecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
@@ -45,11 +47,14 @@ export class RecordingApi {
         const s3SecretAccessKey = this.hub.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
 
         this.s3Bucket = this.hub.SESSION_RECORDING_V2_S3_BUCKET
+        this.s3Prefix = this.hub.SESSION_RECORDING_V2_S3_PREFIX
+        this.getBlockQuerySchema = createGetBlockQuerySchema(this.s3Prefix)
 
         logger.info('[RecordingApi] Starting with S3 config', {
             region: s3Region,
             endpoint: s3Endpoint,
             bucket: this.s3Bucket,
+            prefix: this.s3Prefix,
             hasCredentials: !!(s3AccessKeyId && s3SecretAccessKey),
         })
 
@@ -154,7 +159,18 @@ export class RecordingApi {
             return
         }
 
-        const queryResult = GetBlockQuerySchema.safeParse(req.query)
+        // Check service initialization before processing
+        if (!this.s3Client || !this.s3Bucket || !this.getBlockQuerySchema) {
+            res.status(503).json({ error: 'S3 client not initialized' })
+            return
+        }
+
+        if (!this.decryptor) {
+            res.status(503).json({ error: 'Decryptor not initialized' })
+            return
+        }
+
+        const queryResult = this.getBlockQuerySchema.safeParse(req.query)
         if (!queryResult.success) {
             res.status(400).json({ error: queryResult.error.issues[0].message })
             return
@@ -170,16 +186,6 @@ export class RecordingApi {
             start: startByte,
             end: endByte,
         })
-
-        if (!this.s3Client || !this.s3Bucket) {
-            res.status(503).json({ error: 'S3 client not initialized' })
-            return
-        }
-
-        if (!this.decryptor) {
-            res.status(503).json({ error: 'Decryptor not initialized' })
-            return
-        }
 
         try {
             const command = new GetObjectCommand({

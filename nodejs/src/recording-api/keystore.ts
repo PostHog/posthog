@@ -185,6 +185,11 @@ export class KeyStore extends BaseKeyStore {
             })
         )
 
+        // Verify the returned item belongs to the requested team (defense in depth)
+        if (result.Item?.team_id?.N && parseInt(result.Item.team_id.N, 10) !== teamId) {
+            throw new Error(`Team ID mismatch: requested ${teamId}, got ${result.Item.team_id.N}`)
+        }
+
         const sessionState = this.parseSessionState(result.Item)
 
         if (sessionState === 'ciphertext') {
@@ -251,6 +256,11 @@ export class KeyStore extends BaseKeyStore {
 
         if (!existingItem.Item) {
             return false
+        }
+
+        // Verify the returned item belongs to the requested team (defense in depth)
+        if (existingItem.Item.team_id?.N && parseInt(existingItem.Item.team_id.N, 10) !== teamId) {
+            throw new Error(`Team ID mismatch: requested ${teamId}, got ${existingItem.Item.team_id.N}`)
         }
 
         if (existingItem.Item.session_state?.S === 'deleted') {
