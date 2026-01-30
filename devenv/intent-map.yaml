@@ -127,7 +127,7 @@ intents:
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
-        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions]
+        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
