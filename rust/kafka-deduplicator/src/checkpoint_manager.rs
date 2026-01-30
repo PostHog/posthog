@@ -423,7 +423,9 @@ impl CheckpointManager {
         self.exporter.is_some()
     }
 
-    /// Trigger an immediate flush of all stores (currenty used only in tests)
+    /// Trigger an immediate flush of all stores (currently used only in tests).
+    /// Uses the cancellable checkpoint method with the manager's cancel token
+    /// for consistency with the main checkpoint loop.
     pub async fn flush_all(&self) -> Result<()> {
         info!("Triggering manual flush of all stores");
 
@@ -449,7 +451,10 @@ impl CheckpointManager {
                 self.offset_tracker.clone(),
             );
 
-            worker.checkpoint_partition(&store, None).await?;
+            // Use cancellable variant with the manager's cancel token
+            worker
+                .checkpoint_partition_cancellable(&store, None, Some(&self.cancel_token))
+                .await?;
         }
 
         Ok(())
