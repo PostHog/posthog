@@ -317,6 +317,7 @@ export type SupportTicketTargetArea =
     | 'data_management'
     | 'notebooks'
     | 'data_warehouse'
+    | 'data_modeling'
     | 'feature_flags'
     | 'analytics'
     | 'session_replay'
@@ -324,7 +325,6 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
-    | 'logs'
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
@@ -333,7 +333,6 @@ export type SupportTicketTargetArea =
     | 'max-ai'
     | 'customer-analytics'
     | 'logs'
-    | 'endpoints'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -378,7 +377,6 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
-    endpoints: 'endpoints',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
