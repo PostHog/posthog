@@ -132,9 +132,14 @@ const NEW_VARIANT = {
 const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     variants: [
         {
-            key: '',
+            key: 'control',
             name: '',
-            rollout_percentage: 100,
+            rollout_percentage: 50,
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
         },
     ],
 }
@@ -373,6 +378,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
+        // V2 form UI actions
+        setShowImplementation: (show: boolean) => ({ show }),
+        setOpenVariants: (openVariants: string[]) => ({ openVariants }),
+        // Track which fields have been manually edited by the user (not by templates)
+        markFieldAsEdited: (field: string) => ({ field }),
+        resetEditedFields: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -683,6 +694,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
                 setScheduledChangeOperation: (state, { changeType }) =>
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+            },
+        ],
+        // V2 form UI state
+        showImplementation: [
+            false,
+            {
+                setShowImplementation: (_, { show }) => show,
+            },
+        ],
+        openVariants: [
+            [] as string[],
+            {
+                setOpenVariants: (_, { openVariants }) => openVariants,
+            },
+        ],
+        // Track which fields have been manually edited by the user
+        userEditedFields: [
+            new Set<string>() as Set<string>,
+            {
+                markFieldAsEdited: (state, { field }) => new Set([...state, field]),
+                resetEditedFields: () => new Set<string>(),
+                // Reset when loading a new flag
+                loadFeatureFlagSuccess: () => new Set<string>(),
             },
         ],
     }),
@@ -1189,12 +1223,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
-        updateFeatureFlagActiveFailure: ({ error, errorObject }) => {
+        updateFeatureFlagActiveFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 return
             }
 
-            lemonToast.error(`Failed to toggle flag: ${error}`)
+            // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
@@ -1228,7 +1262,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.editFeatureFlag(false)
                 return
             }
-
             lemonToast.error(`Failed to save flag: ${error}`)
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {

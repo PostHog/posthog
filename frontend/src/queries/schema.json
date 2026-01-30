@@ -353,7 +353,16 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
+            "enum": [
+                "product_analytics",
+                "sql",
+                "session_replay",
+                "error_tracking",
+                "plan",
+                "execution",
+                "survey",
+                "research"
+            ],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -15384,6 +15393,7 @@
                 "Vitally",
                 "BigQuery",
                 "Chargebee",
+                "Clerk",
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
