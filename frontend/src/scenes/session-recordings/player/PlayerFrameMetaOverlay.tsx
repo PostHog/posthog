@@ -112,7 +112,6 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
                     <span className="font-bold">VIDEO_T:</span> {timePassedSinceFirstPlayback.toFixed(0)}
                 </span>
             )}
-            {/* Using shorter message to allow more space for the URL */}
             {endReached ? (
                 <span className="font-bold text-green-400">[RECORDING ENDED]</span>
             ) : currentSegment?.isActive === false ? (
