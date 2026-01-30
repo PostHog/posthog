@@ -19,7 +19,7 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
     key((props) => props.logicKey),
     path((key) => ['lib', 'components', 'IngestionControls', 'triggers', 'FlagTrigger', 'flagTriggerLogic', key]),
     actions({
-        onChange: (flag: LinkedFeatureFlag) => ({ flag }),
+        onChange: (flag: LinkedFeatureFlag | null) => ({ flag }),
     }),
     loaders(({ values }) => ({
         featureFlag: {
