@@ -330,7 +330,12 @@ impl CheckpointManager {
                                 }
 
                                 // Execute checkpoint operation with previous metadata for deduplication
-                                let result = worker.checkpoint_partition(&target_store, incremental_or_full).await;
+                                // Pass the cancel token for cancellation support during export
+                                let result = worker.checkpoint_partition_cancellable(
+                                    &target_store,
+                                    incremental_or_full,
+                                    Some(&worker_cancel_token),
+                                ).await;
 
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
@@ -341,8 +346,12 @@ impl CheckpointManager {
                                     },
                                     Ok(None) => "skipped",
                                     Err(e) => {
-                                        error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
-                                        "error"
+                                        // Cancellation is NOT an error - don't log as error
+                                        let is_cancelled = e.to_string().contains("cancelled");
+                                        if !is_cancelled {
+                                            error!(partition = partition_tag, "Checkpoint worker thread: attempt failed: {}", e);
+                                        }
+                                        if is_cancelled { "cancelled" } else { "error" }
                                     },
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,
@@ -414,7 +423,9 @@ impl CheckpointManager {
         self.exporter.is_some()
     }
 
-    /// Trigger an immediate flush of all stores (currenty used only in tests)
+    /// Trigger an immediate flush of all stores (currently used only in tests).
+    /// Uses the cancellable checkpoint method with the manager's cancel token
+    /// for consistency with the main checkpoint loop.
     pub async fn flush_all(&self) -> Result<()> {
         info!("Triggering manual flush of all stores");
 
@@ -440,7 +451,10 @@ impl CheckpointManager {
                 self.offset_tracker.clone(),
             );
 
-            worker.checkpoint_partition(&store, None).await?;
+            // Use cancellable variant with the manager's cancel token
+            worker
+                .checkpoint_partition_cancellable(&store, None, Some(&self.cancel_token))
+                .await?;
         }
 
         Ok(())
@@ -510,7 +524,11 @@ mod tests {
 
     #[async_trait]
     impl CheckpointUploader for FilesystemUploader {
-        async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+        async fn upload_checkpoint_with_plan_cancellable(
+            &self,
+            plan: &CheckpointPlan,
+            _cancel_token: Option<&tokio_util::sync::CancellationToken>,
+        ) -> Result<Vec<String>> {
             // simulate remote upload path with local temp dir
             let dest_dir = self
                 .export_base_dir
@@ -735,7 +753,8 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let tmp_export_dir = TempDir::new().unwrap();
 
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
+        let uploader: Box<dyn CheckpointUploader> =
+            Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
@@ -860,7 +879,8 @@ mod tests {
         let tmp_export_dir = TempDir::new().unwrap();
 
         // configure moderate checkpoints with reasonable intervals and filesystem exporter
-        let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
+        let uploader: Box<dyn CheckpointUploader> =
+            Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50), // Submit frequent checkpoints during test run
             max_concurrent_checkpoints: 2,

@@ -1343,7 +1343,7 @@
             },
             "deepinfra-fp4": {
                 "prompt_token": 2.6e-7,
-                "completion_token": 3.9e-7,
+                "completion_token": 3.8e-7,
                 "cache_read_token": 1.3e-7
             },
             "deepseek": {
@@ -1476,19 +1476,6 @@
                 "audio": 7e-7,
                 "input_audio_cache": 1.75e-7,
                 "internal_reasoning": 4e-7
-            }
-        }
-    },
-    {
-        "model": "google/gemini-2.0-flash-exp:free",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "google-vertex": {
-                "prompt_token": 0,
-                "completion_token": 0
             }
         }
     },
@@ -2899,7 +2886,7 @@
             "atlas-cloud-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
-                "cache_read_token": 3e-7
+                "cache_read_token": 3e-8
             },
             "chutes-fp8": {
                 "prompt_token": 2.7e-7,
@@ -3642,9 +3629,14 @@
         "cost": {
             "default": {
                 "prompt_token": 5e-7,
-                "completion_token": 0.0000025
+                "completion_token": 0.0000028
             },
-            "chutes": {
+            "atlas-cloud-int4": {
+                "prompt_token": 5.6e-7,
+                "completion_token": 0.0000028,
+                "cache_read_token": 2.8e-7
+            },
+            "chutes-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003
             },
@@ -3668,8 +3660,12 @@
                 "cache_read_token": 9.5e-8
             },
             "parasail-bf16": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000032
+            },
+            "together": {
                 "prompt_token": 5e-7,
-                "completion_token": 0.0000025
+                "completion_token": 0.0000028
             }
         }
     },
@@ -7054,9 +7050,9 @@
                 "completion_token": 0.0000015
             },
             "deepinfra-fp4": {
-                "prompt_token": 4.3e-7,
-                "completion_token": 0.00000175,
-                "cache_read_token": 7.99999993e-8
+                "prompt_token": 4e-7,
+                "completion_token": 0.0000019,
+                "cache_read_token": 8e-8
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
