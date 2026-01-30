@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -9,6 +9,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
 import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 
+const POLL_INTERVAL = 60 * 1000 // 60 seconds
+
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
     connect({
@@ -16,6 +18,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     actions({
         loadTickets: true,
+        startPolling: true,
+        stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
         loadMessages: (ticketId: string) => ({ ticketId }),
         setMessages: (messages: ChatMessage[]) => ({ messages }),
@@ -78,8 +82,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             },
         ],
     }),
-    selectors({}),
-    listeners(({ actions, values }) => ({
+    selectors({
+        totalUnreadCount: [(s) => [s.tickets], (tickets) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0)],
+    }),
+    listeners(({ actions, values, cache }) => ({
         loadTickets: async () => {
             if (!posthog.conversations) {
                 return
@@ -89,12 +95,35 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     actions.setTickets(response.results as ConversationTicket[])
+                    // Start polling only if user has tickets
+                    if (response.results.length > 0) {
+                        actions.startPolling()
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
                 lemonToast.error('Failed to load tickets. Please try again.')
             } finally {
                 actions.setTicketsLoading(false)
+            }
+        },
+        startPolling: () => {
+            // Only poll if page is visible
+            if (document.visibilityState !== 'visible') {
+                return
+            }
+            // Clear any existing poll timer
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+            }
+            cache.pollTimer = window.setTimeout(() => {
+                actions.loadTickets()
+            }, POLL_INTERVAL)
+        },
+        stopPolling: () => {
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+                cache.pollTimer = null
             }
         },
         loadMessages: async ({ ticketId }) => {
@@ -183,4 +212,24 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache }) => {
+        // Initial load
+        actions.loadTickets()
+
+        // Set up visibility change listener
+        cache.onVisibilityChange = (): void => {
+            if (document.visibilityState === 'visible') {
+                actions.loadTickets()
+            } else {
+                actions.stopPolling()
+            }
+        }
+        document.addEventListener('visibilitychange', cache.onVisibilityChange)
+    }),
+    beforeUnmount(({ actions, cache }) => {
+        actions.stopPolling()
+        if (cache.onVisibilityChange) {
+            document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        }
+    }),
 ])

@@ -31,40 +31,45 @@ export function createBatch<T extends DefaultContext>(items: T[]) {
 }
 
 /**
+ * Base context properties that are always present in pipeline context
+ */
+export type BasePipelineContext = {
+    lastStep?: string
+    sideEffects?: Promise<unknown>[]
+    warnings?: PipelineWarning[]
+}
+
+/**
  * Result type for createContext that represents the actual shape of the returned context
  */
 export type CreateContextResult<T, PartialContext> = {
     result: PipelineResult<T>
     context: {
-        message: Message
         lastStep: string | undefined
         sideEffects: Promise<unknown>[]
         warnings: PipelineWarning[]
-    } & Omit<PartialContext, 'message' | 'lastStep' | 'sideEffects' | 'warnings'>
+    } & PartialContext
 }
 
 /**
  * Helper function to create a PipelineResultWithContext from a result and partial context
  */
-export function createContext<T, PartialContext>(
+export function createContext<T, PartialContext extends Record<string, unknown> = Record<string, never>>(
     result: PipelineResult<T>,
-    partialContext: PartialContext & {
-        message: Message
-        lastStep?: string
-        sideEffects?: Promise<unknown>[]
-        warnings?: PipelineWarning[]
-    }
+    ...args: PartialContext extends Record<string, never>
+        ? [partialContext?: PartialContext & BasePipelineContext]
+        : [partialContext: PartialContext & BasePipelineContext]
 ): CreateContextResult<T, PartialContext> {
-    const { message, lastStep, sideEffects, warnings, ...rest } = partialContext
+    const partialContext = args[0] || ({} as PartialContext & BasePipelineContext)
+    const { lastStep, sideEffects, warnings, ...rest } = partialContext
     return {
         result,
         context: {
-            message: message,
             lastStep: lastStep,
             sideEffects: sideEffects || [],
             warnings: warnings || [],
             ...rest,
-        },
+        } as CreateContextResult<T, PartialContext>['context'],
     }
 }
 

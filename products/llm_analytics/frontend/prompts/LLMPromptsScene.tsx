@@ -34,7 +34,11 @@ export function LLMPromptsScene(): JSX.Element {
             width: '25%',
             render: function renderName(_, prompt) {
                 return (
-                    <Link to={urls.llmAnalyticsPrompt(prompt.id)} className="font-semibold">
+                    <Link
+                        to={urls.llmAnalyticsPrompt(prompt.id)}
+                        className="font-semibold"
+                        data-attr="prompt-name-link"
+                    >
                         {prompt.name}
                     </Link>
                 )
@@ -75,7 +79,7 @@ export function LLMPromptsScene(): JSX.Element {
                             <>
                                 <LemonButton
                                     to={urls.llmAnalyticsPrompt(prompt.id)}
-                                    data-attr={`prompt-item-${prompt.id}-dropdown-view`}
+                                    data-attr="prompt-dropdown-view"
                                     fullWidth
                                 >
                                     View
@@ -84,7 +88,7 @@ export function LLMPromptsScene(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
-                                    data-attr={`prompt-item-${prompt.id}-dropdown-delete`}
+                                    data-attr="prompt-dropdown-delete"
                                     fullWidth
                                 >
                                     Delete
