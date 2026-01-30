@@ -10,6 +10,7 @@ import { SDK, SDKKey, SDKTag } from '~/types'
 
 import { AnthropicLogo } from './logos/AnthropicLogo'
 import { AstroLogo } from './logos/AstroLogo'
+import { AutoGenLogo } from './logos/AutoGenLogo'
 import { BubbleLogo } from './logos/BubbleLogo'
 import { CrewAILogo } from './logos/CrewAILogo'
 import { DSPyLogo } from './logos/DSPyLogo'
@@ -17,13 +18,16 @@ import { FramerLogo } from './logos/FramerLogo'
 import { IOSLogo } from './logos/IOSLogo'
 import { InstructorLogo } from './logos/InstructorLogo'
 import { LangChainLogo } from './logos/LangChainLogo'
+import { LangGraphLogo } from './logos/LangGraphLogo'
 import { LlamaIndexLogo } from './logos/LlamaIndexLogo'
 import { OpenAILogo } from './logos/OpenAILogo'
 import { PydanticAILogo } from './logos/PydanticAILogo'
 import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import { RudderstackLogo } from './logos/RudderstackLogo'
+import { SemanticKernelLogo } from './logos/SemanticKernelLogo'
 import { SentryLogo } from './logos/SentryLogo'
+import { SmolagentsLogo } from './logos/SmolagentsLogo'
 import { VercelLogo } from './logos/VercelLogo'
 import { WordpressLogo } from './logos/WordpressLogo'
 import androidImage from './logos/android.svg'
@@ -43,6 +47,7 @@ import jsImage from './logos/javascript_web.svg'
 import langfuseImage from './logos/langfuse.svg'
 import laravelImage from './logos/laravel.svg'
 import litellmImage from './logos/litellm.png'
+import mastraImage from './logos/mastra.png'
 import moengageImage from './logos/moengage.png'
 import n8nImage from './logos/n8n.svg'
 import nextjsImage from './logos/nextjs.svg'
@@ -231,6 +236,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/langchain',
     },
     {
+        name: 'LangGraph',
+        key: SDKKey.LANGGRAPH,
+        tags: [SDKTag.LLM],
+        image: <LangGraphLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/langgraph',
+    },
+    {
         name: 'LiteLLM',
         key: SDKKey.LITELLM,
         tags: [],
@@ -278,6 +290,41 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.LLM],
         image: <DSPyLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/dspy',
+    },
+    {
+        name: 'AutoGen',
+        key: SDKKey.AUTOGEN,
+        tags: [SDKTag.LLM],
+        image: <AutoGenLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/autogen',
+    },
+    {
+        name: 'Semantic Kernel',
+        key: SDKKey.SEMANTIC_KERNEL,
+        tags: [SDKTag.LLM],
+        image: <SemanticKernelLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/semantic-kernel',
+    },
+    {
+        name: 'smolagents',
+        key: SDKKey.SMOLAGENTS,
+        tags: [SDKTag.LLM],
+        image: <SmolagentsLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/smolagents',
+    },
+    {
+        name: 'LangGraph',
+        key: SDKKey.LANGGRAPH,
+        tags: [SDKTag.LLM],
+        image: <LangGraphLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/langgraph',
+    },
+    {
+        name: 'Mastra',
+        key: SDKKey.MASTRA,
+        tags: [SDKTag.LLM],
+        image: mastraImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mastra',
     },
     {
         name: 'Manual Capture',

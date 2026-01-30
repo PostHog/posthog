@@ -4,17 +4,21 @@ import { NotableGenerationProperties } from '@posthog/shared-onboarding/llm-anal
 import { SpanEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/span-event'
 import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/trace-event'
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
+import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/autogen'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
 import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
 import { GoogleInstallation } from '@posthog/shared-onboarding/llm-analytics/google'
 import { InstructorInstallation } from '@posthog/shared-onboarding/llm-analytics/instructor'
 import { LangChainInstallation } from '@posthog/shared-onboarding/llm-analytics/langchain'
+import { LangGraphInstallation } from '@posthog/shared-onboarding/llm-analytics/langgraph'
 import { LiteLLMInstallation } from '@posthog/shared-onboarding/llm-analytics/litellm'
 import { LlamaIndexInstallation } from '@posthog/shared-onboarding/llm-analytics/llamaindex'
 import { ManualInstallation } from '@posthog/shared-onboarding/llm-analytics/manual'
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
 import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
+import { SemanticKernelInstallation } from '@posthog/shared-onboarding/llm-analytics/semantic-kernel'
+import { SmolagentsInstallation } from '@posthog/shared-onboarding/llm-analytics/smolagents'
 import { VercelAIInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
@@ -88,6 +92,22 @@ const LLMDSPyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DSPyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMAutoGenInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AutoGenInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMSemanticKernelInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SemanticKernelInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMSmolagentsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SmolagentsInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLangGraphInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LangGraphInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
@@ -102,5 +122,9 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYDANTIC_AI]: LLMPydanticAIInstructionsWrapper,
     [SDKKey.LLAMAINDEX]: LLMLlamaIndexInstructionsWrapper,
     [SDKKey.DSPY]: LLMDSPyInstructionsWrapper,
+    [SDKKey.AUTOGEN]: LLMAutoGenInstructionsWrapper,
+    [SDKKey.SEMANTIC_KERNEL]: LLMSemanticKernelInstructionsWrapper,
+    [SDKKey.SMOLAGENTS]: LLMSmolagentsInstructionsWrapper,
+    [SDKKey.LANGGRAPH]: LLMLangGraphInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }
