@@ -115,7 +115,8 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             ),
         },
         {
-            title: 'Create a recording',
+            title: 'Watch session recordings',
+            badge: 'recommended',
             content: <>{SessionReplayFinalSteps && <SessionReplayFinalSteps />}</>,
         },
     ]
