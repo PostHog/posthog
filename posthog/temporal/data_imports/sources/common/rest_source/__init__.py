@@ -97,7 +97,7 @@ def create_resources(
     # Process each resource
     for resource_kwargs in resource_list:
         if isinstance(resource_kwargs, dict):
-            resource_kwargs = cast(EndpointResource, update_dict_nested({}, resource_kwargs))
+            resource_kwargs = cast(EndpointResource, update_dict_nested({}, dict(resource_kwargs)))
 
         endpoint_resource = _make_endpoint_resource(resource_kwargs, resource_defaults)
         assert isinstance(endpoint_resource["endpoint"], dict)
@@ -126,7 +126,10 @@ def create_resources(
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))
-        columns_config = endpoint_resource.get("columns")
+        columns_config_raw = endpoint_resource.get("columns")
+        columns_config: Optional[dict[str, dict[str, Any]]] = (
+            columns_config_raw if isinstance(columns_config_raw, dict) else None
+        )
 
         # Create resource generator
         def make_resource(

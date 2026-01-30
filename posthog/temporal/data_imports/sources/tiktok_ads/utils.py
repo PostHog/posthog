@@ -411,7 +411,8 @@ class TikTokAdsAuth(AuthConfigBase):
     'Authorization: Bearer' pattern, so we can't use dlt's built-in BearerTokenAuth.
     """
 
-    access_token: str = None
+    def __init__(self, access_token: str):
+        self.access_token = access_token
 
     def parse_native_representation(self, value: Any) -> None:
         if isinstance(value, str):

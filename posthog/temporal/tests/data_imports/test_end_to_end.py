@@ -3023,6 +3023,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
+        mock.patch("posthog.temporal.data_imports.external_data_job.start_child_workflow"),
     ):
         _, inputs = await _run(
             team=team,

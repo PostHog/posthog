@@ -42,10 +42,10 @@ def _convert_type_for_delta(arrow_type: pa.DataType) -> pa.DataType:
     # Nanosecond timestamps -> microseconds
     if pa.types.is_timestamp(arrow_type):
         if arrow_type.unit == "ns":  # type: ignore[attr-defined]
-            return pa.timestamp("us", tz=arrow_type.tz)  # type: ignore[attr-defined,arg-type]
+            return pa.timestamp("us", tz=arrow_type.tz)  # type: ignore[attr-defined]
         if arrow_type.unit == "s" or arrow_type.unit == "ms":  # type: ignore[attr-defined]
             # Upscale to microseconds
-            return pa.timestamp("us", tz=arrow_type.tz)  # type: ignore[attr-defined,arg-type]
+            return pa.timestamp("us", tz=arrow_type.tz)  # type: ignore[attr-defined]
 
     # Large types -> standard types
     if pa.types.is_large_string(arrow_type):

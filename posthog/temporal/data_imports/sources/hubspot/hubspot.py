@@ -73,18 +73,26 @@ def hubspot(
 
     responses = []
     for endpoint in endpoints:
+        obj_type: str = OBJECT_TYPE_SINGULAR[endpoint]
+        props: Sequence[str] = DEFAULT_PROPS[endpoint]
+
+        def make_items(
+            obj_type: str = obj_type, props: Sequence[str] = props
+        ) -> Iterator[list[dict[str, Any]]]:
+            return crm_objects(
+                object_type=obj_type,
+                api_key=api_key,
+                refresh_token=refresh_token,
+                include_history=include_history,
+                props=props,
+                include_custom_props=True,
+                logger=logger,
+            )
+
         responses.append(
             SourceResponse(
                 name=endpoint,
-                items=lambda obj_type=OBJECT_TYPE_SINGULAR[endpoint], props=DEFAULT_PROPS[endpoint]: crm_objects(
-                    object_type=obj_type,
-                    api_key=api_key,
-                    refresh_token=refresh_token,
-                    include_history=include_history,
-                    props=props,
-                    include_custom_props=True,
-                    logger=logger,
-                ),
+                items=make_items,
                 primary_keys=["id"],
                 column_hints=None,
                 partition_count=None,

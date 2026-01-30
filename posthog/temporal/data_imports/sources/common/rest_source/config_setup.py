@@ -399,7 +399,7 @@ def process_parent_data_item(
 
 def _merge_resource_endpoints(default_config: EndpointResourceBase, config: EndpointResource) -> EndpointResource:
     """Merges `default_config` and `config`, returns new instance of EndpointResource"""
-    default_endpoint = default_config.get("endpoint", {})
+    default_endpoint: Endpoint = default_config.get("endpoint", {})
     assert isinstance(default_endpoint, dict)
     config_endpoint = config["endpoint"]
     assert isinstance(config_endpoint, dict)
