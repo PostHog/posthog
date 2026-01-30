@@ -4,7 +4,7 @@ use futures::StreamExt;
 use object_store::aws::AmazonS3Builder;
 use object_store::buffered::BufWriter;
 use object_store::path::Path as ObjectPath;
-use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
+use object_store::{ClientOptions, ObjectStore, ObjectStoreExt, PutPayload};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -22,10 +22,16 @@ pub struct S3Uploader {
 
 impl S3Uploader {
     pub async fn new(config: CheckpointConfig) -> Result<Self> {
+        // Per-request timeout (analogous to operation_attempt_timeout in aws_sdk_s3)
+        let client_options = ClientOptions::new().with_timeout(config.s3_attempt_timeout);
+
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(&config.s3_bucket)
+            .with_client_options(client_options)
             .with_retry(object_store::RetryConfig {
                 max_retries: 3,
+                // Total retry budget (analogous to operation_timeout in aws_sdk_s3)
+                retry_timeout: config.s3_operation_timeout,
                 ..Default::default()
             });
 
