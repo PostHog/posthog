@@ -3,7 +3,7 @@ import './Variables.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
+import { IconCodeInsert, IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -11,8 +11,8 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
-    Link,
     Popover,
+    lemonToast,
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -320,18 +320,6 @@ export const VariableComponent = ({
 
     const tooltip = (
         <div className="flex flex-col gap-1">
-            <span>
-                Use this variable in your HogQL by referencing <code>{variableAsHogQL}</code>
-                {onInsertAtCursor && (
-                    <>
-                        {' '}
-                        or{' '}
-                        <Link subtle onClick={() => onInsertAtCursor(variableAsHogQL)}>
-                            insert at cursor.
-                        </Link>
-                    </>
-                )}
-            </span>
             {insightsUsingVariable && insightsUsingVariable.length > 0 && (
                 <span>Insights using this variable: {insightsUsingVariable.join(', ')}</span>
             )}
@@ -376,20 +364,55 @@ export const VariableComponent = ({
             className="DataVizVariable_Popover"
         >
             <div>
-                <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
-                    <LemonButton
-                        type="secondary"
-                        className="min-w-32 DataVizVariable_Button"
-                        onClick={() => setPopoverOpen(!isPopoverOpen)}
-                        disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                        size={size}
-                    >
-                        {variable.isNull
-                            ? 'Set to null'
-                            : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
-                              ? emptyState
-                              : (variable.value?.toString() ?? variable.default_value?.toString())}
-                    </LemonButton>
+                <LemonField.Pure label={variable.name} className="gap-0">
+                    <div className="flex gap-x-2">
+                        <LemonButton
+                            type="secondary"
+                            className="min-w-32 DataVizVariable_Button"
+                            onClick={() => setPopoverOpen(!isPopoverOpen)}
+                            disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                            size={size}
+                        >
+                            {variable.isNull
+                                ? 'Set to null'
+                                : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
+                                  ? emptyState
+                                  : (variable.value?.toString() ?? variable.default_value?.toString())}
+                        </LemonButton>
+                        <LemonButton
+                            icon={<IconCopy />}
+                            onClick={() => {
+                                navigator.clipboard.writeText(variableAsHogQL)
+                                lemonToast.success(
+                                    <span>
+                                        <code className="text-sm">{variableAsHogQL}</code> copied to clipboard. Use it
+                                        anywhere in HogQL.
+                                    </span>
+                                )
+                            }}
+                            type="secondary"
+                            tooltip="Copy variable HogQL"
+                            noPadding
+                            size="small"
+                        />
+                        {onInsertAtCursor && (
+                            <LemonButton
+                                icon={<IconCodeInsert />}
+                                onClick={() => {
+                                    onInsertAtCursor(variableAsHogQL)
+                                    lemonToast.success(
+                                        <span>
+                                            <code className="text-sm">{variableAsHogQL}</code> inserted into query.
+                                        </span>
+                                    )
+                                }}
+                                type="secondary"
+                                tooltip="Insert into query at cursor"
+                                noPadding
+                                size="small"
+                            />
+                        )}
+                    </div>
                 </LemonField.Pure>
             </div>
         </Popover>
