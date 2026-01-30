@@ -210,7 +210,6 @@ pub async fn do_team_lookups(
                 if maybe_team.is_none() {
                     warn!("Received event for unknown team token: {}", token);
                 }
-                // Set ingested_event=true for this team if not already set
                 if let Some(ref team) = maybe_team {
                     if !team.ingested_event {
                         // Fire and forget - we don't want to fail the pipeline if this fails
