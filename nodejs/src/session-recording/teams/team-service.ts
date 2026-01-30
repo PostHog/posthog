@@ -8,7 +8,7 @@ import { TeamForReplay } from './types'
 
 export class TeamService {
     private readonly teamRefresher: BackgroundRefresher<
-        [Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>]
+        [Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>, Record<TeamId, boolean>]
     >
 
     constructor(private postgres: PostgresRouter) {
@@ -45,8 +45,13 @@ export class TeamService {
         return retentionPeriod
     }
 
+    public async getEncryptionEnabledByTeamId(teamId: TeamId): Promise<boolean> {
+        const encryptionMap = (await this.teamRefresher.get())[2]
+        return encryptionMap[teamId] ?? false
+    }
+
     private async fetchTeamTokensWithRecordings(): Promise<
-        [Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>]
+        [Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>, Record<TeamId, boolean>]
     > {
         return fetchTeamTokensWithRecordings(this.postgres)
     }
@@ -54,16 +59,17 @@ export class TeamService {
 
 export async function fetchTeamTokensWithRecordings(
     client: PostgresRouter
-): Promise<[Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>]> {
+): Promise<[Record<string, TeamForReplay>, Record<TeamId, RetentionPeriod>, Record<TeamId, boolean>]> {
     const selectResult = await client.query<
-        { capture_console_log_opt_in: boolean; session_recording_retention_period: RetentionPeriod } & Pick<
-            Team,
-            'id' | 'api_token'
-        >
+        {
+            capture_console_log_opt_in: boolean
+            session_recording_retention_period: RetentionPeriod
+            session_recording_encryption: boolean | null
+        } & Pick<Team, 'id' | 'api_token'>
     >(
         PostgresUse.COMMON_READ,
         `
-            SELECT id, api_token, capture_console_log_opt_in, session_recording_retention_period
+            SELECT id, api_token, capture_console_log_opt_in, session_recording_retention_period, session_recording_encryption
             FROM posthog_team
             WHERE session_recording_opt_in = true
         `,
@@ -90,7 +96,15 @@ export async function fetchTeamTokensWithRecordings(
         {} as Record<TeamId, RetentionPeriod>
     )
 
+    const encryptionMap = selectResult.rows.reduce(
+        (acc, row) => {
+            acc[row.id] = row.session_recording_encryption ?? false
+            return acc
+        },
+        {} as Record<TeamId, boolean>
+    )
+
     TeamServiceMetrics.incrementRefreshCount()
 
-    return [tokenMap, retentionMap]
+    return [tokenMap, retentionMap, encryptionMap]
 }
