@@ -1,4 +1,3 @@
-
 # Lazy preaggregation
 
 Lazy preaggregation speeds up queries by saving and reusing intermediate aggregated results. Instead of scanning the raw events table on every query, we compute aggregated data once and reuse it for subsequent queries with the same shape.
@@ -7,8 +6,8 @@ Lazy preaggregation speeds up queries by saving and reusing intermediate aggrega
 
 There are two ways that this can work:
 
-* Automatically transforming HogQL queries
-* Manual API for query runners to consume
+- Automatically transforming HogQL queries
+- Manual API for query runners to consume
 
 ### Automatic HogQL transformation
 
@@ -98,7 +97,7 @@ query = parse_select(
 
 ## Limitations
 
-* Automatic transformation only supports very specific query patterns
-* Person merges and late-arriving events can cause stale data
-* Running the executor and then reading back the results takes about 30% longer than just reading results
-* Storing intermediate results takes space, we can't just YOLO this
+- Automatic transformation only supports very specific query patterns
+- Person merges and late-arriving events can cause stale data
+- Running the executor and then reading back the results takes about 30% longer than just reading results
+- Storing intermediate results takes space, we can't just YOLO this
