@@ -153,6 +153,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "docker-compose":
                 proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
+            # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
+            if name == "nodejs":
+                proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -211,6 +215,43 @@ class MprocsGenerator(ConfigGenerator):
         return {
             "shell": f"{message}{up_cmd} && {logs_cmd}",
         }
+
+    def _add_nodejs_capability_groups(
+        self, proc_config: dict[str, Any], resolved: ResolvedEnvironment
+    ) -> dict[str, Any]:
+        """Add NODEJS_CAPABILITY_GROUPS env var based on resolved nodejs_* capabilities.
+
+        Maps intent-map.yaml capabilities to Node.js capability groups
+        """
+        # Map from intent-map capability names to Node.js capability group names
+        capability_mapping = {
+            "nodejs_cdp": "cdp",
+            "nodejs_cdp_workflows": "cdp_workflows",
+            "nodejs_realtime_cohorts": "realtime_cohorts",
+            "nodejs_session_replay": "session_replay",
+            "nodejs_logs": "logs",
+            "nodejs_feature_flags": "feature_flags",
+        }
+
+        # Find which nodejs capabilities are in the resolved capabilities
+        enabled_groups = []
+        for cap_name, group_name in capability_mapping.items():
+            if cap_name in resolved.capabilities:
+                enabled_groups.append(group_name)
+
+        # If no specific groups are enabled, don't set the env var (use default behavior)
+        if not enabled_groups:
+            return proc_config
+
+        # Build the env var value
+        groups_value = ",".join(enabled_groups)
+
+        # Prepend the env var export to the shell command
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            proc_config["shell"] = f"export NODEJS_CAPABILITY_GROUPS='{groups_value}' && {original_shell}"
+
+        return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
         """Wrap shell command to log output to /tmp/posthog-{name}.log.
