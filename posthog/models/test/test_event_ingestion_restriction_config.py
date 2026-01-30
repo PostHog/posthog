@@ -786,7 +786,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         # Verify the old key has data
         old_redis_data = self.redis_client.get(old_redis_key)
         self.assertIsNotNone(old_redis_data)
-        data = json.loads(old_redis_data)
+        data = json.loads(old_redis_data if old_redis_data is not None else b"[]")
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["token"], "test_token")
 
@@ -801,7 +801,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         # The new key should now have the config
         new_redis_data = self.redis_client.get(new_redis_key)
         self.assertIsNotNone(new_redis_data)
-        data = json.loads(new_redis_data)
+        data = json.loads(new_redis_data if new_redis_data is not None else b"[]")
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["token"], "test_token")
 
