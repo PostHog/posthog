@@ -525,7 +525,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -537,7 +537,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_transformation_function: {
         name: 'Write and tweak Hog code',
         description: 'Write and tweak Hog code of transformations',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -549,7 +549,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_inputs: {
         name: 'Manage function variables',
         description: 'Manage function variables in Hog functions',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {

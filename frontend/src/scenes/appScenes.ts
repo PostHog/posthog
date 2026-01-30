@@ -25,7 +25,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
-    [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
     [Scene.DataWarehouseSourceNew]: () => import('./data-warehouse/new/NewSourceWizard'),
     [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/DataWarehouseScene'),

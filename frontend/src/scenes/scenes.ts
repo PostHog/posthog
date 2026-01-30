@@ -19,7 +19,6 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
-import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 
 // Lazy load scene panel components
@@ -131,14 +130,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Data management',
         defaultDocsPath: '/docs/data',
-    },
-
-    [Scene.DataPipelines]: {
-        name: 'Data pipelines',
-        description: 'Ingest, transform, and send data between hundreds of tools.',
-        activityScope: ActivityScope.HOG_FUNCTION,
-        defaultDocsPath: '/docs/cdp',
-        iconType: 'data_pipeline',
     },
     [Scene.DataPipelinesNew]: {
         projectBased: true,
@@ -622,7 +613,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     ...productConfiguration,
 }
 
-const redirectPipeline = (stage: DataPipelinesSceneTab | 'site_apps', id: string): string => {
+const redirectPipeline = (id: string, fallbackUrl: string): string => {
     // Hog functions (destinations & transformations)
     if (id.startsWith('hog-')) {
         return urls.hogFunction(id.replace('hog-', ''))
@@ -640,19 +631,7 @@ const redirectPipeline = (stage: DataPipelinesSceneTab | 'site_apps', id: string
         return urls.dataWarehouseSource(id)
     }
     // Fallback to list view
-    if (stage === 'sources') {
-        return urls.sources()
-    }
-    if (stage === 'destinations') {
-        return urls.destinations()
-    }
-    if (stage === 'transformations') {
-        return urls.transformations()
-    }
-    if (stage === 'site_apps') {
-        return urls.apps()
-    }
-    return urls.dataPipelines(stage)
+    return fallbackUrl
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
@@ -669,12 +648,12 @@ export const redirects: Record<
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
-    '/batch_exports': urls.dataPipelines('destinations'),
+    '/batch_exports': urls.destinations(),
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
-    '/data-management/database': urls.dataPipelines('sources'),
-    '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-management/database': urls.sources(),
+    '/data-pipelines': urls.sources(),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) =>
@@ -717,23 +696,23 @@ export const redirects: Record<
     '/live-debugger': urls.liveDebugger(),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
-    '/pipeline': urls.dataPipelines('overview'),
-    '/pipelines': urls.dataPipelines('overview'),
+    '/pipeline': urls.sources(),
+    '/pipelines': urls.sources(),
     '/pipeline/new/site-app': urls.appsNew(),
     '/pipeline/site_apps': urls.apps(),
     '/pipeline/site-apps': urls.apps(),
-    '/pipeline/sources/:id': ({ id }) => redirectPipeline('sources', id),
-    '/pipeline/destinations/:id': ({ id }) => redirectPipeline('destinations', id),
-    '/pipeline/transformations/:id': ({ id }) => redirectPipeline('transformations', id),
-    '/pipeline/site-apps/:id': ({ id }) => redirectPipeline('site_apps', id),
-    '/pipeline/sources/:id/:tab': ({ id }) => redirectPipeline('sources', id),
-    '/pipeline/destinations/:id/:tab': ({ id }) => redirectPipeline('destinations', id),
-    '/pipeline/site-apps/:id/:tab': ({ id }) => redirectPipeline('site_apps', id),
-    '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline('transformations', id),
+    '/pipeline/sources/:id': ({ id }) => redirectPipeline(id, urls.sources()),
+    '/pipeline/destinations/:id': ({ id }) => redirectPipeline(id, urls.destinations()),
+    '/pipeline/transformations/:id': ({ id }) => redirectPipeline(id, urls.transformations()),
+    '/pipeline/site-apps/:id': ({ id }) => redirectPipeline(id, urls.apps()),
+    '/pipeline/sources/:id/:tab': ({ id }) => redirectPipeline(id, urls.sources()),
+    '/pipeline/destinations/:id/:tab': ({ id }) => redirectPipeline(id, urls.destinations()),
+    '/pipeline/site-apps/:id/:tab': ({ id }) => redirectPipeline(id, urls.apps()),
+    '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline(id, urls.transformations()),
     '/pipeline/destinations': urls.destinations(),
     '/pipeline/sources': urls.sources(),
     '/pipeline/transformations': urls.transformations(),
-    '/pipeline/data-import': urls.dataPipelines('sources'),
+    '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
@@ -917,7 +896,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
-    [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],

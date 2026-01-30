@@ -15,7 +15,6 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
-import { DataPipelinesSceneTab } from 'scenes/data-pipelines/DataPipelinesScene'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
     HogFunctionConfigurationLogicProps,
@@ -49,11 +48,11 @@ import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
-const DataPipelinesSceneMapping: Partial<Record<HogFunctionTypeType, DataPipelinesSceneTab>> = {
-    transformation: 'transformations',
-    destination: 'destinations',
-    site_destination: 'destinations',
-    source_webhook: 'sources',
+const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
+    transformation: { scene: Scene.Transformations, url: urls.transformations },
+    destination: { scene: Scene.Destinations, url: urls.destinations },
+    site_destination: { scene: Scene.Destinations, url: urls.destinations },
+    source_webhook: { scene: Scene.Sources, url: urls.sources },
 }
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
@@ -147,22 +146,14 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     ]
                 }
 
-                const pipelineTab = DataPipelinesSceneMapping[type]
+                const sceneMapping = HogFunctionSceneMapping[type]
 
-                if (pipelineTab) {
+                if (sceneMapping) {
                     return [
                         {
-                            key: Scene.DataPipelines,
-                            name: 'Data pipelines',
-                            path: urls.dataPipelines('overview'),
-                            iconType: 'data_pipeline',
-                        },
-                        {
-                            key: [Scene.DataPipelines, pipelineTab],
+                            key: sceneMapping.scene,
                             name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
-                            path: id
-                                ? urls.dataPipelines(pipelineTab)
-                                : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
+                            path: id ? sceneMapping.url() : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,

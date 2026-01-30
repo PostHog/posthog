@@ -31,7 +31,6 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
-    DataPipelines = 'DataPipelines',
     DataPipelinesNew = 'DataPipelinesNew',
     DataWarehouse = 'DataWarehouse',
     DataWarehouseRedirect = 'DataWarehouseRedirect',

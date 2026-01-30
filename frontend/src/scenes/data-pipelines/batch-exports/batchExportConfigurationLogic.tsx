@@ -1162,7 +1162,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             try {
                 await api.batchExports.delete(batchExportId)
                 lemonToast.success('Batch export deleted successfully')
-                router.actions.replace(urls.dataPipelines('destinations'))
+                router.actions.replace(urls.destinations())
             } catch (error: any) {
                 // Show error toast with the error message from the API
                 const errorMessage = error.detail || error.message || 'Failed to delete'
