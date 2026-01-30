@@ -1015,9 +1015,20 @@ class SessionRecordingViewSet(
                     decompress=decompress,
                 )
             elif source == "blob_v2_lts" and "blob_key" in validated_data:
-                response = self._stream_lts_blob_v2_to_client(
-                    blob_key=validated_data["blob_key"], decompress=decompress
-                )
+                if not recording.full_recording_v2_path:
+                    raise exceptions.NotFound("Recording not found")
+                expected_blob_key = urlparse(recording.full_recording_v2_path).path.lstrip("/")
+                provided_blob_key = validated_data["blob_key"].lstrip("/")
+                if provided_blob_key != expected_blob_key:
+                    logger.warning(
+                        "blob_key_mismatch_for_lts_recording",
+                        team_id=self.team_id,
+                        session_id=recording.session_id,
+                        provided_blob_key=provided_blob_key,
+                        expected_blob_key=expected_blob_key,
+                    )
+                    raise exceptions.NotFound("Recording not found")
+                response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
                 response = self._gather_session_recording_sources(recording, timer)
 
