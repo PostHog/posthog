@@ -3,20 +3,18 @@ import { OnboardingComponentsContext } from 'scenes/onboarding/OnboardingDocsCon
 import { StepDefinition } from '../../steps'
 
 export function createSessionReplayStepsFromPA(
-    getStepsPA: (ctx: OnboardingComponentsContext) => StepDefinition[],
+    getClientStepsPA: (ctx: OnboardingComponentsContext) => StepDefinition[],
     ctx: OnboardingComponentsContext
 ): StepDefinition[] {
     const { snippets } = ctx
     const SessionReplayFinalSteps = snippets?.SessionReplayFinalSteps
 
-    return getStepsPA(ctx).map((step) => {
-        if (step.title === 'Send events') {
-            return {
-                ...step,
-                title: 'Create a recording',
-                content: <>{SessionReplayFinalSteps && <SessionReplayFinalSteps />}</>,
-            }
-        }
-        return step
-    })
+    return [
+        ...getClientStepsPA(ctx),
+        {
+            title: 'Watch session recordings',
+            badge: 'recommended',
+            content: <>{SessionReplayFinalSteps && <SessionReplayFinalSteps />}</>,
+        },
+    ]
 }

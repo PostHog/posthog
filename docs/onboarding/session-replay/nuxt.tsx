@@ -1,6 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-import { getNuxtSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
+import { getNuxtClientSteps as getNuxtStepsPA } from '../product-analytics/nuxt'
 import { StepDefinition } from '../steps'
 import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
 
