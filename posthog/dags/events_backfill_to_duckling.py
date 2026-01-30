@@ -292,13 +292,39 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     ).result()
 
 
+def _validate_identifier(identifier: str) -> None:
+    """Validate that an identifier is safe for SQL interpolation.
+
+    Only allows alphanumeric characters and underscores to prevent SQL injection.
+    """
+    if not identifier.replace("_", "").isalnum():
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+
+
 def table_exists(
     conn: duckdb.DuckDBPyConnection,
     catalog_alias: str,
     schema: str,
     table: str,
 ) -> bool:
-    """Check if a table exists in the DuckLake catalog."""
+    """Check if a table exists in the DuckLake catalog.
+
+    Args:
+        conn: DuckDB connection with catalog already attached
+        catalog_alias: Catalog alias (must be alphanumeric/underscore only)
+        schema: Schema name (must be alphanumeric/underscore only)
+        table: Table name (must be alphanumeric/underscore only)
+
+    Returns:
+        True if the table exists, False otherwise.
+
+    Raises:
+        ValueError: If any identifier contains invalid characters.
+    """
+    _validate_identifier(catalog_alias)
+    _validate_identifier(schema)
+    _validate_identifier(table)
+
     try:
         conn.execute(f"DESCRIBE {catalog_alias}.{schema}.{table}")
         return True
@@ -325,8 +351,10 @@ def ensure_events_table_exists(
         try:
             attach_catalog(conn, catalog_config, alias=alias)
         except duckdb.CatalogException as exc:
+            # Catalog may already be attached from a previous operation in this session
             if alias not in str(exc):
                 raise
+            context.log.debug(f"Catalog '{alias}' already attached, continuing")
 
         if table_exists(conn, alias, "main", "events"):
             context.log.info("Events table already exists in duckling catalog")
@@ -366,8 +394,10 @@ def ensure_persons_table_exists(
         try:
             attach_catalog(conn, catalog_config, alias=alias)
         except duckdb.CatalogException as exc:
+            # Catalog may already be attached from a previous operation in this session
             if alias not in str(exc):
                 raise
+            context.log.debug(f"Catalog '{alias}' already attached, continuing")
 
         if table_exists(conn, alias, "main", "persons"):
             context.log.info("Persons table already exists in duckling catalog")
