@@ -59,6 +59,7 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { HomeTab } from 'scenes/saved-insights/HomeTab'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -1135,6 +1136,7 @@ export function SavedInsights(): JSX.Element {
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
+                    { key: SavedInsightsTabs.Home, label: 'Home' },
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     {
                         key: SavedInsightsTabs.Alerts,
@@ -1145,7 +1147,9 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.History ? (
+            {tab === SavedInsightsTabs.Home ? (
+                <HomeTab />
+            ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
             ) : tab === SavedInsightsTabs.Alerts ? (
                 <Alerts alertId={alertModalId} />

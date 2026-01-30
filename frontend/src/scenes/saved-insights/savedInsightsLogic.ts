@@ -61,7 +61,7 @@ export interface SavedInsightFilters {
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
-        tab: values.tab || SavedInsightsTabs.All,
+        tab: values.tab || SavedInsightsTabs.Home,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
         createdBy: values.createdBy || 'All users',

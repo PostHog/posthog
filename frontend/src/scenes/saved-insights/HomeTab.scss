@@ -1,0 +1,19 @@
+.HomeTab {
+    padding: 1rem 0;
+
+    &__grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+
+        @media (min-width: 768px) {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    &__card {
+        display: flex;
+        flex-direction: column;
+        min-height: 300px;
+    }
+}
