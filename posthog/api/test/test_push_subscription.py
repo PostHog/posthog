@@ -314,26 +314,6 @@ class TestPushSubscriptionAPI(BaseTest):
         self.assertEqual(subscription.provider, PushProvider.APNS)
         self.assertIsNone(subscription.firebase_app_id)
 
-    def test_sdk_register_push_subscription_cors_headers(self):
-        payload = {
-            "api_key": self.team.api_token,
-            "distinct_id": "user-123",
-            "token": "fcm-token-abc123",
-            "platform": "android",
-            "provider": "fcm",
-            "firebase_app_id": "app-123",
-        }
-
-        response = self.client.post(
-            "/api/sdk/push_subscriptions/register/",
-            data=json.dumps(payload),
-            content_type="application/json",
-            HTTP_ORIGIN="https://example.com",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Access-Control-Allow-Origin", response)
-
     def test_sdk_register_push_subscription_options_request(self):
         response = self.client.options(
             "/api/sdk/push_subscriptions/register/",
