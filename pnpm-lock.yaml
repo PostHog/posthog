@@ -1378,12 +1378,6 @@ importers:
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
-      puppeteer:
-        specifier: ^24.35.0
-        version: 24.36.0(typescript@5.4.5)
-      puppeteer-screen-recorder:
-        specifier: ^3.0.6
-        version: 3.0.6(puppeteer@24.36.0(typescript@5.4.5))
       re2:
         specifier: ^1.22.1
         version: 1.22.1
@@ -32480,7 +32474,7 @@ snapshots:
       http-errors: 2.0.0
       iconv-lite: 0.6.3
       on-finished: 2.4.1
-      qs: 6.14.0
+      qs: 6.14.1
       raw-body: 3.0.1
       type-is: 2.0.1
     transitivePeerDependencies:
@@ -34770,7 +34764,7 @@ snapshots:
       once: 1.4.0
       parseurl: 1.3.3
       proxy-addr: 2.0.7
-      qs: 6.14.0
+      qs: 6.14.1
       range-parser: 1.2.1
       router: 2.2.0
       send: 1.2.0
