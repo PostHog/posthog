@@ -11,10 +11,15 @@ import { SDK, SDKKey, SDKTag } from '~/types'
 import { AnthropicLogo } from './logos/AnthropicLogo'
 import { AstroLogo } from './logos/AstroLogo'
 import { BubbleLogo } from './logos/BubbleLogo'
+import { CrewAILogo } from './logos/CrewAILogo'
+import { DSPyLogo } from './logos/DSPyLogo'
 import { FramerLogo } from './logos/FramerLogo'
 import { IOSLogo } from './logos/IOSLogo'
+import { InstructorLogo } from './logos/InstructorLogo'
 import { LangChainLogo } from './logos/LangChainLogo'
+import { LlamaIndexLogo } from './logos/LlamaIndexLogo'
 import { OpenAILogo } from './logos/OpenAILogo'
+import { PydanticAILogo } from './logos/PydanticAILogo'
 import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import { RudderstackLogo } from './logos/RudderstackLogo'
@@ -238,6 +243,41 @@ export const ALL_SDKS: SDK[] = [
         tags: [],
         image: openrouterImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
+    },
+    {
+        name: 'Instructor',
+        key: SDKKey.INSTRUCTOR,
+        tags: [SDKTag.LLM],
+        image: <InstructorLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/instructor',
+    },
+    {
+        name: 'CrewAI',
+        key: SDKKey.CREWAI,
+        tags: [SDKTag.LLM],
+        image: <CrewAILogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/crewai',
+    },
+    {
+        name: 'Pydantic AI',
+        key: SDKKey.PYDANTIC_AI,
+        tags: [SDKTag.LLM],
+        image: <PydanticAILogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/pydantic-ai',
+    },
+    {
+        name: 'LlamaIndex',
+        key: SDKKey.LLAMAINDEX,
+        tags: [SDKTag.LLM],
+        image: <LlamaIndexLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/llamaindex',
+    },
+    {
+        name: 'DSPy',
+        key: SDKKey.DSPY,
+        tags: [SDKTag.LLM],
+        image: <DSPyLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dspy',
     },
     {
         name: 'Manual Capture',

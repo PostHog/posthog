@@ -4,12 +4,17 @@ import { NotableGenerationProperties } from '@posthog/shared-onboarding/llm-anal
 import { SpanEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/span-event'
 import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/trace-event'
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
+import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
+import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
 import { GoogleInstallation } from '@posthog/shared-onboarding/llm-analytics/google'
+import { InstructorInstallation } from '@posthog/shared-onboarding/llm-analytics/instructor'
 import { LangChainInstallation } from '@posthog/shared-onboarding/llm-analytics/langchain'
 import { LiteLLMInstallation } from '@posthog/shared-onboarding/llm-analytics/litellm'
+import { LlamaIndexInstallation } from '@posthog/shared-onboarding/llm-analytics/llamaindex'
 import { ManualInstallation } from '@posthog/shared-onboarding/llm-analytics/manual'
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
+import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
 import { VercelAIInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
@@ -63,6 +68,26 @@ const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VercelAIInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMInstructorInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: InstructorInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCrewAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CrewAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMPydanticAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PydanticAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLlamaIndexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LlamaIndexInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDSPyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DSPyInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
@@ -72,5 +97,10 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
     [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,
     [SDKKey.OPENROUTER]: LLMOpenRouterInstructionsWrapper,
+    [SDKKey.INSTRUCTOR]: LLMInstructorInstructionsWrapper,
+    [SDKKey.CREWAI]: LLMCrewAIInstructionsWrapper,
+    [SDKKey.PYDANTIC_AI]: LLMPydanticAIInstructionsWrapper,
+    [SDKKey.LLAMAINDEX]: LLMLlamaIndexInstructionsWrapper,
+    [SDKKey.DSPY]: LLMDSPyInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }
