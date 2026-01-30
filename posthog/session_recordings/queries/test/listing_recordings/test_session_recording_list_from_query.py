@@ -2905,7 +2905,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         user = "test_library_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-        session_id_one = "session one id"
+        session_id_one = f"test_library_filter-{str(uuid4())}"
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
@@ -2913,7 +2913,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             snapshot_library="posthog-ios",
         )
 
-        session_id_two = "session two id"
+        session_id_two = f"test_library_filter-{str(uuid4())}"
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_two,
