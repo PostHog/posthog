@@ -10,10 +10,10 @@ use crate::{
     config::Config,
     error::{PipelineFailure, UnhandledError},
     fingerprinting::grouping_rules::GroupingRule,
-    metric_consts::{ANCILLARY_CACHE, TEAM_FIRST_INGESTION_SET},
+    metric_consts::ANCILLARY_CACHE,
     pipeline::IncomingEvent,
     sanitize_string, WithIndices,
-};
+};              
 
 pub struct TeamManager {
     pub token_cache: Cache<String, Option<Team>>,
@@ -161,8 +161,6 @@ impl TeamManager {
         )
         .execute(e)
         .await?;
-
-        metrics::counter!(TEAM_FIRST_INGESTION_SET).increment(1);
 
         Ok(())
     }
