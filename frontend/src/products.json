@@ -189,7 +189,7 @@
             "intents": []
         },
         {
-            "path": "Ingestion warnings",
+            "path": "Event ingestion warnings",
             "category": "Pipeline",
             "iconType": "ingestion_warning",
             "type": null,

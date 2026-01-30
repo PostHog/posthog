@@ -318,7 +318,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
     [Scene.IngestionWarnings]: {
         projectBased: true,
-        name: 'Ingestion warnings',
+        name: 'Event ingestion warnings',
         defaultDocsPath: '/docs/data/ingestion-warnings',
         iconType: 'ingestion_warning',
         description: 'Data ingestion related warnings from past 30 days.',

@@ -99,7 +99,7 @@ export const manifest: ProductManifest = {
             sceneKeys: ['DataPipelines'],
         },
         {
-            path: 'Ingestion warnings',
+            path: 'Event ingestion warnings',
             category: 'Pipeline',
             iconType: 'ingestion_warning',
             href: urls.ingestionWarnings(),

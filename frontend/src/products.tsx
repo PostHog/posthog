@@ -1453,7 +1453,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['EventDefinition', 'EventDefinitions'],
     },
     {
-        path: 'Ingestion warnings',
+        path: 'Event ingestion warnings',
         category: 'Pipeline',
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
