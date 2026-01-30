@@ -8,8 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -136,7 +135,7 @@ function Warnings(): JSX.Element {
 
     return (
         <>
-            {recordingsDisabled ? (
+            {recordingsDisabled && (
                 <LemonBanner type="info" hideIcon={true}>
                     <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
                         <div className="flex justify-center items-center w-full md:w-50">
@@ -191,15 +190,6 @@ function Warnings(): JSX.Element {
                         </div>
                     </div>
                 </LemonBanner>
-            ) : (
-                <ProductIntroduction
-                    productName="session replay"
-                    productKey={ProductKey.SESSION_REPLAY}
-                    thingName="collection"
-                    description="Use session replay collections to easily group and analyze user sessions. Curate collections based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
-                    docsURL="https://posthog.com/docs/session-replay/manual"
-                    customHog={FilmCameraHog}
-                />
             )}
         </>
     )
