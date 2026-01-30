@@ -457,8 +457,8 @@ describe('llmEvaluationLogic', () => {
                 })
             })
 
-            it('caps count at 100', async () => {
-                const manyRuns = Array.from({ length: 150 }, (_, i) => ({
+            it('caps count at 250', async () => {
+                const manyRuns = Array.from({ length: 300 }, (_, i) => ({
                     ...mockRuns[0],
                     id: `run-${i}`,
                     generation_id: `gen-${i}`,
@@ -466,7 +466,7 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.loadEvaluationRunsSuccess(manyRuns)
 
                 await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 100,
+                    runsToSummarizeCount: 250,
                 })
             })
         })

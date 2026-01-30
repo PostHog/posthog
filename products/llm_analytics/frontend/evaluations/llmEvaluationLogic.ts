@@ -566,7 +566,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 } else if (filter === 'na') {
                     filteredRuns = filteredRuns.filter((r) => r.result === null)
                 }
-                return Math.min(filteredRuns.length, 100)
+                return Math.min(filteredRuns.length, 250)
             },
         ],
 

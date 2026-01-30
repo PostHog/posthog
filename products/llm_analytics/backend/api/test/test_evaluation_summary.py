@@ -326,8 +326,8 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        # Try to pass more than 100 generation_ids
-        generation_ids = [str(uuid.uuid4()) for _ in range(101)]
+        # Try to pass more than 250 generation_ids
+        generation_ids = [str(uuid.uuid4()) for _ in range(251)]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
