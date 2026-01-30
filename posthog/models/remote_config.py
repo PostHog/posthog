@@ -173,11 +173,14 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
-        autocapture_controls = get_all_autocapture_controls(team.id) if team.autocapture_exceptions_opt_in else {}
         config["errorTracking"] = {
             "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
-            "autoCaptureControls": autocapture_controls,
+            **(
+                {"autoCaptureControls": get_all_autocapture_controls(team.id)}
+                if team.autocapture_exceptions_opt_in
+                else {}
+            ),
         }
 
         # MARK: Logs
