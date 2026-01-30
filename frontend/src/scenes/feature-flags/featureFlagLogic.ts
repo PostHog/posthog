@@ -100,7 +100,7 @@ export const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
+        groups: [{ properties: [], rollout_percentage: 100, variant: null }],
         multivariate: null,
         payloads: {},
     },
