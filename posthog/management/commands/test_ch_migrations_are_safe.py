@@ -100,6 +100,7 @@ class Command(BaseCommand):
 
         if not migrations:
             logger.info("No migrations to check.")
+            return
 
         for new_migration in migrations:
             logger.info("Checking new migration %s", new_migration)
