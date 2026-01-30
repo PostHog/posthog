@@ -617,7 +617,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
-      is_deleted UInt8,
+      is_deleted UInt8 DEFAULT 0,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
@@ -2028,7 +2028,7 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
-      is_deleted UInt8,
+      is_deleted UInt8 DEFAULT 0,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
   '''
