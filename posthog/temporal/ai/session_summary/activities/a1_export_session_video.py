@@ -101,7 +101,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         created_at = now()
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            # TODO: Use constant
+            export_format="video/mp4",
             export_context={
                 "session_recording_id": inputs.session_id,
                 "timestamp": 0,  # Start from beginning
