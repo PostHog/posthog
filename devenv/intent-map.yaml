@@ -101,7 +101,7 @@ capabilities:
 
     nodejs_realtime_cohorts:
         description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
-        requires: [nodejs_cdp_workflows]
+        requires: [event_ingestion]
         docker_profiles: []
 
     nodejs_session_replay:
