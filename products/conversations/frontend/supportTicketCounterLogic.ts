@@ -5,10 +5,11 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { browserNotificationLogic } from './browserNotificationLogic'
 import { supportTicketsSceneLogic } from './scenes/tickets/supportTicketsSceneLogic'
 import type { supportTicketCounterLogicType } from './supportTicketCounterLogicType'
 
-const POLL_INTERVAL = 15 * 1000 // 15 seconds - backend is cached so frequent polling is cheap
+const POLL_INTERVAL = 5 * 1000 // 5 seconds - backend is cached so frequent polling is cheap
 
 export interface UnreadCountResponse {
     count: number
@@ -17,7 +18,8 @@ export interface UnreadCountResponse {
 export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     path(['products', 'conversations', 'frontend', 'supportTicketCounterLogic']),
     connect({
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], browserNotificationLogic, ['canShowNotifications']],
+        actions: [browserNotificationLogic, ['showNotification']],
     }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -104,7 +106,7 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             // Note: pollTimeout is already disposed in subscriptions
         },
     })),
-    subscriptions(({ actions, cache }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         // React to team changes - reset and re-fetch for new team
         currentTeam: (currentTeam, oldTeam) => {
             // Skip initial mount (oldTeam is undefined)
@@ -130,6 +132,10 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             // Refresh tickets list if scene is mounted
             if (unreadCount !== oldUnreadCount) {
                 supportTicketsSceneLogic.findMounted()?.actions.loadTickets()
+            }
+            // Show browser notification when count increases
+            if (unreadCount > oldUnreadCount && values.canShowNotifications) {
+                actions.showNotification(unreadCount)
             }
         },
     })),
