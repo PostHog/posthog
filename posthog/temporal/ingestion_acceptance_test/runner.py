@@ -1,16 +1,14 @@
 """Test runner for acceptance tests without pytest dependency."""
 
 import time
-import inspect
-import importlib
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Executor, as_completed
 from dataclasses import dataclass
-from pathlib import Path
 
 from .client import PostHogClient
 from .config import Config
 from .results import TestResult, TestSuiteResult
+from .test_cases_discovery import TestCase
 
 
 @dataclass
@@ -33,55 +31,7 @@ class AcceptanceTest:
         self.config = ctx.config
 
 
-@dataclass
-class TestCase:
-    """A discovered test case."""
-
-    module_name: str
-    test_class: type[AcceptanceTest]
-    method_name: str
-
-    @property
-    def full_name(self) -> str:
-        return f"{self.module_name}::{self.test_class.__name__}::{self.method_name}"
-
-
-def discover_tests() -> list[TestCase]:
-    """Discover all test cases in the tests package by scanning for test_*.py files."""
-    tests_dir = Path(__file__).parent / "tests"
-    base_package = "posthog.temporal.ingestion_acceptance_test.tests"
-
-    tests: list[TestCase] = []
-
-    for test_file in tests_dir.rglob("test_*.py"):
-        relative_path = test_file.relative_to(tests_dir)
-        module_parts = list(relative_path.with_suffix("").parts)
-        module_name = f"{base_package}.{'.'.join(module_parts)}"
-
-        module = importlib.import_module(module_name)
-
-        for name, cls in inspect.getmembers(module, inspect.isclass):
-            if not name.startswith("Test"):
-                continue
-            if not issubclass(cls, AcceptanceTest):
-                continue
-
-            for method_name in dir(cls):
-                if not method_name.startswith("test_"):
-                    continue
-
-                tests.append(
-                    TestCase(
-                        module_name=test_file.stem,
-                        test_class=cls,
-                        method_name=method_name,
-                    )
-                )
-
-    return tests
-
-
-def run_single_test(
+def _run_single_test(
     test_case: TestCase,
     ctx: TestContext,
 ) -> TestResult:
@@ -124,27 +74,32 @@ def run_single_test(
     )
 
 
-def run_tests(config: Config) -> TestSuiteResult:
+def run_tests(
+    config: Config,
+    tests: list[TestCase],
+    client: PostHogClient,
+    executor: Executor,
+) -> TestSuiteResult:
     """Run all acceptance tests and return structured results.
 
     Args:
         config: Configuration for the test run.
+        tests: List of test cases to run.
+        client: PostHog client for API interactions.
+        executor: Executor for running tests in parallel.
 
     Returns:
         TestSuiteResult with all test outcomes.
     """
     start_time = time.time()
-    client = PostHogClient(config)
     results: list[TestResult] = []
 
     try:
-        tests = discover_tests()
         ctx = TestContext(client=client, config=config)
 
-        with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(run_single_test, test_case, ctx): test_case for test_case in tests}
-            for future in as_completed(futures):
-                results.append(future.result())
+        futures = {executor.submit(_run_single_test, test_case, ctx): test_case for test_case in tests}
+        for future in as_completed(futures):
+            results.append(future.result())
 
     finally:
         client.shutdown()
