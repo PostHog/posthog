@@ -1,7 +1,5 @@
 import React from 'react'
 
-import { Link } from '@posthog/lemon-ui'
-
 export const SessionReplayFinalSteps = (): React.ReactElement => {
     return (
         <>
@@ -10,7 +8,7 @@ export const SessionReplayFinalSteps = (): React.ReactElement => {
                 between pages, click buttons, and fill out forms to capture meaningful interactions.
             </p>
             <p>
-                <Link to="/replay/home">Watch your first recording →</Link>
+                <a href="/replay/home">Watch your first recording →</a>
             </p>
         </>
     )
