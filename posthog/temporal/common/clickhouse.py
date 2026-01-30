@@ -23,7 +23,6 @@ from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 
 LOGGER = get_logger(__name__)
@@ -848,11 +847,7 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *,
-    team_id: typing.Optional[int] = None,
-    clickhouse_url: str | None = None,
-    ch_user: typing.Optional[ClickHouseUser] = None,
-    **kwargs,
+    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
@@ -899,12 +894,10 @@ async def get_client(
     else:
         url = clickhouse_url
 
-    (clickhouse_user, clickhouse_password) = get_clickhouse_creds(ch_user)
-
     async with ClickHouseClient(
         url=url,
-        user=clickhouse_user,
-        password=clickhouse_password,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
         timeout=timeout,
         ssl=False,
