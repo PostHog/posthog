@@ -43,25 +43,15 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
         // oxlint-disable-next-line exhaustive-deps
     }, [])
 
-    // Only show loading state on initial load, not during saves
     if (controlsLoading && controls === null) {
         return null
     }
 
     if (!hasControls) {
         return (
-            <div className="space-y-4 p-4 border rounded">
-                <div className="text-center flex flex-col items-center">
-                    <h3 className="text-lg font-semibold mb-2">No autocapture controls configured</h3>
-                    <p className="text-muted mb-4">
-                        Autocapture controls allow you to fine-tune which exceptions are captured based on URLs, events,
-                        feature flags, and sampling rates.
-                    </p>
-                    <LemonButton type="primary" onClick={() => createControls()}>
-                        Enable autocapture controls
-                    </LemonButton>
-                </div>
-            </div>
+            <LemonButton type="primary" onClick={() => createControls()}>
+                Enable autocapture controls
+            </LemonButton>
         )
     }
 
