@@ -213,15 +213,20 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                               ]
                             : []),
                         ...authorizedDomains.map((domain) => {
-                            const url = new URL(domain)
+                            let hostname: string | null = null
+                            try {
+                                hostname = new URL(domain).hostname
+                            } catch {
+                                // skip favicon for malformed URLs
+                            }
                             return {
                                 label: domain,
                                 value: domain,
-                                ...(featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
+                                ...(hostname && featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]
                                     ? {
                                           icon: (
                                               <img
-                                                  src={faviconUrl(url.hostname)}
+                                                  src={faviconUrl(hostname)}
                                                   width={16}
                                                   height={16}
                                                   alt={`${domain} favicon`}

@@ -13,7 +13,6 @@
  */
 export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const VisibilityEnumApi = {
     private: 'private',
     shared: 'shared',
@@ -155,18 +154,7 @@ export interface PatchedElementApi {
     order?: number | null
 }
 
-export type EnvironmentsColumnConfigurationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsElementsListParams = {
+export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -178,6 +166,17 @@ export type EnvironmentsElementsListParams = {
 }
 
 export type ElementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ElementsList2Params = {
     /**
      * Number of results to return per page.
      */

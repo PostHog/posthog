@@ -96,14 +96,16 @@ class PolicyEngine:
         Evaluate if an action requires approval.
 
         Returns PolicyDecision with:
-        - ALLOW: User can execute immediately (bypass role or conditions don't match)
+        - ALLOW: User can execute immediately (bypass or conditions don't match)
         - DENY: Action not allowed
         - REQUIRE_APPROVAL: Must get approvals
         """
-        if self._has_bypass_role(actor, policy, context):
+        bypass_role_ids = [str(r.id) for r in policy.bypass_roles.all()]
+
+        if self._has_bypass(actor, policy, bypass_role_ids, context):
             return PolicyDecision(
                 result="ALLOW",
-                reason="User has bypass role",
+                reason="User has bypass",
                 message="Approved immediately",
                 approvers={},
                 policy_snapshot={},
@@ -136,6 +138,8 @@ class PolicyEngine:
                 "roles": approver_config.get("roles", []),
                 "allow_self_approve": policy.allow_self_approve,
                 "conditions": policy.conditions or {},
+                "bypass_org_membership_levels": policy.bypass_org_membership_levels,
+                "bypass_roles": bypass_role_ids,
             },
         )
 
@@ -273,16 +277,34 @@ class PolicyEngine:
 
         return False
 
-    def _has_bypass_role(self, actor, policy, context: dict) -> bool:
-        """Check if user has a bypass role"""
-        if not policy.bypass_roles:
+    def _has_bypass(self, actor, policy, bypass_role_ids: list[str], context: dict) -> bool:
+        """Check if user can bypass this policy based on org membership level or RBAC role."""
+        org = context.get("organization")
+        if not org:
             return False
 
-        org = context.get("organization")
-        if org:
+        # Check bypass_org_membership_levels
+        if policy.bypass_org_membership_levels:
             membership = actor.organization_memberships.filter(organization=org).first()
-            if membership and str(membership.level) in policy.bypass_roles:
+            if membership and str(membership.level) in policy.bypass_org_membership_levels:
                 return True
+
+        # Check bypass_roles (RBAC roles)
+        if bypass_role_ids:
+            try:
+                from ee.models.rbac.role import RoleMembership
+            except ImportError:
+                pass
+            else:
+                user_role_ids = {
+                    str(rid)
+                    for rid in RoleMembership.objects.filter(
+                        user=actor,
+                        role__organization=org,
+                    ).values_list("role_id", flat=True)
+                }
+                if user_role_ids & set(bypass_role_ids):
+                    return True
 
         return False
 
