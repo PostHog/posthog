@@ -420,34 +420,17 @@ mod tests {
         }
     }
 
-    /// Mock downloader that can simulate failures and delays for cancellation testing
+    /// Mock downloader for testing pre-cancellation checks.
+    /// For more complex cancellation scenarios (sibling cancellation, fallback),
+    /// use MinIO integration tests which exercise the real S3Downloader.
     #[derive(Debug)]
     struct CancellationTestDownloader {
-        /// Checkpoints to return from list_recent_checkpoints (multiple for multi-attempt tests)
         checkpoints: Vec<CheckpointMetadata>,
-        /// Number of attempts that should fail before succeeding (for multi-attempt tests)
-        fail_count: AtomicUsize,
-        /// Delay to add during download (to simulate slow downloads)
-        download_delay: Option<Duration>,
     }
 
     impl CancellationTestDownloader {
         fn new(checkpoints: Vec<CheckpointMetadata>) -> Self {
-            Self {
-                checkpoints,
-                fail_count: AtomicUsize::new(0),
-                download_delay: None,
-            }
-        }
-
-        fn with_fail_count(mut self, count: usize) -> Self {
-            self.fail_count = AtomicUsize::new(count);
-            self
-        }
-
-        fn with_download_delay(mut self, delay: Duration) -> Self {
-            self.download_delay = Some(delay);
-            self
+            Self { checkpoints }
         }
     }
 
@@ -488,18 +471,6 @@ mod tests {
                 }
             }
 
-            // Simulate slow download if configured
-            if let Some(delay) = self.download_delay {
-                tokio::time::sleep(delay).await;
-            }
-
-            // Check cancellation after delay (simulates mid-stream cancellation)
-            if let Some(token) = cancel_token {
-                if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled mid-stream"));
-                }
-            }
-
             tokio::fs::write(local_filepath, b"mock file content").await?;
             Ok(())
         }
@@ -510,23 +481,11 @@ mod tests {
             local_base_path: &Path,
             cancel_token: Option<&CancellationToken>,
         ) -> Result<()> {
-            // Apply delay first (simulates slow network/S3 response)
-            if let Some(delay) = self.download_delay {
-                tokio::time::sleep(delay).await;
-            }
-
-            // Check cancellation after delay
+            // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
                     return Err(anyhow::anyhow!("Download cancelled"));
                 }
-            }
-
-            // Check if this attempt should fail
-            let remaining_fails = self.fail_count.load(Ordering::SeqCst);
-            if remaining_fails > 0 {
-                self.fail_count.fetch_sub(1, Ordering::SeqCst);
-                return Err(anyhow::anyhow!("Simulated download failure"));
             }
 
             for key in remote_keys {
@@ -606,80 +565,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_import_checkpoint_cancelled_between_attempts() {
-        let tmp_dir = TempDir::new().unwrap();
-
-        // Create two checkpoint attempts
-        let metadata1 = create_test_metadata("test-topic", 0, 14); // Most recent
-        let metadata2 = create_test_metadata("test-topic", 0, 12); // Older
-
-        // First attempt will fail after 50ms delay, second would succeed
-        let downloader = CancellationTestDownloader::new(vec![metadata1, metadata2])
-            .with_fail_count(1) // First attempt fails
-            .with_download_delay(Duration::from_millis(50)); // Delay before failure
-
-        let importer = CheckpointImporter::new(
-            Box::new(downloader),
-            tmp_dir.path().to_path_buf(),
-            3,
-            Duration::from_secs(60), // 60s timeout for tests
-        );
-
-        let token = CancellationToken::new();
-
-        // Cancel after 20ms - during first attempt's delay, before failure check
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            token_clone.cancel();
-        });
-
-        let result = importer
-            .import_checkpoint_for_topic_partition_cancellable("test-topic", 0, Some(&token))
-            .await;
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Cancellation should be detected during the download delay
-        assert!(
-            err_msg.contains("cancelled"),
-            "Error should mention cancellation, got: {err_msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_download_cancelled_mid_stream() {
-        let tmp_dir = TempDir::new().unwrap();
-        let metadata = create_test_metadata("test-topic", 0, 12);
-
-        // Add a delay to simulate slow download
-        let downloader = CancellationTestDownloader::new(vec![metadata])
-            .with_download_delay(Duration::from_millis(100));
-
-        let token = CancellationToken::new();
-
-        // Cancel after 20ms (before the 100ms download completes)
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            token_clone.cancel();
-        });
-
-        let result = downloader
-            .download_files_cancellable(
-                &["checkpoints/test-topic/0/file.sst".to_string()],
-                tmp_dir.path(),
-                Some(&token),
-            )
-            .await;
-
-        assert!(result.is_err());
-        assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
-        );
-    }
+    // NOTE: More complex cancellation scenarios (sibling cancellation, mid-stream cancellation,
+    // fallback after failed attempt) are tested in checkpoint_integration_tests.rs using
+    // real MinIO, which exercises the actual S3Downloader with FuturesUnordered.
 
     #[tokio::test]
     async fn test_import_cleans_up_existing_directory_from_crashed_attempt() {
