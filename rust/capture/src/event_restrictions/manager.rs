@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_redis::CustomRedisError;
+use futures::future::join_all;
 use metrics::gauge;
 use tokio::sync::RwLock;
 use tokio::time::interval;
@@ -49,8 +50,15 @@ impl RestrictionManager {
         let mut manager = Self::new();
         let pipeline_str = pipeline.as_pipeline_name();
 
-        for restriction_type in RestrictionType::all() {
-            let entries = match repository.get_entries(restriction_type).await {
+        // Fetch all restriction types in parallel
+        let fetch_futures = RestrictionType::all()
+            .into_iter()
+            .map(|rt| async move { (rt, repository.get_entries(rt).await) });
+
+        let results = join_all(fetch_futures).await;
+
+        for (restriction_type, result) in results {
+            let entries = match result {
                 Ok(Some(e)) => e,
                 Ok(None) => continue,
                 Err(e) => {
