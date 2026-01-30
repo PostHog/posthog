@@ -201,7 +201,7 @@ describe('RecordingApi', () => {
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid key query parameter' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing key query parameter' })
         })
 
         it('should return 400 if key is not a string', async () => {
@@ -215,7 +215,7 @@ describe('RecordingApi', () => {
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid key query parameter' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Expected string, received number' })
         })
 
         it('should return 400 if start is missing', async () => {
@@ -229,7 +229,7 @@ describe('RecordingApi', () => {
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid start query parameter' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing start query parameter' })
         })
 
         it('should return 400 if end is missing', async () => {
@@ -243,7 +243,7 @@ describe('RecordingApi', () => {
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid end query parameter' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing end query parameter' })
         })
 
         it('should return 400 if start is not a valid integer', async () => {
@@ -257,7 +257,7 @@ describe('RecordingApi', () => {
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'start and end must be valid integers' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid start query parameter' })
         })
 
         it.each([
@@ -280,22 +280,25 @@ describe('RecordingApi', () => {
         })
 
         it.each([
-            ['-1', '100', 'negative start'],
-            ['0', '-1', 'negative end'],
-            ['-5', '-1', 'both negative'],
-        ])('should return 400 for negative byte range: start=%s, end=%s (%s)', async (start, end, _description) => {
-            await recordingApi.start()
-            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
-            const mockReq = {
-                params: { team_id: '1', session_id: 'session-123' },
-                query: { key: 'path/to/file', start, end },
+            ['-1', '100', 'start', 'negative start'],
+            ['0', '-1', 'end', 'negative end'],
+            ['-5', '-1', 'start', 'both negative'],
+        ])(
+            'should return 400 for negative byte range: start=%s, end=%s (%s)',
+            async (start, end, invalidField, _description) => {
+                await recordingApi.start()
+                const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+                const mockReq = {
+                    params: { team_id: '1', session_id: 'session-123' },
+                    query: { key: 'path/to/file', start, end },
+                }
+
+                await (recordingApi as any).getBlock(mockReq, mockRes)
+
+                expect(statusMock).toHaveBeenCalledWith(400)
+                expect(jsonMock).toHaveBeenCalledWith({ error: `Invalid ${invalidField} query parameter` })
             }
-
-            await (recordingApi as any).getBlock(mockReq, mockRes)
-
-            expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'start and end must be non-negative' })
-        })
+        )
 
         it('should return 400 when start is greater than end', async () => {
             await recordingApi.start()
