@@ -4,6 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
@@ -457,8 +458,8 @@ describe('llmEvaluationLogic', () => {
                 })
             })
 
-            it('caps count at 100', async () => {
-                const manyRuns = Array.from({ length: 150 }, (_, i) => ({
+            it(`caps count at ${EVALUATION_SUMMARY_MAX_RUNS}`, async () => {
+                const manyRuns = Array.from({ length: EVALUATION_SUMMARY_MAX_RUNS + 50 }, (_, i) => ({
                     ...mockRuns[0],
                     id: `run-${i}`,
                     generation_id: `gen-${i}`,
@@ -466,7 +467,7 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.loadEvaluationRunsSuccess(manyRuns)
 
                 await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 100,
+                    runsToSummarizeCount: EVALUATION_SUMMARY_MAX_RUNS,
                 })
             })
         })
