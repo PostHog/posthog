@@ -34,5 +34,7 @@ operations = [
     run_sql_with_exceptions(
         ADD_EXPIRES_AT_COLUMN.format(table=DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
 ]
