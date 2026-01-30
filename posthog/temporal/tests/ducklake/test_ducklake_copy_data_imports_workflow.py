@@ -132,8 +132,8 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
     assert len(result) == 1
     metadata = result[0]
     assert metadata.source_normalized_name == "customers"
-    assert metadata.ducklake_schema_name == f"data_imports_team_{ateam.id}"
-    assert metadata.ducklake_table_name.startswith("postgres_customers_")
+    assert metadata.ducklake_schema_name == "data_imports"
+    assert metadata.ducklake_table_name == "postgres_customers"
     assert metadata.source_partition_column == "created_at"
 
 

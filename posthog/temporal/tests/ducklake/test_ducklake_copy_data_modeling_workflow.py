@@ -82,7 +82,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert model_metadata.model_label == saved_query.id.hex
     assert model_metadata.saved_query_name == saved_query.name
     assert model_metadata.source_table_uri == table_uri
-    assert model_metadata.schema_name == f"data_modeling_team_{ateam.pk}"
+    assert model_metadata.schema_name == "data_modeling"
     assert model_metadata.table_name == f"model_{saved_query.id.hex}"
     assert model_metadata.verification_queries
     assert model_metadata.verification_queries[0].name == "row_count_delta_vs_ducklake"
