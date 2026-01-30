@@ -62,6 +62,13 @@ The token needs `repo` scope for private repositories, or just `public_repo` for
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": "Invalid GitHub personal access token. Please check your token and try again.",
+            "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits. Please check your token permissions.",
+            "404 Client Error": "Repository not found. Please verify the repository name and that your token has access to it.",
+        }
+
     def get_schemas(self, config: GithubSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
