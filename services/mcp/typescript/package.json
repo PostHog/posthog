@@ -33,7 +33,7 @@
         "dev:local-resources": "wrangler dev --var POSTHOG_MCP_LOCAL_SKILLS_URL:http://localhost:8765/skills-mcp-resources.zip",
         "deploy": "wrangler deploy",
         "cf-typegen": "wrangler types",
-        "inspector": "npx @modelcontextprotocol/inspector@0.15.0 npx -y mcp-remote@latest http://localhost:8787/mcp",
+        "inspector": "npx @modelcontextprotocol/inspector npx -y mcp-remote@latest http://localhost:8787/mcp",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
         "test:watch": "vitest watch",
@@ -57,7 +57,7 @@
         "langchain": "^0.3.31"
     },
     "dependencies": {
-        "@byjohann/toon": "^0.4.0",
+        "@toon-format/toon": "^2.1.0",
         "@modelcontextprotocol/sdk": "^1.24.2",
         "agents": "^0.0.113",
         "ai": "^5.0.18",
@@ -82,7 +82,7 @@
         "vite": "^5.4.21",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
-        "wrangler": "^4.14.4",
+        "wrangler": "^4.59.0",
         "zod-to-json-schema": "^3.24.6"
     },
     "files": [

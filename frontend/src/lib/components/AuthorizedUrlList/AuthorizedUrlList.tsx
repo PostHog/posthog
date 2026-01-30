@@ -27,6 +27,7 @@ export interface AuthorizedUrlListProps {
     showLaunch?: boolean
     allowAdd?: boolean
     allowDelete?: boolean
+    launchInSameTab?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -42,6 +43,7 @@ export function AuthorizedUrlList({
     allowAdd = true,
     allowDelete = true,
     showLaunch = true,
+    launchInSameTab = false,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
@@ -147,7 +149,7 @@ export function AuthorizedUrlList({
                                                     : // other urls are simply opened directly
                                                       `${keyedURL.url}${query ?? ''}`
                                             }
-                                            targetBlank
+                                            targetBlank={!launchInSameTab}
                                             tooltip={
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS ||
                                                 type === AuthorizedUrlListType.WEB_ANALYTICS

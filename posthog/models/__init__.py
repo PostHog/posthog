@@ -25,6 +25,7 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
+from ..ducklake.models import DuckLakeCatalog
 from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
@@ -68,6 +69,7 @@ from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
+from .project_secret_api_key import ProjectSecretAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
@@ -124,6 +126,7 @@ __all__ = [
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
+    "DuckLakeCatalog",
     "Element",
     "ElementGroup",
     "Entity",
@@ -180,6 +183,7 @@ __all__ = [
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "PersonOverride",
     "PersonOverrideMapping",
     "Plugin",

@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -8,21 +8,30 @@ import structlog
 
 from posthog.models.comment import Comment
 
-from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .models import Ticket
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_private_message(item_context: dict | None) -> bool:
+    """Check if a message is marked as private."""
+    if not isinstance(item_context, dict):
+        return False
+    return item_context.get("is_private", False) is True
 
 
 @receiver(post_save, sender=Comment)
 def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs):
     """
     Update ticket stats when a new message is created.
-    - Increment message_count, update last_message_at/text
-    - Increment unread_customer_count for team messages
-    - Invalidate widget cache for polling endpoints
+    - Increment message_count, update last_message_at/text (only for non-private messages)
+    - Increment unread_customer_count for team messages (only for non-private messages)
+
+    Private messages are excluded from denormalized stats to prevent leaking
+    to widget via last_message_text and to keep message_count accurate for customers.
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
+    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -42,6 +51,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     created_by_id = instance.created_by_id
 
     def do_update():
+        # Private messages don't update denormalized stats (to avoid leaking to widget)
+        if _is_private_message(item_context):
+            return
+
         # New message: update denormalized stats
         author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
         is_team_message = created_by_id and author_type != "customer"
@@ -57,20 +70,6 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
-        # Invalidate widget cache so polling sees new messages
-        invalidate_messages_cache(team_id, item_id)
-        # Also invalidate tickets list cache (last_message changed)
-        try:
-            ticket = Ticket.objects.filter(id=item_id, team_id=team_id).values("widget_session_id").first()
-            if ticket:
-                invalidate_tickets_cache(team_id, ticket["widget_session_id"])
-        except Exception:
-            logger.warning(
-                "conversations_ticket_cache_invalidate_failed",
-                ticket_id=item_id,
-                exc_info=True,
-            )
-
     transaction.on_commit(do_update)
 
 
@@ -80,7 +79,11 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
     When a comment is soft-deleted, update the ticket's message stats.
     We use pre_save to detect the change from deleted=False to deleted=True.
 
+    Private messages don't affect denormalized stats, so soft-deleting them
+    only requires recalculating last_message if it happens to match.
+
     Uses transaction.on_commit() to defer work and avoid blocking the request.
+    Cache invalidation not needed - short TTLs handle staleness.
     """
     if instance.scope != "conversations_ticket":
         return
@@ -106,17 +109,26 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
         created_by_id = instance.created_by_id
 
         def do_soft_delete_update():
-            author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-            is_team_message = created_by_id and author_type != "customer"
+            is_private = _is_private_message(item_context)
 
-            # Use Greatest to prevent negative counts from race conditions or data inconsistencies
-            update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
-            if is_team_message:
-                update_fields["unread_customer_count"] = Greatest(F("unread_customer_count") - 1, 0)
+            # Only decrement counts if this wasn't a private message
+            # (private messages weren't counted in the first place)
+            if not is_private:
+                author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+                is_team_message = created_by_id and author_type != "customer"
 
-            Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
+                # Use Greatest to prevent negative counts from race conditions or data inconsistencies
+                update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
+                if is_team_message:
+                    update_fields["unread_customer_count"] = Greatest(F("unread_customer_count") - 1, 0)
 
-            # Recalculate last_message from remaining messages
+                Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
+
+            # Recalculate last_message from remaining non-private messages
+            # Use exclude + isnull to match _is_private_message() identity check:
+            # - Exclude only exact boolean True
+            # - Include everything else (False, None, missing key, weird values)
+            # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
             last_comment = (
                 Comment.objects.filter(
                     team_id=team_id,
@@ -124,6 +136,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                     item_id=item_id,
                     deleted=False,
                 )
+                .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
                 .exclude(pk=comment_pk)  # Exclude the one being deleted
                 .order_by("-created_at")
                 .first()
@@ -138,19 +151,6 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(
                     last_message_at=None,
                     last_message_text=None,
-                )
-
-            # Invalidate widget cache
-            invalidate_messages_cache(team_id, item_id)
-            try:
-                ticket = Ticket.objects.filter(id=item_id, team_id=team_id).values("widget_session_id").first()
-                if ticket:
-                    invalidate_tickets_cache(team_id, ticket["widget_session_id"])
-            except Exception:
-                logger.warning(
-                    "conversations_ticket_cache_invalidate_failed",
-                    ticket_id=item_id,
-                    exc_info=True,
                 )
 
         transaction.on_commit(do_soft_delete_update)

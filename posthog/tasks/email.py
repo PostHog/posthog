@@ -584,6 +584,31 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_reset_email(user_id: int, token: str) -> None:
+    """Send 2FA reset email to user when an admin initiates a reset."""
+    user: User = User.objects.get(pk=user_id)
+
+    reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_reset_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Reset your two-factor authentication",
+        template_name="2fa_reset",
+        template_context={
+            "preheader": "An administrator has initiated a 2FA reset for your account.",
+            "user_name": user.first_name,
+            "user_email": user.email,
+            "url": reset_link,
+            "expiration_hours": 1,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def login_from_new_device_notification(
     user_id: int, login_time: datetime.datetime, short_user_agent: str, ip_address: str, backend_name: str
 ) -> None:
@@ -1216,3 +1241,57 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
     message.send()
     logger.info(f"Sent new ticket notification for ticket {ticket.id} to {len(memberships_to_email)} recipients")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_project_deleted_email(
+    user_id: int,
+    project_name: str,
+) -> None:
+    """Send email notification when project deletion is complete."""
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for project deletion email")
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project_deleted_{user_id}_{timezone.now().timestamp()}",
+        subject=f"Your project '{project_name}' has been deleted",
+        template_name="project_deleted",
+        template_context={
+            "project_name": project_name,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+    logger.info(f"Sent project deletion confirmation email to user {user_id} for project {project_name}")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_organization_deleted_email(
+    user_id: int,
+    organization_name: str,
+    project_names: list[str],
+) -> None:
+    """Send email notification when organization deletion is complete."""
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for organization deletion email")
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"organization_deleted_{user_id}_{timezone.now().timestamp()}",
+        subject=f"Your organization '{organization_name}' has been deleted",
+        template_name="organization_deleted",
+        template_context={
+            "organization_name": organization_name,
+            "project_names": project_names,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+    logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")

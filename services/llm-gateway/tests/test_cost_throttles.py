@@ -36,20 +36,20 @@ class TestProductCostLimitConfig:
         get_settings.cache_clear()
         settings = get_settings()
         assert "llm_gateway" in settings.product_cost_limits
-        assert settings.product_cost_limits["llm_gateway"].limit_usd == 500.0
-        assert settings.product_cost_limits["llm_gateway"].window_seconds == 3600
+        assert settings.product_cost_limits["llm_gateway"].limit_usd == 1000.0
+        assert settings.product_cost_limits["llm_gateway"].window_seconds == 86400
 
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "LLM_GATEWAY_PRODUCT_COST_LIMITS",
-            '{"wizard": {"limit_usd": 100, "window_seconds": 86400}, "array": {"limit_usd": 50, "window_seconds": 14400}}',
+            '{"wizard": {"limit_usd": 100, "window_seconds": 86400}, "twig": {"limit_usd": 50, "window_seconds": 14400}}',
         )
         get_settings.cache_clear()
         settings = get_settings()
         assert settings.product_cost_limits["wizard"].limit_usd == 100.0
         assert settings.product_cost_limits["wizard"].window_seconds == 86400
-        assert settings.product_cost_limits["array"].limit_usd == 50.0
-        assert settings.product_cost_limits["array"].window_seconds == 14400
+        assert settings.product_cost_limits["twig"].limit_usd == 50.0
+        assert settings.product_cost_limits["twig"].window_seconds == 14400
         get_settings.cache_clear()
 
     def test_default_user_cost_settings(self) -> None:
@@ -77,7 +77,7 @@ class TestProductCostThrottle:
         throttle = ProductCostThrottle(redis=None)
         context = make_context(product="llm_gateway")
 
-        await throttle.record_cost(context, 500.0)
+        await throttle.record_cost(context, 1000.0)
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
@@ -91,15 +91,15 @@ class TestProductCostThrottle:
         throttle = ProductCostThrottle(redis=None)
 
         ctx_wizard = make_context(product="wizard")
-        ctx_array = make_context(product="array")
+        ctx_twig = make_context(product="twig")
 
-        await throttle.record_cost(ctx_wizard, 500.0)
+        await throttle.record_cost(ctx_wizard, 2000.0)
 
         result_wizard = await throttle.allow_request(ctx_wizard)
-        result_array = await throttle.allow_request(ctx_array)
+        result_twig = await throttle.allow_request(ctx_twig)
 
         assert result_wizard.allowed is False
-        assert result_array.allowed is True
+        assert result_twig.allowed is True
 
     @pytest.mark.asyncio
     async def test_cache_key_format(self) -> None:

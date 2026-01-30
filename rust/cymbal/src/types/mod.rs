@@ -173,7 +173,7 @@ pub struct FingerprintedErrProps {
 }
 
 // We emit this
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
@@ -193,7 +193,8 @@ pub struct OutputErrProps {
     pub handled: bool,
     #[serde(
         rename = "$exception_releases",
-        skip_serializing_if = "HashMap::is_empty"
+        skip_serializing_if = "HashMap::is_empty",
+        default
     )]
     pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
