@@ -336,7 +336,7 @@ export class HogExecutorService {
         return result
     }
 
-    @instrumented('hog-executor.execute')
+    @instrumented({ key: 'hog-executor.execute', sendException: false })
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {},

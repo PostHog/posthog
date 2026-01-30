@@ -62,7 +62,7 @@ class NodeSerializer(serializers.ModelSerializer):
 
 
 class NodePagination(PageNumberPagination):
-    page_size = 100
+    page_size = 1000
 
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:

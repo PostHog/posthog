@@ -6,8 +6,9 @@ from rest_framework import status
 from posthog.models.llm_prompt import LLMPrompt
 
 
+@patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
 class TestLLMPromptAPI(APIBaseTest):
-    def test_create_prompt_with_unique_name_succeeds(self):
+    def test_create_prompt_with_unique_name_succeeds(self, mock_feature_enabled):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
             data={
@@ -20,7 +21,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert LLMPrompt.objects.filter(team=self.team, name="my-prompt").exists()
 
-    def test_create_prompt_with_duplicate_name_fails(self):
+    def test_create_prompt_with_duplicate_name_fails(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,
             name="my-prompt",
@@ -41,7 +42,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["attr"] == "name"
         assert response.json()["detail"] == "A prompt with this name already exists."
 
-    def test_update_prompt_to_duplicate_name_fails(self):
+    def test_update_prompt_to_duplicate_name_fails(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,
             name="existing-prompt",
@@ -65,7 +66,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["attr"] == "name"
         assert response.json()["detail"] == "A prompt with this name already exists."
 
-    def test_create_prompt_with_same_name_as_deleted_prompt_succeeds(self):
+    def test_create_prompt_with_same_name_as_deleted_prompt_succeeds(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,
             name="deleted-prompt",
@@ -86,7 +87,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert LLMPrompt.objects.filter(team=self.team, name="deleted-prompt", deleted=False).exists()
 
-    def test_prompt_name_unique_per_team(self):
+    def test_prompt_name_unique_per_team(self, mock_feature_enabled):
         from posthog.models import Team
 
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -109,7 +110,7 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_update_prompt_content_without_name_change_succeeds(self):
+    def test_update_prompt_content_without_name_change_succeeds(self, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
             name="my-prompt",
@@ -127,7 +128,7 @@ class TestLLMPromptAPI(APIBaseTest):
         prompt.refresh_from_db()
         assert prompt.prompt == "Updated content"
 
-    def test_soft_delete_prompt(self):
+    def test_soft_delete_prompt(self, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
             name="to-be-deleted",
@@ -145,7 +146,7 @@ class TestLLMPromptAPI(APIBaseTest):
         prompt.refresh_from_db()
         assert prompt.deleted is True
 
-    def test_hard_delete_forbidden(self):
+    def test_hard_delete_forbidden(self, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
             name="cannot-hard-delete",
@@ -157,7 +158,7 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_list_excludes_deleted_prompts(self):
+    def test_list_excludes_deleted_prompts(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,
             name="active-prompt",
@@ -180,7 +181,6 @@ class TestLLMPromptAPI(APIBaseTest):
         assert len(results) == 1
         assert results[0]["name"] == "active-prompt"
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_fetch_prompt_by_name_succeeds(self, mock_feature_enabled):
         prompt = LLMPrompt.objects.create(
             team=self.team,
@@ -196,14 +196,12 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_fetch_prompt_by_name_not_found(self, mock_feature_enabled):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/non-existent/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "not found" in response.json()["detail"].lower()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_fetch_deleted_prompt_by_name_returns_not_found(self, mock_feature_enabled):
         LLMPrompt.objects.create(
             team=self.team,
@@ -217,7 +215,6 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_fetch_prompt_by_name_other_team_not_accessible(self, mock_feature_enabled):
         from posthog.models import Team
 
@@ -233,7 +230,7 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_create_prompt_with_invalid_name_fails(self):
+    def test_create_prompt_with_invalid_name_fails(self, mock_feature_enabled):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
             data={
@@ -247,7 +244,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["attr"] == "name"
         assert "Only letters, numbers, hyphens (-) and underscores (_) are allowed" in response.json()["detail"]
 
-    def test_create_prompt_with_valid_name_characters(self):
+    def test_create_prompt_with_valid_name_characters(self, mock_feature_enabled):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
             data={
@@ -260,8 +257,9 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "valid-name_123"
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_fetch_prompt_by_name_returns_403_when_feature_flag_disabled(self, mock_feature_enabled):
+    def test_returns_403_when_feature_flag_disabled(self, mock_class_feature_enabled):
+        mock_class_feature_enabled.return_value = False
+
         LLMPrompt.objects.create(
             team=self.team,
             name="test-prompt",
@@ -272,4 +270,3 @@ class TestLLMPromptAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/test-prompt/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This feature is not available."

@@ -54,7 +54,6 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -451,6 +450,8 @@ export interface PluginsServerConfig
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
+    NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -538,7 +539,6 @@ export interface PluginServerCapabilities {
     cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerDelay?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
