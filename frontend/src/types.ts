@@ -3053,7 +3053,7 @@ export interface FunnelTimeConversionMetrics {
 
 export interface FunnelConversionWindow {
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
-    funnelWindowInterval: number
+    funnelWindowInterval?: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
