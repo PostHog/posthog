@@ -38,7 +38,7 @@ export function AppsScene(): JSX.Element {
         >
             <LemonButton
                 type="primary"
-                to={urls.dataPipelinesNew('site_app')}
+                to={urls.appsNew()}
                 icon={<IconPlusSmall />}
                 size="small"
                 tooltip="New app"

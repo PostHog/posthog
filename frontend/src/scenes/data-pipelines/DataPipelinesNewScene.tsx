@@ -58,7 +58,7 @@ export const scene: SceneExport = {
     component: DataPipelinesNewScene,
     logic: dataPipelinesNewSceneLogic,
     paramsToProps: ({ params: { kind } }): (typeof dataPipelinesNewSceneLogic)['props'] => ({
-        kind,
+        kind: kind || 'site_app', // Default to 'site_app' for /apps/new route
     }),
 }
 

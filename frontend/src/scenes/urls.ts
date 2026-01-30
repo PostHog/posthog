@@ -43,6 +43,7 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     apps: (): string => '/apps',
+    appsNew: (): string => '/apps/new',
     destinations: (): string => '/data-management/destinations',
     models: (): string => '/models',
     sources: (): string => '/data-management/sources',

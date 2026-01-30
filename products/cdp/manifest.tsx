@@ -48,7 +48,7 @@ export const manifest: ProductManifest = {
         {
             path: `Data/Site app`,
             type: 'hog_function/site_app',
-            href: urls.dataPipelinesNew('site_app'),
+            href: urls.appsNew(),
             iconColor: ['var(--color-product-data-pipeline-light)'],
             sceneKeys: ['HogFunction'],
         },

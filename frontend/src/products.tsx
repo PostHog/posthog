@@ -908,7 +908,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     {
         path: `Data/Site app`,
         type: 'hog_function/site_app',
-        href: urls.dataPipelinesNew('site_app'),
+        href: urls.appsNew(),
         iconColor: ['var(--color-product-data-pipeline-light)'],
         sceneKeys: ['HogFunction'],
     },
@@ -1033,7 +1033,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
-        path: 'Apps',
+        path: 'Site Apps',
         intents: [ProductKey.SITE_APPS],
         category: 'Tools',
         type: 'hog_function',
