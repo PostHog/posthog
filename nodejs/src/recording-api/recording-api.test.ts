@@ -260,6 +260,78 @@ describe('RecordingApi', () => {
             expect(jsonMock).toHaveBeenCalledWith({ error: 'start and end must be valid integers' })
         })
 
+        it.each([
+            ['abc', 'non-numeric string'],
+            ['0', 'zero'],
+            ['-1', 'negative number'],
+            ['', 'empty string'],
+        ])('should return 400 for invalid team_id: %s (%s)', async (teamId, _description) => {
+            await recordingApi.start()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: teamId, session_id: 'session-123' },
+                query: { key: 'path/to/file', start: '0', end: '100' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid team_id parameter' })
+        })
+
+        it.each([
+            ['-1', '100', 'negative start'],
+            ['0', '-1', 'negative end'],
+            ['-5', '-1', 'both negative'],
+        ])('should return 400 for negative byte range: start=%s, end=%s (%s)', async (start, end, _description) => {
+            await recordingApi.start()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key: 'path/to/file', start, end },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'start and end must be non-negative' })
+        })
+
+        it('should return 400 when start is greater than end', async () => {
+            await recordingApi.start()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key: 'path/to/file', start: '100', end: '50' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'start must be less than or equal to end' })
+        })
+
+        it('should accept start equal to end (single byte)', async () => {
+            await recordingApi.start()
+            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
+            const mockBody = {
+                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1])),
+            }
+            s3ClientInstance.send.mockResolvedValue({ Body: mockBody })
+            mockDecryptor.decryptBlock.mockResolvedValue(Buffer.from('x'))
+
+            const { statusMock, jsonMock, setMock, sendMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key: 'path/to/file', start: '50', end: '50' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).not.toHaveBeenCalled()
+            expect(sendMock).toHaveBeenCalled()
+        })
+
         it('should return 503 if S3 client not initialized', async () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
@@ -310,6 +382,7 @@ describe('RecordingApi', () => {
             expect(mockDecryptor.decryptBlock).toHaveBeenCalledWith('session-123', 1, expect.any(Buffer))
             expect(setMock).toHaveBeenCalledWith('Content-Type', 'application/octet-stream')
             expect(setMock).toHaveBeenCalledWith('Content-Length', '14')
+            expect(setMock).toHaveBeenCalledWith('Cache-Control', 'public, max-age=2592000, immutable')
             expect(sendMock).toHaveBeenCalledWith(Buffer.from('decrypted data'))
         })
 
@@ -383,6 +456,24 @@ describe('RecordingApi', () => {
     })
 
     describe('deleteRecording endpoint', () => {
+        it.each([
+            ['abc', 'non-numeric string'],
+            ['0', 'zero'],
+            ['-1', 'negative number'],
+            ['', 'empty string'],
+        ])('should return 400 for invalid team_id: %s (%s)', async (teamId, _description) => {
+            await recordingApi.start()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: teamId, session_id: 'session-123' },
+            }
+
+            await (recordingApi as any).deleteRecording(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Invalid team_id parameter' })
+        })
+
         it('should return 503 if keyStore not initialized', async () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
