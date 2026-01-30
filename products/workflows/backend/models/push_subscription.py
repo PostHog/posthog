@@ -36,6 +36,8 @@ class PushSubscription(UUIDModel):
     firebase_app_id = models.CharField(blank=True, max_length=256, null=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
+    objects: models.Manager["PushSubscription"]
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "token_hash"]),
