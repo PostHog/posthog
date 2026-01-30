@@ -81,12 +81,13 @@ if (inputs.debug) {
         {
             key: 'push_subscription',
             type: 'push_subscription',
-            label: 'Person Name',
+            label: 'Distinct ID',
             secret: false,
             required: true,
-            description: 'Person name to send the push notification to.',
+            description:
+                'Distinct ID of the person to send to (used to look up the device FCM token). Use {{ event.distinct_id }} for the person associated with the event.',
             platform: 'android',
-            default: '{{ person.name }}',
+            default: '{{ event.distinct_id }}',
             templating: 'liquid',
         },
         {
