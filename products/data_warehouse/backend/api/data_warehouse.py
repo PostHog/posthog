@@ -542,7 +542,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     Q(status=DataWarehouseSavedQuery.Status.FAILED)
                     | Q(is_materialized=False, latest_error__isnull=False)
                 )
-                .filter(Q(last_run_at__gte=one_day_ago) | Q(last_run_at__isnull=True))
+                .filter(Q(last_run_at__gte=one_day_ago))
             )
 
             for query in failed_materializations:
@@ -635,7 +635,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         BatchExportRun.Status.TERMINATED,
                     ],
                 )
-                .filter(Q(finished_at__gte=one_day_ago) | Q(finished_at__isnull=True))
+                .filter(Q(finished_at__gte=one_day_ago))
                 .select_related("batch_export")
             )
 
