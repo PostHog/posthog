@@ -46,8 +46,7 @@ FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "libssl-dev=3.0.18-1~deb12u2" \
-    "libssl3=3.0.18-1~deb12u2" \
+    libssl-dev "ca-certificates" \
     "ca-certificates" \
     "curl" \
     "brotli" \
