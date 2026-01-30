@@ -2,7 +2,9 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { EventType } from '@posthog/rrweb-types'
+
+import api, { RecordingDeletedError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -93,6 +95,45 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             {
                 startPolling: () => true,
                 stopPolling: () => false,
+            },
+        ],
+        // Timestamp-based loading state
+        targetTimestamp: [
+            null as number | null,
+            {
+                setTargetTimestamp: (_, { timestamp }) => timestamp,
+                resetTimestampLoading: () => null,
+            },
+        ],
+        loadingPhase: [
+            'sequential' as LoadingPhase,
+            {
+                setLoadingPhase: (_, { phase }) => phase,
+                resetTimestampLoading: () => 'sequential',
+            },
+        ],
+        // Tracks FullSnapshot + Meta timestamps before processing clears cache
+        // This persists even after processAllSnapshots clears snapshotsBySource
+        // NOTE: Do NOT reset on resetTimestampLoading - these markers should persist
+        // for the lifetime of the recording since they're metadata about the data itself
+        playabilityMarkers: [
+            { fullSnapshots: [] as number[], metas: [] as number[] },
+            {
+                recordPlayabilityMarkers: (state, { markers }) => ({
+                    fullSnapshots: [...new Set([...state.fullSnapshots, ...markers.fullSnapshots])].sort(
+                        (a, b) => a - b
+                    ),
+                    metas: [...new Set([...state.metas, ...markers.metas])].sort((a, b) => a - b),
+                }),
+                // Only reset when loading a new recording (logic is keyed by sessionRecordingId)
+            },
+        ],
+        snapshotLoadError: [
+            null as Error | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
             },
         ],
     })),
@@ -596,6 +637,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return false
                 }
                 return !cache.store.canPlayAt(mode.targetTimestamp)
+            },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): boolean => {
+                return snapshotLoadError instanceof RecordingDeletedError
+            },
+        ],
+
+        recordingDeletedAt: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): number | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedAt
+                }
+                return null
             },
         ],
     })),
