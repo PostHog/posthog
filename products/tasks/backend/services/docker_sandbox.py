@@ -415,9 +415,7 @@ class DockerSandbox:
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                    sandbox_id=self.id,
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
                 break
 
@@ -427,9 +425,7 @@ class DockerSandbox:
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                    sandbox_id=self.id,
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
 
         return result

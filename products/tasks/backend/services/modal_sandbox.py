@@ -335,9 +335,7 @@ class ModalSandbox:
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                    sandbox_id=self.id,
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
                 )
             return result
         except Exception as e:
@@ -348,8 +346,6 @@ class ModalSandbox:
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
-
-        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
         if not self.is_running():
