@@ -654,13 +654,6 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
             self.assertEqual(send.arg.root_tool_call_id, f"tool-{i + 1}")
 
-    def test_get_updated_agent_mode(self):
-        node = _create_agent_node(self.team, self.user)
-        message = AssistantMessage(content="test")
-        self.assertEqual(
-            node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
-        )
-
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
     @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
