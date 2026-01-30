@@ -365,7 +365,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             # Mode context message
             self.assertIsInstance(next_state.messages[0], ContextMessage)
             assert isinstance(next_state.messages[0], ContextMessage)
-            self.assertIn("product_analytics", next_state.messages[0].content)
+            self.assertIn("product_analytics", next_state.messages[0].content)  # Default mode when no supermode
             # Original human message
             self.assertIsInstance(next_state.messages[1], HumanMessage)
             assert isinstance(next_state.messages[1], HumanMessage)
