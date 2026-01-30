@@ -26,11 +26,9 @@
 
 const puppeteer = require('puppeteer')
 const { PuppeteerScreenRecorder } = require('puppeteer-screen-recorder')
-const path = require('path')
 
 // Constants, replicated from Playwright flow
 const HEIGHT_OFFSET = 85
-const PLAYBACK_SPEED_MULTIPLIER = 4
 const MAX_DIMENSION = 1400
 const DEFAULT_WIDTH = 1400
 const DEFAULT_HEIGHT = 600
@@ -240,7 +238,6 @@ async function main() {
         console.error('Missing required options: url_to_render, output_path, wait_for_css_selector, recording_duration')
         process.exit(1)
     }
-    const ext = path.extname(outputPath).toLowerCase()
     let browser
     let recorder
     try {
@@ -284,10 +281,6 @@ async function main() {
         log('Final dimensions after scaling:', width, 'x', height)
         // Determine playback speed
         let playbackSpeed = requestedPlaybackSpeed
-        if (['.mp4', '.webm'].includes(ext) && recordingDuration > 5 && requestedPlaybackSpeed === 1) {
-            playbackSpeed = PLAYBACK_SPEED_MULTIPLIER
-        }
-        log('Playback speed:', playbackSpeed)
         // Create page for recording
         const page = await browser.newPage()
         await page.setViewport({ width, height })
@@ -419,7 +412,6 @@ module.exports = {
     detectInactivityPeriods,
     // Constants
     HEIGHT_OFFSET,
-    PLAYBACK_SPEED_MULTIPLIER,
     MAX_DIMENSION,
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
