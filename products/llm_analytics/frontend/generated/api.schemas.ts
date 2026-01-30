@@ -193,9 +193,9 @@ export const OutputTypeEnumApi = {
  * `anthropic` - Anthropic
  * `gemini` - Gemini
  */
-export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
+export type Provider53dEnumApi = (typeof Provider53dEnumApi)[keyof typeof Provider53dEnumApi]
 
-export const ProviderEnumApi = {
+export const Provider53dEnumApi = {
     openai: 'openai',
     anthropic: 'anthropic',
     gemini: 'gemini',
@@ -205,7 +205,7 @@ export const ProviderEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: ProviderEnumApi
+    provider: Provider53dEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -448,7 +448,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: ProviderEnumApi
+    provider: Provider53dEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -474,7 +474,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: ProviderEnumApi
+    provider?: Provider53dEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
