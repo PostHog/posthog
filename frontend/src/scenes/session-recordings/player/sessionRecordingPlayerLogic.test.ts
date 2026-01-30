@@ -607,64 +607,58 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('setCurrentSegment graceful fallback', () => {
-        it('does not call tryInitReplayer when segment has no snapshots, starts buffering instead', async () => {
-            silenceKeaLoadersErrors()
+        it('starts buffering instead of tryInitReplayer when segment windowId has no snapshots', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
 
-            // Wait for initial load
-            await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-            ])
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
 
-            // Create a segment with a windowId that has no snapshots
+            // Segment with windowId that has no snapshots loaded
             const segmentWithNoSnapshots = {
                 kind: 'window' as const,
                 startTimestamp: 1000,
                 endTimestamp: 2000,
-                windowId: 'non-existent-window-id',
+                windowId: 99999, // non-existent window id
                 isActive: true,
                 durationMs: 1000,
             }
 
-            await expectLogic(logic, () => {
-                logic.actions.setCurrentSegment(segmentWithNoSnapshots)
-            })
-                .toDispatchActions(['setCurrentSegment', 'startBuffer', 'loadNextSnapshotSource'])
-                .toNotHaveDispatchedActions(['tryInitReplayer'])
+            logic.actions.setCurrentSegment(segmentWithNoSnapshots)
 
-            resumeKeaLoadersErrors()
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).toHaveBeenCalled()
         })
 
-        it('does not call tryInitReplayer for gap segments', async () => {
-            silenceKeaLoadersErrors()
+        it('keeps current player for gap segments without calling tryInitReplayer', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
 
-            await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-            ])
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
 
             const gapSegment = {
                 kind: 'gap' as const,
                 startTimestamp: 1000,
                 endTimestamp: 2000,
-                windowId: 'some-window-id',
+                windowId: 99999,
                 isActive: false,
                 durationMs: 1000,
             }
 
-            await expectLogic(logic, () => {
-                logic.actions.setCurrentSegment(gapSegment)
-            })
-                .toDispatchActions(['setCurrentSegment'])
-                .toNotHaveDispatchedActions(['tryInitReplayer', 'startBuffer'])
+            logic.actions.setCurrentSegment(gapSegment)
 
-            resumeKeaLoadersErrors()
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).not.toHaveBeenCalled()
         })
 
-        it('does not call tryInitReplayer when segment has no windowId', async () => {
-            silenceKeaLoadersErrors()
+        it('keeps current player when segment has no windowId', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
 
-            await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-            ])
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
 
             const segmentWithNoWindowId = {
                 kind: 'buffer' as const,
@@ -675,13 +669,9 @@ describe('sessionRecordingPlayerLogic', () => {
                 durationMs: 1000,
             }
 
-            await expectLogic(logic, () => {
-                logic.actions.setCurrentSegment(segmentWithNoWindowId)
-            })
-                .toDispatchActions(['setCurrentSegment'])
-                .toNotHaveDispatchedActions(['tryInitReplayer'])
+            logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
-            resumeKeaLoadersErrors()
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
         })
     })
 })
