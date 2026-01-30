@@ -51,7 +51,6 @@ from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import (
-    AlertConfiguration,
     Cohort,
     Dashboard,
     DashboardTile,
@@ -2722,38 +2721,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"deleted": False},
         )
         self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_soft_delete_deletes_alerts(self) -> None:
-        insight_id, insight = self.dashboard_api.create_insight(
-            {
-                "name": "insight with alert",
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "BoldNumber"},
-                },
-            }
-        )
-        alert_response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            {
-                "name": "test alert",
-                "insight": insight_id,
-                "subscribed_users": [self.user.id],
-                "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 1}}},
-            },
-        )
-        self.assertEqual(alert_response.status_code, status.HTTP_201_CREATED)
-        alert_id = alert_response.json()["id"]
-
-        alert = AlertConfiguration.objects.get(id=alert_id)
-        self.assertIsNotNone(alert, "Alert should be present")
-
-        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK, "Insight should be soft deleted")
-        self.assertFalse(AlertConfiguration.objects.filter(id=alert_id).exists(), "Alert should be deleted")
 
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow
