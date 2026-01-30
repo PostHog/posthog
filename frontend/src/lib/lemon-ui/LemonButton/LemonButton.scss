@@ -214,7 +214,7 @@
     &.LemonButton--secondary.LemonButton--status-alt:hover,
     &.LemonButton--secondary.LemonButton--status-alt.LemonButton--active,
     &.LemonButton--secondary:not(.LemonButton--status-alt, .LemonButton--status-danger) {
-        .app-layout--scene-side-panel & {
+        .reduce-visual-noise & {
             --button-border-color: var(--color-border-primary) !important;
             --lemon-button-border-color-hover: var(--color-border-secondary) !important;
         }
