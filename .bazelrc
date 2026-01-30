@@ -26,6 +26,11 @@ build:ci --bes_backend=grpcs://remote.buildbuddy.io
 build:ci --bes_results_url=https://app.buildbuddy.io/invocation/
 build:ci --remote_upload_local_results=true
 build:ci --build_metadata=ROLE=CI
+# Increase timeouts from default 60s to avoid DEADLINE_EXCEEDED
+build:ci --remote_timeout=300
+build:ci --bes_timeout=300s
+# Disable disk cache in CI to avoid interference with remote cache
+build:ci --disk_cache=
 
 # Local development (default)
 test --test_output=summary
