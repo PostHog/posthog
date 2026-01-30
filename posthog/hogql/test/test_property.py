@@ -933,6 +933,44 @@ class TestProperty(BaseTest):
         self.assertEqual(expr.left.args[1].value, "plan_type")
         self.assertEqual(expr.right.value, "enterprise")
 
+    def test_revenue_analytics_non_metadata_json_extraction(self):
+        # Test filtering by non-metadata JSON fields (e.g., address.city)
+        expr = self._property_to_expr(
+            {
+                "type": "revenue_analytics",
+                "key": "revenue_analytics_customer.address.city",
+                "value": "San Francisco",
+                "operator": "exact",
+            },
+            scope="revenue_analytics",
+        )
+        # Should generate JSONExtractString(revenue_analytics_customer.address, 'city') = 'San Francisco'
+        self.assertIsInstance(expr, ast.CompareOperation)
+        self.assertIsInstance(expr.left, ast.Call)
+        self.assertEqual(expr.left.name, "JSONExtractString")
+        self.assertEqual(expr.left.args[0].chain, ["revenue_analytics_customer", "address"])
+        self.assertEqual(expr.left.args[1].value, "city")
+        self.assertEqual(expr.right.value, "San Francisco")
+
+    def test_revenue_analytics_deeply_nested_json_extraction(self):
+        # Test filtering by deeply nested JSON paths (e.g., metadata.nested.key)
+        expr = self._property_to_expr(
+            {
+                "type": "revenue_analytics",
+                "key": "revenue_analytics_customer.metadata.billing.address.country",
+                "value": "US",
+                "operator": "exact",
+            },
+            scope="revenue_analytics",
+        )
+        # Should generate JSONExtractString(revenue_analytics_customer.metadata, 'billing.address.country') = 'US'
+        self.assertIsInstance(expr, ast.CompareOperation)
+        self.assertIsInstance(expr.left, ast.Call)
+        self.assertEqual(expr.left.name, "JSONExtractString")
+        self.assertEqual(expr.left.args[0].chain, ["revenue_analytics_customer", "metadata"])
+        self.assertEqual(expr.left.args[1].value, "billing.address.country")
+        self.assertEqual(expr.right.value, "US")
+
     def test_property_to_expr_event_metadata(self):
         self.assertEqual(
             self._property_to_expr(

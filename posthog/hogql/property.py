@@ -692,18 +692,21 @@ def property_to_expr(
             chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             parts = property.key.split(".")
-            # Handle metadata.X access pattern - e.g. "revenue_analytics_customer.metadata.revenue_source"
-            # In this case, we need to use JSONExtractString to extract the key from the JSON metadata field
-            if len(parts) >= 3 and parts[-2] == "metadata":
+            # Handle nested JSON field access - e.g. "revenue_analytics_customer.metadata.revenue_source"
+            # or "revenue_analytics_customer.address.city"
+            # For any path with 3+ parts, treat the second part as a JSON field
+            if len(parts) >= 3:
                 # e.g. ["revenue_analytics_customer", "metadata", "revenue_source"]
                 # -> table: revenue_analytics_customer, json_field: metadata, json_key: revenue_source
+                # e.g. ["revenue_analytics_customer", "address", "city"]
+                # -> table: revenue_analytics_customer, json_field: address, json_key: city
                 table = parts[0]
-                json_key = parts[-1]
-                # Build the JSONExtractString expression and return early
-                metadata_field = ast.Field(chain=[table, "metadata"])
+                json_field = parts[1]
+                json_key = ".".join(parts[2:])  # Support deeper nesting like metadata.nested.key
+                field_expr = ast.Field(chain=[table, json_field])
                 json_expr = ast.Call(
                     name="JSONExtractString",
-                    args=[metadata_field, ast.Constant(value=json_key)],
+                    args=[field_expr, ast.Constant(value=json_key)],
                 )
                 return _expr_to_compare_op(
                     expr=json_expr, value=value, operator=operator, property=property, is_json_field=True, team=team
