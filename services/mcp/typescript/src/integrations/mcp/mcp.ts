@@ -9,9 +9,9 @@ import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import { AnalyticsEvent } from '@/lib/analytics'
 import {
     CUSTOM_BASE_URL,
+    getBaseUrlForRegion,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
-    getBaseUrlForRegion,
     toCloudRegion,
 } from '@/lib/constants'
 import { SessionManager } from '@/lib/utils/SessionManager'
@@ -50,7 +50,10 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS })
+    server = new McpServer(
+        { name: 'PostHog', version: '1.0.0' },
+        { instructions: INSTRUCTIONS }
+    )
 
     initialState: State = {
         projectId: undefined,
