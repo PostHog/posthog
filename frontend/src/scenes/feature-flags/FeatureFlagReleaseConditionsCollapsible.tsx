@@ -14,7 +14,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, CohortPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
 
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -35,9 +35,16 @@ function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetN
     const parts = properties.slice(0, 2).map((property) => {
         const key = property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key || 'property'
         const operator = isPropertyFilterWithOperator(property) ? allOperatorsToHumanName(property.operator) : 'is'
-        const value = Array.isArray(property.value)
-            ? property.value.slice(0, 2).join(', ') + (property.value.length > 2 ? '...' : '')
-            : property.value
+
+        let value: string | number
+        if (property.type === PropertyFilterType.Cohort) {
+            const cohortProperty = property as CohortPropertyFilter
+            value = cohortProperty.cohort_name || `ID ${cohortProperty.value}`
+        } else if (Array.isArray(property.value)) {
+            value = property.value.slice(0, 2).join(', ') + (property.value.length > 2 ? '...' : '')
+        } else {
+            value = property.value ?? ''
+        }
 
         return `${key} ${operator} ${value}`
     })
