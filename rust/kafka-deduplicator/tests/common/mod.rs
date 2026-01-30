@@ -84,9 +84,9 @@ pub async fn upload_test_checkpoint(
         topic.to_string(),
         partition,
         attempt_timestamp,
-        12345, // sequence
-        100,   // consumer_offset
-        50,    // producer_offset
+        12345, // placeholder sequence number
+        100,   // placeholder consumer offset
+        50,    // placeholder producer offset
     );
 
     let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);

@@ -38,7 +38,7 @@ fn create_test_checkpoint_config(tmp_checkpoint_dir: &TempDir) -> CheckpointConf
         s3_access_key_id: Some(MINIO_ACCESS_KEY.to_string()),
         s3_secret_access_key: Some(MINIO_SECRET_KEY.to_string()),
         s3_force_path_style: true,
-        // Use a wide import window so our just-uploaded checkpoint is found
+        // Wide import window ensures freshly uploaded checkpoints are found
         checkpoint_import_window_hours: 24,
         ..Default::default()
     }
@@ -376,7 +376,7 @@ async fn test_sibling_cancellation_on_file_error() -> Result<()> {
     let importer = CheckpointImporter::new(
         Box::new(downloader),
         tmp_import_dir.path().to_path_buf(),
-        1, // Only try one checkpoint attempt (no fallback for this test)
+        1, // Single attempt - this test validates sibling cancellation, not fallback
         Duration::from_secs(60),
     );
 
@@ -396,10 +396,9 @@ async fn test_sibling_cancellation_on_file_error() -> Result<()> {
         "Import failed as expected"
     );
 
-    // The failure should be relatively fast - sibling cancellation should prevent
-    // waiting for all downloads to complete. With 10 files and proper cancellation,
-    // this should complete much faster than if all downloads ran to completion.
-    // We don't assert a specific time as it depends on S3/MinIO latency.
+    // Sibling cancellation should cause the attempt to fail fast rather than
+    // waiting for all concurrent downloads to complete individually.
+    // We don't assert a specific time as it depends on network latency.
 
     // Cleanup
     cleanup_bucket(&minio_client, TEST_BUCKET, &test_prefix).await;

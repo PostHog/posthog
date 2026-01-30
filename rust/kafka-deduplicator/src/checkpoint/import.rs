@@ -434,6 +434,11 @@ mod tests {
         }
     }
 
+    // NOTE: This mock uses sequential downloads and does NOT implement sibling cancellation
+    // (no FuturesUnordered, no token.cancel() on error). It is suitable only for testing
+    // pre-cancellation paths. Complex cancellation scenarios (sibling cancellation,
+    // fallback after attempt failure) are tested in checkpoint_integration_tests.rs
+    // using real S3Downloader with MinIO.
     #[async_trait]
     impl CheckpointDownloader for CancellationTestDownloader {
         async fn list_recent_checkpoints(
@@ -547,7 +552,7 @@ mod tests {
             Box::new(downloader),
             tmp_dir.path().to_path_buf(),
             3,
-            Duration::from_secs(60), // 60s timeout for tests
+            Duration::from_secs(60),
         );
 
         // Create a pre-cancelled token
@@ -564,10 +569,6 @@ mod tests {
             "Error should mention cancellation"
         );
     }
-
-    // NOTE: More complex cancellation scenarios (sibling cancellation, mid-stream cancellation,
-    // fallback after failed attempt) are tested in checkpoint_integration_tests.rs using
-    // real MinIO, which exercises the actual S3Downloader with FuturesUnordered.
 
     #[tokio::test]
     async fn test_import_cleans_up_existing_directory_from_crashed_attempt() {
@@ -610,7 +611,7 @@ mod tests {
             Box::new(downloader),
             store_base_path,
             3,
-            Duration::from_secs(60), // 60s timeout for tests
+            Duration::from_secs(60),
         );
 
         // Run import - should succeed after cleaning up the corrupted directory
