@@ -1,7 +1,6 @@
 import { IconPerson } from '@posthog/icons'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconExclamation, IconRobot } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -86,8 +85,6 @@ const isDisplayableAIMessage = (message: Record<string, any>): boolean => {
 }
 
 export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
-    const showConversation = useFeatureFlag('REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW')
-
     if (event.properties.$ai_is_error) {
         return (
             <div className="flex items-center gap-1 text-danger">
@@ -95,10 +92,6 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
                 <span>Error</span>
             </div>
         )
-    }
-
-    if (!showConversation) {
-        return null
     }
 
     const inputMessages = (
