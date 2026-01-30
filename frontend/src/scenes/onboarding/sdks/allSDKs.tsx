@@ -313,18 +313,18 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/smolagents',
     },
     {
-        name: 'LangGraph',
-        key: SDKKey.LANGGRAPH,
-        tags: [SDKTag.LLM],
-        image: <LangGraphLogo />,
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/langgraph',
-    },
-    {
         name: 'Mastra',
         key: SDKKey.MASTRA,
         tags: [SDKTag.LLM],
         image: mastraImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/mastra',
+    },
+    {
+        name: 'Mirascope',
+        key: SDKKey.MIRASCOPE,
+        tags: [SDKTag.LLM],
+        image: <MirascopeLogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mirascope',
     },
     {
         name: 'Manual Capture',

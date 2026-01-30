@@ -14,6 +14,7 @@ import { LangGraphInstallation } from '@posthog/shared-onboarding/llm-analytics/
 import { LiteLLMInstallation } from '@posthog/shared-onboarding/llm-analytics/litellm'
 import { LlamaIndexInstallation } from '@posthog/shared-onboarding/llm-analytics/llamaindex'
 import { ManualInstallation } from '@posthog/shared-onboarding/llm-analytics/manual'
+import { MastraInstallation } from '@posthog/shared-onboarding/llm-analytics/mastra'
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
 import { PydanticAIInstallation } from '@posthog/shared-onboarding/llm-analytics/pydantic-ai'
@@ -108,6 +109,10 @@ const LLMLangGraphInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: LangGraphInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMMastraInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: MastraInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
@@ -126,5 +131,6 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.SEMANTIC_KERNEL]: LLMSemanticKernelInstructionsWrapper,
     [SDKKey.SMOLAGENTS]: LLMSmolagentsInstructionsWrapper,
     [SDKKey.LANGGRAPH]: LLMLangGraphInstructionsWrapper,
+    [SDKKey.MASTRA]: LLMMastraInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }
