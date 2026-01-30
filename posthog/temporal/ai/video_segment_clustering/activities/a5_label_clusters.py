@@ -5,7 +5,7 @@ Generating LLM-based labels for new clusters.
 
 import json
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.conf import settings
 
@@ -26,7 +26,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     LabelingResult,
     VideoSegmentMetadata,
 )
-from posthog.temporal.ai.video_segment_clustering.priority import parse_timestamp_to_seconds
+from posthog.temporal.ai.video_segment_clustering.priority import parse_datetime_as_utc, parse_timestamp_to_seconds
 
 logger = structlog.get_logger(__name__)
 
@@ -152,7 +152,7 @@ async def _calculate_metrics_from_segments(team: Team, segments: list[VideoSegme
 
     last_occurrence_at = None
     for s in segments:
-        session_start_time = datetime.fromisoformat(s.session_start_time.replace("Z", "+00:00"))
+        session_start_time = parse_datetime_as_utc(s.session_start_time)
         segment_start_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(s.start_time))
         if last_occurrence_at is None or segment_start_time > last_occurrence_at:
             last_occurrence_at = segment_start_time

@@ -3,7 +3,7 @@ Activity 6 of the video segment clustering workflow:
 Persisting Tasks and TaskReferences.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.utils import timezone as django_timezone
 
@@ -17,6 +17,7 @@ from posthog.temporal.ai.video_segment_clustering.models import PersistTasksActi
 from posthog.temporal.ai.video_segment_clustering.priority import (
     calculate_priority_score,
     calculate_task_metrics,
+    parse_datetime_as_utc,
     parse_timestamp_to_seconds,
 )
 
@@ -105,11 +106,14 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
                 existing_refs.add(f"{ref.session_id}:{ref.start_time.isoformat()}:{end_time_str}")
 
             # Filter to only NEW segments (not already linked to this task)
-            new_segments = [
-                seg
-                for seg in cluster_segments
-                if f"{seg.session_id}:{seg.start_time}:{seg.end_time}" not in existing_refs
-            ]
+            new_segments = []
+            for seg in cluster_segments:
+                session_start = parse_datetime_as_utc(seg.session_start_time)
+                abs_start = session_start + timedelta(seconds=parse_timestamp_to_seconds(seg.start_time))
+                abs_end = session_start + timedelta(seconds=parse_timestamp_to_seconds(seg.end_time))
+                ref_key = f"{seg.session_id}:{abs_start.isoformat()}:{abs_end.isoformat()}"
+                if ref_key not in existing_refs:
+                    new_segments.append(seg)
 
             if new_segments:
                 # Get all distinct_ids from existing refs + new segments for accurate user count
@@ -124,7 +128,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
 
                 # Find most recent occurrence from new segments
                 for segment in new_segments:
-                    session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
+                    session_start_time = parse_datetime_as_utc(segment.session_start_time)
                     segment_start_time = session_start_time + timedelta(
                         seconds=parse_timestamp_to_seconds(segment.start_time)
                     )
@@ -160,7 +164,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         if not task_id:
             continue
 
-        session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
+        session_start_time = parse_datetime_as_utc(segment.session_start_time)
         segment_start_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.start_time))
         segment_end_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.end_time))
 

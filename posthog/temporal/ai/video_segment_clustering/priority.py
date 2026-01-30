@@ -4,7 +4,7 @@ Priority is calculated based on number of unique users affected.
 """
 
 import math
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
 from asgiref.sync import sync_to_async
@@ -12,6 +12,14 @@ from asgiref.sync import sync_to_async
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.models import VideoSegmentMetadata
+
+
+def parse_datetime_as_utc(iso_string: str) -> datetime:
+    """Parse an ISO datetime string, normalizing to UTC timezone-aware datetime."""
+    dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
 
 
 class TaskMetrics(TypedDict):
@@ -35,7 +43,7 @@ async def calculate_task_metrics(team: Team, segments: list[VideoSegmentMetadata
     # Find most recent occurrence
     last_occurrence_at = None
     for segment in segments:
-        session_start_time = datetime.fromisoformat(segment.session_start_time)
+        session_start_time = parse_datetime_as_utc(segment.session_start_time)
         segment_start_time = session_start_time + timedelta(seconds=parse_timestamp_to_seconds(segment.start_time))
         if last_occurrence_at is None or segment_start_time > last_occurrence_at:
             last_occurrence_at = segment_start_time
