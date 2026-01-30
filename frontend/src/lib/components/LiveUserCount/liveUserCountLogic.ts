@@ -26,7 +26,6 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
         setStats: (stats: LiveUserCountStats, now: Date) => ({ stats, now }),
         setNow: (now: Date) => ({ now }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
-        setPageVisibility: (visible: boolean) => ({ visible }),
         pauseStream: true,
         resumeStream: true,
     })),
@@ -117,25 +116,11 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                 return () => clearInterval(intervalId)
             }, 'statsInterval')
         },
-        setPageVisibility: ({ visible }) => {
-            if (visible) {
-                actions.resumeStream()
-            } else {
-                actions.pauseStream()
-            }
-        },
     })),
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.setNow(new Date())
             actions.resumeStream()
-            cache.disposables.add(() => {
-                const onVisibilityChange = (): void => {
-                    actions.setPageVisibility(document.visibilityState === 'visible')
-                }
-                document.addEventListener('visibilitychange', onVisibilityChange)
-                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-            }, 'visibilityListener')
         },
     })),
 ])
