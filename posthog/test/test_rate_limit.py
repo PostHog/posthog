@@ -476,8 +476,9 @@ class TestUserAPI(APIBaseTest):
         mock_request.user = self.user
         mock_view = Mock()
 
-        # Mock the parent allow_request to return False (rate limited)
-        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
             result = throttle.allow_request(mock_request, mock_view)
 
             # Should return False (rate limited)
@@ -495,8 +496,9 @@ class TestUserAPI(APIBaseTest):
         mock_request.user = self.user
         mock_view = Mock()
 
-        # Mock the parent allow_request to return False (rate limited)
-        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
             result = throttle.allow_request(mock_request, mock_view)
 
             # Should return False (rate limited)
@@ -514,8 +516,9 @@ class TestUserAPI(APIBaseTest):
         mock_request.user = self.user
         mock_view = Mock()
 
-        # Mock the parent allow_request to return False (rate limited)
-        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
             result = throttle.allow_request(mock_request, mock_view)
 
             # Should return False (rate limited)
@@ -533,8 +536,9 @@ class TestUserAPI(APIBaseTest):
         mock_request.user = self.user
         mock_view = Mock()
 
-        # Mock the parent allow_request to return False (rate limited)
-        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
             result = throttle.allow_request(mock_request, mock_view)
 
             # Should return False (rate limited)
