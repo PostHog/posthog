@@ -105,6 +105,10 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
+                    <Markdown>
+                        For more configuration options, see the [Android session replay
+                        docs](https://posthog.com/docs/session-replay/installation?tab=Android).
+                    </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
                             Requires Android API 26 or higher. Jetpack Compose is only supported if `screenshot` is

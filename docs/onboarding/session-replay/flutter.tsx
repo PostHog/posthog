@@ -176,6 +176,10 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
+                    <Markdown>
+                        For more configuration options, see the [Flutter session replay
+                        docs](https://posthog.com/docs/session-replay/installation?tab=Flutter).
+                    </Markdown>
                 </>
             ),
         },

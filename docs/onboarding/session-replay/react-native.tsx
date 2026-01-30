@@ -127,6 +127,10 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                             },
                         ]}
                     />
+                    <Markdown>
+                        For more configuration options, see the [React Native session replay
+                        docs](https://posthog.com/docs/session-replay/installation?tab=React+Native).
+                    </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
                             Requires Android API 26+ and iOS 13+. Expo Go is not supported - use a development build.

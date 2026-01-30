@@ -115,6 +115,10 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             },
                         ]}
                     />
+                    <Markdown>
+                        For more configuration options, see the [iOS session replay
+                        docs](https://posthog.com/docs/session-replay/installation?tab=iOS).
+                    </Markdown>
                     <CalloutBox type="fyi" title="SwiftUI support">
                         <Markdown>
                             SwiftUI is only supported if the `screenshotMode` option is enabled. Custom views and
