@@ -416,7 +416,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         pauseIframePlayback: true,
         restartIframePlayback: true,
         setCurrentSegment: (segment: RecordingSegment) => ({ segment }),
-        setRootFrame: (frame: HTMLDivElement) => ({ frame }),
+        setRootFrame: (frame: HTMLDivElement | null) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
         incrementErrorCount: true,
@@ -1211,13 +1211,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         iframeDocument &&
                         iframeDocument.readyState === 'loading'
                     ) {
+                        let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
+
                         const onReady = (): void => {
                             setupErrorHandlers()
 
                             if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
                                 const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
                                 replayer.pause(currentTime)
-                                setTimeout(() => {
+                                pauseTimeoutId = setTimeout(() => {
                                     if (replayer) {
                                         replayer.pause(currentTime)
                                     }
@@ -1230,6 +1232,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                         iframeCleanups.push(() => {
                             iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                            if (pauseTimeoutId !== null) {
+                                clearTimeout(pauseTimeoutId)
+                            }
                         })
                     } else {
                         setupErrorHandlers()
@@ -1578,15 +1583,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         showSeekIndicator: () => {
-            // Clear any existing timer to prevent premature hiding when spamming
-            if (cache.seekIndicatorTimer) {
-                clearTimeout(cache.seekIndicatorTimer)
-            }
+            // Using disposables with same key auto-disposes previous timer when spamming
             // Wait for CSS animation to complete (100ms fade-in + 300ms visible + 200ms fade-out)
-            cache.seekIndicatorTimer = setTimeout(() => {
-                actions.hideSeekIndicator()
-                cache.seekIndicatorTimer = null
-            }, 600)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.hideSeekIndicator()
+                }, 600)
+                return () => clearTimeout(timerId)
+            }, 'seekIndicatorTimer')
         },
 
         seekToTime: ({ timeInMilliseconds }) => {
@@ -1982,10 +1986,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
-        if (props.mode === SessionRecordingPlayerMode.Preview) {
-            return
-        }
-
         actions.stopAnimation()
 
         // Note: Disposables (timers, event listeners) are automatically cleaned up
@@ -1995,6 +1995,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.pausedMediaElements = []
 
         actions.setPlayer(null)
+        actions.setRootFrame(null)
+
+        if (props.mode === SessionRecordingPlayerMode.Preview) {
+            return
+        }
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
