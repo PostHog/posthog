@@ -11,6 +11,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeSessionGroupWorkflow",
             "AssistantConversationRunnerWorkflow",
             "ChatAgentWorkflow",
+            "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
         ]
@@ -45,6 +46,7 @@ class TestAITemporalModuleIntegrity:
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
             "process_conversation_activity",
             "process_chat_agent_activity",
+            "process_research_agent_activity",
             "validate_llm_single_session_summary_with_videos_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",

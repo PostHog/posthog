@@ -1278,11 +1278,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setSkippingInactivity(false)
             }
 
-            // Check if the new segment is for a different window_id than the last one
-            // If so, we need to re-initialize the player
+            // If the new segment is for a different window_id than the last one, re-initialize the player
             if (!values.player || values.player.windowId !== segment.windowId) {
-                values.player?.replayer?.pause()
-                actions.tryInitReplayer()
+                // Only reinitialize if we have valid data for this segment's window
+                const canReinit =
+                    segment.windowId !== undefined &&
+                    values.sessionPlayerData.snapshotsByWindowId[segment.windowId]?.length >= 2
+
+                if (canReinit) {
+                    values.player?.replayer?.pause()
+                    actions.tryInitReplayer()
+                } else if (segment.kind === 'gap') {
+                    // Gap segment - keep current player visible, updateAnimation handles time
+                } else if (segment.windowId !== undefined) {
+                    // WindowId exists but snapshots not loaded - buffer and load
+                    actions.startBuffer()
+                    actions.loadNextSnapshotSource()
+                }
+                // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
                 actions.seekToTimestamp(values.currentTimestamp)
