@@ -14,7 +14,6 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -26,18 +25,22 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 LabelPath = list[str]
 
 
-class CycleDetector(TraversingVisitor):
-    """Traverses an AST to detect circular dependencies in view references."""
+class CycleDetectingResolver(Resolver):
+    """A resolver that detects circular dependencies in view references.
 
-    def __init__(self, database: Database, initial_view_name: str | None = None):
-        super().__init__()
-        self.database = database
+    This extends the base Resolver to track which views are currently being
+    resolved, raising a QueryError if a cycle is detected.
+    """
+
+    def __init__(self, *args, initial_view_name: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
         # seeded with the current view name so its "visited"
         self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
 
     def visit_join_expr(self, node: ast.JoinExpr):
-        """Check for cycles when visiting table references."""
-        if isinstance(node.table, ast.Field):
+        """Override to add cycle detection when resolving views."""
+        # CTEs are handled entirely by the parent class, but for views we track visited for cycle detection
+        if isinstance(node.table, ast.Field) and self.database is not None:
             try:
                 database_table = self.database.get_table([str(n) for n in node.table.chain])
             except QueryError:
@@ -49,12 +52,11 @@ class CycleDetector(TraversingVisitor):
                         raise QueryError(f"Circular dependency detected in view '{view_name}'")
                     self.resolving_views.add(view_name)
                     try:
-                        saved_query_ast = parse_select(str(database_table.query))
-                        self.visit(saved_query_ast)
+                        return super().visit_join_expr(node)
                     finally:
                         self.resolving_views.discard(view_name)
 
-        super().visit_join_expr(node)
+        return super().visit_join_expr(node)
 
 
 class LabelTreeField(models.Field):
@@ -128,24 +130,27 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     """Get parents from a given query.
 
     The parents of a query are any names in the `FROM` clause of the query.
-    Uses CycleDetectingVisitor to detect circular dependencies before Resolver prepares the AST.
+    Uses CycleDetectingResolver to detect circular dependencies in view references.
     """
     from posthog.hogql.context import HogQLContext
 
-    database = Database.create_for(team=team)
     hogql_query = parse_select(model_query)
-
-    # cycle detection runs before type resolution to avoid infinite recursion
-    CycleDetector(database=database, initial_view_name=model_name).visit(hogql_query)
-
-    # the standard resolver will inline CTEs to avoid counting them as parents
     context = HogQLContext(
         team_id=team.pk,
         team=team,
-        database=database,
         enable_select_queries=True,
     )
-    prepared_ast = Resolver(context=context, dialect="hogql").visit(hogql_query)
+    if context.database is None:
+        context.database = Database.create_for(
+            context.team_id,
+            modifiers=context.modifiers,
+            team=context.team,
+        )
+
+    # use cycledetectingresolver to resolve types and detect circular view dependencies
+    resolver = CycleDetectingResolver(context=context, dialect="hogql", initial_view_name=model_name)
+    prepared_ast = resolver.visit(hogql_query)
+
     if prepared_ast is None:
         return set()
 
@@ -155,29 +160,37 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         queries = [prepared_ast]
 
     parents: set[str] = set()
+
     while queries:
         query = queries.pop()
+
         join = query.select_from
+
         if join is None:
             continue
+
         while join is not None:
             if isinstance(join.table, ast.SelectQuery):
                 if join.table.view_name is not None:
                     parents.add(join.table.view_name)
                     break
+
                 queries.append(join.table)
                 break
             elif isinstance(join.table, ast.SelectSetQuery):
                 queries.extend(list(extract_select_queries(join.table)))
                 break
+
             if isinstance(join.table, ast.Placeholder):
                 parent_name = join.table.field
             elif isinstance(join.table, ast.Field):
                 parent_name = ".".join(str(s) for s in join.table.chain)
             else:
                 raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
+
             if isinstance(parent_name, str):
                 parents.add(parent_name)
+
             join = join.next_join
 
     return parents
