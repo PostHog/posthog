@@ -35,8 +35,6 @@ from products.batch_exports.backend.temporal.backfill_batch_export import (
     get_batch_export_interval,
 )
 
-pytestmark = [pytest.mark.django_db(transaction=True)]
-
 
 async def wait_for_workflows(
     temporal_client: temporalio.client.Client,

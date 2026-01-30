@@ -27,7 +27,7 @@ export function NewTicket(): JSX.Element {
             </p>
 
             <MessageInput
-                onSendMessage={sendMessage}
+                onSendMessage={(content, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
                 messageSending={messageSending}
                 placeholder="What can we help you with?"
                 buttonText="Submit ticket"

@@ -211,8 +211,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=abc")
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        response_data = response.json()
-        self.assertIn("Invalid version parameter", response_data["error"])
+        self.assertIn("Invalid version parameter", str(response.json()))
 
     def test_list_versions(self):
         """Should list all versions in descending order."""
@@ -241,7 +240,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, versions[2]["version"])
 
     def test_get_version_detail(self):
-        """Should get specific version details."""
+        """Should get specific version details via ?version=N query param."""
         endpoint = create_endpoint_with_version(
             name="version_detail_test",
             team=self.team,
@@ -249,7 +248,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/1/")
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         data = response.json()
@@ -334,7 +333,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, logs.count())
 
     def test_materialization_transfer_on_version_update(self):
-        """When query changes on materialized endpoint, materialization should transfer to new version."""
+        """When query changes on materialized endpoint, new version gets materialization and old version keeps its own."""
         from datetime import timedelta
 
         from unittest.mock import patch
@@ -359,7 +358,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         # Create initial saved query (simulating materialization) on the version
         old_saved_query = DataWarehouseSavedQuery.objects.create(
-            name=endpoint.name,
+            name=f"{endpoint.name}_v1",
             team=self.team,
             query=initial_query,
             is_materialized=True,
@@ -381,7 +380,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             ),
             patch("products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"),
         ):
-            # Update query (which should create new version and transfer materialization)
+            # Update query (which should create new version with its own materialization)
             new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -413,9 +412,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         assert new_saved_query.query is not None
         self.assertEqual(new_saved_query.query["query"], new_query["query"])
 
-        # Verify old saved query was soft deleted
+        # Verify old version still has its materialization (not deleted)
+        version1.refresh_from_db()
         old_saved_query.refresh_from_db()
-        self.assertTrue(old_saved_query.deleted)
+        self.assertTrue(version1.is_materialized)
+        self.assertFalse(old_saved_query.deleted)
+        self.assertEqual(version1.saved_query_id, old_saved_query_id)
 
     def test_no_materialization_transfer_for_non_materialized_endpoint(self):
         """Non-materialized endpoints should not trigger materialization transfer."""
@@ -575,3 +577,242 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, len(versions))
         self.assertIn("is_active", versions[0])
         self.assertTrue(versions[0]["is_active"])
+
+    def test_per_version_materialization_uses_versioned_naming(self):
+        """Each version should have its own independently-named saved_query."""
+        from unittest.mock import patch
+
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
+            name="versioned_mat",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+        )
+
+        # Mock sync workflow
+        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
+            # Enable materialization on v1
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "sync_frequency": "24hour"},
+                format="json",
+            )
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        v1 = endpoint.get_version(1)
+        self.assertIsNotNone(v1.saved_query)
+        # Saved query should use versioned naming: {endpoint_name}_v{version}
+        self.assertEqual(v1.saved_query.name, "versioned_mat_v1")
+
+        # Create v2 by changing query
+        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+                format="json",
+            )
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        endpoint.refresh_from_db()
+        v2 = endpoint.get_version(2)
+        self.assertIsNotNone(v2.saved_query)
+        # New version should have its own versioned saved_query name
+        self.assertEqual(v2.saved_query.name, "versioned_mat_v2")
+
+        # Both saved_queries should exist independently (v1 keeps its materialization)
+        self.assertEqual(
+            DataWarehouseSavedQuery.objects.filter(name__startswith="versioned_mat_v", deleted=False).count(),
+            2,
+        )
+
+    def test_update_with_version_param_enables_materialization_on_specific_version(self):
+        """Update with ?version=N should enable materialization on that specific version."""
+        from unittest.mock import patch
+
+        # Create endpoint with v1
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
+            name="target_version_mat",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+        )
+
+        # Create v2 by changing query
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        endpoint.refresh_from_db()
+        self.assertEqual(2, endpoint.current_version)
+
+        # Neither version should be materialized yet
+        v1 = endpoint.get_version(1)
+        v2 = endpoint.get_version(2)
+        self.assertFalse(v1.is_materialized)
+        self.assertFalse(v2.is_materialized)
+
+        # Enable materialization on v1 specifically (not the current version)
+        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+                {"is_materialized": True, "sync_frequency": "24hour"},
+                format="json",
+            )
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        # Refresh versions
+        v1.refresh_from_db()
+        v2.refresh_from_db()
+
+        # v1 should now be materialized
+        self.assertTrue(v1.is_materialized)
+        self.assertIsNotNone(v1.saved_query)
+        self.assertEqual(v1.saved_query.name, "target_version_mat_v1")
+
+        # v2 should still NOT be materialized
+        self.assertFalse(v2.is_materialized)
+        self.assertIsNone(v2.saved_query)
+
+    def test_update_with_version_param_disables_materialization_on_specific_version(self):
+        """Update with ?version=N should disable materialization on that specific version."""
+
+        from datetime import timedelta
+
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        # Create endpoint with v1
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
+            name="disable_v1_mat",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+        )
+
+        # Manually set up materialization on v1
+        v1 = endpoint.get_version(1)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="disable_v1_mat_v1",
+            team=self.team,
+            query=initial_query,
+            is_materialized=True,
+            sync_frequency_interval=timedelta(hours=24),
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        v1.saved_query = saved_query
+        v1.is_materialized = True
+        v1.sync_frequency = "24hour"
+        v1.save()
+
+        # Create v2 by changing query
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        endpoint.refresh_from_db()
+        self.assertEqual(2, endpoint.current_version)
+
+        # Disable materialization on v1 specifically
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+            {"is_materialized": False},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+
+        # Refresh v1
+        v1.refresh_from_db()
+
+        # v1 should no longer be materialized
+        self.assertFalse(v1.is_materialized)
+        self.assertIsNone(v1.saved_query)
+
+        # Saved query should be soft-deleted
+        saved_query.refresh_from_db()
+        self.assertTrue(saved_query.deleted)
+
+    def test_update_with_version_param_updates_description_on_specific_version(self):
+        """Update with ?version=N should update description on that specific version."""
+        # Create endpoint with v1
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
+            name="desc_v1_update",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+        )
+
+        # Create v2 by changing query
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        endpoint.refresh_from_db()
+        self.assertEqual(2, endpoint.current_version)
+
+        # Update description on v1 specifically
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+            {"description": "v1 description"},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        # Verify v1 has the description
+        v1 = endpoint.get_version(1)
+        v2 = endpoint.get_version(2)
+        self.assertEqual("v1 description", v1.description)
+        # v2 should NOT have been updated
+        self.assertNotEqual("v1 description", v2.description)
+
+    def test_update_with_invalid_version_param_returns_error(self):
+        """Update with ?version=N where N doesn't exist should return error."""
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
+            name="invalid_version_update",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+        )
+
+        # Try to update with non-existent version
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=999",
+            {"is_materialized": True},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIn("999", str(response.json()))
+
+    def test_update_rejects_query_change_with_version_param(self):
+        """Cannot change query when targeting a specific version."""
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
+            name="query_change_rejection",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIn("Cannot change query", str(response.json()))
