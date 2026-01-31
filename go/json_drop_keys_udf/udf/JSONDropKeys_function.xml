@@ -4,12 +4,9 @@
         <name>JSONDropKeys</name>
         <return_type>String</return_type>
         <argument>
-            <type>Array(String)</type>
-        </argument>
-        <argument>
             <type>String</type>
         </argument>
         <format>Raw</format>
-        <command>json_drop_keys_udf</command>
+        <command>json_drop_keys_udf {test_parameter:Array(String)}</command>
     </function>
 </functions>

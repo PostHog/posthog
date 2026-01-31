@@ -3,20 +3,26 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"runtime/pprof"
+	"strings"
 	"sync"
 
 	"github.com/valyala/fastjson"
 )
 
+type emptyT struct{}
+
+// a struct for hierarchical keys, e.g. if someone wants to drop "properties.foo.bar", works only for objects
+type jsonKey map[string]jsonKey
+
 type node interface {
 	Write(*bytes.Buffer)
-	DropKeys(keys []string) node
+	DropKeys(keys jsonKey) node
 }
 
 type valueKind int
@@ -52,7 +58,7 @@ func (v *valueNode) Write(buf *bytes.Buffer) {
 	}
 }
 
-func (v *valueNode) DropKeys([]string) node {
+func (v *valueNode) DropKeys(jsonKey) node {
 	return v
 }
 
@@ -90,48 +96,29 @@ func (o *objectNode) Write(buf *bytes.Buffer) {
 	buf.WriteByte('}')
 }
 
-func (o *objectNode) DropKeys([]string) node {
+func (o *objectNode) DropKeys(keysToDrop jsonKey) node {
 	if len(o.entries) == 0 {
 		return o
 	}
 
 	o.entries = expandDottedEntries(o.entries)
 
-	for i := range o.entries {
-		o.entries[i].value = o.entries[i].value.DropKeys(nil)
-	}
-
-	infoMap := entryInfoPool.Get().(map[string]entryInfo)
-	for i, entry := range o.entries {
-		info := infoMap[entry.key]
-		info.last = i
-		if !info.hasNonEmpty && isNonEmptyValue(entry.value) {
-			info.hasNonEmpty = true
-			info.firstNonEmpty = i
+	for i, e := range o.entries {
+		if val, ok := keysToDrop[e.key]; ok && len(val) > 0 {
+			o.entries[i].value = o.entries[i].value.DropKeys(val)
 		}
-		infoMap[entry.key] = info
 	}
 
 	writeIdx := 0
-	for i, entry := range o.entries {
-		info := infoMap[entry.key]
-		keep := false
-		if info.hasNonEmpty {
-			keep = info.firstNonEmpty == i
-		} else {
-			keep = info.last == i
+	for _, entry := range o.entries {
+		if _, toDrop := keysToDrop[entry.key]; toDrop {
+			continue
 		}
-		if keep {
-			o.entries[writeIdx] = entry
-			writeIdx++
-		}
+		o.entries[writeIdx] = entry
+		writeIdx++
 	}
 	o.entries = o.entries[:writeIdx]
 
-	for key := range infoMap {
-		delete(infoMap, key)
-	}
-	entryInfoPool.Put(infoMap)
 	return o
 }
 
@@ -232,7 +219,7 @@ func (a *arrayNode) Write(buf *bytes.Buffer) {
 	buf.WriteByte(']')
 }
 
-func (a *arrayNode) DropKeys([]string) node {
+func (a *arrayNode) DropKeys(jsonKey) node {
 	for i := range a.values {
 		a.values[i] = a.values[i].DropKeys(nil)
 	}
@@ -478,7 +465,7 @@ func shouldStringifyNumber(num string) bool {
 	return digits > maxInt64
 }
 
-func processLine(keys []string, rawLine []byte, buf *bytes.Buffer) error {
+func processLine(keys jsonKey, rawLine []byte, buf *bytes.Buffer) error {
 	parser := parserPool.Get().(*fastjson.Parser)
 	defer parserPool.Put(parser)
 
@@ -499,16 +486,81 @@ func processLine(keys []string, rawLine []byte, buf *bytes.Buffer) error {
 	return nil
 }
 
+// parseSingleQuotedArray parses a Python-style array like ['a', 'b\'c']
+func parseSingleQuotedArray(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
+		return nil, fmt.Errorf("expected array wrapped in []")
+	}
+	s = s[1 : len(s)-1] // strip [ ]
+
+	var result []string
+	for len(s) > 0 {
+		s = strings.TrimLeft(s, " \t")
+		if len(s) == 0 {
+			break
+		}
+		if s[0] != '\'' {
+			return nil, fmt.Errorf("expected single quote at start of string, got %q", s)
+		}
+		s = s[1:] // skip opening '
+
+		var sb strings.Builder
+		for {
+			if len(s) == 0 {
+				return nil, fmt.Errorf("unterminated string")
+			}
+			if s[0] == '\\' && len(s) > 1 && s[1] == '\'' {
+				sb.WriteByte('\'')
+				s = s[2:]
+				continue
+			}
+			if s[0] == '\'' {
+				s = s[1:] // skip closing '
+				break
+			}
+			sb.WriteByte(s[0])
+			s = s[1:]
+		}
+		result = append(result, sb.String())
+
+		s = strings.TrimLeft(s, " \t")
+		if len(s) > 0 && s[0] == ',' {
+			s = s[1:]
+		}
+	}
+	return result, nil
+}
+
+func makeKeyDict(keys []string) jsonKey {
+	dict := make(jsonKey, len(keys))
+	for _, key := range keys {
+		dict[key] = nil
+	}
+	return dict
+}
+
 func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
-	keysToDrop := flag.String("keysToDrop", "", "comma-separated list of keys to drop")
 	flag.Parse()
 
-	var keys []string
-	if err := json.Unmarshal([]byte(*keysToDrop), &keys); err != nil {
+	keysArg := flag.Arg(0)
+
+	logFile, err := os.OpenFile("/tmp/json_drop_keys_udf.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open log file error: %v\n", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
+	fmt.Fprintf(logFile, "keysToDrop: %s\n", keysArg)
+
+	keys, err := parseSingleQuotedArray(keysArg)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "keysToDrop parse error: %v\n", err)
 		os.Exit(1)
 	}
+	keysToDrop := makeKeyDict(keys)
 
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -554,7 +606,7 @@ func main() {
 		}
 		line = line[:n]
 
-		procErr := processLine(keys, line, buf)
+		procErr := processLine(keysToDrop, line, buf)
 		if procErr != nil {
 			fmt.Fprintf(os.Stderr, "line processing error: %v\n", procErr)
 			os.Exit(1)
