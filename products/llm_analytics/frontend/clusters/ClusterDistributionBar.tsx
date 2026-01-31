@@ -24,43 +24,45 @@ export function ClusterDistributionBar({ clusters, runId }: ClusterDistributionB
     const totalInClusters = clusters.reduce((sum, cluster) => sum + cluster.size, 0)
 
     return (
-        <div className="flex-1 min-w-0 flex h-3 rounded-sm overflow-hidden bg-border-light">
-            {clusters.map((cluster) => {
-                const percentage = (cluster.size / totalInClusters) * 100
-                const isOutlier = cluster.cluster_id === NOISE_CLUSTER_ID
-                const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
+        <div className="flex-1 min-w-0 h-4 flex items-center">
+            <div className="flex w-full h-2.5 rounded-sm overflow-hidden bg-border-light">
+                {clusters.map((cluster) => {
+                    const percentage = (cluster.size / totalInClusters) * 100
+                    const isOutlier = cluster.cluster_id === NOISE_CLUSTER_ID
+                    const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
 
-                if (percentage < 0.5) {
-                    return null
-                }
+                    if (percentage < 0.5) {
+                        return null
+                    }
 
-                return (
-                    <Tooltip
-                        key={cluster.cluster_id}
-                        title={
-                            <div className="text-xs">
-                                <div className="font-semibold">{cluster.title}</div>
-                                <div>
-                                    {cluster.size} ({Math.round(percentage)}%)
+                    return (
+                        <Tooltip
+                            key={cluster.cluster_id}
+                            title={
+                                <div className="text-xs">
+                                    <div className="font-semibold">{cluster.title}</div>
+                                    <div>
+                                        {cluster.size} ({Math.round(percentage)}%)
+                                    </div>
                                 </div>
-                            </div>
-                        }
-                    >
-                        <div
-                            className="h-full transition-all hover:opacity-80 cursor-pointer"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                width: `${percentage}%`,
-                                backgroundColor: color,
-                            }}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                router.actions.push(urls.llmAnalyticsCluster(runId, cluster.cluster_id))
-                            }}
-                        />
-                    </Tooltip>
-                )
-            })}
+                            }
+                        >
+                            <div
+                                className="h-full transition-all hover:opacity-80 cursor-pointer"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    width: `${percentage}%`,
+                                    backgroundColor: color,
+                                }}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    router.actions.push(urls.llmAnalyticsCluster(runId, cluster.cluster_id))
+                                }}
+                            />
+                        </Tooltip>
+                    )
+                })}
+            </div>
         </div>
     )
 }
