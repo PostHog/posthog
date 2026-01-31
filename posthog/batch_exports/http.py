@@ -19,6 +19,7 @@ from rest_framework.pagination import CursorPagination
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast, errors
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -802,7 +803,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             )
 
             if isinstance(field, ast.Alias):
-                alias = field.alias
+                alias = escape_clickhouse_identifier(field.alias)
             else:
                 alias = expression
 

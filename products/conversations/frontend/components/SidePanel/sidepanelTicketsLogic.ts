@@ -1,21 +1,27 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
 import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 
+const POLL_INTERVAL = 60 * 1000 // 60 seconds
+
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
     connect({
-        values: [sidePanelStateLogic, ['sidePanelOpen']],
+        values: [sidePanelStateLogic, ['sidePanelOpen'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         loadTickets: true,
+        startPolling: true,
+        stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
         loadMessages: (ticketId: string) => ({ ticketId }),
         setMessages: (messages: ChatMessage[]) => ({ messages }),
@@ -78,10 +84,16 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             },
         ],
     }),
-    selectors({}),
-    listeners(({ actions, values }) => ({
+    selectors({
+        isEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
+        ],
+        totalUnreadCount: [(s) => [s.tickets], (tickets) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0)],
+    }),
+    listeners(({ actions, values, cache }) => ({
         loadTickets: async () => {
-            if (!posthog.conversations) {
+            if (!values.isEnabled || !posthog.conversations) {
                 return
             }
             actions.setTicketsLoading(true)
@@ -89,6 +101,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
                     actions.setTickets(response.results as ConversationTicket[])
+                    // Start polling only if user has tickets
+                    if (response.results.length > 0) {
+                        actions.startPolling()
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
@@ -97,8 +113,27 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setTicketsLoading(false)
             }
         },
+        startPolling: () => {
+            // Only poll if feature is enabled and page is visible
+            if (!values.isEnabled || document.visibilityState !== 'visible') {
+                return
+            }
+            // Clear any existing poll timer
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+            }
+            cache.pollTimer = window.setTimeout(() => {
+                actions.loadTickets()
+            }, POLL_INTERVAL)
+        },
+        stopPolling: () => {
+            if (cache.pollTimer) {
+                clearTimeout(cache.pollTimer)
+                cache.pollTimer = null
+            }
+        },
         loadMessages: async ({ ticketId }) => {
-            if (!ticketId || !posthog.conversations) {
+            if (!values.isEnabled || !ticketId || !posthog.conversations) {
                 return
             }
             actions.setMessagesLoading(true)
@@ -125,7 +160,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending || !posthog.conversations) {
+            if (!values.isEnabled || !content.trim() || values.messageSending || !posthog.conversations) {
                 return
             }
             actions.setMessageSending(true)
@@ -161,7 +196,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         markAsRead: async ({ ticketId }) => {
-            if (!ticketId || !posthog.conversations) {
+            if (!values.isEnabled || !ticketId || !posthog.conversations) {
                 return
             }
             try {
@@ -176,11 +211,35 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             actions.markAsRead(ticket.id)
         },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         sidePanelOpen: (open: boolean) => {
-            if (open) {
+            if (values.isEnabled && open) {
                 actions.loadTickets()
             }
         },
     })),
+    afterMount(({ actions, values, cache }) => {
+        // Only load if feature is enabled
+        if (values.isEnabled) {
+            actions.loadTickets()
+        }
+
+        // Set up visibility change listener (only if feature is enabled)
+        if (values.isEnabled) {
+            cache.onVisibilityChange = (): void => {
+                if (document.visibilityState === 'visible') {
+                    actions.loadTickets()
+                } else {
+                    actions.stopPolling()
+                }
+            }
+            document.addEventListener('visibilitychange', cache.onVisibilityChange)
+        }
+    }),
+    beforeUnmount(({ actions, cache }) => {
+        actions.stopPolling()
+        if (cache.onVisibilityChange) {
+            document.removeEventListener('visibilitychange', cache.onVisibilityChange)
+        }
+    }),
 ])
