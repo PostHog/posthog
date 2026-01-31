@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "agent-sync",
     "property-defs-rs",
     "batch-import-worker",
     "capture",
@@ -150,3 +151,6 @@ fernet = "0.2"
 tiktoken-rs = "0.7.0"
 sha2 = "0.10"
 testcontainers = "0.23"
+hex = "0.4"
+tokio-util = { version = "0.7", features = ["rt"] }
+async-stream = "0.3"

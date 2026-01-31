@@ -21,6 +21,7 @@ services:
             - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
+            - 'agent-sync:host-gateway'
         environment:
             CADDYFILE: |
                 http://localhost:8000 {
@@ -58,6 +59,17 @@ services:
                         path /public/webhooks/*
                         path /public/m
                         path /public/m/*
+                    }
+
+                    @agent-sync {
+                        path_regexp /api/projects/[^/]+/tasks/[^/]+/runs/[^/]+/sync
+                        path_regexp /api/projects/[^/]+/tasks/[^/]+/runs/[^/]+/logs
+                    }
+
+                    handle @agent-sync {
+                        reverse_proxy agent-sync:3310 {
+                            flush_interval -1
+                        }
                     }
 
                     handle @capture-ai {
