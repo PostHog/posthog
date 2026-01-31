@@ -1,0 +1,15 @@
+<functions>
+    <function>
+        <type>executable</type>
+        <name>JSONDropKeys</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>Array(String)</type>
+        </argument>
+        <argument>
+            <type>String</type>
+        </argument>
+        <format>Raw</format>
+        <command>json_drop_keys_udf</command>
+    </function>
+</functions>

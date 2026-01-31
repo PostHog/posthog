@@ -1,0 +1,17 @@
+services:
+    clickhouse:
+        image: clickhouse/clickhouse-server:25.12
+        ulimits:
+            nofile:
+                soft: 262144
+                hard: 262144
+        volumes:
+            - ${UDF_XML:-./udf/JSONDropKeys_function.xml}:/etc/clickhouse-server/user_defined/JSONDropKeys_function.xml:ro
+            - ${UDF_CFG:-./udf/udf_config.xml}:/etc/clickhouse-server/config.d/udf_config.xml:ro
+            - ${USER_DATA:-./testdata}:/var/lib/clickhouse/user_files:rw
+            - ${UDF_BIN}:/var/lib/clickhouse/user_scripts/json_drop_keys_udf:ro
+        healthcheck:
+            test: ['CMD', 'clickhouse-client', '--query', 'SELECT 1']
+            interval: 2s
+            timeout: 5s
+            retries: 15
