@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
@@ -14,7 +15,7 @@ import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
 
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -23,6 +24,7 @@ import {
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
+    variants?: MultivariateFlagVariant[]
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -102,7 +104,7 @@ function ConditionHeader({
             </div>
             <div className="flex items-center gap-1">
                 <span className="text-sm text-muted mr-2">
-                    ({rollout}%
+                    ({rollout}%{group.variant && ` · ${group.variant}`}
                     {actualUserCount !== null &&
                         totalUsers !== null &&
                         ` · ${humanFriendlyNumber(actualUserCount)} ${aggregationTargetName}`}
@@ -166,6 +168,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     filters,
     onChange,
     readOnly,
+    variants,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -201,13 +204,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
     )
 
     const handleAddConditionSet = (): void => {
-        // Get the next sort_key - it will be max(existing sort_keys) + 1
-        const maxSortKey = filterGroups.reduce(
-            (max, group) => Math.max(max, typeof group.sort_key === 'number' ? group.sort_key : 0),
-            -1
-        )
-        const newSortKey = maxSortKey + 1
-        addConditionSet()
+        const newSortKey = uuidv4()
+        addConditionSet(newSortKey)
         setOpenConditions((prev) => [...prev, `condition-${newSortKey}`])
     }
 
@@ -231,7 +229,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         </span>
                                         <span>{summary}</span>
                                     </div>
-                                    <span className="text-muted">({rollout}%)</span>
+                                    <span className="text-muted">
+                                        ({rollout}%{group.variant && ` · ${group.variant}`})
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -440,6 +440,27 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     </div>
                                 )}
                             </div>
+
+                            {variants && variants.length > 0 && (
+                                <div>
+                                    <LemonLabel className="mb-1">Variant override (optional)</LemonLabel>
+                                    <LemonSelect
+                                        placeholder="No override"
+                                        allowClear={true}
+                                        value={group.variant ?? null}
+                                        onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
+                                        options={variants.map((variant) => ({
+                                            label: variant.key,
+                                            value: variant.key,
+                                        }))}
+                                        className="w-full"
+                                        data-attr="feature-flags-variant-override-select"
+                                    />
+                                    <div className="text-xs text-muted mt-1">
+                                        Force all matching {aggregationTargetName} to receive a specific variant
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ),
                 }))}

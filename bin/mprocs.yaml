@@ -144,8 +144,11 @@ procs:
 
     mcp:
         shell: 'bin/start-mcp-server'
-        autostart: false
-        # no capability - manual start
+        capability: mcp_server
+
+    mcp-ui-apps:
+        shell: 'cd services/mcp/typescript && pnpm run build:ui-apps -- --watch'
+        capability: mcp_server
 
     migrate-postgres:
         shell: 'bin/check_postgres_up && bin/check_ducklake_up && bin/migrate --scope=postgres'
