@@ -194,7 +194,7 @@ class MarketingSourceFactory:
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
 
-        # Fallback: if campaign_video_stats not found, try legacy campaign_stats
+        # Fallback: if campaign_overview_stats not found, try legacy campaign_stats
         if not campaign_stats_table:
             for table in tables:
                 table_suffix = table.name.split(".")[-1].lower()

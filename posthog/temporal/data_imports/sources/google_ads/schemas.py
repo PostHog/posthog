@@ -321,7 +321,7 @@ RESOURCE_SCHEMAS = {
             "segments.year",
         ],
     },
-    "campaign_video_stats": {
+    "campaign_overview_stats": {
         "resource_name": "campaign",
         "primary_key": [
             "campaign.id",

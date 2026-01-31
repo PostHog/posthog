@@ -187,7 +187,7 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         "customer_stats",
         "search_term_stats",
         "geographic_stats",
-        "campaign_video_stats",
+        "campaign_overview_stats",
         "video_performance_stats",
     ):
         source = google_ads_source(cfg, resource_name=resource, team_id=team.id)
