@@ -105,7 +105,7 @@ export class InsightPage {
     async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
         await beforeFn?.()
         await callback()
-        await this.page.reload({ waitUntil: 'networkidle' })
+        await this.page.reload({ waitUntil: 'domcontentloaded' })
         await callback()
     }
 
@@ -125,6 +125,17 @@ export class InsightPage {
     async duplicate(): Promise<void> {
         await this.page.getByTestId('more-button').click()
         await this.page.getByTestId('duplicate-insight-from-insight-view').click()
+    }
+
+    async saveAsNew(name: string): Promise<void> {
+        const originalUrl = this.page.url()
+        await this.page.locator('[data-attr="insight-save-dropdown"]').click()
+        await this.page.locator('[data-attr="insight-save-as-new-insight"]').click()
+        const nameInput = this.page.getByPlaceholder('Please enter the new name')
+        await nameInput.waitFor({ state: 'visible' })
+        await nameInput.fill(name)
+        await this.page.getByRole('button', { name: 'Submit' }).click()
+        await this.page.waitForURL((url) => url.toString() !== originalUrl, { timeout: 15000 })
     }
 
     async openPersonsModal(): Promise<void> {
@@ -212,6 +223,74 @@ class TrendsInsight {
         await this.formulaInput.first().waitFor({ state: 'visible' })
         await this.formulaInput.first().fill(formula)
         await this.formulaInput.first().press('Enter')
+    }
+
+    mathSelector(seriesIndex: number): Locator {
+        return this.page.getByTestId(`math-selector-${seriesIndex}`)
+    }
+
+    async selectChartType(namePattern: RegExp): Promise<void> {
+        await this.chartTypeButton.click()
+        await this.page.getByRole('menuitem', { name: namePattern }).click()
+        await this.waitForChart()
+    }
+
+    async selectDateRange(text: string): Promise<void> {
+        await this.page.mouse.move(0, 0)
+        await this.dateRangeButton.click()
+        const option = this.page.getByText(text, { exact: true })
+        await option.waitFor({ state: 'attached' })
+        await option.click({ force: true })
+        await this.waitForChart()
+    }
+
+    async openOptionsPanel(): Promise<void> {
+        await this.page.locator('[data-attr="insight-filters"]').getByRole('button', { name: 'Options' }).click()
+    }
+
+    async duplicateSeries(seriesIndex: number): Promise<void> {
+        await this.seriesEventButton(seriesIndex).hover()
+        await this.page.getByTestId(`more-button-${seriesIndex}`).click({ force: true })
+        await this.page.getByTestId(`show-prop-duplicate-${seriesIndex}`).click()
+    }
+
+    async deleteSeries(seriesIndex: number): Promise<void> {
+        await this.seriesEventButton(seriesIndex).hover()
+        await this.page.getByTestId(`more-button-${seriesIndex}`).click({ force: true })
+        await this.page.getByRole('button', { name: 'Delete' }).click()
+        await this.waitForChart()
+    }
+
+    async selectInterval(interval: string): Promise<void> {
+        await this.page.getByTestId('interval-filter').click()
+        await this.page.getByRole('menuitem', { name: interval }).click()
+        await this.waitForChart()
+    }
+
+    async unpinInterval(): Promise<void> {
+        await this.page.getByRole('button', { name: 'Unpin interval' }).click()
+        await this.waitForChart()
+    }
+
+    async selectComparison(text: string): Promise<void> {
+        await this.comparisonButton.click()
+        await this.page.getByText(text).click()
+        await this.waitForChart()
+    }
+
+    async removeBreakdown(index: number = 0): Promise<void> {
+        const tag = this.page.locator('.BreakdownTag').nth(index)
+        await tag.hover()
+        await tag.locator('[aria-label="close"]').or(tag.locator('button')).last().click()
+        await this.waitForChart()
+    }
+
+    async selectTaxonomicTab(groupType: string): Promise<void> {
+        await this.page.getByTestId(`taxonomic-tab-${groupType}`).click()
+    }
+
+    taxonomicResults(): Locator {
+        return this.page.locator('.taxonomic-list-row')
     }
 }
 
