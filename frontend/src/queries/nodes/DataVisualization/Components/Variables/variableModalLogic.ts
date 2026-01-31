@@ -2,8 +2,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiError, CountedPaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import {
     BooleanVariable,
@@ -90,6 +94,7 @@ export const variableModalLogic = kea<variableModalLogicType>([
     props({ key: '' } as AddVariableLogicProps),
     key((props) => props.key),
     connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
         actions: [
             variableDataLogic,
             ['getVariables'],
@@ -104,6 +109,8 @@ export const variableModalLogic = kea<variableModalLogicType>([
         updateVariable: (variable: Variable) => ({ variable }),
         save: true,
         changeTypeExistingVariable: (variableType: VariableType) => ({ variableType }),
+        setInsightsUsingVariable: (insights: QueryBasedInsightModel[]) => ({ insights }),
+        setInsightsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         modalType: [
@@ -152,8 +159,55 @@ export const variableModalLogic = kea<variableModalLogicType>([
                 },
             },
         ],
+        insightsUsingVariable: [
+            [] as QueryBasedInsightModel[],
+            {
+                setInsightsUsingVariable: (_, { insights }) => insights,
+                closeModal: () => [],
+            },
+        ],
+        insightsLoading: [
+            false as boolean,
+            {
+                setInsightsLoading: (_, { loading }) => loading,
+                openExistingVariableModal: () => true,
+                closeModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
+        openExistingVariableModal: async ({ variable }) => {
+            // Load insights that use this variable
+            if (variable.id) {
+                actions.setInsightsLoading(true)
+                try {
+                    const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
+                        `api/environments/${teamLogic.values.currentTeamId}/insights/?basic=true&limit=100`
+                    )
+
+                    const insights = legacyResponse.results.map((legacyInsight) =>
+                        getQueryBasedInsightModel(legacyInsight)
+                    )
+
+                    // Filter insights that use this variable
+                    const filteredInsights = insights.filter((insight) => {
+                        if (insight.query?.kind === 'DataVisualizationNode') {
+                            const variables = (insight.query as any).source?.variables
+                            if (variables) {
+                                return Object.values(variables).some((v: any) => v.variableId === variable.id)
+                            }
+                        }
+                        return false
+                    })
+
+                    actions.setInsightsUsingVariable(filteredInsights)
+                } catch {
+                    lemonToast.error('Failed to load insights using this variable')
+                } finally {
+                    actions.setInsightsLoading(false)
+                }
+            }
+        },
         save: async () => {
             try {
                 if (values.modalType === 'new') {
