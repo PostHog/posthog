@@ -844,13 +844,19 @@ jobs:
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash
+              env:
+                  SHARD_GROUP: ${{ matrix.group }}
+                  SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  CLICKHOUSE_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
                   echo "=== Test Environment Diagnostics ==="
-                  echo "Shard: ${{ matrix.group }}/${{ matrix.concurrency }}"
+                  echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
                   echo "Python version: $(python --version)"
-                  echo "ClickHouse version: ${{ matrix.clickhouse-server-image }}"
-                  echo "Commit: ${{ github.sha }}"
-                  echo "Branch: ${{ github.head_ref || github.ref_name }}"
+                  echo "ClickHouse version: $CLICKHOUSE_IMAGE"
+                  echo "Commit: $COMMIT_SHA"
+                  echo "Branch: $BRANCH_NAME"
                   echo "Runner: $(uname -a)"
                   echo "Memory: $(free -h | head -2)"
                   echo "Disk: $(df -h / | tail -1)"
@@ -903,12 +909,17 @@ jobs:
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
+              env:
+                  SHARD_GROUP: ${{ matrix.group }}
+                  SHARD_CONCURRENCY: ${{ matrix.concurrency }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
                   echo "=== Test Environment Diagnostics ==="
-                  echo "Shard: ${{ matrix.group }}/${{ matrix.concurrency }}"
+                  echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
                   echo "Python version: $(python --version)"
-                  echo "Commit: ${{ github.sha }}"
-                  echo "Branch: ${{ github.head_ref || github.ref_name }}"
+                  echo "Commit: $COMMIT_SHA"
+                  echo "Branch: $BRANCH_NAME"
                   echo "Runner: $(uname -a)"
                   echo "Memory: $(free -h | head -2)"
                   echo "Disk: $(df -h / | tail -1)"
