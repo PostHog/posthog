@@ -6,6 +6,7 @@ import { Variable, VariableType } from '../../types'
 import {
     BooleanField,
     DateField,
+    DirectFieldProps,
     ListDefaultField,
     ListValuesField,
     NumberField,
@@ -14,59 +15,42 @@ import {
     getCodeName,
 } from './VariableFields'
 
+function renderField<T extends Variable>(
+    Field: React.ComponentType<DirectFieldProps<T>>,
+    variable: Variable,
+    updateVariable: (variable: Variable) => void,
+    onSave: () => void,
+    label: string
+): JSX.Element {
+    return (
+        <LemonField.Pure label={label} className="gap-1">
+            <Field variable={variable as T} updateVariable={updateVariable as (variable: T) => void} onSave={onSave} />
+        </LemonField.Pure>
+    )
+}
+
 const renderVariableSpecificFields = (
     variable: Variable,
     updateVariable: (variable: Variable) => void,
     onSave: () => void
 ): JSX.Element => {
-    const fieldProps = { variable, updateVariable, onSave }
-
-    if (variable.type === 'String') {
-        return (
-            <LemonField.Pure label="Default value" className="gap-1">
-                <StringField {...fieldProps} />
-            </LemonField.Pure>
-        )
+    switch (variable.type) {
+        case 'String':
+            return renderField(StringField, variable, updateVariable, onSave, 'Default value')
+        case 'Number':
+            return renderField(NumberField, variable, updateVariable, onSave, 'Default value')
+        case 'Boolean':
+            return renderField(BooleanField, variable, updateVariable, onSave, 'Default value')
+        case 'List':
+            return (
+                <>
+                    {renderField(ListValuesField, variable, updateVariable, onSave, 'Values')}
+                    {renderField(ListDefaultField, variable, updateVariable, onSave, 'Default value')}
+                </>
+            )
+        case 'Date':
+            return renderField(DateField, variable, updateVariable, onSave, 'Default value')
     }
-
-    if (variable.type === 'Number') {
-        return (
-            <LemonField.Pure label="Default value" className="gap-1">
-                <NumberField {...fieldProps} />
-            </LemonField.Pure>
-        )
-    }
-
-    if (variable.type === 'Boolean') {
-        return (
-            <LemonField.Pure label="Default value" className="gap-1">
-                <BooleanField {...fieldProps} />
-            </LemonField.Pure>
-        )
-    }
-
-    if (variable.type === 'List') {
-        return (
-            <>
-                <LemonField.Pure label="Values" className="gap-1">
-                    <ListValuesField {...fieldProps} />
-                </LemonField.Pure>
-                <LemonField.Pure label="Default value" className="gap-1">
-                    <ListDefaultField {...fieldProps} />
-                </LemonField.Pure>
-            </>
-        )
-    }
-
-    if (variable.type === 'Date') {
-        return (
-            <LemonField.Pure label="Default value" className="gap-1">
-                <DateField {...fieldProps} />
-            </LemonField.Pure>
-        )
-    }
-
-    throw new Error(`Unsupported variable type: ${(variable as Variable).type}`)
 }
 
 export interface VariableFormProps {

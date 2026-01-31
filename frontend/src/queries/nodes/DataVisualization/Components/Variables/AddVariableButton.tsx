@@ -8,6 +8,28 @@ import { NewVariableModal } from './NewVariableModal'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
+interface VariableMenuItem {
+    label: JSX.Element
+    onClick: () => void
+    active: boolean
+    sideAction: {
+        icon: JSX.Element
+        onClick: (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => void
+    }
+}
+
+interface EmptyMenuItem {
+    label: string
+    disabledReason: string
+    onClick: () => void
+}
+
+type MenuItem = VariableMenuItem | EmptyMenuItem
+
+function isVariableMenuItem(item: MenuItem): item is VariableMenuItem {
+    return 'active' in item
+}
+
 export const AddVariableButton = ({
     title = 'Query variable',
     buttonProps,
@@ -78,29 +100,32 @@ export const AddVariableButton = ({
                                       />
                                   </div>
                                   <div className="max-h-[280px] overflow-y-auto -mx-1">
-                                      {variableMenuItems.map((item, index) => (
-                                          <div key={index}>
-                                              <div
-                                                  className={`cursor-pointer hover:bg-bg-3000 px-3 py-1.5 flex items-center justify-between gap-2 group ${
-                                                      item.active ? 'bg-bg-3000' : ''
-                                                  }`}
-                                                  onClick={item.onClick}
-                                              >
-                                                  {typeof item.label === 'function' ? item.label() : item.label}
-                                                  {item.sideAction && (
-                                                      <button
-                                                          className="opacity-0 group-hover:opacity-100 flex items-center"
-                                                          onClick={(e) => {
-                                                              e.stopPropagation()
-                                                              item.sideAction?.onClick?.(e)
-                                                          }}
-                                                      >
-                                                          {item.sideAction.icon}
-                                                      </button>
-                                                  )}
+                                      {variableMenuItems.map((item, index) => {
+                                          const isVariable = isVariableMenuItem(item)
+                                          return (
+                                              <div key={index}>
+                                                  <div
+                                                      className={`cursor-pointer hover:bg-bg-3000 px-3 py-1.5 flex items-center justify-between gap-2 group ${
+                                                          isVariable && item.active ? 'bg-bg-3000' : ''
+                                                      }`}
+                                                      onClick={item.onClick}
+                                                  >
+                                                      {item.label}
+                                                      {isVariable && (
+                                                          <button
+                                                              className="opacity-0 group-hover:opacity-100 flex items-center"
+                                                              onClick={(e) => {
+                                                                  e.stopPropagation()
+                                                                  item.sideAction.onClick(e)
+                                                              }}
+                                                          >
+                                                              {item.sideAction.icon}
+                                                          </button>
+                                                      )}
+                                                  </div>
                                               </div>
-                                          </div>
-                                      ))}
+                                          )
+                                      })}
                                   </div>
                               </>
                           ),
