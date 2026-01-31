@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconLock } from '@posthog/icons'
+import { IconLock, IconPlusSmall } from '@posthog/icons'
 import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -53,6 +53,7 @@ import {
 
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
+import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -168,7 +169,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         )}
 
                         <LemonButton
-                            to={urls.featureFlagDuplicate(featureFlag.id)}
+                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
                             data-attr="feature-flag-duplicate"
                             fullWidth
                         >
@@ -565,9 +566,21 @@ export function FeatureFlags(): JSX.Element {
                                     to={urls.featureFlag('new')}
                                     data-attr="new-feature-flag"
                                     size="small"
+                                    icon={<IconPlusSmall />}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            className: 'new-feature-flag-overlay',
+                                            actionable: true,
+                                            overlay: (
+                                                <OverlayForNewFeatureFlagMenu dataAttr="new-feature-flag-menu-item" />
+                                            ),
+                                        },
+                                        'data-attr': 'new-feature-flag-dropdown',
+                                    }}
                                     tooltip="New feature flag"
                                 >
-                                    <span className="pr-4">New feature flag</span>
+                                    New
                                 </LemonButton>
                             </AppShortcut>
                         </MaxTool>
