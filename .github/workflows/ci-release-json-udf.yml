@@ -1,0 +1,77 @@
+name: release
+
+on:
+    push:
+        branches:
+            - main
+    workflow_dispatch: {}
+
+permissions:
+    contents: write
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+                  cache: true
+            - name: Run integration tests
+              run: ./scripts/integration_test.sh
+
+    build:
+        runs-on: ubuntu-latest
+        needs: test
+        strategy:
+            matrix:
+                goos: [linux, darwin, windows]
+                goarch: [amd64, arm64]
+        steps:
+            - uses: actions/checkout@v6
+            - uses: actions/setup-go@v6
+              with:
+                  go-version-file: go.mod
+                  cache: true
+            - name: Build json_drop_keys_udf
+              env:
+                  GOOS: ${{ matrix.goos }}
+                  GOARCH: ${{ matrix.goarch }}
+                  CGO_ENABLED: 0
+              run: |
+                  mkdir -p dist
+                  bin_name="json_drop_keys_udf-${GOOS}-${GOARCH}"
+                  if [ "${GOOS}" = "windows" ]; then
+                    bin_name="${bin_name}.exe"
+                  fi
+                  (cd cmd/json_drop_keys_udf && go build -o "../../dist/${bin_name}" .)
+            - name: Upload artifact
+              uses: actions/upload-artifact@v6
+              with:
+                  name: json_drop_keys_udf-${{ matrix.goos }}-${{ matrix.goarch }}
+                  path: dist/*
+                  if-no-files-found: error
+
+    release:
+        runs-on: ubuntu-latest
+        needs: build
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+            - name: Resolve version
+              id: version
+              run: |
+                  git fetch origin main --depth=1
+                  echo "version=$(git rev-parse --short origin/main)" >> "$GITHUB_OUTPUT"
+            - name: Download artifacts
+              uses: actions/download-artifact@v7
+              with:
+                  path: dist
+            - name: Publish release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ steps.version.outputs.version }}
+                  name: json_drop_keys_udf ${{ steps.version.outputs.version }}
+                  files: dist/**/json_drop_keys_udf-*
