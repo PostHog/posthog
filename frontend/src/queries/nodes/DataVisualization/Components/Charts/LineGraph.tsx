@@ -439,12 +439,12 @@ export const LineGraph = ({
 
                                                             return (
                                                                 <div className="series-data-cell">
-                                                                    {value} ({percentageLabel}%)
+                                                                    {String(value)} ({percentageLabel}%)
                                                                 </div>
                                                             )
                                                         }
 
-                                                        return <div className="series-data-cell">{value}</div>
+                                                        return <div className="series-data-cell">{String(value)}</div>
                                                     },
                                                 },
                                             ]}
