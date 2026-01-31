@@ -836,7 +836,12 @@ const parseDataframePreview = (preview?: string | null): NotebookDataframeResult
     }
     const candidates = [trimmed]
     if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-        candidates.push(trimmed.slice(1, -1))
+        const stripped = trimmed.slice(1, -1)
+        candidates.push(stripped)
+        if (trimmed.startsWith("'")) {
+            const unescaped = stripped.replace(/\\\\/g, '\\').replace(/\\'/g, "'")
+            candidates.push(unescaped)
+        }
     }
 
     for (const candidate of candidates) {
