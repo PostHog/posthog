@@ -151,6 +151,22 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  agent-sync)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=3310
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=agent_events
+    export KAFKA_CONSUMER_GROUP=agent-sync
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export CLICKHOUSE_HOST=localhost
+    export CLICKHOUSE_HTTP_PORT=8123
+    export CLICKHOUSE_DATABASE=default
+    export DEBUG=1
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1
