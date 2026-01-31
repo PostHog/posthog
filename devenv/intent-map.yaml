@@ -134,6 +134,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [dev_tools]
 
+    mcp_server:
+        description: 'MCP server for AI assistant integration'
+        requires: [core_infra]
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -199,6 +204,10 @@ intents:
     debug_tools:
         description: 'Kafka UI, Flower (Celery), maildev, webhook tester'
         capabilities: [dev_tools]
+
+    mcp:
+        description: 'MCP server for AI assistant integration'
+        capabilities: [mcp_server]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

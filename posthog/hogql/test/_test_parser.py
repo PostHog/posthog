@@ -1,6 +1,7 @@
 import math
 from typing import Optional, cast
 
+import unittest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -2942,5 +2943,31 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
+
+        @unittest.skipIf(backend == "cpp", "Postgres-style casts are not supported in the legacy C++ backend")
+        def test_postgres_style_cast(self):
+            self.assertEqual(
+                self._expr("x::int"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+            )
+            self.assertEqual(self._expr("'123'::int"), ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"))
+            self.assertEqual(self._expr("x::integer"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer"))
+            self.assertEqual(self._expr("x::text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(self._expr("x::float"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="float"))
+            self.assertEqual(self._expr("x::boolean"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="boolean"))
+            self.assertEqual(self._expr("x::INT"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"))
+            self.assertEqual(self._expr("x::Text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(
+                self._expr("a.b::int"),
+                ast.TypeCast(expr=ast.Field(chain=["a", "b"]), type_name="int"),
+            )
+            self.assertEqual(
+                self._expr("x::int + 1"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+                    right=ast.Constant(value=1),
+                ),
+            )
 
     return TestParser

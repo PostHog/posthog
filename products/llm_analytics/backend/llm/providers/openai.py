@@ -75,9 +75,11 @@ class OpenAIAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
 
         posthog_client = posthoganalytics.default_client
         client: Any
@@ -85,13 +87,13 @@ class OpenAIAdapter:
             client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
                 timeout=OpenAIConfig.TIMEOUT,
             )
         else:
             client = openai.OpenAI(
                 api_key=effective_api_key,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
                 timeout=OpenAIConfig.TIMEOUT,
             )
 
@@ -204,9 +206,11 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
         model_id = request.model
 
         posthog_client = posthoganalytics.default_client
@@ -215,13 +219,13 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
                 timeout=OpenAIConfig.TIMEOUT,
             )
         else:
             client = openai.OpenAI(
                 api_key=effective_api_key,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
                 timeout=OpenAIConfig.TIMEOUT,
             )
 

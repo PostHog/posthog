@@ -1,7 +1,8 @@
 import re
 import builtins
+import dataclasses
 from datetime import timedelta
-from typing import Union, cast
+from typing import Optional, Union, cast
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -52,8 +53,15 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -91,6 +99,12 @@ def _endpoint_refresh_mode_to_refresh_type(
     if mode is None or mode == EndpointRefreshMode.CACHE:
         return RefreshType.BLOCKING
     return RefreshType.FORCE_BLOCKING
+
+
+@dataclasses.dataclass(frozen=True)
+class EndpointContext(ActivityContextBase):
+    id: Optional[int] = None
+    version: Optional[int] = None
 
 
 @extend_schema(tags=[ProductKey.ENDPOINTS])
@@ -508,11 +522,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     item_id=str(endpoint.id),
                     scope="Endpoint",
                     activity="updated",
-                    detail=Detail(name=f"Endpoint has been updated.", changes=endpoint_changes),
+                    detail=Detail(name=endpoint.name, changes=endpoint_changes),
                 )
 
             # version-level activity
             if version_was_created:
+                query_change = Change(
+                    type="EndpointVersion",
+                    action="changed",
+                    field="query",
+                    before=version_before_update.query if version_before_update else None,
+                    after=target_version.query,
+                )
                 log_activity(
                     organization_id=self.organization.id,
                     team_id=self.team.id,
@@ -521,7 +542,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     item_id=str(endpoint.id),
                     scope="Endpoint",
                     activity="version_created",
-                    detail=Detail(name=f"New endpoint version ({target_version.version}) has been created."),
+                    detail=Detail(
+                        name=endpoint.name,
+                        changes=[query_change],
+                        context=EndpointContext(version=target_version.version),
+                    ),
                 )
             elif target_version and version_before_update:
                 version_changes = changes_between(
@@ -538,8 +563,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         scope="EndpointVersion",
                         activity="version_updated",
                         detail=Detail(
-                            name=f"Endpoint version {target_version.version} has been updated.",
+                            name=endpoint.name,
                             changes=version_changes,
+                            context=EndpointContext(version=target_version.version),
                         ),
                     )
 
@@ -973,6 +999,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             },
             team=self.team,
         )
+        # Track deprecated parameter usage before introducing breaking changes
+        if data.query_override:
+            TOMBSTONE_COUNTER.labels(
+                namespace="endpoints",
+                operation="query_override",
+                component="api",
+            ).inc()
+        if data.filters_override:
+            TOMBSTONE_COUNTER.labels(
+                namespace="endpoints",
+                operation="filters_override",
+                component="api",
+            ).inc()
 
         # Support version from request body or query params (for backwards compatibility)
         version_number = data.version
@@ -1162,14 +1201,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return Response(results)
 
     @extend_schema(
-        description="Get materialization status for an endpoint.",
+        description="Get materialization status for an endpoint. Supports ?version=N query param.",
     )
     @action(methods=["GET"], detail=True, url_path="materialization_status")
     def materialization_status(self, request: Request, name=None, *args, **kwargs) -> Response:
-        """Get materialization status for an endpoint without fetching full endpoint data."""
+        """Get materialization status for an endpoint without fetching full endpoint data.
+
+        Supports ?version=N query param to get status for a specific version.
+        """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
-        current_version = endpoint.get_version()
-        return Response(self._build_materialization_info(current_version))
+
+        version_number = self._parse_version_param(request)
+        if version_number is not None:
+            try:
+                version = endpoint.get_version(version_number)
+            except EndpointVersion.DoesNotExist:
+                return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            version = endpoint.get_version()
+
+        return Response(self._build_materialization_info(version))
 
     @extend_schema(
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
