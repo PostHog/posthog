@@ -1,6 +1,6 @@
 .draggable-text-node__drag-handle {
     position: absolute;
-    left: -24px;
+    left: -20px;
     display: inline-flex;
     align-items: center;
     cursor: grab;
@@ -24,5 +24,9 @@
         > .ProseMirror-widget .draggable-text-node__drag-handle {
             opacity: 1;
         }
+    }
+
+    > p > .ProseMirror-widget .draggable-text-node__drag-handle {
+        margin-top: 0.25rem;
     }
 }
