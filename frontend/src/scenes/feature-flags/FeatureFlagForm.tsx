@@ -73,7 +73,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         loadFeatureFlag,
         setShowImplementation,
         setOpenVariants,
-        markFieldAsEdited,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
@@ -189,15 +188,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     {/* Templates - only show for new flags */}
                     {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={() => {}} />}
 
-                    {/* Section heading to clarify templates are optional */}
-                    {isNewFeatureFlag && (
-                        <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>
-                    )}
-
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
-                        {/* Left column - narrow, sticky on large screens */}
-                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4 sticky top-4 self-start max-h-[calc(100vh-6rem)] overflow-y-auto">
+                        {/* Left column */}
+                        <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonField
@@ -213,7 +207,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         autoCorrect="off"
                                         spellCheck={false}
                                         placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
-                                        onFocus={() => markFieldAsEdited('key')}
                                     />
                                 </LemonField>
 
@@ -222,7 +215,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         className="ph-ignore-input"
                                         data-attr="feature-flag-description"
                                         placeholder="(Optional) A description of the feature flag for your reference."
-                                        onFocus={() => markFieldAsEdited('name')}
                                     />
                                 </LemonField>
 
@@ -236,10 +228,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         >
                                             <LemonSwitch
                                                 checked={value}
-                                                onChange={(newValue) => {
-                                                    markFieldAsEdited('active')
-                                                    onChange(newValue)
-                                                }}
+                                                onChange={onChange}
                                                 label={
                                                     <span className="flex items-center">
                                                         <span>Enabled</span>
@@ -255,7 +244,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
 
-                            {/* Tags & Evaluation Contexts card */}
+                            {/* Tags card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonLabel
                                     info={
@@ -264,7 +253,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             : 'Use tags to organize and filter your feature flags.'
                                     }
                                 >
-                                    Tags & evaluation contexts
+                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
                                 </LemonLabel>
                                 {hasEvaluationTags ? (
                                     <LemonField name="tags">
@@ -293,6 +282,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <ObjectTags
                                                 tags={formTags}
                                                 onChange={onChangeTags}
+                                                saving={false}
                                                 tagsAvailable={availableTags.filter(
                                                     (tag: string) => !formTags?.includes(tag)
                                                 )}
@@ -406,7 +396,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             </div>
                         </div>
 
-                        {/* Right column - wide */}
+                        {/* Right column */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
                             {/* Flag type card */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
@@ -664,10 +654,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
                                         filters={featureFlag.filters}
-                                        onChange={(filters, errors) => {
-                                            markFieldAsEdited('filters')
-                                            setFeatureFlagFilters(filters, errors)
-                                        }}
+                                        onChange={setFeatureFlagFilters}
                                     />
                                 </div>
                             )}
