@@ -366,60 +366,40 @@
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
-    --color-accent: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness)
-    );
-    --color-accent-inverted: hsl(
-        var(--color-posthog-brand-yellow-hue),
-        var(--color-posthog-brand-yellow-saturation),
-        var(--color-posthog-brand-yellow-lightness)
-    );
-    --color-accent-hover: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 10%)
-    );
-    --color-accent-hover-inverted: hsl(
-        var(--color-posthog-brand-yellow-hue),
-        var(--color-posthog-brand-yellow-saturation),
-        calc(var(--color-posthog-brand-yellow-lightness) + 10%)
-    );
-    --color-accent-active: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 15%)
-    );
-    --color-accent-active-inverted: hsl(
-        var(--color-posthog-brand-yellow-hue),
-        var(--color-posthog-brand-yellow-saturation),
-        calc(var(--color-posthog-brand-yellow-lightness) + 15%)
-    );
-    --color-accent-highlight-primary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        20%
-    );
-    --color-accent-highlight-secondary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        10%
-    );
-    --color-accent-highlight-secondary-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        14%
-    );
-    --color-accent-highlight-secondary-hover-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        35%
-    );
+    --color-accent: hsl(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness));
+    --color-accent-inverted: hsl(var(--color-posthog-brand-yellow-hue),
+            var(--color-posthog-brand-yellow-saturation),
+            var(--color-posthog-brand-yellow-lightness));
+    --color-accent-hover: hsl(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            calc(var(--color-brand-primary-lightness) + 10%));
+    --color-accent-hover-inverted: hsl(var(--color-posthog-brand-yellow-hue),
+            var(--color-posthog-brand-yellow-saturation),
+            calc(var(--color-posthog-brand-yellow-lightness) + 10%));
+    --color-accent-active: hsl(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            calc(var(--color-brand-primary-lightness) + 15%));
+    --color-accent-active-inverted: hsl(var(--color-posthog-brand-yellow-hue),
+            var(--color-posthog-brand-yellow-saturation),
+            calc(var(--color-posthog-brand-yellow-lightness) + 15%));
+    --color-accent-highlight-primary: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            20%);
+    --color-accent-highlight-secondary: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            10%);
+    --color-accent-highlight-secondary-border: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            14%);
+    --color-accent-highlight-secondary-hover-border: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            35%);
 
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
@@ -877,65 +857,45 @@
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-accent: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness)
-    );
-    --color-accent-inverted: hsl(
-        var(--color-posthog-brand-orange-hue),
-        var(--color-posthog-brand-orange-saturation),
-        var(--color-posthog-brand-orange-lightness)
-    );
-    --color-accent-hover: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 10%)
-    );
-    --color-accent-hover-inverted: hsl(
-        var(--color-posthog-brand-orange-hue),
-        var(--color-posthog-brand-orange-saturation),
-        calc(var(--color-posthog-brand-orange-lightness) + 10%)
-    );
-    --color-accent-active: hsl(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        calc(var(--color-brand-primary-lightness) + 15%)
-    );
-    --color-accent-active-inverted: hsl(
-        var(--color-posthog-brand-orange-hue),
-        var(--color-posthog-brand-orange-saturation),
-        calc(var(--color-posthog-brand-orange-lightness) + 15%)
-    );
+    --color-accent: hsl(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness));
+    --color-accent-inverted: hsl(var(--color-posthog-brand-orange-hue),
+            var(--color-posthog-brand-orange-saturation),
+            var(--color-posthog-brand-orange-lightness));
+    --color-accent-hover: hsl(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            calc(var(--color-brand-primary-lightness) + 10%));
+    --color-accent-hover-inverted: hsl(var(--color-posthog-brand-orange-hue),
+            var(--color-posthog-brand-orange-saturation),
+            calc(var(--color-posthog-brand-orange-lightness) + 10%));
+    --color-accent-active: hsl(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            calc(var(--color-brand-primary-lightness) + 15%));
+    --color-accent-active-inverted: hsl(var(--color-posthog-brand-orange-hue),
+            var(--color-posthog-brand-orange-saturation),
+            calc(var(--color-posthog-brand-orange-lightness) + 15%));
 
     // Used for highlighting search results, and other subtle accent sitations
     // Most prominent
-    --color-accent-highlight-primary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        20%
-    );
+    --color-accent-highlight-primary: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            20%);
 
     // Less prominent
-    --color-accent-highlight-secondary: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        10%
-    );
-    --color-accent-highlight-secondary-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        14%
-    );
-    --color-accent-highlight-secondary-hover-border: hsla(
-        var(--color-brand-primary-hue),
-        var(--color-brand-primary-saturation),
-        var(--color-brand-primary-lightness),
-        35%
-    );
+    --color-accent-highlight-secondary: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            10%);
+    --color-accent-highlight-secondary-border: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            14%);
+    --color-accent-highlight-secondary-hover-border: hsla(var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            35%);
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
@@ -1167,7 +1127,7 @@
             }
         }
 
-        * > {
+        *> {
             ::-webkit-scrollbar {
                 width: 0.5rem;
                 height: 0.5rem;
@@ -1599,12 +1559,12 @@
             display: none;
         }
 
-        #storybook-root > .fixed:only-child {
+        #storybook-root>.fixed:only-child {
             // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
             position: static !important;
         }
 
-        #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+        #storybook-root:empty~.ReactModalPortal>.ReactModal__Overlay {
             // Fix for stories of fixed modals - otherwise body would be zero-sized
             position: static !important;
         }
@@ -1845,7 +1805,7 @@
             overflow: visible;
 
             // Animate each child with a staggered delay
-            > * {
+            >* {
                 // Times 25 because the actual animation is 4% of the keyframes (so 1/25)
                 animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
             }
@@ -1853,11 +1813,9 @@
             // Delay one after the other to create a nice jump effect
             // Delay in reverse order because we want the head to jump first (it's last on SVG)
             @for $i from 1 through 4 {
-                > *:nth-child(#{$i}) {
+                >*:nth-child(#{$i}) {
                     // Dividing by 15 just because it feels good
-                    animation-delay: calc(
-                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1))
-                    );
+                    animation-delay: calc(var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1)));
                 }
             }
         }
@@ -1895,7 +1853,7 @@
             @extend .animate-logomark-jump;
 
             /* stylelint-disable-next-line order/order */
-            svg > * {
+            svg>* {
                 animation-name: Logomark__jump-continuous;
                 animation-duration: 0.9s;
             }
@@ -1971,7 +1929,6 @@
 // Setup highlight animation - used by quick start to draw attention to UI elements
 .setup-highlight-pulse {
     position: relative !important;
-    z-index: 100 !important;
     border-radius: var(--radius);
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
 }
