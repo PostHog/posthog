@@ -1072,6 +1072,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'hog_function',
         iconType: 'data_pipeline',
         iconColor: ['var(--color-product-data-pipeline-light)'],
+        flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
         sceneKeys: ['Transformations'],
     },
     {
