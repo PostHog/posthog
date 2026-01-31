@@ -50,4 +50,3 @@ health = { path = "../common/health" }
 tokio-test = "0.4"
 tower = { workspace = true, features = ["util"] }
 futures = { workspace = true }
-http-body-util = "0.1"

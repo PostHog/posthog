@@ -61,7 +61,6 @@ dependencies = [
  "health",
  "hex",
  "http 1.4.0",
- "http-body-util",
  "metrics",
  "moka",
  "parking_lot",

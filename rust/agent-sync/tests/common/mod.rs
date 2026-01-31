@@ -224,12 +224,6 @@ impl TestHarness {
             .unwrap()
     }
 
-    pub async fn body_bytes(response: Response<Body>) -> Vec<u8> {
-        axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap()
-            .to_vec()
-    }
 }
 
 #[derive(Default)]

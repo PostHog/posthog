@@ -1,8 +1,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use futures::StreamExt;
-use http_body_util::BodyExt;
+use futures_util::StreamExt;
 use serde_json::json;
 use std::time::Duration;
 use uuid::Uuid;
