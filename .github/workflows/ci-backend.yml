@@ -841,6 +841,23 @@ jobs:
               run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
 
             # Tests
+            - name: Log test environment diagnostics
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              shell: bash
+              run: |
+                  echo "=== Test Environment Diagnostics ==="
+                  echo "Shard: ${{ matrix.group }}/${{ matrix.concurrency }}"
+                  echo "Python version: $(python --version)"
+                  echo "ClickHouse version: ${{ matrix.clickhouse-server-image }}"
+                  echo "Commit: ${{ github.sha }}"
+                  echo "Branch: ${{ github.head_ref || github.ref_name }}"
+                  echo "Runner: $(uname -a)"
+                  echo "Memory: $(free -h | head -2)"
+                  echo "Disk: $(df -h / | tail -1)"
+                  echo "Docker containers:"
+                  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+                  echo "==================================="
+
             - name: Run Core tests
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -849,7 +866,7 @@ jobs:
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest ${{
+                  pytest -v --tb=short ${{
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog products'
@@ -865,6 +882,7 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
                       --junitxml=junit-core.xml \
                       $PYTEST_ARGS
                   exit_code=$?
@@ -882,6 +900,22 @@ jobs:
             #   if: failure()
             #   uses: mxschmitt/action-tmate@v3
 
+            - name: Log test environment diagnostics
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              shell: bash
+              run: |
+                  echo "=== Test Environment Diagnostics ==="
+                  echo "Shard: ${{ matrix.group }}/${{ matrix.concurrency }}"
+                  echo "Python version: $(python --version)"
+                  echo "Commit: ${{ github.sha }}"
+                  echo "Branch: ${{ github.head_ref || github.ref_name }}"
+                  echo "Runner: $(uname -a)"
+                  echo "Memory: $(free -h | head -2)"
+                  echo "Disk: $(df -h / | tail -1)"
+                  echo "Docker containers:"
+                  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" || true
+                  echo "==================================="
+
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
@@ -892,11 +926,12 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  pytest -v --tb=short --timeout=300 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
                       --junitxml=junit-temporal.xml \
                       $PYTEST_ARGS
                   exit_code=$?
