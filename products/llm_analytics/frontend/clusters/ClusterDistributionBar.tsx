@@ -5,10 +5,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { getSeriesColor } from 'lib/colors'
 import { urls } from 'scenes/urls'
 
-import { NOISE_CLUSTER_ID } from './constants'
+import { NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { Cluster } from './types'
-
-const OUTLIER_COLOR = '#888888'
 
 interface ClusterDistributionBarProps {
     clusters: Cluster[]
@@ -22,6 +20,10 @@ export function ClusterDistributionBar({ clusters, runId }: ClusterDistributionB
 
     // Calculate total from actual cluster sizes so the bar fills 100%
     const totalInClusters = clusters.reduce((sum, cluster) => sum + cluster.size, 0)
+
+    if (totalInClusters === 0) {
+        return null
+    }
 
     return (
         <div className="flex-1 min-w-0 h-4 flex items-center">
