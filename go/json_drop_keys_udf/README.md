@@ -1,16 +1,14 @@
-# JSON Remove Duplicate Keys UDF
+# JSON Drop Keys UDF
 
-This repository provides a ClickHouse executable UDF named `JSONDropKeys` that deduplicates JSON object keys in a string payload while preserving row order.
+This repository provides a ClickHouse executable UDF named `JSONDropKeys` that removes specified keys from JSON objects.
 
 Rules
 
-- For duplicate keys, keep the first value that is not `null` and not an empty string.
-- If all values are empty strings, keep the last occurrence.
+- Takes a const array parameter specifying which keys to drop.
 - Nested objects/arrays are processed recursively.
+- Keys containing dots are treated as paths (e.g. dropping `a.b` removes `b` from nested object `a`).
 - Input/output format is `Raw` with one JSON string per row.
 - The UDF exits with a descriptive error on malformed JSON input.
-- Keys containing dots are treated as paths (e.g. `a.b` is merged into `{ "a": { "b": ... } }`).
-- Integer values outside the signed 64-bit range are converted to strings.
 
 Repository layout
 
@@ -63,18 +61,31 @@ scripts/integration_test.sh
 Performance benchmark
 
 ```sh
-go build -o bin/json_drop_keys_udf ./cmd/json_drop_keys_udf
-go run ./cmd/perf_bench -target-bytes $((512<<20)) -depth 5 -width 8 -dup 4
+scripts/bench_file.sh
 ```
+
+This downloads a sample dataset and benchmarks throughput (MiB/s).
 
 Example
 
 ```sql
-SELECT JSONDropKeys('{"a":null,"a":"x","b":""}');
+SELECT JSONDropKeys(['a', 'b'])('{"id":1,"a":"x","b":"y","c":"z"}');
 ```
 
 Result:
 
 ```json
-{ "a": "x", "b": "" }
+{"id":1,"c":"z"}
+```
+
+Dropping nested keys:
+
+```sql
+SELECT JSONDropKeys(['props.secret'])('{"id":1,"props":{"secret":"xxx","public":"yyy"}}');
+```
+
+Result:
+
+```json
+{"id":1,"props":{"public":"yyy"}}
 ```
