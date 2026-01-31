@@ -57,6 +57,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlag,
         multivariateEnabled,
         variants,
+        nonEmptyVariants,
         variantErrors,
         isEditingFlag,
         showImplementation,
@@ -655,6 +656,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         id={String(props.id)}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
+                                        variants={nonEmptyVariants}
                                     />
                                 </div>
                             )}
