@@ -1,6 +1,7 @@
 import math
 from typing import Optional, cast
 
+import unittest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -59,7 +60,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def _program(self, program: str) -> ast.Program:
-            return cast(ast.Program, clear_locations(cast(ast.Expr, parse_program(program, backend=backend))))
+            return cast(
+                ast.Program,
+                clear_locations(cast(ast.Expr, parse_program(program, backend=backend))),
+            )
 
         def test_numbers(self):
             self.assertEqual(self._expr("1"), ast.Constant(value=1))
@@ -121,7 +125,11 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(
                 self._expr("a?.b?.['c']"),
                 ast.ArrayAccess(
-                    array=ast.ArrayAccess(array=ast.Field(chain=["a"]), property=ast.Constant(value="b"), nullish=True),
+                    array=ast.ArrayAccess(
+                        array=ast.Field(chain=["a"]),
+                        property=ast.Constant(value="b"),
+                        nullish=True,
+                    ),
                     property=ast.Constant(value="c"),
                     nullish=True,
                 ),
@@ -325,7 +333,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(
                 self._expr("asd['asd'](123)"),
                 ast.ExprCall(
-                    expr=ast.ArrayAccess(array=ast.Field(chain=["asd"]), property=ast.Constant(value="asd")),
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=["asd"]),
+                        property=ast.Constant(value="asd"),
+                    ),
                     args=[ast.Constant(value=123)],
                 ),
             )
@@ -335,7 +346,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                     expr=ast.Lambda(
                         args=["x"],
                         expr=ast.ArithmeticOperation(
-                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                            op=ast.ArithmeticOperationOp.Mult,
+                            left=ast.Field(chain=["x"]),
+                            right=ast.Constant(value=2),
                         ),
                     ),
                     args=[ast.Constant(value=3)],
@@ -1379,7 +1392,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     limit=ast.Constant(value=2),
                     limit_by=ast.LimitByExpr(
-                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                        n=ast.Constant(value=1),
+                        offset_value=ast.Constant(value=4),
+                        exprs=[ast.Field(chain=["event"])],
                     ),
                 ),
             )
@@ -1390,7 +1405,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     limit=ast.Constant(value=2),
                     limit_by=ast.LimitByExpr(
-                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                        n=ast.Constant(value=1),
+                        offset_value=ast.Constant(value=4),
+                        exprs=[ast.Field(chain=["event"])],
                     ),
                 ),
             )
@@ -1402,7 +1419,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                     limit=ast.Constant(value=2),
                     offset=ast.Constant(value=5),
                     limit_by=ast.LimitByExpr(
-                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                        n=ast.Constant(value=1),
+                        offset_value=ast.Constant(value=4),
+                        exprs=[ast.Field(chain=["event"])],
                     ),
                 ),
             )
@@ -1495,7 +1514,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                                 ),
                                 subsequent_select_queries=[
                                     SelectSetNode(
-                                        select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
+                                        select_query=SelectQuery(select=[Constant(value=4)]),
+                                        set_operator="EXCEPT",
                                     )
                                 ],
                             ),
@@ -1821,7 +1841,12 @@ def parser_test_factory(backend: HogQLParserBackend):
             assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
-                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="query",
+                        value=ast.Constant(value="select event from events"),
+                    )
+                ],
             )
 
             node2 = self._select("select event from (<HogQLQuery query='select event from events' />)")
@@ -1846,7 +1871,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                                 kind="HogQLQuery",
                                 attributes=[
                                     ast.HogQLXAttribute(
-                                        name="query", value=ast.Constant(value="select event from events")
+                                        name="query",
+                                        value=ast.Constant(value="select event from events"),
                                     )
                                 ],
                             )
@@ -1882,7 +1908,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                                 kind="HogQLQuery",
                                 attributes=[
                                     ast.HogQLXAttribute(
-                                        name="query", value=ast.Constant(value="select event from events")
+                                        name="query",
+                                        value=ast.Constant(value="select event from events"),
                                     )
                                 ],
                             )
@@ -1914,7 +1941,12 @@ def parser_test_factory(backend: HogQLParserBackend):
             assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
-                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="query",
+                        value=ast.Constant(value="select event from events"),
+                    )
+                ],
             )
             assert alias == "a"
 
@@ -1943,7 +1975,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ast.HogQLXAttribute(
                         name="select",
                         value=ast.Array(
-                            exprs=[ast.Constant(value="id"), ast.Constant(value="properties.email as email")]
+                            exprs=[
+                                ast.Constant(value="id"),
+                                ast.Constant(value="properties.email as email"),
+                            ]
                         ),
                     ),
                     ast.HogQLXAttribute(
@@ -1952,7 +1987,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                             kind="HogQLQuery",
                             attributes=[
                                 ast.HogQLXAttribute(
-                                    name="query", value=ast.Constant(value="select distinct person_id from events")
+                                    name="query",
+                                    value=ast.Constant(value="select distinct person_id from events"),
                                 )
                             ],
                         ),
@@ -1989,7 +2025,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                             ast.HogQLXTag(
                                 kind="b",
                                 attributes=[
-                                    ast.HogQLXAttribute(name="children", value=[ast.Constant(value="Bold!")]),
+                                    ast.HogQLXAttribute(
+                                        name="children",
+                                        value=[ast.Constant(value="Bold!")],
+                                    ),
                                 ],
                             ),
                         ],
@@ -2241,7 +2280,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 select=[
                     ast.Call(
                         name="extract",
-                        args=[ast.Constant(value="string"), ast.Constant(value="other string")],
+                        args=[
+                            ast.Constant(value="string"),
+                            ast.Constant(value="other string"),
+                        ],
                     )
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -2280,7 +2322,10 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         def test_template_strings(self):
             node = self._expr("f'hello {event}'")
-            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+            assert node == ast.Call(
+                name="concat",
+                args=[ast.Constant(value="hello "), ast.Field(chain=["event"])],
+            )
 
             select = self._select("select f'hello {event}' from events")
             assert isinstance(select, ast.SelectQuery)
@@ -2345,31 +2390,48 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         def test_template_strings_full(self):
             node = self._string_template("hello {event}")
-            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello "), ast.Field(chain=["event"])])
+            assert node == ast.Call(
+                name="concat",
+                args=[ast.Constant(value="hello "), ast.Field(chain=["event"])],
+            )
 
             node = self._string_template("we're ready to open {person.properties.email}")
             assert node == ast.Call(
                 name="concat",
-                args=[ast.Constant(value="we're ready to open "), ast.Field(chain=["person", "properties", "email"])],
+                args=[
+                    ast.Constant(value="we're ready to open "),
+                    ast.Field(chain=["person", "properties", "email"]),
+                ],
             )
 
             node = self._string_template("strings' to {'strings'}")
             assert node == ast.Call(
-                name="concat", args=[ast.Constant(value="strings' to "), ast.Constant(value="strings")]
+                name="concat",
+                args=[
+                    ast.Constant(value="strings' to "),
+                    ast.Constant(value="strings"),
+                ],
             )
             node2 = self._expr("f'strings\\' to {'strings'}'")
             assert node2 == node
 
             node = self._string_template("strings\\{ to {'strings'}")
             assert node == ast.Call(
-                name="concat", args=[ast.Constant(value="strings{ to "), ast.Constant(value="strings")]
+                name="concat",
+                args=[
+                    ast.Constant(value="strings{ to "),
+                    ast.Constant(value="strings"),
+                ],
             )
             node2 = self._expr("f'strings\\{ to {'strings'}'")
             assert node2 == node
 
         def test_template_strings_full_multiline(self):
             node = self._string_template("hello \n{event}")
-            assert node == ast.Call(name="concat", args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])])
+            assert node == ast.Call(
+                name="concat",
+                args=[ast.Constant(value="hello \n"), ast.Field(chain=["event"])],
+            )
 
             node = self._string_template("we're ready to \n\nopen {\nperson.properties.email\n}")
             assert node == ast.Call(
@@ -2469,7 +2531,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                                 left=Field(type=None, chain=["timestamp"]),
                                 right=ArithmeticOperation(
                                     type=None,
-                                    left=Call(type=None, name="now", args=[], params=None, distinct=False),
+                                    left=Call(
+                                        type=None,
+                                        name="now",
+                                        args=[],
+                                        params=None,
+                                        distinct=False,
+                                    ),
                                     right=Call(
                                         type=None,
                                         name="toIntervalDay",
@@ -2763,7 +2831,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             code = "return;return"
             program = self._program(code)
             expected = Program(
-                declarations=[ast.ReturnStatement(expr=None), ast.ReturnStatement(expr=None)],
+                declarations=[
+                    ast.ReturnStatement(expr=None),
+                    ast.ReturnStatement(expr=None),
+                ],
             )
             self.assertEqual(program, expected)
 
@@ -2782,7 +2853,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 declarations=[
                     ast.TryCatchStatement(
                         try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
-                        catches=[("e", None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))],
+                        catches=[
+                            (
+                                "e",
+                                None,
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                            )
+                        ],
                     )
                 ]
             )
@@ -2809,7 +2886,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 declarations=[
                     ast.TryCatchStatement(
                         try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
-                        catches=[("e", None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))],
+                        catches=[
+                            (
+                                "e",
+                                None,
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                            )
+                        ],
                         finally_stmt=ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))]),
                     )
                 ]
@@ -2823,7 +2906,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             expected = Program(
                 declarations=[
                     ast.TryCatchStatement(
-                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]), catches=[]
+                        try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
+                        catches=[],
                     )
                 ]
             )
@@ -2837,7 +2921,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ast.TryCatchStatement(
                         try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
                         catches=[
-                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]))
+                            (
+                                "e",
+                                "DodgyError",
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                            )
                         ],
                         finally_stmt=None,
                     )
@@ -2853,8 +2941,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ast.TryCatchStatement(
                         try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
                         catches=[
-                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))])),
-                            ("e", "FishyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))])),
+                            (
+                                "e",
+                                "DodgyError",
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                            ),
+                            (
+                                "e",
+                                "FishyError",
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))]),
+                            ),
                         ],
                         finally_stmt=None,
                     )
@@ -2870,9 +2966,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ast.TryCatchStatement(
                         try_stmt=ast.Block(declarations=[ast.ExprStatement(expr=ast.Constant(value=1))]),
                         catches=[
-                            ("e", "DodgyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))])),
-                            ("e", "FishyError", ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))])),
-                            (None, None, ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=4))])),
+                            (
+                                "e",
+                                "DodgyError",
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=2))]),
+                            ),
+                            (
+                                "e",
+                                "FishyError",
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=3))]),
+                            ),
+                            (
+                                None,
+                                None,
+                                ast.Block(declarations=[ast.ExprStatement(expr=Constant(value=4))]),
+                            ),
                         ],
                         finally_stmt=None,
                     )
@@ -2897,7 +3005,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ast.ForInStatement(
                         keyVar=None,
                         valueVar="i",
-                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        expr=ast.Array(
+                            exprs=[
+                                Constant(value=1),
+                                Constant(value=2),
+                                Constant(value=3),
+                            ]
+                        ),
                         body=ast.Block(
                             declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
                         ),
@@ -2917,7 +3031,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ast.ForInStatement(
                         keyVar="key",
                         valueVar="value",
-                        expr=ast.Array(exprs=[Constant(value=1), Constant(value=2), Constant(value=3)]),
+                        expr=ast.Array(
+                            exprs=[
+                                Constant(value=1),
+                                Constant(value=2),
+                                Constant(value=3),
+                            ]
+                        ),
                         body=ast.Block(
                             declarations=[ast.ExprStatement(expr=Call(name="print", args=[Field(chain=["a"])]))]
                         ),
@@ -2929,7 +3049,10 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_trailing_semicolon_select(self):
             self.assertEqual(self._select("SELECT 1;"), self._select("SELECT 1"))
 
-            self.assertEqual(self._select("SELECT 1 FROM events;"), self._select("SELECT 1 FROM events"))
+            self.assertEqual(
+                self._select("SELECT 1 FROM events;"),
+                self._select("SELECT 1 FROM events"),
+            )
 
             self.assertEqual(
                 self._select("SELECT * FROM events WHERE timestamp > now();"),
@@ -2941,6 +3064,36 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._select("SELECT e.event FROM events e JOIN persons p ON e.person_id = p.id"),
             )
 
-            self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
+            self.assertEqual(
+                self._select("SELECT 1 UNION ALL SELECT 2;"),
+                self._select("SELECT 1 UNION ALL SELECT 2"),
+            )
+
+        @unittest.skipIf(
+            backend == "cpp",
+            "Recursive CTEs are not supported in the legacy C++ backend",
+        )
+        def test_with_recursive(self):
+            parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
+
+            expected = SelectQuery(
+                ctes={
+                    "events": ast.CTE(
+                        name="events",
+                        expr=SelectQuery(
+                            select=[Field(chain=["*"], from_asterisk=False)],
+                            select_from=JoinExpr(
+                                table=Field(chain=["posthog_event"], from_asterisk=False),
+                            ),
+                        ),
+                        cte_type="subquery",
+                        recursive=True,
+                    )
+                },
+                select=[Field(chain=["*"], from_asterisk=False)],
+                select_from=JoinExpr(table=Field(chain=["events"])),
+            )
+
+            self.assertEqual(parsed, expected)
 
     return TestParser
