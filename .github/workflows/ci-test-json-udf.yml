@@ -1,11 +1,9 @@
 name: release
 
 on:
-    push:
-        branches:
-            - master
+    pull_request:
         paths:
-            - '.github/workflows/ci-release-json-udf.yml'
+            - '.github/workflows/ci-test-json-udf.yml'
             - 'go/json_drop_keys_udf/**'
     workflow_dispatch: {}
 
@@ -49,32 +47,3 @@ jobs:
                     bin_name="${bin_name}.exe"
                   fi
                   (cd cmd/json_drop_keys_udf && go build -o "../../dist/${bin_name}" .)
-            - name: Upload artifact
-              uses: actions/upload-artifact@v6
-              with:
-                  name: json_drop_keys_udf-${{ matrix.goos }}-${{ matrix.goarch }}
-                  path: dist/*
-                  if-no-files-found: error
-
-    release:
-        runs-on: ubuntu-latest
-        needs: build
-        steps:
-            - uses: actions/checkout@v6
-              with:
-                  fetch-depth: 0
-            - name: Resolve version
-              id: version
-              run: |
-                  git fetch origin main --depth=1
-                  echo "version=$(git rev-parse --short origin/main)" >> "$GITHUB_OUTPUT"
-            - name: Download artifacts
-              uses: actions/download-artifact@v7
-              with:
-                  path: dist
-            - name: Publish release
-              uses: softprops/action-gh-release@v2
-              with:
-                  tag_name: ${{ steps.version.outputs.version }}
-                  name: json_drop_keys_udf ${{ steps.version.outputs.version }}
-                  files: dist/**/json_drop_keys_udf-*
