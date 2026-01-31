@@ -53,7 +53,7 @@
     "author": "PostHog Inc.",
     "license": "MIT",
     "peerDependencies": {
-        "@langchain/core": "^0.3.72",
+        "@langchain/core": "^0.3.80",
         "@langchain/openai": "^0.6.9",
         "ai": "^5.0.0",
         "langchain": "^0.3.31"
@@ -63,7 +63,7 @@
         "@modelcontextprotocol/sdk": "^1.25.3",
         "@toon-format/toon": "^2.1.0",
         "agents": "^0.0.113",
-        "ai": "^5.0.18",
+        "ai": "^5.0.61",
         "fflate": "^0.7.4",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.10.4",
@@ -71,7 +71,7 @@
         "zod": "^3.24.4"
     },
     "devDependencies": {
-        "@langchain/core": "^0.3.72",
+        "@langchain/core": "^0.3.80",
         "@langchain/openai": "^0.6.9",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
