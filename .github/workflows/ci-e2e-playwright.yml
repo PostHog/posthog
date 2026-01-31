@@ -372,6 +372,14 @@ jobs:
                   # Attempt 1: Always verify (fast path when snapshots match)
                   # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
+
+                  # Marker for CI log analysis - do not remove
+                  echo "::group::PLAYWRIGHT_TEST_EXECUTION_START"
+                  echo "[PLAYWRIGHT_MARKER] Test execution starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  echo "[PLAYWRIGHT_MARKER] Commit: ${{ github.sha }}"
+                  echo "[PLAYWRIGHT_MARKER] Run ID: ${{ github.run_id }}"
+                  echo "::endgroup::"
+
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
                   pnpm --filter=@posthog/playwright exec playwright test --workers=6 2>&1 | tee /tmp/playwright-output-attempt-1.log
@@ -399,14 +407,38 @@ jobs:
                       set +o pipefail
 
                       if [ $EXIT_CODE -ne 0 ]; then
+                        # Output structured failure summary for CI log analysis
+                        echo "::group::PLAYWRIGHT_TEST_FAILURE_SUMMARY"
+                        echo "[PLAYWRIGHT_MARKER] Test execution FAILED at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                        echo "[PLAYWRIGHT_MARKER] Exit code: $EXIT_CODE"
+                        echo "[PLAYWRIGHT_MARKER] Attempt: 2 (with --update-snapshots)"
+                        # Extract failed test names from the log
+                        echo "[PLAYWRIGHT_MARKER] Failed tests:"
+                        grep -E "^\s+\d+\)" /tmp/playwright-output-attempt-2.log | head -20 || true
+                        echo "::endgroup::"
                         echo "Playwright tests failed after 2 attempts"
                         exit 1
                       fi
                     else
+                      # Output structured failure summary for CI log analysis
+                      echo "::group::PLAYWRIGHT_TEST_FAILURE_SUMMARY"
+                      echo "[PLAYWRIGHT_MARKER] Test execution FAILED at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                      echo "[PLAYWRIGHT_MARKER] Exit code: $EXIT_CODE"
+                      echo "[PLAYWRIGHT_MARKER] Attempt: 1"
+                      # Extract failed test names from the log
+                      echo "[PLAYWRIGHT_MARKER] Failed tests:"
+                      grep -E "^\s+\d+\)" /tmp/playwright-output-attempt-1.log | head -20 || true
+                      echo "::endgroup::"
                       echo "Non-screenshot failure - not retrying (Playwright already retried failed tests 3x)"
                       exit 1
                     fi
                   fi
+
+                  # Output structured success summary for CI log analysis
+                  echo "::group::PLAYWRIGHT_TEST_SUCCESS_SUMMARY"
+                  echo "[PLAYWRIGHT_MARKER] Test execution PASSED at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  echo "[PLAYWRIGHT_MARKER] Exit code: 0"
+                  echo "::endgroup::"
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
