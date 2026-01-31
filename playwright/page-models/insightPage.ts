@@ -29,7 +29,7 @@ export class InsightPage {
 
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
-        this.topBarName = page.getByTestId('top-bar-name')
+        this.topBarName = page.locator('.scene-name')
         this.activeTab = page.locator('.LemonTabs__tab--active')
 
         this.trends = new TrendsInsight(page)
@@ -54,8 +54,13 @@ export class InsightPage {
         return locators[type] ?? this.trends.chart
     }
 
+    async goToList(): Promise<InsightPage> {
+        await this.page.goto(urls.savedInsights(), { waitUntil: 'domcontentloaded' })
+        return this
+    }
+
     async goToNew(insightType?: InsightType): Promise<InsightPage> {
-        await this.page.goto(urls.savedInsights())
+        await this.page.goto(urls.savedInsights(), { waitUntil: 'domcontentloaded' })
         await this.page.getByTestId('saved-insights-new-insight-dropdown').click()
 
         const insightQuery = this.page.waitForRequest((req) => {
@@ -64,6 +69,12 @@ export class InsightPage {
         await this.page.locator(`[data-attr-insight-type="${insightType || 'TRENDS'}"]`).click()
         await insightQuery
 
+        await this.page.waitForSelector('.LemonTabs__tab--active')
+        return this
+    }
+
+    async goToNewTrends(): Promise<InsightPage> {
+        await this.page.goto(urls.insightNew({ type: InsightType.TRENDS }), { waitUntil: 'domcontentloaded' })
         await this.page.waitForSelector('.LemonTabs__tab--active')
         return this
     }
@@ -99,9 +110,10 @@ export class InsightPage {
     }
 
     async editName(insightName: string = randomString('insight')): Promise<void> {
-        await this.topBarName.getByRole('button').click()
-        await this.topBarName.getByRole('textbox').fill(insightName)
-        await this.topBarName.getByRole('button').getByText('Save').click()
+        const nameField = this.page.getByTestId('scene-title-textarea')
+        await nameField.click()
+        await nameField.fill(insightName)
+        await nameField.blur()
     }
 
     async delete(): Promise<void> {
@@ -130,19 +142,39 @@ export class InsightPage {
 
 class TrendsInsight {
     readonly chart: Locator
+    readonly detailsTable: Locator
     readonly detailsLabels: Locator
     readonly detailsLoader: Locator
     readonly addSeriesButton: Locator
     readonly firstSeries: Locator
     readonly secondSeries: Locator
+    readonly breakdownButton: Locator
+    readonly formulaSwitch: Locator
+    readonly formulaInput: Locator
+    readonly addFormulaButton: Locator
+    readonly dateRangeButton: Locator
+    readonly chartTypeButton: Locator
+    readonly comparisonButton: Locator
 
     constructor(private readonly page: Page) {
         this.chart = page.getByTestId('insights-graph')
-        this.detailsLabels = page.getByTestId('insights-table-graph').locator('.insights-label')
+        this.detailsTable = page.getByTestId('insights-table-graph')
+        this.detailsLabels = this.detailsTable.locator('.insights-label')
         this.detailsLoader = page.locator('.LemonTableLoader')
         this.addSeriesButton = page.getByTestId('add-action-event-button')
         this.firstSeries = page.getByTestId('trend-element-subject-0')
         this.secondSeries = page.getByTestId('trend-element-subject-1')
+        this.breakdownButton = page.getByTestId('add-breakdown-button')
+        this.formulaSwitch = page.locator('#trends-formula-switch')
+        this.formulaInput = page.getByPlaceholder('Example: (A + B) / 100')
+        this.addFormulaButton = page.getByRole('button', { name: 'Add formula' })
+        this.dateRangeButton = page.getByTestId('date-filter')
+        this.chartTypeButton = page.getByTestId('chart-filter')
+        this.comparisonButton = page.getByTestId('compare-filter')
+    }
+
+    seriesEventButton(index: number): Locator {
+        return this.page.getByTestId(`trend-element-subject-${index}`)
     }
 
     async waitForChart(): Promise<void> {
@@ -154,12 +186,32 @@ class TrendsInsight {
         await expect(this.detailsLoader).toHaveCount(0)
     }
 
+    async addSeries(): Promise<void> {
+        await this.addSeriesButton.click()
+    }
+
+    async selectEvent(seriesIndex: number, eventName: string): Promise<void> {
+        await this.seriesEventButton(seriesIndex).click()
+        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
+        await searchField.waitFor({ state: 'visible' })
+        await searchField.fill(eventName)
+        await this.page.locator('.taxonomic-list-row').first().click()
+    }
+
     async addBreakdown(property: string): Promise<void> {
-        await this.page.getByTestId('add-breakdown-button').click()
+        await this.breakdownButton.click()
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
         await this.page.locator('.taxonomic-list-row').first().click()
+    }
+
+    async setFormula(formula: string): Promise<void> {
+        await this.formulaSwitch.click()
+        await this.addFormulaButton.click()
+        await this.formulaInput.first().waitFor({ state: 'visible' })
+        await this.formulaInput.first().fill(formula)
+        await this.formulaInput.first().press('Enter')
     }
 }
 
