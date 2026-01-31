@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FilteredTableCount } from 'lib/components/FilteredTable/FilteredTableCount'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -20,7 +21,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { pluralize } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -192,13 +192,17 @@ const ExperimentsTable = ({
     openDuplicateModal: (experiment: Experiment) => void
     openSurveyModal: (experiment: Experiment) => void
 }): JSX.Element => {
-    const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
-        useValues(experimentsLogic)
+    const {
+        currentProjectId,
+        experimentsLoading,
+        tab,
+        shouldShowEmptyState,
+        filters,
+        pagination,
+        displayedExperiments,
+        filtersChanged,
+    } = useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, setExperimentsFilters } = useActions(experimentsLogic)
-
-    const page = filters.page || 1
-    const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
-    const endCount = page * EXPERIMENTS_PER_PAGE < count ? page * EXPERIMENTS_PER_PAGE : count
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -462,20 +466,21 @@ const ExperimentsTable = ({
             )}
             <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
             <LemonDivider className="my-0" />
-            {count ? (
-                <div>
-                    <span className="text-secondary">
-                        {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'experiment')}`}
-                    </span>
-                </div>
-            ) : null}
+            <FilteredTableCount
+                filtersChanged={filtersChanged}
+                effectiveCount={pagination.entryCount ?? 0}
+                page={filters.page || 1}
+                pageSize={EXPERIMENTS_PER_PAGE}
+                noun="experiment"
+            />
 
             <div data-attr="experiments-table-container">
                 <LemonTable
-                    dataSource={experiments.results}
+                    dataSource={displayedExperiments}
                     columns={columns}
                     rowKey="id"
                     loading={experimentsLoading}
+                    disableTableWhileLoading={false}
                     defaultSorting={{
                         columnKey: 'created_at',
                         order: -1,
