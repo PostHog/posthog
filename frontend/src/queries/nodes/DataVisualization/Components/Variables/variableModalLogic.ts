@@ -181,26 +181,42 @@ export const variableModalLogic = kea<variableModalLogicType>([
             if (variable.id) {
                 actions.setInsightsLoading(true)
                 try {
-                    const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                        `api/environments/${teamLogic.values.currentTeamId}/insights/?basic=true&limit=100`
-                    )
+                    const matchingInsights: QueryBasedInsightModel[] = []
+                    let offset = 0
+                    const limit = 100
 
-                    const insights = legacyResponse.results.map((legacyInsight) =>
-                        getQueryBasedInsightModel(legacyInsight)
-                    )
+                    // Paginate through all insights
+                    while (true) {
+                        const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
+                            `api/environments/${teamLogic.values.currentTeamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
+                        )
 
-                    // Filter insights that use this variable
-                    const filteredInsights = insights.filter((insight) => {
-                        if (insight.query?.kind === 'DataVisualizationNode') {
-                            const variables = (insight.query as any).source?.variables
-                            if (variables) {
-                                return Object.values(variables).some((v: any) => v.variableId === variable.id)
+                        const insights = legacyResponse.results.map((legacyInsight) =>
+                            getQueryBasedInsightModel(legacyInsight)
+                        )
+
+                        // Filter insights that use this variable
+                        const filtered = insights.filter((insight) => {
+                            if (insight.query?.kind === 'DataVisualizationNode') {
+                                const variables = (insight.query as any).source?.variables
+                                if (variables) {
+                                    return Object.values(variables).some((v: any) => v.variableId === variable.id)
+                                }
                             }
-                        }
-                        return false
-                    })
+                            return false
+                        })
 
-                    actions.setInsightsUsingVariable(filteredInsights)
+                        matchingInsights.push(...filtered)
+
+                        // Stop if we've fetched all insights
+                        if (legacyResponse.results.length < limit || !legacyResponse.next) {
+                            break
+                        }
+
+                        offset += limit
+                    }
+
+                    actions.setInsightsUsingVariable(matchingInsights)
                 } catch {
                     lemonToast.error('Failed to load insights using this variable')
                 } finally {
