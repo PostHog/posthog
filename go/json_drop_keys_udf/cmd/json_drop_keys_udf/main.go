@@ -383,15 +383,9 @@ func convertFastJSON(value *fastjson.Value) (node, error) {
 	case fastjson.TypeNumber:
 		num := value.String()
 		vn := valueNodePool.Get().(*valueNode)
-		if shouldStringifyNumber(num) {
-			vn.kind = kindString
-			vn.str = num
-			vn.num = ""
-		} else {
-			vn.kind = kindNumber
-			vn.num = num
-			vn.str = ""
-		}
+		vn.kind = kindNumber
+		vn.num = num
+		vn.str = ""
 		return vn, nil
 	case fastjson.TypeTrue:
 		vn := valueNodePool.Get().(*valueNode)
@@ -416,53 +410,6 @@ func convertFastJSON(value *fastjson.Value) (node, error) {
 	default:
 		return nil, fmt.Errorf("unexpected fastjson type %v", value.Type())
 	}
-}
-
-func shouldStringifyNumber(num string) bool {
-	if len(num) == 0 {
-		return false
-	}
-
-	// Check for float indicators
-	for i := 0; i < len(num); i++ {
-		c := num[i]
-		if c == '.' || c == 'e' || c == 'E' {
-			return false
-		}
-	}
-
-	start := 0
-	neg := num[0] == '-'
-	if neg {
-		start = 1
-	}
-
-	// Skip leading zeros
-	for start < len(num) && num[start] == '0' {
-		start++
-	}
-
-	digitLen := len(num) - start
-	if digitLen == 0 {
-		return false // It's just zeros
-	}
-
-	const maxLen = 19 // len("9223372036854775807")
-	if digitLen < maxLen {
-		return false
-	}
-	if digitLen > maxLen {
-		return true
-	}
-
-	// Exactly maxLen digits - compare lexicographically
-	digits := num[start:]
-	if neg {
-		const minInt64Abs = "9223372036854775808"
-		return digits > minInt64Abs
-	}
-	const maxInt64 = "9223372036854775807"
-	return digits > maxInt64
 }
 
 func processLine(keys jsonKey, rawLine []byte, buf *bytes.Buffer) error {
