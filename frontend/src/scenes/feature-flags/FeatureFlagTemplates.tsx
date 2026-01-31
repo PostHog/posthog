@@ -230,7 +230,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
         <>
             <div className="mb-4">
                 <LemonCollapse
-                    activeKey={isExpanded ? 'templates' : null}
+                    activeKey={isExpanded ? 'templates' : undefined}
                     onChange={(key) => setIsExpanded(key === 'templates')}
                     panels={[
                         {
