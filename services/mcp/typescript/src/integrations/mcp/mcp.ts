@@ -1,3 +1,4 @@
+import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
@@ -8,7 +9,7 @@ import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import { AnalyticsEvent } from '@/lib/analytics'
 import {
-    CUSTOM_BASE_URL,
+    CUSTOM_API_BASE_URL,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
     getBaseUrlForRegion,
@@ -19,8 +20,10 @@ import { StateManager } from '@/lib/utils/StateManager'
 import { DurableObjectCache } from '@/lib/utils/cache/DurableObjectCache'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
+import { registerUiAppResources } from '@/resources/ui-apps'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
+import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
 const INSTRUCTIONS = `
 - You are a helpful assistant that can query PostHog API.
@@ -29,19 +32,6 @@ const INSTRUCTIONS = `
 `
 
 export type RequestProperties = {
-    /**
-     * PBKDF2 hash of the API token, used to namespace per-user data in Durable Object storage.
-     *
-     * Durable Objects provide a single shared SQLite storage instance. To isolate users,
-     * the DurableObjectCache prefixes all storage keys with `user:${userHash}:`. For example:
-     *   - User A's region → `user:abc123:region`
-     *   - User B's region → `user:def456:region`
-     *
-     * This ensures users can't access each other's cached data while sharing the same
-     * Durable Object infrastructure.
-     *
-     * See: src/lib/utils/helper-functions.ts for the PBKDF2 hash implementation.
-     */
     userHash: string
     apiToken: string
     sessionId?: string
@@ -70,18 +60,6 @@ export class MCP extends McpAgent<Env> {
         return this.props as RequestProperties
     }
 
-    /**
-     * Per-user cache backed by Durable Object SQLite storage.
-     *
-     * Durable Objects provide a single shared storage instance (`this.ctx.storage`).
-     * To isolate users, we pass `userHash` to DurableObjectCache, which prefixes
-     * all keys with `user:${userHash}:`. For example:
-     *
-     *   cache.set('region', 'us')  →  storage.put('user:abc123:region', 'us')
-     *
-     * This ensures User A (hash abc123) and User B (hash def456) have completely
-     * separate data within the same underlying storage.
-     */
     get cache(): DurableObjectCache<State> {
         if (!this.requestProperties.userHash) {
             throw new Error('User hash is required to use the cache')
@@ -129,8 +107,8 @@ export class MCP extends McpAgent<Env> {
     }
 
     async getBaseUrl(): Promise<string> {
-        if (CUSTOM_BASE_URL) {
-            return CUSTOM_BASE_URL
+        if (CUSTOM_API_BASE_URL) {
+            return CUSTOM_API_BASE_URL
         }
 
         // Check region from request props first (passed via URL param), then cache, then detect
@@ -222,17 +200,30 @@ export class MCP extends McpAgent<Env> {
             await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
                 tool: tool.name,
                 valid_input: true,
-                input: params,
             })
 
             try {
                 const result = await handler(params)
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
-                    tool: tool.name,
-                    valid_input: true,
-                    input: params,
-                    output: result,
-                })
+                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, { tool: tool.name })
+
+                // For tools with UI resources, include structuredContent for better UI rendering
+                // structuredContent is not added to model context, only used by UI apps
+                const hasUiResource = tool._meta?.ui?.resourceUri
+
+                // If there's a UI resource, include analytics metadata for the UI app
+                // The structuredContent is typed as WithAnalytics<T> where T is the tool result
+                let structuredContent: WithAnalytics<typeof result> | typeof result = result
+                if (hasUiResource) {
+                    const distinctId = await this.getDistinctId()
+                    const analyticsMetadata: AnalyticsMetadata = {
+                        distinctId,
+                        toolName: tool.name,
+                    }
+                    structuredContent = {
+                        ...result,
+                        _analytics: analyticsMetadata,
+                    }
+                }
 
                 return {
                     content: [
@@ -241,6 +232,8 @@ export class MCP extends McpAgent<Env> {
                             text: formatResponse(result),
                         },
                     ],
+                    // Include raw result as structuredContent for UI apps to consume
+                    ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
@@ -255,6 +248,16 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
+        // Normalize _meta to include both new (ui.resourceUri) and legacy (ui/resourceUri) formats
+        // for compatibility with different MCP clients
+        let normalizedMeta = tool._meta
+        if (tool._meta?.ui?.resourceUri && !tool._meta[RESOURCE_URI_META_KEY]) {
+            normalizedMeta = {
+                ...tool._meta,
+                [RESOURCE_URI_META_KEY]: tool._meta.ui.resourceUri,
+            }
+        }
+
         this.server.registerTool(
             tool.name,
             {
@@ -262,6 +265,7 @@ export class MCP extends McpAgent<Env> {
                 description: tool.description,
                 inputSchema: tool.schema.shape,
                 annotations: tool.annotations,
+                ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
             wrappedHandler as unknown as ToolCallback<TSchema>
         )
@@ -282,8 +286,9 @@ export class MCP extends McpAgent<Env> {
         const context = await this.getContext()
 
         // Register prompts and resources
-        await registerPrompts(this.server, context)
+        await registerPrompts(this.server)
         await registerResources(this.server, context)
+        await registerUiAppResources(this.server, context)
 
         // Register tools
         const features = this.requestProperties.features
