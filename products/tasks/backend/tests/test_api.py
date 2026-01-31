@@ -1,5 +1,3 @@
-import json
-
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -414,91 +412,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.tasks.backend.api.produce_agent_log_entries")
-    @patch("products.tasks.backend.api.get_max_sequence")
-    def test_append_log_entries(self, mock_get_max_sequence, mock_produce):
-        mock_get_max_sequence.return_value = 0
-
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
-            {
-                "entries": [
-                    {"type": "info", "message": "Starting task"},
-                    {"type": "progress", "message": "Step 1 complete"},
-                ]
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        mock_produce.assert_called_once()
-        entries = mock_produce.call_args[0][0]
-        self.assertEqual(len(entries), 2)
-        entry0 = json.loads(entries[0].entry)
-        entry1 = json.loads(entries[1].entry)
-        self.assertEqual(entry0["type"], "info")
-        self.assertEqual(entry0["message"], "Starting task")
-        self.assertEqual(entries[0].sequence, 1)
-        self.assertEqual(entry1["type"], "progress")
-        self.assertEqual(entry1["message"], "Step 1 complete")
-        self.assertEqual(entries[1].sequence, 2)
-
-    @patch("products.tasks.backend.api.produce_agent_log_entries")
-    @patch("products.tasks.backend.api.get_max_sequence")
-    def test_append_log_to_existing_entries(self, mock_get_max_sequence, mock_produce):
-        task = self.create_task()
-        run = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.IN_PROGRESS,
-        )
-
-        mock_get_max_sequence.return_value = 0
-
-        # Add first batch
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
-            {"entries": [{"type": "info", "message": "Initial entry"}]},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        first_entries = mock_produce.call_args[0][0]
-        self.assertEqual(len(first_entries), 1)
-        first_entry = json.loads(first_entries[0].entry)
-        self.assertEqual(first_entry["message"], "Initial entry")
-        self.assertEqual(first_entries[0].sequence, 1)
-
-        mock_get_max_sequence.return_value = 1
-
-        # Add second batch
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
-            {"entries": [{"type": "success", "message": "Task completed"}]},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        second_entries = mock_produce.call_args[0][0]
-        self.assertEqual(len(second_entries), 1)
-        second_entry = json.loads(second_entries[0].entry)
-        self.assertEqual(second_entry["message"], "Task completed")
-        self.assertEqual(second_entries[0].sequence, 2)
-
-    def test_append_log_empty_entries_fails(self):
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
-            {"entries": []},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
     def test_upload_artifacts(self, mock_tag, mock_write):
@@ -585,62 +498,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TestReplayFromLogFiltering(TestCase):
-    """
-    Tests for the log entry filtering logic in _replay_from_log.
-    These are unit tests that test the filtering behavior without async complexity.
-    """
-
-    @parameterized.expand(
-        [
-            (
-                "notification_yields_inner",
-                {"type": "notification", "notification": {"method": "test", "params": {}}},
-                {"method": "test", "params": {}},
-            ),
-            (
-                "agent_event_yields_event",
-                {"type": "agent_event", "event": {"action": "process", "data": "value"}},
-                {"action": "process", "data": "value"},
-            ),
-            (
-                "client_message_yields_full_entry",
-                {"type": "client_message", "message": {"content": "hello"}},
-                {"type": "client_message", "message": {"content": "hello"}},
-            ),
-        ]
-    )
-    def test_log_entry_filtering(self, _name, entry, expected_output):
-        result = self._filter_entry(entry)
-        self.assertEqual(result, expected_output)
-
-    def test_empty_entry_returns_none(self):
-        self.assertIsNone(self._filter_entry(None))
-
-    def test_unknown_entry_type_returns_none(self):
-        entry = {"type": "unknown_type", "data": "foo"}
-        self.assertIsNone(self._filter_entry(entry))
-
-    def test_notification_without_notification_field_returns_none(self):
-        entry = {"type": "notification"}
-        self.assertIsNone(self._filter_entry(entry))
-
-    def _filter_entry(self, entry):
-        """
-        Extracts the filtering logic from _replay_from_log for unit testing.
-        Mirrors the logic in TaskRunViewSet._replay_from_log.
-        """
-        if not entry:
-            return None
-        if entry.get("type") == "notification" and entry.get("notification"):
-            return entry["notification"]
-        elif entry.get("type") == "agent_event":
-            return entry.get("event", {})
-        elif entry.get("type") == "client_message":
-            return entry
-        return None
-
-
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
@@ -672,7 +529,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
         ]
 
         for url, method in endpoints:

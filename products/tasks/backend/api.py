@@ -1,13 +1,11 @@
 import os
 import json
 import uuid
-import asyncio
 import logging
 import traceback
-from collections.abc import AsyncGenerator
-from typing import Any, cast
+from typing import cast
 
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import HttpResponse
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -22,21 +20,14 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
-from posthog.settings import SERVER_GATEWAY_INTERFACE
+from posthog.renderers import SafeJSONRenderer
 from posthog.storage import object_storage
 
-from ee.hogai.utils.asgi import SyncIterableToAsync
-
-from .kafka_consumer import consume_agent_events
-from .kafka_producer import AgentLogEntry, create_agent_log_entry, produce_agent_log_entries
 from .models import Task, TaskRun
-from .queries import get_agent_logs, get_agent_logs_as_jsonl, get_max_sequence
 from .serializers import (
     ErrorResponseSerializer,
     FileManifestSerializer,
     TaskListQuerySerializer,
-    TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
@@ -45,12 +36,7 @@ from .serializers import (
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
-from .temporal.client import (
-    execute_cloud_workflow,
-    execute_task_processing_workflow,
-    is_workflow_running,
-    send_process_task_heartbeat,
-)
+from .temporal.client import execute_cloud_workflow, execute_task_processing_workflow, send_process_task_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +183,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskRunDetailSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
+    renderer_classes = [SafeJSONRenderer]
     scope_object = "task"
     queryset = TaskRun.objects.select_related("task").all()
     posthog_feature_flag = {
@@ -208,8 +194,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "set_output",
-            "append_log",
-            "sync",
             "heartbeat",
             "file_manifest",
         ]
@@ -356,46 +340,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
     @validated_request(
-        request_serializer=TaskRunAppendLogRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="Append log entries",
-        description="Append one or more log entries to the task run log array",
-        strict_request_validation=True,
-    )
-    @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
-    def append_log(self, request, pk=None, **kwargs):
-        task_run = cast(TaskRun, self.get_object())
-
-        entries = request.validated_data["entries"]
-        current_sequence = get_max_sequence(
-            team_id=task_run.team_id,
-            task_id=str(task_run.task_id),
-            run_id=str(task_run.id),
-        )
-
-        kafka_entries: list[AgentLogEntry] = []
-        for i, entry in enumerate(entries):
-            entry_type = entry.get("type", "unknown")
-            kafka_entries.append(
-                create_agent_log_entry(
-                    team_id=task_run.team_id,
-                    task_id=str(task_run.task_id),
-                    run_id=str(task_run.id),
-                    sequence=current_sequence + i + 1,
-                    entry_type=entry_type,
-                    entry=entry,
-                )
-            )
-
-        produce_agent_log_entries(kafka_entries)
-
-        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
-
-    @validated_request(
         request_serializer=TaskRunArtifactsUploadRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -517,26 +461,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @validated_request(
-        responses={
-            200: OpenApiResponse(description="Log content in JSONL format"),
-            404: OpenApiResponse(description="Task run not found"),
-        },
-        summary="Get task run logs",
-        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
-    )
-    @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
-    def logs(self, request, pk=None, **kwargs):
-        task_run = cast(TaskRun, self.get_object())
-        log_content = get_agent_logs_as_jsonl(
-            team_id=task_run.team_id,
-            task_id=str(task_run.task_id),
-            run_id=str(task_run.id),
-        )
-        response = HttpResponse(log_content, content_type="application/jsonl")
-        response["Cache-Control"] = "no-cache"
-        return response
-
-    @validated_request(
         TaskRunArtifactPresignRequestSerializer,
         responses={
             200: OpenApiResponse(description="Artifact content"),
@@ -574,153 +498,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response = HttpResponse(content, content_type=content_type)
         response["Cache-Control"] = "no-cache"
         return response
-
-    @extend_schema(
-        tags=["task-runs"],
-        responses={
-            200: OpenApiResponse(description="SSE event stream from agent"),
-            202: OpenApiResponse(description="Message accepted"),
-            404: OpenApiResponse(description="Task run not found"),
-        },
-        summary="Sync with cloud agent",
-        description="GET opens SSE stream to receive events. POST sends messages to agent.",
-    )
-    @action(detail=True, methods=["get", "post"], url_path="sync", required_scopes=["task:write"])
-    def sync(self, request, pk=None, **kwargs):
-        task_run = cast(TaskRun, self.get_object())
-
-        if request.method == "GET":
-            return self._sync_get(request, task_run)
-        else:
-            return self._sync_post(request, task_run)
-
-    def _sync_get(self, request, task_run: TaskRun) -> StreamingHttpResponse:
-        """Open SSE stream to receive events from the agent via Kafka."""
-        run_id = str(task_run.id)
-        task_id = str(task_run.task_id)
-        last_event_id = request.headers.get("Last-Event-ID")
-
-        logger.info(f"[SYNC_GET] Opening SSE stream for run {run_id}, Last-Event-ID: {last_event_id}")
-
-        from_sequence = int(last_event_id) if last_event_id and last_event_id.isdigit() else None
-
-        async def event_stream() -> AsyncGenerator[bytes, None]:
-            event_id = 0
-
-            if from_sequence is not None:
-                logger.info(f"[SYNC_GET] Replaying from ClickHouse, sequence > {from_sequence}")
-                async for event in self._replay_from_log(task_run, last_event_id):
-                    event_id += 1
-                    logger.debug(f"[SYNC_GET] Replayed event {event_id}: {event.get('method', 'unknown')}")
-                    yield self._format_sse_event(event, event_id)
-
-            logger.info(f"[SYNC_GET] Starting live Kafka subscription for run {run_id}")
-            try:
-                async for entry in consume_agent_events(
-                    task_id=task_id,
-                    run_id=run_id,
-                    from_sequence=from_sequence,
-                ):
-                    # Handle keepalive (SSE comment to keep connection alive)
-                    if entry.get("_keepalive"):
-                        yield b": keepalive\n\n"
-                        continue
-
-                    event_id += 1
-                    if entry.get("type") == "notification" and entry.get("notification"):
-                        event = entry["notification"]
-                    elif entry.get("type") == "agent_event":
-                        event = entry.get("event", {})
-                    else:
-                        event = entry
-
-                    logger.info(
-                        f"[SYNC_GET] Received event {event_id} from Kafka: method={event.get('method', 'unknown')}"
-                    )
-                    yield self._format_sse_event(event, event_id)
-            except asyncio.CancelledError:
-                logger.info(f"[SYNC_GET] SSE stream cancelled for run {run_id}")
-            except Exception as e:
-                logger.exception(f"[SYNC_GET] SSE stream error for run {run_id}: {e}")
-                yield self._format_sse_event({"error": str(e)}, event_id + 1)
-
-        if SERVER_GATEWAY_INTERFACE == "ASGI":
-            stream = event_stream()
-        else:
-            stream = SyncIterableToAsync(event_stream())
-
-        response = StreamingHttpResponse(
-            streaming_content=stream,
-            content_type=ServerSentEventRenderer.media_type,
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
-
-    def _sync_post(self, request, task_run: TaskRun) -> Response:
-        """Receive messages from client and forward to agent via Kafka."""
-        run_id = str(task_run.id)
-        message = request.data
-
-        logger.info(f"[SYNC_POST] Received message for run {run_id}: method={message.get('method', 'unknown')}")
-        logger.debug(f"[SYNC_POST] Full message: {message}")
-
-        if not isinstance(message, dict):
-            logger.error(f"[SYNC_POST] Invalid message type: {type(message)}")
-            return Response(
-                {"error": "Message must be a JSON object"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        current_sequence = get_max_sequence(
-            team_id=task_run.team_id,
-            task_id=str(task_run.task_id),
-            run_id=str(task_run.id),
-        )
-        entry = create_agent_log_entry(
-            team_id=task_run.team_id,
-            task_id=str(task_run.task_id),
-            run_id=str(task_run.id),
-            sequence=current_sequence + 1,
-            entry_type="client_message",
-            entry={"type": "client_message", "message": message},
-        )
-        produce_agent_log_entries([entry])
-        logger.info(f"[SYNC_POST] Message sent to Kafka for run {run_id}")
-
-        if task_run.environment == TaskRun.Environment.CLOUD:
-            self._ensure_cloud_workflow_running(task_run)
-
-        logger.info(f"[SYNC_POST] Returning 202 Accepted for run {run_id}")
-        return Response(status=status.HTTP_202_ACCEPTED)
-
-    def _ensure_cloud_workflow_running(self, task_run: TaskRun) -> bool:
-        """Ensure a cloud workflow is running for this run, starting one if needed."""
-        run_id = str(task_run.id)
-        task_id = str(task_run.task_id)
-        state = task_run.state or {}
-
-        workflow_id = state.get("workflow_id")
-        if workflow_id and is_workflow_running(workflow_id):
-            if send_process_task_heartbeat(run_id, workflow_id):
-                logger.debug(f"[ENSURE_WORKFLOW] Heartbeat sent to existing workflow {workflow_id}")
-                return True
-
-        logger.info(f"[ENSURE_WORKFLOW] No active workflow for run {run_id}, starting new cloud workflow")
-        new_workflow_id = execute_cloud_workflow(
-            task_id=task_id,
-            run_id=run_id,
-            team_id=task_run.team_id,
-        )
-
-        if new_workflow_id:
-            task_run.state = {**state, "workflow_id": new_workflow_id}
-            task_run.save(update_fields=["state", "updated_at"])
-            logger.info(f"[ENSURE_WORKFLOW] Started new cloud workflow {new_workflow_id} for run {run_id}")
-            return True
-
-        logger.warning(f"[ENSURE_WORKFLOW] Failed to start cloud workflow for run {run_id}")
-        return False
 
     @extend_schema(
         tags=["task-runs"],
@@ -823,34 +600,3 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response(serializer.validated_data)
-
-    async def _replay_from_log(self, task_run: TaskRun, from_event_id: str) -> AsyncGenerator[dict[str, Any], None]:
-        """Replay events from ClickHouse log starting after the given event ID."""
-        from_sequence = int(from_event_id) if from_event_id.isdigit() else 0
-
-        logs = get_agent_logs(
-            team_id=task_run.team_id,
-            task_id=str(task_run.task_id),
-            run_id=str(task_run.id),
-            after_sequence=from_sequence,
-        )
-
-        for log in logs:
-            entry = log.get("entry")
-            if not entry:
-                continue
-            # Handle ACP notification format (from @posthog/agent-server)
-            if entry.get("type") == "notification" and entry.get("notification"):
-                yield entry["notification"]
-            # Handle legacy agent_event format
-            elif entry.get("type") == "agent_event":
-                yield entry.get("event", {})
-            # Handle client messages (for agent reconnection replay)
-            elif entry.get("type") == "client_message":
-                yield entry
-
-    def _format_sse_event(self, data: dict[str, Any], event_id: int) -> bytes:
-        """Format data as an SSE event."""
-        output = f"id: {event_id}\n"
-        output += f"data: {json.dumps(data)}\n\n"
-        return output.encode()

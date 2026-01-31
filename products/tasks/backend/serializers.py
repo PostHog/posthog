@@ -208,19 +208,6 @@ class AgentListResponseSerializer(serializers.Serializer):
     results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 
 
-class TaskRunAppendLogRequestSerializer(serializers.Serializer):
-    entries = serializers.ListField(
-        child=serializers.DictField(),
-        help_text="Array of log entry dictionaries to append",
-    )
-
-    def validate_entries(self, value):
-        """Validate that entries is a non-empty list of dicts"""
-        if not value:
-            raise serializers.ValidationError("At least one log entry is required")
-        return value
-
-
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
     ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
 
