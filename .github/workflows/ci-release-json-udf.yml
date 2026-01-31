@@ -73,7 +73,7 @@ jobs:
               with:
                   path: dist
             - name: Publish release
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
               with:
                   tag_name: ${{ steps.version.outputs.version }}
                   name: json_drop_keys_udf ${{ steps.version.outputs.version }}
