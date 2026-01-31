@@ -2173,6 +2173,20 @@ export const eventDefinitionsMetricsRetrieve = async (
     })
 }
 
+/**
+ * Get event definition by exact name
+ */
+export const getEventDefinitionsByNameRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/by_name/`
+}
+
+export const eventDefinitionsByNameRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEventDefinitionsByNameRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/golang/`
 }
