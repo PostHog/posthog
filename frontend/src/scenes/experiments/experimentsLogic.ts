@@ -2,9 +2,10 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
+import { LemonTagType } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { buildClientFilteredPagination, haveFiltersChanged } from 'lib/components/FilteredTable/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -85,6 +86,38 @@ export function getExperimentStatus(experiment: Experiment): ExperimentProgressS
     return ExperimentProgressStatus.Complete
 }
 
+function experimentMatchesSearch(experiment: Experiment, search?: string): boolean {
+    if (!search) {
+        return true
+    }
+    return experiment.name.toLowerCase().includes(search.toLowerCase())
+}
+
+function experimentMatchesStatus(experiment: Experiment, status?: ExperimentProgressStatus | 'all'): boolean {
+    if (!status || status === 'all') {
+        return true
+    }
+    if (status === ExperimentProgressStatus.Draft) {
+        return !experiment.start_date
+    }
+    if (status === ExperimentProgressStatus.Running) {
+        return !!experiment.start_date && !experiment.end_date
+    }
+    if (status === ExperimentProgressStatus.Complete) {
+        return !!experiment.end_date
+    }
+    return true
+}
+
+function experimentMatchesFilters(experiment: Experiment, filters: ExperimentsFilters): boolean {
+    return (
+        experimentMatchesSearch(experiment, filters.search) &&
+        experimentMatchesStatus(experiment, filters.status) &&
+        (!filters.created_by_id || experiment.created_by?.id === filters.created_by_id) &&
+        experiment.archived === (filters.archived ?? false)
+    )
+}
+
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters
 
@@ -162,6 +195,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 },
             },
         ],
+        localExperimentsCache: [
+            [] as Experiment[],
+            {
+                loadExperimentsSuccess: (_, { experiments }) => experiments.results,
+                archiveExperimentSuccess: (_, { experiments }) => experiments.results,
+                duplicateExperimentSuccess: (_, { experiments }) => experiments.results,
+                addToExperimentsSuccess: (_, { experiments }) => experiments.results,
+                updateExperimentsSuccess: (_, { experiments }) => experiments.results,
+            },
+        ],
         featureFlagModalFilters: [
             DEFAULT_MODAL_FILTERS,
             {
@@ -221,6 +264,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     return {
                         ...response,
                         offset: values.paramsFromFilters.offset,
+                        filters: values.filters,
                     }
                 },
                 archiveExperiment: async (id: number) => {
@@ -295,6 +339,16 @@ export const experimentsLogic = kea<experimentsLogicType>([
     })),
     selectors(() => ({
         count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
+        filtersChanged: [
+            (s) => [s.filters, s.experiments],
+            (filters, experiments): boolean => haveFiltersChanged(filters, experiments.filters),
+        ],
+        displayedExperiments: [
+            (s) => [s.localExperimentsCache, s.filters],
+            (cache: Experiment[], filters: ExperimentsFilters): Experiment[] => {
+                return cache.filter((experiment) => experimentMatchesFilters(experiment, filters))
+            },
+        ],
         paramsFromFilters: [
             (s) => [s.filters],
             (filters: ExperimentsFilters) => ({
@@ -328,7 +382,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
         featureFlagModalPagination: [
             (s) => [s.featureFlagModalFilters, s.featureFlagModalFeatureFlags, s.featureFlagModalPageFromURL],
-            (filters, featureFlags, urlPage): PaginationManual => {
+            (filters, featureFlags, urlPage) => {
                 const currentPage = Math.max(filters.page || 1, urlPage)
 
                 const hasNextPage = featureFlags.count > currentPage * FLAGS_PER_PAGE
@@ -364,15 +418,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         pagination: [
-            (s) => [s.filters, s.count],
-            (filters, count): PaginationManual => {
-                return {
-                    controlled: true,
-                    pageSize: EXPERIMENTS_PER_PAGE,
+            (s) => [s.filters, s.displayedExperiments, s.experiments, s.filtersChanged],
+            (filters, displayedExperiments, experiments, filtersChanged) =>
+                buildClientFilteredPagination({
                     currentPage: filters.page || 1,
-                    entryCount: count,
-                }
-            },
+                    pageSize: EXPERIMENTS_PER_PAGE,
+                    clientCount: displayedExperiments.length,
+                    apiCount: experiments.count,
+                    filtersChanged,
+                }),
         ],
         webExperimentsAvailable: [
             () => [featureFlagLogic.selectors.featureFlags],

@@ -2,9 +2,8 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { PaginationManual } from '@posthog/lemon-ui'
-
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { buildClientFilteredPagination, haveFiltersChanged } from 'lib/components/FilteredTable/utils'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -214,12 +213,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         count: [(selectors) => [selectors.featureFlags], (featureFlags) => featureFlags.count],
         filtersChanged: [
             (s) => [s.filters, s.featureFlags],
-            (filters, featureFlags): boolean => {
-                if (!featureFlags.filters) {
-                    return false
-                }
-                return !objectsEqual({ ...featureFlags.filters, page: undefined }, { ...filters, page: undefined })
-            },
+            (filters, featureFlags): boolean => haveFiltersChanged(filters, featureFlags.filters),
         ],
         paramsFromFilters: [
             (s) => [s.filters],
@@ -251,14 +245,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
         pagination: [
             (s) => [s.filters, s.displayedFlags, s.featureFlags, s.filtersChanged],
-            (filters, displayedFlags, featureFlags, filtersChanged): PaginationManual => {
-                return {
-                    controlled: true,
-                    pageSize: FLAGS_PER_PAGE,
+            (filters, displayedFlags, featureFlags, filtersChanged) =>
+                buildClientFilteredPagination({
                     currentPage: filters.page || 1,
-                    entryCount: filtersChanged ? displayedFlags.length : featureFlags.count,
-                }
-            },
+                    pageSize: FLAGS_PER_PAGE,
+                    clientCount: displayedFlags.length,
+                    apiCount: featureFlags.count,
+                    filtersChanged,
+                }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],

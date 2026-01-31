@@ -9,6 +9,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FilteredTableCount } from 'lib/components/FilteredTable/FilteredTableCount'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -23,10 +24,7 @@ import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
@@ -275,12 +273,6 @@ export function OverViewTab({
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
-    const page = filters.page || 1
-    const startCount = (page - 1) * FLAGS_PER_PAGE + 1
-    const effectiveCount = pagination.entryCount ?? 0
-    const endCount = page * FLAGS_PER_PAGE < effectiveCount ? page * FLAGS_PER_PAGE : effectiveCount
-    const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
-
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
             title: 'Key',
@@ -468,19 +460,17 @@ export function OverViewTab({
                 action={() => router.actions.push(urls.featureFlag('new'))}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
-                className={cn('my-0')}
+                className="my-0"
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
-            <div>
-                <span className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}>
-                    {filtersChanged ? (
-                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
-                    ) : effectiveCount > 0 ? (
-                        flagCountText
-                    ) : null}
-                </span>
-            </div>
+            <FilteredTableCount
+                filtersChanged={filtersChanged}
+                effectiveCount={pagination.entryCount ?? 0}
+                page={filters.page || 1}
+                pageSize={FLAGS_PER_PAGE}
+                noun="flag"
+            />
 
             <LemonTable
                 dataSource={displayedFlags}
