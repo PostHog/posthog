@@ -35,10 +35,11 @@ export const sqlVariablesLogic = kea<sqlVariablesLogicType>([
                     try {
                         await api.insightVariables.delete(variableId)
                         lemonToast.success('Variable deleted')
+                        return values.variables.filter((variable: Variable) => variable.id !== variableId)
                     } catch {
                         lemonToast.error('Failed to delete variable')
+                        return values.variables
                     }
-                    return values.variables.filter((variable: Variable) => variable.id !== variableId)
                 },
             },
         ],
