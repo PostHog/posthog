@@ -94,7 +94,10 @@ export const VariableForm = ({
                 <LemonInput
                     placeholder="Name"
                     value={variable.name}
-                    onChange={(value) => updateVariable({ ...variable, name: value })}
+                    onChange={(value) => {
+                        const filteredValue = value.replace(/[^a-zA-Z0-9\s_]/g, '')
+                        updateVariable({ ...variable, name: filteredValue })
+                    }}
                 />
                 {modalType === 'new' && variable.name.length > 0 && (
                     <span className="text-xs">{`Use this variable by referencing {variables.${getCodeName(variable.name)}}.`}</span>

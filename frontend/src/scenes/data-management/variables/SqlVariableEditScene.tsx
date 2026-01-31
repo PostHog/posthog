@@ -229,7 +229,16 @@ export function SqlVariableEditScene(): JSX.Element {
                                 label="Name"
                                 info="Variable name must be alphanumeric and can only contain spaces and underscores"
                             >
-                                <LemonInput placeholder="e.g., Start Date" />
+                                {({ value, onChange }) => (
+                                    <LemonInput
+                                        placeholder="e.g., Start Date"
+                                        value={value}
+                                        onChange={(newValue) => {
+                                            const filteredValue = newValue.replace(/[^a-zA-Z0-9\s_]/g, '')
+                                            onChange(filteredValue)
+                                        }}
+                                    />
+                                )}
                             </LemonField>
 
                             {variableForm.name && variableForm.name.length > 0 && (
