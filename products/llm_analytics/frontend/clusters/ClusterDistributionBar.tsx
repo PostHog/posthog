@@ -24,7 +24,7 @@ export function ClusterDistributionBar({ clusters, runId }: ClusterDistributionB
     const totalInClusters = clusters.reduce((sum, cluster) => sum + cluster.size, 0)
 
     return (
-        <div className="flex h-3 w-full rounded-sm overflow-hidden bg-border-light">
+        <div className="flex-1 min-w-0 flex h-3 rounded-sm overflow-hidden bg-border-light">
             {clusters.map((cluster) => {
                 const percentage = (cluster.size / totalInClusters) * 100
                 const isOutlier = cluster.cluster_id === NOISE_CLUSTER_ID

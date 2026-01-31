@@ -257,10 +257,8 @@ export function ClustersView(): JSX.Element {
                         onClick={toggleScatterPlotExpanded}
                     >
                         <div className="flex items-center gap-4">
-                            <h3 className="font-semibold text-base shrink-0">Cluster visualization</h3>
-                            <div className="flex-1 min-w-0 flex items-center">
-                                <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
-                            </div>
+                            <h3 className="font-semibold text-base shrink-0 leading-none">Cluster visualization</h3>
+                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
                             <LemonButton
                                 size="small"
                                 noPadding
