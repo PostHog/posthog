@@ -92,6 +92,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
+    [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

@@ -118,6 +118,7 @@ export enum Scene {
     RevenueAnalytics = 'RevenueAnalytics',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',

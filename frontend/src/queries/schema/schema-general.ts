@@ -2891,6 +2891,8 @@ export type FileSystemIconType =
     | 'conversations'
     | 'toolbar'
     | 'settings'
+    | 'health'
+    | 'sdk_doctor'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

@@ -67,6 +67,8 @@ export function HelpMenu(): JSX.Element {
                             <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />
                         </>
                     }
+                    tooltipPlacement="top"
+                    tooltipCloseDelayMs={0}
                     iconOnly
                     className="group"
                 >

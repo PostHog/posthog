@@ -26,6 +26,7 @@ import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -586,7 +587,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <HelpMenu />
+                                <div className="flex gap-1">
+                                    <HelpMenu />
+                                    <HealthMenu />
+                                </div>
                             )}
                         </div>
                     </div>
