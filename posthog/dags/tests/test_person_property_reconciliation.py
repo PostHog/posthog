@@ -1,4 +1,8 @@
-"""Tests for the person property reconciliation job."""
+"""Tests for the person property reconciliation job.
+
+For comprehensive documentation including architecture diagrams and example configs, see:
+    posthog/dags/PERSON_PROPERTY_RECONCILIATION.md
+"""
 
 import os
 import json
@@ -21,8 +25,11 @@ from posthog.dags.person_property_reconciliation import (
     fetch_person_properties_from_clickhouse,
     filter_event_person_properties,
     format_ch_timestamp,
+    get_affected_person_ids_from_clickhouse,
     get_person_property_updates_from_clickhouse,
     get_person_property_updates_windowed,
+    get_person_property_updates_windowed_batched,
+    get_raw_person_property_updates_from_clickhouse,
     merge_raw_person_property_updates,
     parse_ch_timestamp,
     query_team_ids_from_clickhouse,
@@ -2202,6 +2209,439 @@ class TestGetPersonPropertyUpdatesWindowed:
         raw_updates_list = compare_call_args[1]
         assert len(raw_updates_list) == 1
         assert raw_updates_list[0].set_updates["email"].value == "new@example.com"
+
+
+class TestGetAffectedPersonIdsFromClickhouse:
+    """Test the get_affected_person_ids_from_clickhouse function."""
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_returns_person_ids_in_bug_window(self, mock_sync_execute):
+        """Test that query is bounded by bug_window_end."""
+        mock_sync_execute.return_value = [
+            ("person-1",),
+            ("person-2",),
+            ("person-3",),
+        ]
+
+        result = get_affected_person_ids_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+        assert result == ["person-1", "person-2", "person-3"]
+
+        # Verify the query uses bug_window_end (not now())
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+        assert "bug_window_end" in params
+        assert params["bug_window_end"] == "2024-01-02 00:00:00"
+        assert "e.timestamp < %(bug_window_end)s" in query
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_returns_empty_list_when_no_persons(self, mock_sync_execute):
+        """Test that empty list is returned when no affected persons."""
+        mock_sync_execute.return_value = []
+
+        result = get_affected_person_ids_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+        assert result == []
+
+
+class TestGetRawPersonPropertyUpdatesWithPersonIds:
+    """Test the person_ids filter parameter in get_raw_person_property_updates_from_clickhouse."""
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_filters_by_person_ids_when_provided(self, mock_sync_execute):
+        """Test that query filters to specific person_ids when provided."""
+        mock_sync_execute.return_value = []
+
+        get_raw_person_property_updates_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+            person_ids=("person-1", "person-2"),
+        )
+
+        params = mock_sync_execute.call_args[0][1]
+        assert params["person_ids"] == 1  # Flag for IS NULL check
+        assert params["person_ids_tuple"] == ("person-1", "person-2")
+
+    @patch("posthog.dags.person_property_reconciliation.sync_execute")
+    def test_no_filter_when_person_ids_is_none(self, mock_sync_execute):
+        """Test that no person_id filter is applied when person_ids is None."""
+        mock_sync_execute.return_value = []
+
+        get_raw_person_property_updates_from_clickhouse(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+            person_ids=None,
+        )
+
+        params = mock_sync_execute.call_args[0][1]
+        assert params["person_ids"] is None
+        assert params["person_ids_tuple"] == ("__placeholder__",)
+
+
+class TestGetPersonPropertyUpdatesWindowedBatched:
+    """Test the get_person_property_updates_windowed_batched iterator function."""
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_yields_batches_of_persons(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that function yields batches when person count exceeds batch size."""
+        # Setup: 3 affected persons, batch size of 2 = 2 batches
+        mock_get_affected.return_value = ["person-1", "person-2", "person-3"]
+
+        mock_now = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # Return raw updates so accumulated dict is populated
+        mock_get_raw.side_effect = [
+            # First batch, first window
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val1")},
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            ],
+            # Second batch, first window
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-3",
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val3")},
+                    set_once_updates={},
+                    unset_updates={},
+                )
+            ],
+        ]
+        mock_compare.side_effect = [
+            [  # First batch result
+                PersonPropertyDiffs(
+                    person_id="person-1",
+                    person_version=1,
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val1")},
+                    set_once_updates={},
+                    unset_updates={},
+                ),
+            ],
+            [  # Second batch result
+                PersonPropertyDiffs(
+                    person_id="person-3",
+                    person_version=1,
+                    set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val3")},
+                    set_once_updates={},
+                    unset_updates={},
+                ),
+            ],
+        ]
+
+        results = list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+                person_batch_size=2,  # Small batch size for testing
+            )
+        )
+
+        assert len(results) == 2  # Two batches yielded
+        assert len(results[0]) == 1  # First batch has 1 person with diffs
+        assert results[0][0].person_id == "person-1"
+        assert len(results[1]) == 1  # Second batch has 1 person with diffs
+        assert results[1][0].person_id == "person-3"
+
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_yields_nothing_when_no_affected_persons(self, mock_get_affected):
+        """Test that function yields nothing when no affected persons."""
+        mock_get_affected.return_value = []
+
+        results = list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",
+                window_seconds=3600,
+            )
+        )
+
+        assert results == []
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_filters_raw_queries_by_person_batch(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that windowed queries are filtered to the current person batch."""
+        mock_get_affected.return_value = ["person-1", "person-2", "person-3"]
+
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        mock_get_raw.return_value = []
+        mock_compare.return_value = []
+
+        # Consume the iterator with batch_size=2
+        list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+                person_batch_size=2,
+            )
+        )
+
+        # Check that get_raw was called with person_ids filter
+        # First batch should have person-1, person-2
+        # Second batch should have person-3
+        calls = mock_get_raw.call_args_list
+
+        # There should be 4 calls total: 2 windows × 2 batches
+        assert len(calls) == 4
+
+        # Check first batch calls include person_ids filter
+        first_batch_call = calls[0]
+        assert first_batch_call[1]["person_ids"] == ("person-1", "person-2")
+
+        # Check second batch calls include person_ids filter
+        third_call = calls[2]  # First call of second batch
+        assert third_call[1]["person_ids"] == ("person-3",)
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_uses_bug_window_end_for_affected_persons_query(
+        self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare
+    ):
+        """Test that affected persons query uses bug_window_end (bounded)."""
+        mock_get_affected.return_value = []
+
+        list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-02 00:00:00",  # Specific end time
+                window_seconds=3600,
+            )
+        )
+
+        # Verify get_affected_person_ids_from_clickhouse was called with bug_window_end
+        mock_get_affected.assert_called_once_with(
+            team_id=1,
+            bug_window_start="2024-01-01 00:00:00",
+            bug_window_end="2024-01-02 00:00:00",
+        )
+
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_logs_error_when_affected_persons_query_fails(self, mock_get_affected):
+        """Test that errors during affected persons query are logged with context."""
+        mock_get_affected.side_effect = Exception("ClickHouse connection failed")
+        mock_logger = MagicMock()
+
+        with pytest.raises(Exception, match="ClickHouse connection failed"):
+            list(
+                get_person_property_updates_windowed_batched(
+                    team_id=1,
+                    bug_window_start="2024-01-01 00:00:00",
+                    bug_window_end="2024-01-02 00:00:00",
+                    window_seconds=3600,
+                    logger=mock_logger,
+                )
+            )
+
+        # Verify error was logged with context
+        mock_logger.exception.assert_called()
+        error_call = mock_logger.exception.call_args[0][0]
+        assert "team_id=1" in error_call
+        assert "Failed to query affected persons" in error_call
+
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_logs_error_when_window_query_fails(self, mock_get_affected, mock_datetime, mock_get_raw):
+        """Test that errors during window queries are logged with batch and window context."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # First window succeeds, second window fails
+        mock_get_raw.side_effect = [
+            [],  # First window OK
+            Exception("Query timeout"),  # Second window fails
+        ]
+        mock_logger = MagicMock()
+
+        with pytest.raises(Exception, match="Query timeout"):
+            list(
+                get_person_property_updates_windowed_batched(
+                    team_id=1,
+                    bug_window_start="2024-01-01 00:00:00",
+                    bug_window_end="2024-01-01 01:00:00",
+                    window_seconds=3600,
+                    logger=mock_logger,
+                )
+            )
+
+        # Verify error was logged with window context
+        error_calls = list(mock_logger.exception.call_args_list)
+        assert len(error_calls) >= 1
+        # Should have both the inner window error and the outer batch error
+        error_messages = [c[0][0] for c in error_calls]
+        assert any("failed to query window" in msg for msg in error_messages)
+        assert any("Batch 1" in msg for msg in error_messages)
+        assert any("team_id=1" in msg for msg in error_messages)
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_logs_error_when_compare_fails(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that errors during person state comparison are logged with context."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        mock_get_raw.return_value = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+        mock_compare.side_effect = Exception("Person table query failed")
+        mock_logger = MagicMock()
+
+        with pytest.raises(Exception, match="Person table query failed"):
+            list(
+                get_person_property_updates_windowed_batched(
+                    team_id=1,
+                    bug_window_start="2024-01-01 00:00:00",
+                    bug_window_end="2024-01-01 01:00:00",
+                    window_seconds=3600,
+                    logger=mock_logger,
+                )
+            )
+
+        # Verify error was logged with comparison context
+        error_calls = [c[0][0] for c in mock_logger.exception.call_args_list]
+        assert any("failed to compare" in msg for msg in error_calls)
+        assert any("1 persons" in msg for msg in error_calls)
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_yields_nothing_when_compare_returns_empty(
+        self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare
+    ):
+        """Test that batch yields nothing when compare finds no actual diffs."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # Raw updates exist but compare finds no actual diffs (person state matches)
+        mock_get_raw.return_value = [
+            RawPersonPropertyUpdates(
+                person_id="person-1",
+                set_updates={"key": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "val")},
+                set_once_updates={},
+                unset_updates={},
+            )
+        ]
+        mock_compare.return_value = []  # No diffs after comparison
+
+        results = list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+            )
+        )
+
+        assert results == []
+
+    @patch("posthog.dags.person_property_reconciliation.compare_raw_updates_with_person_state")
+    @patch("posthog.dags.person_property_reconciliation.get_raw_person_property_updates_from_clickhouse")
+    @patch("posthog.dags.person_property_reconciliation.datetime")
+    @patch("posthog.dags.person_property_reconciliation.get_affected_person_ids_from_clickhouse")
+    def test_merges_across_windows_correctly(self, mock_get_affected, mock_datetime, mock_get_raw, mock_compare):
+        """Test that $set takes newest timestamp and $set_once takes earliest when merging windows."""
+        mock_get_affected.return_value = ["person-1"]
+
+        mock_now = datetime(2024, 1, 1, 2, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = mock_now
+        mock_datetime.strptime = datetime.strptime
+
+        # First window: older set value, older set_once value
+        # Second window: newer set value, newer set_once value (should be ignored for set_once)
+        mock_get_raw.side_effect = [
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"prop": PropertyValue(datetime(2024, 1, 1, 0, 30, 0, tzinfo=UTC), "old_val")},
+                    set_once_updates={
+                        "first_prop": PropertyValue(datetime(2024, 1, 1, 0, 15, 0, tzinfo=UTC), "first_val")
+                    },
+                    unset_updates={},
+                )
+            ],
+            [
+                RawPersonPropertyUpdates(
+                    person_id="person-1",
+                    set_updates={"prop": PropertyValue(datetime(2024, 1, 1, 1, 30, 0, tzinfo=UTC), "new_val")},
+                    set_once_updates={
+                        "first_prop": PropertyValue(datetime(2024, 1, 1, 1, 15, 0, tzinfo=UTC), "ignored_val")
+                    },
+                    unset_updates={},
+                )
+            ],
+        ]
+
+        # Capture what compare receives
+        captured_raw_updates = []
+
+        def capture_compare(team_id, raw_updates):
+            captured_raw_updates.extend(raw_updates)
+            return []
+
+        mock_compare.side_effect = capture_compare
+
+        list(
+            get_person_property_updates_windowed_batched(
+                team_id=1,
+                bug_window_start="2024-01-01 00:00:00",
+                bug_window_end="2024-01-01 01:00:00",
+                window_seconds=3600,
+            )
+        )
+
+        # Verify merge semantics: $set takes newest, $set_once takes earliest
+        assert len(captured_raw_updates) == 1
+        merged = captured_raw_updates[0]
+        assert merged.set_updates["prop"].value == "new_val"  # Newer timestamp wins
+        assert merged.set_once_updates["first_prop"].value == "first_val"  # Earlier timestamp wins
 
 
 class TestParseFormatChTimestamp:
