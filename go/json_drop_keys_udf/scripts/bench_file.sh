@@ -68,7 +68,7 @@ byte_count = int(sys.argv[3])
 cat_cmd = sys.argv[4:]
 
 cmd = " ".join(shlex.quote(arg) for arg in cat_cmd)
-cmd = f"{cmd} | {shlex.quote(app)} > /dev/null"
+cmd = f"{cmd} | {shlex.quote(app)} \"['identity']\" > /dev/null"
 runs = 5
 elapsed_times = []
 
