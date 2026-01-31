@@ -18,6 +18,8 @@ import type {
     DomainsListParams,
     EnterpriseEventDefinitionApi,
     EnterprisePropertyDefinitionApi,
+    EventDefinitionApi,
+    EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
     ExportedAssetApi,
     ExportsList2Params,
@@ -2176,12 +2178,31 @@ export const eventDefinitionsMetricsRetrieve = async (
 /**
  * Get event definition by exact name
  */
-export const getEventDefinitionsByNameRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/by_name/`
+export const getEventDefinitionsByNameRetrieveUrl = (
+    projectId: string,
+    params: EventDefinitionsByNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/by_name/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/by_name/`
 }
 
-export const eventDefinitionsByNameRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsByNameRetrieveUrl(projectId), {
+export const eventDefinitionsByNameRetrieve = async (
+    projectId: string,
+    params: EventDefinitionsByNameRetrieveParams,
+    options?: RequestInit
+): Promise<EventDefinitionApi> => {
+    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

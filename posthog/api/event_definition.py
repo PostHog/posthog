@@ -4,7 +4,8 @@ from django.core.cache import cache
 from django.db.models import Manager
 
 import orjson
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
@@ -424,6 +425,18 @@ class EventDefinitionViewSet(
             }
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The exact event name to look up",
+            ),
+        ],
+        responses={200: EventDefinitionSerializer},
+    )
     @action(detail=False, methods=["GET"], url_path="by_name", required_scopes=["event_definition:read"])
     def by_name(self, request, *args, **kwargs):
         """Get event definition by exact name"""
