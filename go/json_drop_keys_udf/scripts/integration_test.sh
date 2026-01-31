@@ -54,7 +54,7 @@ until docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --q
 OUTPUT_FILE=$(mktemp)
 
 docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client \
-  --query "SELECT JSONDropKeys(x) FROM file('input.tsv', 'TabSeparated', 'x String') FORMAT TabSeparated" \
+  --query "SELECT JSONDropKeys(['a'])(x) FROM file('input.tsv', 'TabSeparated', 'x String') FORMAT TabSeparated" \
   > "$OUTPUT_FILE"
 
 diff -u "$ROOT_DIR/testdata/expected.tsv" "$OUTPUT_FILE"
@@ -63,7 +63,7 @@ rm -f "$OUTPUT_FILE"
 set +e
 BAD_LOG=$(mktemp)
 docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client \
-  --query "SELECT JSONDropKeys(x) FROM file('bad_input.tsv', 'TabSeparated', 'x String') FORMAT TabSeparated" \
+  --query "SELECT JSONDropKeys(['a'])(x) FROM file('bad_input.tsv', 'TabSeparated', 'x String') FORMAT TabSeparated" \
   >/dev/null 2> "$BAD_LOG"
 
 status=$?
