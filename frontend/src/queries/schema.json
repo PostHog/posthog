@@ -19934,7 +19934,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_video_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
