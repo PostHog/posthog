@@ -1,12 +1,9 @@
 import { RequestLogger, withLogging } from '@/integrations/mcp/utils/logging'
-import {
-    getAuthorizationServerUrl,
-    MCP_DOCS_URL,
-    OAUTH_SCOPES_SUPPORTED,
-} from '@/lib/constants'
+import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { hash } from '@/lib/utils/helper-functions'
 import type { CloudRegion } from '@/tools/types'
+
 import { MCP, RequestProperties } from './mcp'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
