@@ -1,17 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import {
-    IconCheckCircle,
-    IconChevronDown,
-    IconEye,
-    IconGlobe,
-    IconPeople,
-    IconRocket,
-    IconShield,
-    IconTestTube,
-} from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconEye, IconGlobe, IconPeople, IconRocket, IconShield, IconTestTube } from '@posthog/icons'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -44,7 +35,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
     const { featureFlag, featureFlagLoading } = useValues(featureFlagLogic)
     const { setFeatureFlag } = useActions(featureFlagLogic)
     const { user } = useValues(userLogic)
-    const [isCollapsed, setIsCollapsed] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(true)
 
     const applyTemplate = (template: FlagTemplate): void => {
         if (!featureFlag) {
@@ -238,35 +229,40 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
     return (
         <>
             <div className="mb-4">
-                <button
-                    type="button"
-                    className="flex items-center gap-1 mb-2 cursor-pointer bg-transparent border-none p-0"
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                >
-                    <IconChevronDown className={`text-muted transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
-                    <h3 className="mb-0 text-sm font-semibold">Start with a template</h3>
-                </button>
-                {!isCollapsed && (
-                    <div className="flex gap-3 overflow-x-auto">
-                        {templates.map((template) => (
-                            <LemonButton
-                                key={template.id}
-                                type="secondary"
-                                onClick={() => applyTemplate(template)}
-                                disabledReason={isLoading ? 'Loading flag data…' : undefined}
-                                className="flex-shrink-0 w-36 !h-auto !items-start"
-                            >
-                                <div className="flex flex-col text-left py-1">
-                                    <div className="text-muted mb-2">{template.icon}</div>
-                                    <div className="font-semibold text-sm mb-1">{template.name}</div>
-                                    <div className="text-xs text-muted whitespace-normal">{template.description}</div>
+                <LemonCollapse
+                    activeKey={isExpanded ? 'templates' : null}
+                    onChange={(key) => setIsExpanded(key === 'templates')}
+                    panels={[
+                        {
+                            key: 'templates',
+                            header: 'Start with a template',
+                            content: (
+                                <div className="flex gap-3 overflow-x-auto pt-2">
+                                    {templates.map((template) => (
+                                        <LemonButton
+                                            key={template.id}
+                                            type="secondary"
+                                            onClick={() => applyTemplate(template)}
+                                            disabledReason={isLoading ? 'Loading flag data…' : undefined}
+                                            className="flex-shrink-0 w-36 !h-auto !items-start"
+                                        >
+                                            <div className="flex flex-col text-left py-1">
+                                                <div className="text-muted mb-2">{template.icon}</div>
+                                                <div className="font-semibold text-sm mb-1">{template.name}</div>
+                                                <div className="text-xs text-muted whitespace-normal">
+                                                    {template.description}
+                                                </div>
+                                            </div>
+                                        </LemonButton>
+                                    ))}
                                 </div>
-                            </LemonButton>
-                        ))}
-                    </div>
-                )}
+                            ),
+                        },
+                    ]}
+                    embedded
+                />
             </div>
-            {!isCollapsed && <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>}
+            {isExpanded && <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>}
         </>
     )
 }

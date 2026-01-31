@@ -73,7 +73,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         loadFeatureFlag,
         setShowImplementation,
         setOpenVariants,
-        markFieldAsEdited,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
@@ -208,7 +207,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         autoCorrect="off"
                                         spellCheck={false}
                                         placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
-                                        onFocus={() => markFieldAsEdited('key')}
                                     />
                                 </LemonField>
 
@@ -217,7 +215,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         className="ph-ignore-input"
                                         data-attr="feature-flag-description"
                                         placeholder="(Optional) A description of the feature flag for your reference."
-                                        onFocus={() => markFieldAsEdited('name')}
                                     />
                                 </LemonField>
 
@@ -231,10 +228,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         >
                                             <LemonSwitch
                                                 checked={value}
-                                                onChange={(newValue) => {
-                                                    markFieldAsEdited('active')
-                                                    onChange(newValue)
-                                                }}
+                                                onChange={onChange}
                                                 label={
                                                     <span className="flex items-center">
                                                         <span>Enabled</span>
@@ -660,10 +654,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
                                         filters={featureFlag.filters}
-                                        onChange={(filters, errors) => {
-                                            markFieldAsEdited('filters')
-                                            setFeatureFlagFilters(filters, errors)
-                                        }}
+                                        onChange={setFeatureFlagFilters}
                                     />
                                 </div>
                             )}

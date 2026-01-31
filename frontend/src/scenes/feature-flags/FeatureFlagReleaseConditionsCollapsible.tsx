@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
@@ -201,7 +202,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     )
 
     const handleAddConditionSet = (): void => {
-        const newSortKey = crypto.randomUUID()
+        const newSortKey = uuidv4()
         addConditionSet(newSortKey)
         setOpenConditions((prev) => [...prev, `condition-${newSortKey}`])
     }
