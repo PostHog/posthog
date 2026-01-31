@@ -343,10 +343,7 @@ const InfiniteListRow = ({
         return (
             <div
                 {...commonDivProps}
-                className={clsx(
-                    commonDivProps.className,
-                    isDisabledItem && 'cursor-not-allowed opacity-60'
-                )}
+                className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 role="button"
                 aria-disabled={isDisabledItem}
