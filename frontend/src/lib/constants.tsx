@@ -362,7 +362,7 @@ export const FEATURE_FLAGS = {
     SESSIONS_EXPLORER: 'sessions-explorer', // owner: @jabahamondes #team-web-analytics
     SEMVER_TARGETING: 'semver-targeting', // owner: #team-feature-flags
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
-    SHOW_DATA_PIPELINES_NAV_ITEM: 'how-data-pipelines-nav-item', // owner: @raquelmsmith
+    SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
