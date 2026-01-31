@@ -754,5 +754,19 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "demo-mcp-ui-apps": {
+        "description": "Demo tool for testing MCP Apps SDK integration. Returns sample data that is displayed in an interactive UI app. Use this to verify that MCP Apps are working correctly.",
+        "category": "Demo",
+        "feature": "demo",
+        "summary": "Demo tool for testing MCP Apps SDK.",
+        "title": "Demo MCP UI Apps",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
     }
 }

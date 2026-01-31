@@ -242,6 +242,17 @@
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
             }
+        },
+        {
+            "files": ["services/mcp/typescript/src/ui-apps/**/*.ts"],
+            "rules": {
+                "no-console": [
+                    "error",
+                    {
+                        "allow": ["debug", "info", "warn", "error"]
+                    }
+                ]
+            }
         }
     ]
 }

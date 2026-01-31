@@ -432,3 +432,8 @@ export const EntitySearchSchema = z.object({
             'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
         ),
 })
+
+// Demo MCP UI Apps
+export const DemoMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the demo data'),
+})

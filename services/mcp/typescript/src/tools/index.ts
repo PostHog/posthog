@@ -5,6 +5,12 @@ import { hasScopes } from '@/lib/utils/api'
 import { MemoryCache } from '@/lib/utils/cache/MemoryCache'
 import { hash } from '@/lib/utils/helper-functions'
 
+// Actions
+import createAction from './actions/create'
+import deleteAction from './actions/delete'
+import getAction from './actions/get'
+import getAllActions from './actions/getAll'
+import updateAction from './actions/update'
 // Dashboards
 import addInsightToDashboard from './dashboards/addInsight'
 import createDashboard from './dashboards/create'
@@ -13,6 +19,8 @@ import getDashboard from './dashboards/get'
 import getAllDashboards from './dashboards/getAll'
 import reorderDashboardTiles from './dashboards/reorderTiles'
 import updateDashboard from './dashboards/update'
+// Demo
+import demoMcpUiApps from './demo/demoMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
 // Error Tracking
@@ -56,6 +64,8 @@ import setActiveProject from './projects/setActive'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+// Search
+import entitySearch from './search/entitySearch'
 // Surveys
 import createSurvey from './surveys/create'
 import deleteSurvey from './surveys/delete'
@@ -64,14 +74,6 @@ import getAllSurveys from './surveys/getAll'
 import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
-// Actions
-import createAction from './actions/create'
-import deleteAction from './actions/delete'
-import getAction from './actions/get'
-import getAllActions from './actions/getAll'
-import updateAction from './actions/update'
-// Search
-import entitySearch from './search/entitySearch'
 // Misc
 import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
@@ -158,6 +160,9 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Search
     'entity-search': entitySearch,
+
+    // Demo
+    'demo-mcp-ui-apps': demoMcpUiApps,
 }
 
 export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
@@ -219,6 +224,9 @@ export class PostHogAgentToolkit {
             cache,
             env: {
                 INKEEP_API_KEY: this.options.inkeepApiKey,
+                POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                POSTHOG_UI_APPS_TOKEN: undefined,
             },
             stateManager: new StateManager(cache, api),
             sessionManager: new SessionManager(cache),
