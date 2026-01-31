@@ -25,7 +25,7 @@ export const appsSceneLogic = kea<appsSceneLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/data-management/apps': (_, searchParams) => {
+        '/apps': (_, searchParams) => {
             const tab = searchParams.tab === 'history' ? 'history' : 'all'
             actions.setActiveTab(tab)
         },
