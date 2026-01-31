@@ -5,10 +5,13 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { sqlVariableEditSceneLogicType } from './sqlVariableEditSceneLogicType'
 
@@ -46,6 +49,40 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                 },
             },
         ],
+        insightsUsingVariable: [
+            [] as QueryBasedInsightModel[],
+            {
+                loadInsightsUsingVariable: async () => {
+                    if (props.id === 'new') {
+                        return []
+                    }
+
+                    try {
+                        const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
+                            `api/environments/${teamLogic.values.currentTeamId}/insights/?basic=true&limit=100`
+                        )
+
+                        const insights = legacyResponse.results.map((legacyInsight) =>
+                            getQueryBasedInsightModel(legacyInsight)
+                        )
+
+                        // Filter insights that use this variable
+                        return insights.filter((insight) => {
+                            if (insight.query?.kind === 'DataVisualizationNode') {
+                                const variables = (insight.query as any).source?.variables
+                                if (variables) {
+                                    return Object.values(variables).some((v: any) => v.variableId === props.id)
+                                }
+                            }
+                            return false
+                        })
+                    } catch {
+                        lemonToast.error('Failed to load insights using this variable')
+                        return []
+                    }
+                },
+            },
+        ],
     })),
     reducers({
         variableType: [
@@ -64,10 +101,12 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
             submit: async (formValues: Partial<Variable>) => {
-                const data: Partial<Variable> = {
+                // TypeScript struggles with discriminated unions in Partial types,
+                // but the form validation ensures this data is valid
+                const data = {
                     ...formValues,
                     type: values.variableType,
-                }
+                } as Partial<Variable>
 
                 try {
                     if (props.id === 'new') {
@@ -110,12 +149,17 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
     listeners(({ actions }) => ({
         loadVariableSuccess: ({ variable }: { variable: Variable | null }) => {
             if (variable) {
-                actions.setVariableFormValues({
+                // TypeScript can't narrow discriminated union types properly here,
+                // but we know the data is valid since it comes from a typed Variable object
+                const formValues = {
                     name: variable.name,
                     type: variable.type,
                     default_value: variable.default_value,
-                    values: variable.type === 'List' ? (variable as any).values : undefined,
-                })
+                    ...(variable.type === 'List' && { values: (variable as any).values }),
+                } as Partial<Variable>
+
+                actions.setVariableFormValues(formValues)
+                actions.loadInsightsUsingVariable()
             }
         },
     })),
