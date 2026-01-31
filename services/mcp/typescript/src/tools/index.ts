@@ -61,6 +61,7 @@ import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
 import getProperties from './projects/propertyDefinitions'
 import setActiveProject from './projects/setActive'
+import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
@@ -96,6 +97,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definitions-list': eventDefinitions,
+    'event-definition-update': updateEventDefinition,
     'properties-list': getProperties,
 
     // Documentation - handled separately due to env check
