@@ -1,4 +1,4 @@
-name: release
+name: Test JSON Drop Keys UDF
 
 on:
     pull_request:

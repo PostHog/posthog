@@ -1,4 +1,4 @@
-name: release
+name: Release JSON Drop Keys UDF
 
 on:
     push:
