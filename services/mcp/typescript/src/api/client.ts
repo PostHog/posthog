@@ -229,13 +229,14 @@ export class ApiClient {
                 const parseResult = schema.safeParse(rawData)
 
                 if (!parseResult.success) {
+                    const rawDataKeysJSON = JSON.stringify(Object.keys(rawData as any))
                     console.error(
                         `[API] Schema validation failed on ${method} ${url}:\n` +
                             `  Error: ${parseResult.error.message}\n` +
-                            `  Raw response keys: ${JSON.stringify(Object.keys(rawData))}`
+                            `  Raw response keys: ${rawDataKeysJSON}`
                     )
                     throw new Error(
-                        `Response validation failed on ${method} ${url}: ${parseResult.error.message}\nResponse keys: ${JSON.stringify(Object.keys(rawData))}`
+                        `Response validation failed on ${method} ${url}: ${parseResult.error.message}\nResponse keys: ${rawDataKeysJSON}`
                     )
                 }
 
