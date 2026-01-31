@@ -26,7 +26,7 @@ export function ClusterDistributionBar({ clusters, runId }: ClusterDistributionB
     }
 
     return (
-        <div className="flex-1 min-w-0 h-4 flex items-center">
+        <div className="flex-1 min-w-0 flex items-center">
             <div className="flex w-full h-2.5 rounded-sm overflow-hidden bg-border-light">
                 {clusters.map((cluster) => {
                     const percentage = (cluster.size / totalInClusters) * 100
