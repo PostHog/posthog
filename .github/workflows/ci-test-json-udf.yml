@@ -20,7 +20,7 @@ jobs:
                   go-version-file: go.mod
                   cache: true
             - name: Run integration tests
-              run: ./scripts/integration_test.sh
+              run: ./go/json_drop_keys_udf/scripts/integration_test.sh
 
     build:
         runs-on: ubuntu-latest
@@ -46,4 +46,4 @@ jobs:
                   if [ "${GOOS}" = "windows" ]; then
                     bin_name="${bin_name}.exe"
                   fi
-                  (cd cmd/json_drop_keys_udf && go build -o "../../dist/${bin_name}" .)
+                  (cd go/json_drop_keys_udf/cmd/json_drop_keys_udf && go build -o "../../dist/${bin_name}" .)
