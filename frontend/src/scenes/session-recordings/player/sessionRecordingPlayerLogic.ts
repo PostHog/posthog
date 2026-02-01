@@ -1110,33 +1110,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         tryInitReplayer: () => {
             // Tries to initialize a new player
+            const rootFrame = values.rootFrame
             const windowId = values.segmentForTimestamp(values.currentTimestamp)?.windowId
+            const snapshots =
+                windowId !== undefined ? values.sessionPlayerData.snapshotsByWindowId[windowId] : undefined
 
-            // Skip reinitialization if we already have a player for this window
-            // This prevents unnecessary cleanup/create cycles and memory churn
-            if (values.player && values.player.windowId === windowId) {
+            // Check if we can create a new player before disposing the old one.
+            // This prevents leaving the user with no player if conditions fail.
+            if (!rootFrame || windowId === undefined || !snapshots || snapshots.length < 2) {
                 return
             }
 
-            // Dispose of the old replayer BEFORE clearing the DOM or setting state
+            // Clean up the old player and related resources BEFORE clearing the DOM.
             // This ensures the old replayer releases its references to DOM elements
-            // before those elements are removed, preventing detached element memory leaks
+            // before those elements are removed, preventing detached element memory leaks.
+            actions.stopAnimation()
+            cache.disposables.dispose('consoleTimers')
             cache.disposables.dispose(`replayer-${props.mode}`)
 
             actions.setPlayer(null)
-
-            if (values.rootFrame) {
-                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
-            }
-
-            if (
-                !values.rootFrame ||
-                windowId === undefined ||
-                !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
-                values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
-            ) {
-                return
-            }
+            rootFrame.innerHTML = '' // Clear the previously drawn frames
 
             const plugins: ReplayPlugin[] = [HLSPlayerPlugin]
 
@@ -1145,7 +1138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            plugins.push(CanvasReplayerPlugin(snapshots))
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
@@ -1171,7 +1164,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }, 'consoleTimers')
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
-                root: values.rootFrame,
+                root: rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
@@ -1185,7 +1178,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             cache.disposables.add(() => {
-                const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                const replayer = new Replayer(snapshots, config)
                 const iframeCleanups: (() => void)[] = []
 
                 replayer.on('fullsnapshot-rebuilded', () => {
