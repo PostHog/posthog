@@ -74,6 +74,8 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         organization.name = org_name
         organization.save()
 
+    # Bypass billing quota limits so insights always compute on CI
+    organization.never_drop_data = True
     # Add advanced permissions feature for password-protected sharing
     organization.available_product_features = [
         {
