@@ -349,8 +349,11 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
     # 2. Check alert value against threshold
     anomaly_scores = getattr(alert_evaluation_result, "anomaly_scores", None) if alert_evaluation_result else None
     triggered_points = getattr(alert_evaluation_result, "triggered_points", None) if alert_evaluation_result else None
+    triggered_dates = getattr(alert_evaluation_result, "triggered_dates", None) if alert_evaluation_result else None
     interval = getattr(alert_evaluation_result, "interval", None) if alert_evaluation_result else None
-    alert_check = add_alert_check(alert, value, breaches, error, anomaly_scores, triggered_points, interval)
+    alert_check = add_alert_check(
+        alert, value, breaches, error, anomaly_scores, triggered_points, triggered_dates, interval
+    )
 
     # 3. Notify users if needed
     if not alert_check.targets_notified:
@@ -412,6 +415,7 @@ def add_alert_check(
     error: dict | None,
     anomaly_scores: list[float | None] | None = None,
     triggered_points: list[int] | None = None,
+    triggered_dates: list[str] | None = None,
     interval: str | None = None,
 ) -> AlertCheck:
     notify = False
@@ -447,6 +451,7 @@ def add_alert_check(
         error=error,
         anomaly_scores=anomaly_scores,
         triggered_points=triggered_points,
+        triggered_dates=triggered_dates,
         interval=interval,
     )
 

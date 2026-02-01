@@ -23,6 +23,7 @@ class AlertEvaluationResult:
     breaches: list[str] | None
     anomaly_scores: list[float | None] | None = None
     triggered_points: list[int] | None = None
+    triggered_dates: list[str] | None = None  # Dates corresponding to triggered_points for chart alignment
     interval: str | None = None  # Insight interval (hour, day, week, month)
 
 

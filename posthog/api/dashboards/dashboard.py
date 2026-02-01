@@ -37,7 +37,7 @@ from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.alert import AlertConfiguration
+from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
@@ -571,7 +571,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             ),
             Prefetch(
                 "insight__alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
+                queryset=AlertConfiguration.objects.select_related("created_by").prefetch_related(
+                    Prefetch(
+                        "alertcheck_set",
+                        queryset=AlertCheck.objects.order_by("-created_at"),
+                        to_attr="prefetched_checks",
+                    )
+                ),
                 to_attr="_prefetched_alerts",
             ),
         )

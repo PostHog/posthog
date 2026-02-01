@@ -543,6 +543,14 @@ def check_trends_alert_with_detector(
     detector = get_detector(detector_config)
     result = detector.detect(data)
 
+    # Extract dates for chart alignment (days or labels from the series result)
+    dates: list[str] = selected_series_result.get("days") or selected_series_result.get("labels") or []
+
+    # Map triggered indices to their corresponding dates
+    triggered_dates: list[str] | None = None
+    if result.triggered_indices and dates:
+        triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
+
     # Build breaches message if anomaly detected
     breaches = []
     if result.is_anomaly:
@@ -558,6 +566,7 @@ def check_trends_alert_with_detector(
         breaches=breaches if breaches else [],
         anomaly_scores=result.all_scores if result.all_scores else None,
         triggered_points=result.triggered_indices if result.triggered_indices else None,
+        triggered_dates=triggered_dates,
         interval=query.interval.value if query.interval else None,
     )
 

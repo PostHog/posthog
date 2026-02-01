@@ -1,7 +1,7 @@
 import dataclasses
 from zoneinfo import ZoneInfo
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
@@ -357,12 +357,22 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if insight_id is not None:
             queryset = queryset.filter(insight=insight_id)
 
+        # Prefetch checks to avoid N+1 queries
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "alertcheck_set",
+                queryset=AlertCheck.objects.order_by("-created_at"),
+                to_attr="prefetched_checks",
+            )
+        )
+
         page = self.paginate_queryset(queryset)
         alerts = page if page is not None else list(queryset)
 
         # Populate checks for each alert (needed for anomaly points visualization)
+        # Slice to 5 most recent from prefetched data
         for alert in alerts:
-            alert.checks = list(alert.alertcheck_set.all().order_by("-created_at")[:5])
+            alert.checks = list(alert.prefetched_checks[:5])
 
         if page is not None:
             serializer = self.get_serializer(alerts, many=True)

@@ -149,10 +149,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
                     for (let i = 0; i < latestCheck.triggered_points.length; i++) {
                         const index = latestCheck.triggered_points[i]
+                        // Handle single-score case from detect() vs multi-score from detect_batch()
+                        // detect() returns one score for the current point, detect_batch() returns all scores
+                        const score = scores.length === 1 ? scores[0] : scores[index]
                         points.push({
                             index,
                             date: dates[i] ?? null,
-                            score: scores[index] ?? null,
+                            score: score ?? null,
                             alertId: alert.id,
                             alertName: alert.name,
                             seriesIndex,

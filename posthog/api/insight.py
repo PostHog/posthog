@@ -76,7 +76,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
+from posthog.models.alert import AlertCheck, AlertConfiguration, are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -700,9 +700,14 @@ class InsightSerializer(InsightBasicSerializer):
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
 
-        # Populate checks for each alert (needed for anomaly points visualization)
+        # Populate checks for each alert from prefetched data (needed for anomaly points visualization)
         for alert in alerts:
-            alert.checks = alert.alertcheck_set.all().order_by("-created_at")[:5]
+            prefetched_checks = getattr(alert, "prefetched_checks", None)
+            if prefetched_checks is not None:
+                alert.checks = prefetched_checks[:5]
+            else:
+                # Fallback if not prefetched
+                alert.checks = list(alert.alertcheck_set.all().order_by("-created_at")[:5])
 
         from posthog.api.alert import AlertSerializer
 
@@ -1011,7 +1016,13 @@ class InsightViewSet(
             ),
             Prefetch(
                 "alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
+                queryset=AlertConfiguration.objects.select_related("created_by").prefetch_related(
+                    Prefetch(
+                        "alertcheck_set",
+                        queryset=AlertCheck.objects.order_by("-created_at"),
+                        to_attr="prefetched_checks",
+                    )
+                ),
                 to_attr="_prefetched_alerts",
             ),
         )
