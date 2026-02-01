@@ -85,15 +85,17 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
     rows = worksheet.get_all_values("1:2")  # Get the first two rows
     
     if len(rows) > 1:
-        headers= rows[0]
-        normalized_headers=[h.strip().lower() for h in headers]
+        headers = rows[0]
+        normalized_headers = [h.strip().lower() for h in headers]
         if "id" in normalized_headers:
             index_of_id = normalized_headers.index("id")
         else:
             raise ValueError("'id' column not found ")
+        if index_of_id >= len(rows[1]):
+            raise ValueError(f"'id' column exists in header but has no value in first data row")
         value_of_id_col = rows[1][index_of_id].strip()
         try:
-            casted_value=float(value_of_id_col)
+            _ = float(value_of_id_col)
             return [
                 {
                     "label": "id",
@@ -125,9 +127,12 @@ def google_sheets_source(
 
     headers = worksheet.get_all_values("1:1")  # Get the first row
     primary_keys = None
-    if len(headers) > 0 and "id" in headers[0]:
-        primary_keys = ["id"]
-
+    if len(headers) > 0:
+        row = headers[0]
+        normalized_headers = [h.strip().lower() for h in row]
+        if "id" in normalized_headers:
+            primary_keys = ["id"]
+            
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
