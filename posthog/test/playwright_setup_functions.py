@@ -34,12 +34,16 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     # Use the working generate_demo_data command to create workspace with demo data
     command = GenerateDemoDataCommand()
 
-    # Use fixed time for consistent test data, or current time for tests that need recent data
+    # Determine the reference time for data generation
     fixed_now = datetime(2024, 11, 3, 12, 0, 0)
+    if data.use_current_time:
+        now = timezone.now()
+    else:
+        now = fixed_now
 
     options = {
         "seed": f"playwright_test",  # constant seed
-        "now": timezone.now() if data.use_current_time else fixed_now,
+        "now": now,
         "days_past": 30,
         "days_future": 0,
         "n_clusters": 3,  # Reduced from 10 for faster test execution

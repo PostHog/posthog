@@ -18,7 +18,7 @@ import type {
     TestSetupResponse,
 } from '~/queries/schema/schema-general'
 
-import { LOGIN_PASSWORD } from './playwright-test-base'
+import { LOGIN_PASSWORD } from './playwright-test-core'
 
 export interface PlaywrightSetupOptions {
     /** Custom data to pass to the setup function */
@@ -39,7 +39,7 @@ export class PlaywrightSetup {
     constructor(request: APIRequestContext, baseURL?: string) {
         this.request = request
         // Use baseURL from Playwright config if provided, otherwise fall back to environment variable
-        this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8080'
+        this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8000'
     }
 
     /**
@@ -118,21 +118,17 @@ export class PlaywrightSetup {
         return workspace
     }
 
-    /**
-     * Login using workspace credentials and navigate to the team's project page
-     *
-     * Call this after creating a workspace to automatically login and navigate.
-     * The user will end up on /project/{teamId} ready to test.
-     */
-    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        // Use page.request to share cookies/session with the browser context
+    async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
         await page.request.post(`${this.baseURL}/api/login/`, {
             data: {
                 email: workspace.user_email,
                 password: LOGIN_PASSWORD,
             },
         })
+    }
 
+    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        await this.login(page, workspace)
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
 }

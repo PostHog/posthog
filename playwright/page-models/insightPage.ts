@@ -87,6 +87,7 @@ class TrendsInsight {
 
     constructor(private readonly page: Page) {
         this.chart = page.getByTestId('insights-graph')
+
         this.detailsTable = page.getByTestId('insights-table-graph')
         this.detailsLabels = this.detailsTable.locator('.insights-label')
         this.detailsLoader = page.locator('.LemonTableLoader')
