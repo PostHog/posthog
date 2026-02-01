@@ -3786,6 +3786,30 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+// Detector types for anomaly detection alerts
+export enum DetectorType {
+    ZSCORE = 'zscore',
+    MAD = 'mad',
+    IQR = 'iqr',
+    ISOLATION_FOREST = 'isolation_forest',
+    ECOD = 'ecod',
+    COPOD = 'copod',
+    KNN = 'knn',
+    THRESHOLD = 'threshold',
+    ENSEMBLE = 'ensemble',
+}
+
+export interface ZScoreDetectorConfig {
+    type: 'zscore'
+    /** Z-score threshold for anomaly detection (default: 3.0) */
+    threshold?: number
+    /** Rolling window size for calculating mean/std (default: 30) */
+    window?: integer
+}
+
+/** Detector configuration - currently only Z-Score supported */
+export type DetectorConfig = ZScoreDetectorConfig
+
 export interface HogCompileResponse {
     bytecode: any[]
     locals: any[]

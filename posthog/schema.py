@@ -1153,6 +1153,18 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DetectorType(StrEnum):
+    ZSCORE = "zscore"
+    MAD = "mad"
+    IQR = "iqr"
+    ISOLATION_FOREST = "isolation_forest"
+    ECOD = "ecod"
+    COPOD = "copod"
+    KNN = "knn"
+    THRESHOLD = "threshold"
+    ENSEMBLE = "ensemble"
+
+
 class DistanceFunc(StrEnum):
     L1_DISTANCE = "L1Distance"
     L2_DISTANCE = "L2Distance"
@@ -6938,6 +6950,21 @@ class WebVitalsPathBreakdownResult(BaseModel):
     poor: list[WebVitalsPathBreakdownResultItem]
 
 
+class ZScoreDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    threshold: float | None = Field(
+        default=None,
+        description="Z-score threshold for anomaly detection (default: 3.0)",
+    )
+    type: Literal["zscore"] = "zscore"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating mean/std (default: 30)",
+    )
+
+
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10352,6 +10379,10 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str
+
+
+class DetectorConfig(RootModel[ZScoreDetectorConfig]):
+    root: ZScoreDetectorConfig = Field(..., description="Detector configuration - currently only Z-Score supported")
 
 
 class DocumentSimilarityQueryResponse(BaseModel):

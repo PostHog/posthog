@@ -11552,6 +11552,14 @@
             ],
             "type": "string"
         },
+        "DetectorConfig": {
+            "$ref": "#/definitions/ZScoreDetectorConfig",
+            "description": "Detector configuration - currently only Z-Score supported"
+        },
+        "DetectorType": {
+            "enum": ["zscore", "mad", "iqr", "isolation_forest", "ecod", "copod", "knn", "threshold", "ensemble"],
+            "type": "string"
+        },
         "DocumentArtifactContent": {
             "additionalProperties": false,
             "properties": {
@@ -34615,6 +34623,25 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZScoreDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "threshold": {
+                    "description": "Z-score threshold for anomaly detection (default: 3.0)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "zscore",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating mean/std (default: 30)"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "integer": {
