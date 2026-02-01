@@ -83,11 +83,17 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     rows = worksheet.get_all_values("1:2")  # Get the first two rows
-
-    if len(rows) > 1 and "id" in rows[0]:
-        index_of_id = rows[0].index("id")
-        value_of_id_col = rows[1][index_of_id]
-        if isinstance(value_of_id_col, int | float):
+    
+    if len(rows) > 1:
+        headers= rows[0]
+        normalized_headers=[h.strip().lower() for h in headers]
+        if "id" in normalized_headers:
+            index_of_id = normalized_headers.index("id")
+        else:
+            raise ValueError("'id' column not found ")
+        value_of_id_col = rows[1][index_of_id].strip()
+        try:
+            casted_value=float(value_of_id_col)
             return [
                 {
                     "label": "id",
@@ -96,6 +102,8 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
                     "field_type": IncrementalFieldType.Numeric,
                 }
             ]
+        except (TypeError,ValueError) as e:
+            raise ValueError(f"Invalid numeric ID value: {value_of_id_col!r}") from e
 
     return []
 
