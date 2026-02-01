@@ -434,7 +434,7 @@ def get_raw_person_property_updates_from_clickhouse(
                   AND e.timestamp >= %(bug_window_start)s
                   AND e.timestamp < %(bug_window_end)s
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
-                  AND (%(person_ids)s IS NULL OR if(notEmpty(o.distinct_id), o.person_id, e.person_id) IN %(person_ids_tuple)s)
+                  AND (%(filter_by_person_ids)s = 0 OR if(notEmpty(o.distinct_id), o.person_id, e.person_id) IN %(person_ids_tuple)s)
                 GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
             )
             GROUP BY person_id
@@ -468,7 +468,7 @@ def get_raw_person_property_updates_from_clickhouse(
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
         "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
-        "person_ids": None if person_ids is None else 1,  # Flag for IS NULL check
+        "filter_by_person_ids": 1 if person_ids else 0,  # Integer flag: 0 = no filter, 1 = filter by person_ids
         "person_ids_tuple": person_ids if person_ids else ("__placeholder__",),  # Tuple for IN clause
     }
 
