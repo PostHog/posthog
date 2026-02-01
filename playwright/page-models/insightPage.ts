@@ -15,14 +15,7 @@ export class InsightPage {
     readonly topBarName: Locator
     readonly activeTab: Locator
 
-    // insight types
     readonly trends: TrendsInsight
-    readonly funnels: FunnelsInsight
-    readonly retention: RetentionInsight
-    readonly paths: PathsInsight
-    readonly stickiness: StickinessInsight
-    readonly lifecycle: LifecycleInsight
-    readonly sql: SqlInsight
 
     constructor(page: Page) {
         this.page = page
@@ -33,25 +26,6 @@ export class InsightPage {
         this.activeTab = page.locator('.LemonTabs__tab--active')
 
         this.trends = new TrendsInsight(page)
-        this.funnels = new FunnelsInsight(page)
-        this.retention = new RetentionInsight(page)
-        this.paths = new PathsInsight(page)
-        this.stickiness = new StickinessInsight(page)
-        this.lifecycle = new LifecycleInsight(page)
-        this.sql = new SqlInsight(page)
-    }
-
-    chartFor(type: InsightType): Locator {
-        const locators: Record<string, Locator> = {
-            [InsightType.TRENDS]: this.trends.chart,
-            [InsightType.FUNNELS]: this.funnels.chart,
-            [InsightType.RETENTION]: this.retention.chart,
-            [InsightType.PATHS]: this.paths.chart,
-            [InsightType.STICKINESS]: this.stickiness.chart,
-            [InsightType.LIFECYCLE]: this.lifecycle.chart,
-            [InsightType.SQL]: this.sql.chart,
-        }
-        return locators[type] ?? this.trends.chart
     }
 
     async goToList(): Promise<InsightPage> {
@@ -59,30 +33,9 @@ export class InsightPage {
         return this
     }
 
-    async goToNew(insightType?: InsightType): Promise<InsightPage> {
-        await this.page.goto(urls.savedInsights(), { waitUntil: 'domcontentloaded' })
-        await this.page.getByTestId('saved-insights-new-insight-dropdown').click()
-
-        const insightQuery = this.page.waitForRequest((req) => {
-            return !!(req.url().match(/api\/environments\/\d+\/query/) && req.method() === 'POST')
-        })
-        await this.page.locator(`[data-attr-insight-type="${insightType || 'TRENDS'}"]`).click()
-        await insightQuery
-
-        await this.page.waitForSelector('.LemonTabs__tab--active')
-        return this
-    }
-
     async goToNewTrends(): Promise<InsightPage> {
         await this.page.goto(urls.insightNew({ type: InsightType.TRENDS }), { waitUntil: 'domcontentloaded' })
         await this.page.waitForSelector('.LemonTabs__tab--active')
-        return this
-    }
-
-    async createNew(insightName?: string, insightType?: InsightType): Promise<InsightPage> {
-        await this.goToNew(insightType)
-        await this.editName(insightName)
-        await this.save()
         return this
     }
 
@@ -96,35 +49,11 @@ export class InsightPage {
         await this.editButton.click()
     }
 
-    async withEdit(callback: () => Promise<void>): Promise<void> {
-        await this.edit()
-        await callback()
-        await this.save()
-    }
-
-    async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
-        await beforeFn?.()
-        await callback()
-        await this.page.reload({ waitUntil: 'domcontentloaded' })
-        await callback()
-    }
-
     async editName(insightName: string = randomString('insight')): Promise<void> {
         const nameField = this.page.getByTestId('scene-title-textarea')
         await nameField.click()
         await nameField.fill(insightName)
         await nameField.blur()
-    }
-
-    async delete(): Promise<void> {
-        await this.page.getByTestId('more-button').click()
-        await this.page.getByTestId('delete-insight-from-insight-view').click()
-        await expect(this.page.locator('.saved-insights')).toBeVisible()
-    }
-
-    async duplicate(): Promise<void> {
-        await this.page.getByTestId('more-button').click()
-        await this.page.getByTestId('duplicate-insight-from-insight-view').click()
     }
 
     async saveAsNew(name: string): Promise<void> {
@@ -137,35 +66,24 @@ export class InsightPage {
         await this.page.getByRole('button', { name: 'Submit' }).click()
         await this.page.waitForURL((url) => url.toString() !== originalUrl, { timeout: 15000 })
     }
-
-    async openPersonsModal(): Promise<void> {
-        await this.page.locator('.TrendsInsight .LineGraph').click()
-        await this.page.locator('[data-attr="persons-modal"]').waitFor({ state: 'visible' })
-    }
-
-    async dismissQuickStartIfVisible(): Promise<void> {
-        const minimizeButton = this.page.getByText('Minimize')
-        if (await minimizeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await minimizeButton.click()
-        }
-    }
 }
 
 class TrendsInsight {
     readonly chart: Locator
     readonly detailsTable: Locator
     readonly detailsLabels: Locator
-    readonly detailsLoader: Locator
-    readonly addSeriesButton: Locator
     readonly firstSeries: Locator
     readonly secondSeries: Locator
     readonly breakdownButton: Locator
     readonly formulaSwitch: Locator
     readonly formulaInput: Locator
-    readonly addFormulaButton: Locator
     readonly dateRangeButton: Locator
     readonly chartTypeButton: Locator
     readonly comparisonButton: Locator
+
+    private readonly detailsLoader: Locator
+    private readonly addSeriesButton: Locator
+    private readonly addFormulaButton: Locator
 
     constructor(private readonly page: Page) {
         this.chart = page.getByTestId('insights-graph')
@@ -281,118 +199,15 @@ class TrendsInsight {
     async removeBreakdown(index: number = 0): Promise<void> {
         const tag = this.page.locator('.BreakdownTag').nth(index)
         await tag.hover()
-        await tag.locator('[aria-label="close"]').or(tag.locator('button')).last().click()
+        await tag.locator('[aria-label="close"]').or(tag.locator('button')).last().click({ force: true })
         await this.waitForChart()
     }
 
     async selectTaxonomicTab(groupType: string): Promise<void> {
-        await this.page.getByTestId(`taxonomic-tab-${groupType}`).click()
+        await this.page.getByTestId(`taxonomic-tab-${groupType}`).last().click()
     }
 
     taxonomicResults(): Locator {
         return this.page.locator('.taxonomic-list-row')
-    }
-}
-
-class FunnelsInsight {
-    readonly chart: Locator
-    readonly stepBars: Locator
-
-    constructor(private readonly page: Page) {
-        this.chart = page.locator('[data-attr="funnel-bar-vertical"]')
-        this.stepBars = page.locator('.StepBar')
-    }
-
-    async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
-    }
-}
-
-class RetentionInsight {
-    readonly chart: Locator
-    readonly table: Locator
-
-    constructor(page: Page) {
-        this.chart = page.locator('.RetentionContainer')
-        this.table = page.locator('[data-attr="retention-table"]')
-    }
-
-    async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
-    }
-}
-
-class PathsInsight {
-    readonly chart: Locator
-    readonly container: Locator
-
-    constructor(page: Page) {
-        this.chart = page.locator('.Paths svg.Paths__canvas')
-        this.container = page.locator('.Paths')
-    }
-
-    async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
-    }
-}
-
-class StickinessInsight {
-    readonly chart: Locator
-    readonly detailsLabels: Locator
-    readonly detailsLoader: Locator
-
-    constructor(page: Page) {
-        this.chart = page.getByTestId('insights-graph')
-        this.detailsLabels = page.getByTestId('insights-table-graph').locator('.insights-label')
-        this.detailsLoader = page.locator('.LemonTableLoader')
-    }
-
-    async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
-    }
-
-    async waitForDetailsTable(): Promise<void> {
-        await this.detailsLabels.first().waitFor()
-        await expect(this.detailsLoader).toHaveCount(0)
-    }
-}
-
-class LifecycleInsight {
-    readonly chart: Locator
-
-    constructor(page: Page) {
-        this.chart = page.getByTestId('insights-graph')
-    }
-
-    async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
-    }
-}
-
-class SqlInsight {
-    readonly chart: Locator
-    readonly runButton: Locator
-
-    constructor(private readonly page: Page) {
-        this.chart = page.locator('[data-attr="hogql-query-editor"]')
-        this.runButton = page.getByTestId('sql-editor-run-button')
-    }
-
-    async waitForChart(): Promise<void> {
-        await expect(this.chart).toBeVisible()
-    }
-
-    async writeQuery(query: string): Promise<void> {
-        const editor = this.chart.locator('.monaco-editor')
-        await expect(editor).toBeVisible()
-        await editor.click()
-
-        await this.page.keyboard.press('ControlOrMeta+KeyA')
-        await this.page.keyboard.press('Backspace')
-        await this.page.keyboard.insertText(query)
-    }
-
-    async run(): Promise<void> {
-        await this.runButton.click()
     }
 }
