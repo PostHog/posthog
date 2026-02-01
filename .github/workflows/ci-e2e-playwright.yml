@@ -461,8 +461,12 @@ jobs:
                       try {
                           console.log('Checking for results in:', resultsDir);
                           if (fs.existsSync(resultsDir)) {
-                              const dirs = fs.readdirSync(resultsDir).sort();
+                              const dirs = fs.readdirSync(resultsDir).sort().reverse(); // Latest first
                               console.log('Found directories:', dirs);
+
+                              // Use a Map to deduplicate by test name, keeping only the latest
+                              const reportMap = new Map();
+
                               for (const dir of dirs) {
                                   const reportPath = path.join(resultsDir, dir, 'memory-leak-report.md');
                                   const jsonPath = path.join(resultsDir, dir, 'memory-leak-report.json');
@@ -470,6 +474,12 @@ jobs:
                                   if (fs.existsSync(reportPath)) {
                                       const content = fs.readFileSync(reportPath, 'utf8');
                                       const testName = dir.replace(/^\d{4}-\d{2}-\d{2}T[\d-]+Z?-?/, '');
+
+                                      // Skip if we already have this test (we're iterating latest-first)
+                                      if (reportMap.has(testName)) {
+                                          console.log('Skipping duplicate test:', testName);
+                                          continue;
+                                      }
 
                                       // Read JSON to get leak count
                                       let leakCount = 0;
@@ -482,12 +492,15 @@ jobs:
                                           }
                                       }
 
-                                      reports.push({ name: testName || dir, content, leakCount });
+                                      reportMap.set(testName, { name: testName || dir, content, leakCount });
                                       console.log('Successfully read report file for:', testName || dir);
                                   } else {
                                       console.log('Report file does not exist in:', dir);
                                   }
                               }
+
+                              reports.push(...reportMap.values());
+
                               if (reports.length > 0) {
                                   const totalLeaks = reports.reduce((sum, r) => sum + r.leakCount, 0);
 
