@@ -351,7 +351,7 @@ def get_raw_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
     bug_window_end: str,
-    person_ids: tuple[str, ...] | None = None,
+    person_ids: tuple[str, ...],
 ) -> list[RawPersonPropertyUpdates]:
     """
     Query ClickHouse to get raw property updates from events WITHOUT comparing to person state.
@@ -368,7 +368,7 @@ def get_raw_person_property_updates_from_clickhouse(
         team_id: Team ID to query
         bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
         bug_window_end: End of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
-        person_ids: Optional tuple of person_ids to filter to (for batched processing)
+        person_ids: Tuple of person_ids to filter to (required for batched processing)
 
     Returns:
         List of RawPersonPropertyUpdates with aggregated event data (no person comparison)
@@ -434,7 +434,7 @@ def get_raw_person_property_updates_from_clickhouse(
                   AND e.timestamp >= %(bug_window_start)s
                   AND e.timestamp < %(bug_window_end)s
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
-                  AND (%(filter_by_person_ids)s = 0 OR if(notEmpty(o.distinct_id), o.person_id, e.person_id) IN %(person_ids_tuple)s)
+                  AND if(notEmpty(o.distinct_id), o.person_id, e.person_id) IN %(person_ids)s
                 GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
             )
             GROUP BY person_id
@@ -468,8 +468,7 @@ def get_raw_person_property_updates_from_clickhouse(
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
         "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
-        "filter_by_person_ids": 1 if person_ids else 0,  # Integer flag: 0 = no filter, 1 = filter by person_ids
-        "person_ids_tuple": person_ids if person_ids else ("__placeholder__",),  # Tuple for IN clause
+        "person_ids": person_ids,
     }
 
     rows = sync_execute(query, params)
@@ -794,15 +793,17 @@ def get_person_property_updates_windowed(
     team_id: int,
     bug_window_start: str,
     window_seconds: int,
+    bug_window_end: str | None = None,
     logger: Any = None,
 ) -> list[PersonPropertyDiffs]:
     """
     Fetch person property updates, optionally in time windows.
 
     When window_seconds > 0, this function uses a two-step flow:
-    1. Query raw event aggregates per window (no person comparison)
-    2. Merge raw updates across windows with timestamp-based deduplication
-    3. Compare final merged updates against current person state
+    1. Query affected person_ids first (returns early if none)
+    2. Query raw event aggregates per window (no person comparison)
+    3. Merge raw updates across windows with timestamp-based deduplication
+    4. Compare final merged updates against current person state
 
     When window_seconds <= 0, uses the original single-query approach.
 
@@ -810,6 +811,7 @@ def get_person_property_updates_windowed(
         team_id: Team ID to query
         bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
         window_seconds: Size of each query window in seconds. If <= 0, single query is used.
+        bug_window_end: End of time window (defaults to now if not provided)
         logger: Optional logger for progress tracking
 
     Returns:
@@ -820,10 +822,27 @@ def get_person_property_updates_windowed(
             logger.info(f"Using single-query mode for team_id={team_id}")
         return get_person_property_updates_from_clickhouse(team_id, bug_window_start)
 
-    # Step 1 & 2: Query raw updates per window and merge
+    now = datetime.now(UTC)
+    effective_end = bug_window_end or format_ch_timestamp(now)
+
+    # Step 1: Get affected person_ids first (early exit if none)
+    affected_person_ids = get_affected_person_ids_from_clickhouse(
+        team_id=team_id,
+        bug_window_start=bug_window_start,
+        bug_window_end=effective_end,
+    )
+
+    if logger:
+        logger.info(f"Found {len(affected_person_ids)} affected persons for team_id={team_id}")
+
+    if not affected_person_ids:
+        return []
+
+    person_ids_tuple = tuple(affected_person_ids)
+
+    # Step 2: Query raw updates per window and merge
     accumulated: dict[str, RawPersonPropertyUpdates] = {}
     current_start = parse_ch_timestamp(bug_window_start)
-    now = datetime.now(UTC)
     window_count = 0
     total_windows = int((now - current_start).total_seconds() / window_seconds) + 1
 
@@ -836,6 +855,7 @@ def get_person_property_updates_windowed(
             team_id,
             format_ch_timestamp(current_start),
             format_ch_timestamp(current_end),
+            person_ids=person_ids_tuple,
         )
         merge_raw_person_property_updates(accumulated, window_updates)
         window_count += 1
