@@ -132,6 +132,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = False
 
+    if modifiers.sessionsV2JoinMode is None:
+        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.UUID
+
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
     if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.AUTO:
