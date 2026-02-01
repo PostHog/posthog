@@ -1,7 +1,7 @@
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager
+from django.db.models import Manager, Q
 
 import orjson
 from drf_spectacular.types import OpenApiTypes
@@ -457,7 +457,7 @@ class EventDefinitionViewSet(
             event_definition_object_manager = EventDefinition.objects
 
         event_def = event_definition_object_manager.filter(
-            team__project_id=self.project_id,
+            Q(project_id=self.project_id) | Q(project_id__isnull=True, team_id=self.project_id),
             name=event_name,
         ).first()
 
