@@ -24,6 +24,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
+    getActionDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPropertyDefinitionIcon,
@@ -335,7 +336,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
                         getPopoverHeader: () => 'Action',
-                        getIcon: getEventDefinitionIcon,
+                        getIcon: getActionDefinitionIcon,
                     },
                     {
                         name: 'Data warehouse tables',

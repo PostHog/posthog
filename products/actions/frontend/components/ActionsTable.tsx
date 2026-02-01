@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconCheckCircle, IconPin, IconPinFilled, IconStack } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -79,6 +79,17 @@ export function ActionsTable(): JSX.Element {
                         tooltip={pinned ? 'Unpin action' : 'Pin action'}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
+                )
+            },
+        },
+        {
+            key: 'icon',
+            width: 0,
+            render: function RenderIcon() {
+                return (
+                    <span className="text-xl text-secondary">
+                        <IconStack />
+                    </span>
                 )
             },
         },

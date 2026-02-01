@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
+import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconStack } from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,7 +11,7 @@ import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { ActionType, EventDefinition, PropertyDefinition } from '~/types'
 
 interface IconWithBadgeProps {
     icon: JSX.Element
@@ -145,6 +145,15 @@ export function getRevenueAnalyticsDefinitionIcon(definition: PropertyDefinition
     }
 
     return <IconList />
+}
+
+// eslint-disable-next-line no-unused-vars
+export function getActionDefinitionIcon(_action: ActionType): JSX.Element {
+    return (
+        <Tooltip title="Action">
+            <IconStack className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
 export function DefinitionHeader({
