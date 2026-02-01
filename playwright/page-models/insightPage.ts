@@ -238,7 +238,7 @@ class FunnelsInsight {
     readonly chart: Locator
     readonly stepBars: Locator
 
-    constructor(private readonly page: Page) {
+    constructor(page: Page) {
         this.chart = page.getByTestId('funnel-bar-vertical').or(page.getByTestId('funnel-bar-horizontal'))
         this.stepBars = page.getByTestId('funnel-bar-vertical').locator('.StepLegend')
     }
@@ -252,7 +252,7 @@ class RetentionInsight {
     readonly chart: Locator
     readonly table: Locator
 
-    constructor(private readonly page: Page) {
+    constructor(page: Page) {
         this.chart = page.getByTestId('trend-line-graph')
         this.table = page.getByTestId('retention-table')
     }
@@ -265,7 +265,7 @@ class RetentionInsight {
 class PathsInsight {
     readonly container: Locator
 
-    constructor(private readonly page: Page) {
+    constructor(page: Page) {
         this.container = page.getByTestId('paths-viz')
     }
 
@@ -280,7 +280,7 @@ class StickinessInsight {
 
     private readonly detailsLoader: Locator
 
-    constructor(private readonly page: Page) {
+    constructor(page: Page) {
         this.chart = page.getByTestId('insights-graph')
         this.detailsTable = page.getByTestId('insights-table-graph')
         this.detailsLoader = page.locator('.LemonTableLoader')
@@ -299,7 +299,7 @@ class StickinessInsight {
 class LifecycleInsight {
     readonly chart: Locator
 
-    constructor(private readonly page: Page) {
+    constructor(page: Page) {
         this.chart = page.getByTestId('trend-line-graph')
     }
 

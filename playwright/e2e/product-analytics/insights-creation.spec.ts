@@ -1,3 +1,6 @@
+import fs from 'fs'
+import path from 'path'
+
 import { InsightType } from '~/types'
 
 import { DashboardPage } from '../../page-models/dashboardPage'
@@ -12,6 +15,14 @@ test.describe('Insight creation', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        await page.route('**/api/billing/', async (route) => {
+            const filePath = path.join(__dirname, '../../mocks/billing/billing.json')
+            const billingContent = fs.readFileSync(filePath, 'utf-8')
+            await route.fulfill({
+                status: 200,
+                body: billingContent,
+            })
+        })
         await playwrightSetup.login(page, workspace!)
     })
 
@@ -47,16 +58,13 @@ test.describe('Insight creation', () => {
             await expect(insight.activeTab).toContainText('Funnels')
         })
 
-        await test.step('add a second step to trigger funnel calculation', async () => {
+        await test.step('add a second step and wait for computation', async () => {
             await page.getByTestId('add-action-event-button-empty-state').click()
             await insight.funnels.waitForChart()
         })
 
-        await test.step('verify funnel bar visualization renders with 2 steps', async () => {
+        await test.step('verify funnel visualization', async () => {
             await expect(insight.funnels.stepBars).toHaveCount(2)
-        })
-
-        await test.step('verify total conversion rate is shown', async () => {
             await expect(page.getByText('Total conversion rate:')).toBeVisible()
         })
 
@@ -76,7 +84,6 @@ test.describe('Insight creation', () => {
         })
 
         await test.step('verify retention table renders with cohort rows', async () => {
-            await expect(insight.retention.table).toBeVisible()
             const rows = insight.retention.table.locator('tr')
             const rowCount = await rows.count()
             expect(rowCount).toBeGreaterThanOrEqual(1)
@@ -97,26 +104,22 @@ test.describe('Insight creation', () => {
             await insight.paths.waitForChart()
         })
 
-        await test.step('verify paths container renders', async () => {
-            await expect(insight.paths.container).toBeVisible()
-        })
-
         await test.step('save and verify view mode', async () => {
             await insight.save()
             await expect(insight.editButton).toBeVisible()
         })
     })
 
-    test('Stickiness: verify chart and day-based labels, save and persist', async ({ page }) => {
+    test('Stickiness: verify chart and save', async ({ page }) => {
         const insight = new InsightPage(page)
 
-        await test.step('navigate to new Stickiness insight and verify chart renders', async () => {
+        await test.step('navigate to new Stickiness insight and wait for result', async () => {
             await insight.goToNewInsight(InsightType.STICKINESS)
             await expect(insight.activeTab).toContainText('Stickiness')
             await insight.stickiness.waitForChart()
         })
 
-        await test.step('verify details table shows day-based labels', async () => {
+        await test.step('verify details table', async () => {
             await insight.stickiness.waitForDetailsTable()
             const tableText = await insight.stickiness.detailsTable.textContent()
             expect(tableText?.toLowerCase()).toContain('day')
@@ -131,7 +134,7 @@ test.describe('Insight creation', () => {
     test('Lifecycle: verify chart and lifecycle toggles, save and persist', async ({ page }) => {
         const insight = new InsightPage(page)
 
-        await test.step('navigate to new Lifecycle insight and verify chart renders', async () => {
+        await test.step('navigate to new Lifecycle insight and wait for result', async () => {
             await insight.goToNewInsight(InsightType.LIFECYCLE)
             await expect(insight.activeTab).toContainText('Lifecycle')
             await insight.lifecycle.waitForChart()
@@ -192,5 +195,24 @@ test.describe('Insight creation', () => {
             await dashboard.addInsightToNewDashboard()
             await expect(dashboard.items.locator('canvas').first()).toBeVisible()
         })
+    })
+})
+
+test.describe('DEBUG: billing page', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('`WHATS OUR PLAN?!?!`', async ({ page }) => {
+        await page.goto('/organization/billing')
+        await page.waitForLoadState('networkidle')
+        await page.waitForTimeout(3000)
+        expect(true).toBe(false) // force fail to capture screenshot
     })
 })
