@@ -117,11 +117,6 @@ export function FeatureFlagFiltersSection({
                                         'data-attr': 'feature-flag-select-status-disabled',
                                     },
                                     {
-                                        label: 'Inactive',
-                                        value: 'INACTIVE',
-                                        'data-attr': 'feature-flag-select-status-inactive',
-                                    },
-                                    {
                                         label: 'Stale',
                                         value: 'STALE',
                                         'data-attr': 'feature-flag-select-status-stale',

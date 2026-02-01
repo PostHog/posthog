@@ -4530,17 +4530,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
+        # No last_called_at so it falls back to config-based staleness detection
         with freeze_time("2024-01-01"):
-            stale_flag = FeatureFlag.objects.create(
+            FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_flag",
                 active=True,
                 filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
             )
-        # Set last_called_at to recent time (after freeze_time context) so it's STALE not INACTIVE
-        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
-        stale_flag.save()
 
         # Create a non-stale flag (100% rollout but recent)
         FeatureFlag.objects.create(
@@ -4621,9 +4619,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["status"] == "STALE"
 
     def test_get_flags_with_stale_filter_multivariate(self):
-        # Create a stale multivariate flag
+        # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
         with freeze_time("2023-01-01"):
-            stale_flag = FeatureFlag.objects.create(
+            FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_multivariate",
@@ -4638,9 +4636,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
-        # Set last_called_at to recent time so it's STALE not INACTIVE
-        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
-        stale_flag.save()
 
         # Create a non-stale multivariate flag (no variant at 100%)
         with freeze_time("2024-01-01"):
@@ -4671,9 +4666,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["status"] == "STALE"
 
     def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
-        # Create a stale multivariate flag
+        # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
         with freeze_time("2023-01-01"):
-            stale_flag = FeatureFlag.objects.create(
+            FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_multivariate",
@@ -4689,8 +4684,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
-        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
-        stale_flag.save()
 
         # Create a multivariate flag with rollout <100% should not be stale
         with freeze_time("2023-01-01"):
@@ -4753,8 +4746,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter_explicit_multivariate_null(self):
         # Regression test: flags created via frontend have explicit multivariate: null
         # The SQL filter should handle both missing key AND explicit null value
+        # No last_called_at so it falls back to config-based detection
         with freeze_time("2024-01-01"):
-            stale_flag = FeatureFlag.objects.create(
+            FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_with_explicit_null",
@@ -4765,8 +4759,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "payloads": {},
                 },
             )
-        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
-        stale_flag.save()
 
         # Create a non-stale flag with explicit multivariate: null (recent)
         FeatureFlag.objects.create(
@@ -8569,7 +8561,8 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for multivariate flag with no variants set to 100%
+        # Request status for multivariate flag with variant set to 100% and no usage data
+        # This tests config-based staleness detection
         multivariate_flag_rolled_out_variant = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with variant set to 100%",
@@ -8585,7 +8578,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 },
                 "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
             },
-            last_called_at=datetime.now() - timedelta(days=1),
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             multivariate_flag_rolled_out_variant.id,
@@ -8721,6 +8714,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Request status for multivariate flag with no variants set to 100%, but fully rolled out release condition has variant override
+        # This tests config-based staleness detection
         multivariate_flag_rolled_out_release_with_override = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with release condition set to 100% and override",
@@ -8742,7 +8736,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
-            last_called_at=datetime.now() - timedelta(days=1),
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             multivariate_flag_rolled_out_release_with_override.id,
@@ -8751,6 +8745,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Request status for boolean flag with empty filters
+        # This tests config-based staleness detection
         boolean_flag_empty_filters = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=31),
             name="Boolean flag with empty filters",
@@ -8758,7 +8753,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             filters={},
-            last_called_at=datetime.now() - timedelta(days=1),
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             boolean_flag_empty_filters.id,
@@ -8805,6 +8800,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Request status for boolean flag with a fully rolled out release condition
+        # This tests config-based staleness detection
         boolean_flag_rolled_out_release_condition = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=31),
             name="Boolean flag with a release condition set to 100%",
@@ -8830,7 +8826,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
-            last_called_at=datetime.now() - timedelta(days=1),
+            last_called_at=None,  # No usage data - falls back to config-based detection
         )
         self.assert_expected_response(
             boolean_flag_rolled_out_release_condition.id,
@@ -8889,8 +8885,8 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
         )
 
-    def test_flag_status_inactive_never_called_old_flag(self):
-        """Flag that has never been called and is old should be INACTIVE"""
+    def test_flag_status_old_flag_no_usage_data_not_fully_rolled_out_is_active(self):
+        """Old flag without usage data and not fully rolled out should be ACTIVE (can't determine staleness)"""
         old_never_called_flag = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=31),
             name="Never called flag",
@@ -8898,17 +8894,17 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             last_called_at=None,
-            # Use 50% rollout so it's not also STALE
+            # Use 50% rollout so it's not fully rolled out
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
+        # Without usage data (last_called_at) and not fully rolled out, we can't determine if it's stale
         self.assert_expected_response(
             old_never_called_flag.id,
-            FeatureFlagStatus.INACTIVE,
-            "Flag has never been called and is over 30 days old",
+            FeatureFlagStatus.ACTIVE,
         )
 
-    def test_flag_status_inactive_not_recently_called(self):
-        """Flag that hasn't been called in 30+ days should be INACTIVE"""
+    def test_flag_status_stale_by_usage_not_recently_called(self):
+        """Flag that hasn't been called in 30+ days should be STALE (usage-based detection)"""
         stale_usage_flag = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=60),
             name="Not recently called flag",
@@ -8916,34 +8912,16 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             last_called_at=datetime.now() - timedelta(days=35),
-            # Use 50% rollout so it's not also STALE
+            # Use 50% rollout - not fully rolled out but still STALE because not called
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
         self.assert_expected_response(
             stale_usage_flag.id,
-            FeatureFlagStatus.INACTIVE,
+            FeatureFlagStatus.STALE,
         )
 
-    def test_flag_status_inactive_and_stale(self):
-        """Flag that is both INACTIVE and STALE should return INACTIVE with combined reason"""
-        inactive_stale_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=60),
-            name="Inactive and stale flag",
-            key="inactive-stale-flag",
-            team=self.team,
-            active=True,
-            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
-            last_called_at=datetime.now() - timedelta(days=35),
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/{inactive_stale_flag.id}/status",
-        )
-        response_data = response.json()
-        self.assertEqual(response_data.get("status"), FeatureFlagStatus.INACTIVE)
-        self.assertIn("Additionally", response_data.get("reason"))
-
-    def test_flag_status_new_flag_without_calls_not_inactive(self):
-        """New flag (< 30 days) that hasn't been called should NOT be INACTIVE"""
+    def test_flag_status_new_flag_without_calls_not_stale(self):
+        """New flag (< 30 days) without usage data should be ACTIVE (grace period)"""
         new_flag = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=5),
             name="New flag",
@@ -8951,13 +8929,12 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             last_called_at=None,
-            # Use 50% rollout so it won't be STALE when it gets old
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
         self.assert_expected_response(new_flag.id, FeatureFlagStatus.ACTIVE)
 
-    def test_flag_status_recently_called_at_100_rollout_is_stale_not_inactive(self):
-        """Flag that was recently called but is at 100% should be STALE not INACTIVE"""
+    def test_flag_status_recently_called_at_100_rollout_is_active(self):
+        """Flag that was recently called at 100% should be ACTIVE (usage data takes precedence)"""
         recently_called_flag = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=60),
             name="Recently called flag",
@@ -8967,36 +8944,36 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
             last_called_at=datetime.now() - timedelta(days=1),
         )
+        # Usage data shows flag is being called, so it's ACTIVE even at 100% rollout
         self.assert_expected_response(
             recently_called_flag.id,
-            FeatureFlagStatus.STALE,
-            'This boolean flag will always evaluate to "true"',
+            FeatureFlagStatus.ACTIVE,
         )
 
-    def test_get_flags_with_inactive_filter(self):
-        """Test filtering by INACTIVE status"""
+    def test_get_flags_with_stale_filter(self):
+        """Test filtering by STALE status"""
         FeatureFlag.objects.all().delete()
 
-        # Create an inactive flag (old + not called in 30+ days)
+        # Create a stale flag (usage-based: old + not called in 30+ days)
         FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=60),
             team=self.team,
             created_by=self.user,
-            key="inactive_flag",
+            key="stale_by_usage_flag",
             active=True,
             last_called_at=datetime.now() - timedelta(days=35),
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
 
-        # Create another inactive flag (old + never called)
+        # Create a stale flag (config-based: old + 100% rollout + no usage data)
         FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=60),
             team=self.team,
             created_by=self.user,
-            key="never_called_flag",
+            key="stale_by_config_flag",
             active=True,
             last_called_at=None,
-            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
         )
 
         # Create an active flag (recently called)
@@ -9010,7 +8987,18 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
 
-        # Create a new flag that hasn't been called (should be ACTIVE, not INACTIVE)
+        # Create an active flag (no usage data + not fully rolled out = can't determine staleness)
+        FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="no_data_partial_rollout_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create a new flag that hasn't been called (should be ACTIVE, grace period)
         FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=5),
             team=self.team,
@@ -9021,12 +9009,12 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
         )
 
-        # Test filtering by inactive status
-        response = self.client.get("/api/projects/@current/feature_flags?active=INACTIVE")
+        # Test filtering by STALE status
+        response = self.client.get("/api/projects/@current/feature_flags?active=STALE")
         results = response.json()["results"]
 
         assert len(results) == 2
         result_keys = {r["key"] for r in results}
-        assert result_keys == {"inactive_flag", "never_called_flag"}
+        assert result_keys == {"stale_by_usage_flag", "stale_by_config_flag"}
         for result in results:
-            assert result["status"] == "INACTIVE"
+            assert result["status"] == "STALE"

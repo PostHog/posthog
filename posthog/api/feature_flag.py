@@ -1334,10 +1334,22 @@ class FeatureFlagViewSet(
         for key in filters:
             if key == "active":
                 if filters[key] == "STALE":
-                    # Get flags that are at least 30 days old and active
-                    # This is an approximation - the serializer will compute the exact status
+                    # Get stale flags using the best available signal:
+                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
+                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
+                    stale_threshold = thirty_days_ago()
+
+                    # Usage-based staleness (has last_called_at but not called recently)
+                    usage_based_stale = Q(last_called_at__lt=stale_threshold)
+
+                    # Config-based staleness (no last_called_at, so fall back to rollout config)
+                    # This uses raw SQL for the complex JSON filter
                     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                    config_based_queryset = queryset.filter(
+                        last_called_at__isnull=True,
+                        active=True,
+                        created_at__lt=stale_threshold,
+                    ).extra(
                         # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         # Note: Must use fully qualified table name (posthog_featureflag.filters) to avoid
                         # ambiguity when Django joins other tables that also have a 'filters' column (e.g. Experiment)
@@ -1380,13 +1392,9 @@ class FeatureFlagViewSet(
                             """
                         ]
                     )
-                elif filters[key] == "INACTIVE":
-                    # Get flags that haven't been called in 30+ days, or never called and are old
-                    inactive_threshold = thirty_days_ago()
-                    queryset = queryset.filter(
-                        Q(last_called_at__lt=inactive_threshold)
-                        | Q(last_called_at__isnull=True, created_at__lt=inactive_threshold)
-                    )
+
+                    # Combine both: usage-based OR config-based (for flags without usage data)
+                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
                 else:
                     queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
@@ -1522,7 +1530,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["true", "false", "STALE", "INACTIVE"],
+                enum=["true", "false", "STALE"],
             ),
             OpenApiParameter(
                 "created_by_id",

@@ -383,33 +383,14 @@ export function OverViewTab({
                                 Disabled
                             </LemonTag>
                         )}
-                        {featureFlag.status === 'INACTIVE' && (
-                            <Tooltip
-                                title={
-                                    <>
-                                        <div className="text-sm">Flag has not been called in 30+ days</div>
-                                        <div className="text-xs">
-                                            This flag appears unused. Verify it is not needed before removing it.
-                                        </div>
-                                    </>
-                                }
-                                placement="left"
-                            >
-                                <span>
-                                    <LemonTag type="danger" className="uppercase cursor-default">
-                                        Inactive
-                                    </LemonTag>
-                                </span>
-                            </Tooltip>
-                        )}
                         {featureFlag.status === 'STALE' && (
                             <Tooltip
                                 title={
                                     <>
-                                        <div className="text-sm">Flag at least 30 days old and fully rolled out</div>
+                                        <div className="text-sm">This flag is likely safe to remove</div>
                                         <div className="text-xs">
-                                            Make sure to remove any references to this flag in your code before deleting
-                                            it.
+                                            Not called in 30+ days or fully rolled out. Make sure to remove any
+                                            references in your code before deleting it.
                                         </div>
                                     </>
                                 }
