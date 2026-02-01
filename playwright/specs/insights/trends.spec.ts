@@ -1,15 +1,9 @@
 import { InsightPage } from '../../page-models/insightPage'
-import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
+import { expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Trends insights', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
+    test.beforeEach(async ({ page, playwrightSetup, workspace }) => {
+        await playwrightSetup.login(page, workspace)
     })
 
     test('Create and save a new insight', async ({ page }) => {

@@ -3,28 +3,11 @@
  */
 import { expect } from '@playwright/test'
 
-import { PlaywrightWorkspaceSetupResult, test } from '../utils/workspace-test-base'
+import { test } from '../utils/workspace-test-base'
 
 test.describe('Workflows', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        // Create a workspace with custom names (once for all tests)
-        workspace = await playwrightSetup.createWorkspace('Workflow Users Inc.')
-
-        // Verify workspace was created
-        expect(workspace.organization_name).toBe('Workflow Users Inc.')
-        expect(workspace.personal_api_key).toBeTruthy()
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        if (!workspace) {
-            throw new Error('Workspace was not initialized before tests')
-        }
-        // Login and navigate to the team page
+    test.beforeEach(async ({ page, playwrightSetup, workspace }) => {
         await playwrightSetup.loginAndNavigateToTeam(page, workspace)
-
-        // Navigate to workflows page
         await page.goto('/workflows')
     })
 

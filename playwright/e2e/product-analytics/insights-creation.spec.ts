@@ -5,16 +5,10 @@ import { InsightType } from '~/types'
 
 import { DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
-import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
+import { expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Insight creation', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
+    test.beforeEach(async ({ page, playwrightSetup, workspace }) => {
         await page.route('**/api/billing/', async (route) => {
             const filePath = path.join(__dirname, '../../mocks/billing/billing.json')
             const billingContent = fs.readFileSync(filePath, 'utf-8')
@@ -23,7 +17,7 @@ test.describe('Insight creation', () => {
                 body: billingContent,
             })
         })
-        await playwrightSetup.login(page, workspace!)
+        await playwrightSetup.login(page, workspace)
     })
 
     test('Trends: add breakdown, save and verify persistence', async ({ page }) => {
@@ -199,14 +193,8 @@ test.describe('Insight creation', () => {
 })
 
 test.describe('DEBUG: billing page', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
+    test.beforeEach(async ({ page, playwrightSetup, workspace }) => {
+        await playwrightSetup.login(page, workspace)
     })
 
     test('`WHATS OUR PLAN?!?!`', async ({ page }) => {

@@ -11,10 +11,7 @@ type InsightCreationPayload = {
     query: InsightVizNode<TrendsQuery>
 }
 
-test('create trends insight via API and snapshot', async ({ page, playwrightSetup }) => {
-    // Create workspace with API key
-    const workspace = await playwrightSetup.createWorkspace('API Test Org')
-
+test('create trends insight via API and snapshot', async ({ page, playwrightSetup, workspace }) => {
     // Create a trends insight via API using the personal API key
     const payload: InsightCreationPayload = {
         name: 'Pageview Trends Analysis',
