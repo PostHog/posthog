@@ -4,7 +4,7 @@ import './PlayerFrameLLMHighlight.scss'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
@@ -19,38 +19,8 @@ export const PlayerFrame = (): JSX.Element => {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
 
-    // Define callbacks before they're used in effects
-    const updatePlayerDimensions = useCallback(
-        (replayDimensions: viewportResizeDimension | undefined): void => {
-            if (
-                !replayDimensions ||
-                !frameRef?.current?.parentElement ||
-                !player?.replayer ||
-                !player?.replayer.wrapper
-            ) {
-                return
-            }
-
-            replayDimensionRef.current = replayDimensions
-
-            const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
-
-            const scale = Math.min(
-                parentDimensions.width / replayDimensions.width,
-                parentDimensions.height / replayDimensions.height,
-                1
-            )
-
-            player.replayer.wrapper.style.transform = `scale(${scale})`
-
-            setScale(scale)
-        },
-        [player, setScale]
-    )
-
-    const windowResize = useCallback((): void => {
-        updatePlayerDimensions(replayDimensionRef.current)
-    }, [updatePlayerDimensions])
+    const playerRef = useRef(player)
+    playerRef.current = player
 
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
@@ -65,19 +35,70 @@ export const PlayerFrame = (): JSX.Element => {
             return
         }
 
+        const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
+            const currentPlayer = playerRef.current
+            if (
+                !replayDimensions ||
+                !frameRef?.current?.parentElement ||
+                !currentPlayer?.replayer ||
+                !currentPlayer?.replayer.wrapper
+            ) {
+                return
+            }
+
+            replayDimensionRef.current = replayDimensions
+
+            const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+
+            const scale = Math.min(
+                parentDimensions.width / replayDimensions.width,
+                parentDimensions.height / replayDimensions.height,
+                1
+            )
+
+            currentPlayer.replayer.wrapper.style.transform = `scale(${scale})`
+
+            setScale(scale)
+        }
+
+        const windowResize = (): void => {
+            updatePlayerDimensions(replayDimensionRef.current)
+        }
+
         player.replayer.on('resize', updatePlayerDimensions as Handler)
         window.addEventListener('resize', windowResize)
 
         return () => {
-            player.replayer.off('resize', updatePlayerDimensions as Handler)
             window.removeEventListener('resize', windowResize)
+            try {
+                player.replayer.off('resize', updatePlayerDimensions as Handler)
+            } catch {
+                // Replayer may already be destroyed
+            }
         }
-    }, [player, updatePlayerDimensions, windowResize])
+    }, [player, setScale])
 
     // Recalculate the player size when the player changes dimensions
     useEffect(() => {
-        windowResize()
-    }, [containerDimensions, windowResize])
+        if (!player?.replayer?.wrapper) {
+            return
+        }
+
+        const replayDimensions = replayDimensionRef.current
+        if (!replayDimensions || !frameRef?.current?.parentElement) {
+            return
+        }
+
+        const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+        const scale = Math.min(
+            parentDimensions.width / replayDimensions.width,
+            parentDimensions.height / replayDimensions.height,
+            1
+        )
+
+        player.replayer.wrapper.style.transform = `scale(${scale})`
+        setScale(scale)
+    }, [containerDimensions, player, setScale])
 
     return (
         // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
