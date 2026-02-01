@@ -1,4 +1,4 @@
-module json_key_deduplicator_udf
+module json_drop_keys_udf
 
 go 1.22
 

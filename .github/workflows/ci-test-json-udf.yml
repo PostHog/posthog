@@ -46,4 +46,4 @@ jobs:
                   if [ "${GOOS}" = "windows" ]; then
                     bin_name="${bin_name}.exe"
                   fi
-                  (cd go/json_drop_keys_udf/cmd/json_drop_keys_udf && go build -o "../../dist/${bin_name}" .)
+                  (cd go/json_drop_keys_udf/cmd/json_drop_keys_udf && go build -o "../../../../dist/${bin_name}" .)

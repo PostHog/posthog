@@ -75,7 +75,7 @@ SELECT JSONDropKeys(['a', 'b'])('{"id":1,"a":"x","b":"y","c":"z"}');
 Result:
 
 ```json
-{"id":1,"c":"z"}
+{ "id": 1, "c": "z" }
 ```
 
 Dropping nested keys:
@@ -87,5 +87,5 @@ SELECT JSONDropKeys(['props.secret'])('{"id":1,"props":{"secret":"xxx","public":
 Result:
 
 ```json
-{"id":1,"props":{"public":"yyy"}}
+{ "id": 1, "props": { "public": "yyy" } }
 ```
