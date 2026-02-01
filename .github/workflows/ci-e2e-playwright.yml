@@ -490,7 +490,16 @@ jobs:
                               }
                               if (reports.length > 0) {
                                   const totalLeaks = reports.reduce((sum, r) => sum + r.leakCount, 0);
-                                  const header = `# Memory Leak Detection Results\n\n**Total potential memory leaks detected: ${totalLeaks}**\n\n`;
+
+                                  // Create summary table
+                                  let table = '| Test | Leaks Detected |\n';
+                                  table += '|------|---------------:|\n';
+                                  for (const r of reports) {
+                                      table += `| ${r.name} | ${r.leakCount} |\n`;
+                                  }
+                                  table += `| **Total** | **${totalLeaks}** |\n\n`;
+
+                                  const header = `# Memory Leak Detection Results\n\n${table}`;
                                   reportContent = header + reports.map(r => `### Test: ${r.name}\n\n${r.content}`).join('\n\n---\n\n');
                               }
                           } else {

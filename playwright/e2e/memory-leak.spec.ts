@@ -102,7 +102,7 @@ test.describe('Memory Leak Detection', () => {
 
         const ctx: MemoryLeakTestContext = {
             page,
-            testName: 'homepage-settings',
+            testName: 'Homepage ↔ Settings Navigation',
             snapshotDir: createSnapshotDirectory('homepage-settings'),
             pagesTraversed: [],
         }
@@ -150,7 +150,7 @@ test.describe('Memory Leak Detection', () => {
 
         const ctx: MemoryLeakTestContext = {
             page,
-            testName: 'navigation',
+            testName: 'Insights & Dashboards Navigation',
             snapshotDir: createSnapshotDirectory('navigation'),
             pagesTraversed: [],
         }
@@ -206,7 +206,7 @@ test.describe('Memory Leak Detection', () => {
 
         const ctx: MemoryLeakTestContext = {
             page,
-            testName: 'dashboard-filters',
+            testName: 'Dashboard Filter Toggling',
             snapshotDir: createSnapshotDirectory('dashboard-filters'),
             pagesTraversed: [],
         }
