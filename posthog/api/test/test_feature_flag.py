@@ -4531,13 +4531,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            stale_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_flag",
                 active=True,
                 filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
             )
+        # Set last_called_at to recent time (after freeze_time context) so it's STALE not INACTIVE
+        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
+        stale_flag.save()
 
         # Create a non-stale flag (100% rollout but recent)
         FeatureFlag.objects.create(
@@ -4546,21 +4549,24 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             key="recent_flag",
             active=True,
             filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         # Create another non-stale flag (old but not 100% rollout)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            partial_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="partial_flag",
                 active=True,
                 filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
             )
+        partial_flag.last_called_at = datetime.now() - timedelta(days=1)
+        partial_flag.save()
 
         # Create a non-stale flag (100% rollout but has properties)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            filtered_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="filtered_flag",
@@ -4576,10 +4582,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     ]
                 },
             )
+        filtered_flag.last_called_at = datetime.now() - timedelta(days=1)
+        filtered_flag.save()
 
         # Create a non-stale flag (100% rollout but has multiple groups, with only 1 group that has 100% rollout)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            multi_group_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="filtered_flag_with_multiple_groups",
@@ -4601,6 +4609,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     ]
                 },
             )
+        multi_group_flag.last_called_at = datetime.now() - timedelta(days=1)
+        multi_group_flag.save()
+
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
@@ -4612,7 +4623,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter_multivariate(self):
         # Create a stale multivariate flag
         with freeze_time("2023-01-01"):
-            FeatureFlag.objects.create(
+            stale_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_multivariate",
@@ -4627,10 +4638,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        # Set last_called_at to recent time so it's STALE not INACTIVE
+        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
+        stale_flag.save()
 
         # Create a non-stale multivariate flag (no variant at 100%)
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            active_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="active_multivariate",
@@ -4645,6 +4659,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        active_flag.last_called_at = datetime.now() - timedelta(days=1)
+        active_flag.save()
 
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
@@ -4657,7 +4673,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
         # Create a stale multivariate flag
         with freeze_time("2023-01-01"):
-            FeatureFlag.objects.create(
+            stale_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_multivariate",
@@ -4673,10 +4689,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
+        stale_flag.save()
 
         # Create a multivariate flag with rollout <100% should not be stale
         with freeze_time("2023-01-01"):
-            FeatureFlag.objects.create(
+            low_rollout_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="low_rollout",
@@ -4692,10 +4710,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        low_rollout_flag.last_called_at = datetime.now() - timedelta(days=1)
+        low_rollout_flag.save()
 
         # Create a multivariate flag with rollout 100% but has properties filter, should not be stale
         with freeze_time("2023-01-01"):
-            FeatureFlag.objects.create(
+            with_props_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="with_properties",
@@ -4719,6 +4739,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                 },
             )
+        with_props_flag.last_called_at = datetime.now() - timedelta(days=1)
+        with_props_flag.save()
+
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
@@ -4731,7 +4754,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Regression test: flags created via frontend have explicit multivariate: null
         # The SQL filter should handle both missing key AND explicit null value
         with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
+            stale_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
                 key="stale_with_explicit_null",
@@ -4742,6 +4765,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "payloads": {},
                 },
             )
+        stale_flag.last_called_at = datetime.now() - timedelta(days=1)
+        stale_flag.save()
 
         # Create a non-stale flag with explicit multivariate: null (recent)
         FeatureFlag.objects.create(
@@ -4754,6 +4779,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "multivariate": None,
                 "payloads": {},
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         filtered_flags_list = self.client.get("/api/projects/@current/feature_flags?active=STALE")
@@ -8438,6 +8464,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             key="disabled-feature-flag",
             team=self.team,
             active=False,
+            last_called_at=datetime.now() - timedelta(days=1),  # Recently called
         )
 
         self.assert_expected_response(disabled_flag.id, FeatureFlagStatus.ACTIVE)
@@ -8450,6 +8477,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             filters={"super_groups": [{"rollout_percentage": 50, "properties": []}]},
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(fifty_percent_super_group_flag.id, FeatureFlagStatus.ACTIVE)
@@ -8476,6 +8504,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ]
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
@@ -8488,6 +8517,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(fifty_percent_holdout_group_flag.id, FeatureFlagStatus.ACTIVE)
@@ -8514,6 +8544,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ]
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
@@ -8533,6 +8564,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     ],
                 }
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(multivariate_flag_no_rolled_out_variants.id, FeatureFlagStatus.ACTIVE)
@@ -8553,6 +8585,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                 },
                 "groups": [{"variant": None, "properties": [], "rollout_percentage": 100}],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
         self.assert_expected_response(
             multivariate_flag_rolled_out_variant.id,
@@ -8579,6 +8612,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     {"variant": None, "properties": [], "rollout_percentage": 30},
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -8604,6 +8638,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     {"variant": None, "properties": [], "rollout_percentage": 100},
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -8640,6 +8675,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -8676,6 +8712,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -8705,6 +8742,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     }
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
         self.assert_expected_response(
             multivariate_flag_rolled_out_release_with_override.id,
@@ -8720,6 +8758,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             active=True,
             filters={},
+            last_called_at=datetime.now() - timedelta(days=1),
         )
         self.assert_expected_response(
             boolean_flag_empty_filters.id,
@@ -8757,6 +8796,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
 
         self.assert_expected_response(
@@ -8790,6 +8830,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),
         )
         self.assert_expected_response(
             boolean_flag_rolled_out_release_condition.id,
@@ -8841,8 +8882,151 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
                     },
                 ],
             },
+            last_called_at=datetime.now() - timedelta(days=1),  # Recently called
         )
 
         self.assert_expected_response(
             boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
         )
+
+    def test_flag_status_inactive_never_called_old_flag(self):
+        """Flag that has never been called and is old should be INACTIVE"""
+        old_never_called_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
+            name="Never called flag",
+            key="never-called-flag",
+            team=self.team,
+            active=True,
+            last_called_at=None,
+            # Use 50% rollout so it's not also STALE
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.assert_expected_response(
+            old_never_called_flag.id,
+            FeatureFlagStatus.INACTIVE,
+            "Flag has never been called and is over 30 days old",
+        )
+
+    def test_flag_status_inactive_not_recently_called(self):
+        """Flag that hasn't been called in 30+ days should be INACTIVE"""
+        stale_usage_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            name="Not recently called flag",
+            key="not-recently-called-flag",
+            team=self.team,
+            active=True,
+            last_called_at=datetime.now() - timedelta(days=35),
+            # Use 50% rollout so it's not also STALE
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.assert_expected_response(
+            stale_usage_flag.id,
+            FeatureFlagStatus.INACTIVE,
+        )
+
+    def test_flag_status_inactive_and_stale(self):
+        """Flag that is both INACTIVE and STALE should return INACTIVE with combined reason"""
+        inactive_stale_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            name="Inactive and stale flag",
+            key="inactive-stale-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=datetime.now() - timedelta(days=35),
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{inactive_stale_flag.id}/status",
+        )
+        response_data = response.json()
+        self.assertEqual(response_data.get("status"), FeatureFlagStatus.INACTIVE)
+        self.assertIn("Additionally", response_data.get("reason"))
+
+    def test_flag_status_new_flag_without_calls_not_inactive(self):
+        """New flag (< 30 days) that hasn't been called should NOT be INACTIVE"""
+        new_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=5),
+            name="New flag",
+            key="new-flag",
+            team=self.team,
+            active=True,
+            last_called_at=None,
+            # Use 50% rollout so it won't be STALE when it gets old
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        self.assert_expected_response(new_flag.id, FeatureFlagStatus.ACTIVE)
+
+    def test_flag_status_recently_called_at_100_rollout_is_stale_not_inactive(self):
+        """Flag that was recently called but is at 100% should be STALE not INACTIVE"""
+        recently_called_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            name="Recently called flag",
+            key="recently-called-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=datetime.now() - timedelta(days=1),
+        )
+        self.assert_expected_response(
+            recently_called_flag.id,
+            FeatureFlagStatus.STALE,
+            'This boolean flag will always evaluate to "true"',
+        )
+
+    def test_get_flags_with_inactive_filter(self):
+        """Test filtering by INACTIVE status"""
+        FeatureFlag.objects.all().delete()
+
+        # Create an inactive flag (old + not called in 30+ days)
+        FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="inactive_flag",
+            active=True,
+            last_called_at=datetime.now() - timedelta(days=35),
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create another inactive flag (old + never called)
+        FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="never_called_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create an active flag (recently called)
+        FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="active_flag",
+            active=True,
+            last_called_at=datetime.now() - timedelta(hours=1),
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Create a new flag that hasn't been called (should be ACTIVE, not INACTIVE)
+        FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=5),
+            team=self.team,
+            created_by=self.user,
+            key="new_uncalled_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Test filtering by inactive status
+        response = self.client.get("/api/projects/@current/feature_flags?active=INACTIVE")
+        results = response.json()["results"]
+
+        assert len(results) == 2
+        result_keys = {r["key"] for r in results}
+        assert result_keys == {"inactive_flag", "never_called_flag"}
+        for result in results:
+            assert result["status"] == "INACTIVE"

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 import structlog
@@ -24,11 +25,13 @@ class FeatureFlagStatus(StrEnum):
 #
 # Status can be one of the following:
 # - ACTIVE: The feature flag is actively evaluated and the evaluations continue to vary.
+# - INACTIVE: The feature flag has not been called in 30+ days (based on last_called_at).
+#       This is the strongest signal that a flag is ready for cleanup.
 # - STALE: The feature flag has been fully rolled out to users. Its evaluations can not vary.
-# - INACTIVE: The feature flag is not being actively evaluated. STALE takes precedence over INACTIVE.
-#       NOTE: The "inactive" status is not currently used, but may be used in the future to automatically archive flags.
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
+#
+# INACTIVE takes precedence over STALE because usage data is a stronger signal than configuration.
 #
 # When we update the logic for stale flags, do check/update the function `_filter_request`` in feature_flag.py
 class FeatureFlagStatusChecker:
@@ -58,14 +61,47 @@ class FeatureFlagStatusChecker:
         if flag.deleted:
             return FeatureFlagStatus.DELETED, "Flag has been deleted"
 
-        # See if the flag is set to 100% on one variant (or 100% on rolled out and active if boolean flag).
+        # Check for INACTIVE first (usage-based) - this is the strongest signal
+        is_inactive, inactive_reason = self.is_flag_inactive(flag)
+
+        # Check for STALE (configuration-based)
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
         is_flag_at_least_thirty_days_old = flag.created_at < thirty_days_ago()
+        is_stale = is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old
 
-        if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
+        # INACTIVE takes precedence over STALE (usage data > configuration)
+        if is_inactive:
+            if is_stale:
+                return (
+                    FeatureFlagStatus.INACTIVE,
+                    f"{inactive_reason}. Additionally, {fully_rolled_out_explanation[0].lower()}{fully_rolled_out_explanation[1:]}",
+                )
+            return FeatureFlagStatus.INACTIVE, inactive_reason
+
+        if is_stale:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
-        return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
+        return FeatureFlagStatus.ACTIVE, "Flag is active and being evaluated"
+
+    def is_flag_inactive(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
+        """
+        Check if flag is inactive based on last_called_at.
+        A flag is INACTIVE if it hasn't been called in 30+ days.
+        New flags (< 30 days old) that haven't been called are not considered inactive yet.
+        """
+        inactive_threshold = datetime.now(UTC) - timedelta(days=30)
+
+        if flag.last_called_at is None:
+            # Flag has never been called - only mark inactive if it's old enough
+            if flag.created_at < thirty_days_ago():
+                return True, "Flag has never been called and is over 30 days old"
+            return False, ""
+
+        if flag.last_called_at < inactive_threshold:
+            days_since_called = (datetime.now(UTC) - flag.last_called_at).days
+            return True, f"Flag has not been called in {days_since_called} days"
+
+        return False, ""
 
     def is_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         # If flag is not active, it is not fully rolled out. This flag may still be stale,

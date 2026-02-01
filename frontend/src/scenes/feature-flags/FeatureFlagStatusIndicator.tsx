@@ -10,15 +10,12 @@ export function FeatureFlagStatusIndicator({
 }): JSX.Element | null {
     if (
         !flagStatus ||
-        [
-            FeatureFlagStatus.ACTIVE,
-            FeatureFlagStatus.INACTIVE,
-            FeatureFlagStatus.DELETED,
-            FeatureFlagStatus.UNKNOWN,
-        ].includes(flagStatus.status)
+        [FeatureFlagStatus.ACTIVE, FeatureFlagStatus.DELETED, FeatureFlagStatus.UNKNOWN].includes(flagStatus.status)
     ) {
         return null
     }
+
+    const tagType = flagStatus.status === FeatureFlagStatus.INACTIVE ? 'danger' : 'warning'
 
     return (
         <Tooltip
@@ -29,14 +26,14 @@ export function FeatureFlagStatusIndicator({
                         {flagStatus.status === FeatureFlagStatus.STALE &&
                             'Make sure to remove any references to this flag in your code before deleting it.'}
                         {flagStatus.status === FeatureFlagStatus.INACTIVE &&
-                            'It is probably not being used in your code, but be sure to remove any references to this flag before deleting it.'}
+                            'This flag appears unused. Verify it is not needed before removing it.'}
                     </div>
                 </>
             }
             placement="right"
         >
             <span>
-                <LemonTag type="warning" className="uppercase cursor-default">
+                <LemonTag type={tagType} className="uppercase cursor-default">
                     {flagStatus.status}
                 </LemonTag>
             </span>

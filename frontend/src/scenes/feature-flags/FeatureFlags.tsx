@@ -383,6 +383,25 @@ export function OverViewTab({
                                 Disabled
                             </LemonTag>
                         )}
+                        {featureFlag.status === 'INACTIVE' && (
+                            <Tooltip
+                                title={
+                                    <>
+                                        <div className="text-sm">Flag has not been called in 30+ days</div>
+                                        <div className="text-xs">
+                                            This flag appears unused. Verify it is not needed before removing it.
+                                        </div>
+                                    </>
+                                }
+                                placement="left"
+                            >
+                                <span>
+                                    <LemonTag type="danger" className="uppercase cursor-default">
+                                        Inactive
+                                    </LemonTag>
+                                </span>
+                            </Tooltip>
+                        )}
                         {featureFlag.status === 'STALE' && (
                             <Tooltip
                                 title={

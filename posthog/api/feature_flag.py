@@ -1380,6 +1380,13 @@ class FeatureFlagViewSet(
                             """
                         ]
                     )
+                elif filters[key] == "INACTIVE":
+                    # Get flags that haven't been called in 30+ days, or never called and are old
+                    inactive_threshold = thirty_days_ago()
+                    queryset = queryset.filter(
+                        Q(last_called_at__lt=inactive_threshold)
+                        | Q(last_called_at__isnull=True, created_at__lt=inactive_threshold)
+                    )
                 else:
                     queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
@@ -1515,7 +1522,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["true", "false", "STALE"],
+                enum=["true", "false", "STALE", "INACTIVE"],
             ),
             OpenApiParameter(
                 "created_by_id",
