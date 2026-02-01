@@ -1,12 +1,8 @@
-import { expect } from '@playwright/test'
-
-import { urls } from 'scenes/urls'
-
 import { InsightType } from '~/types'
 
 import { DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
-import { PlaywrightWorkspaceSetupResult, test } from '../../utils/workspace-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Insight creation', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
@@ -16,35 +12,22 @@ test.describe('Insight creation', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        if (!workspace) {
-            throw new Error('Workspace was not initialized before tests')
-        }
-        await playwrightSetup.loginAndNavigateToTeam(page, workspace)
-    })
-
-    test.beforeEach(async ({ page }, testInfo) => {
-        page.on('requestfinished', (request) => {
-            const timing = request.timing()
-            // If a request takes longer than 2 seconds, log it
-            if (timing.responseStart > 2000) {
-            }
-        })
+        await playwrightSetup.login(page, workspace!)
     })
 
     test('Trends: add breakdown, save and verify persistence', async ({ page }) => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to new Trends insight and verify chart renders', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.TRENDS }))
-            await expect(insight.activeTab).toContainText('Trends', { ignoreCase: true })
+            await insight.goToNewTrends()
+            await expect(insight.activeTab).toContainText('Trends')
             await insight.trends.waitForChart()
         })
 
-        await test.step('add breakdown by $browser and verify row count increases', async () => {
-            await insight.trends.addBreakdown('$browser')
+        await test.step('add breakdown by Browser and verify row count increases', async () => {
+            await insight.trends.addBreakdown('Browser')
             await insight.trends.waitForChart()
             await insight.trends.waitForDetailsTable()
-
             const rowCount = await insight.trends.detailsLabels.count()
             expect(rowCount).toBeGreaterThanOrEqual(1)
         })
@@ -60,8 +43,8 @@ test.describe('Insight creation', () => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to new Funnels insight and verify active tab', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.FUNNELS }))
-            await expect(insight.activeTab).toContainText('Funnels', { ignoreCase: true })
+            await insight.goToNewInsight(InsightType.FUNNELS)
+            await expect(insight.activeTab).toContainText('Funnels')
         })
 
         await test.step('add a second step to trigger funnel calculation', async () => {
@@ -87,14 +70,13 @@ test.describe('Insight creation', () => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to new Retention insight and verify active tab', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.RETENTION }))
-            await expect(insight.activeTab).toContainText('Retention', { ignoreCase: true })
+            await insight.goToNewInsight(InsightType.RETENTION)
+            await expect(insight.activeTab).toContainText('Retention')
             await insight.retention.waitForChart()
         })
 
         await test.step('verify retention table renders with cohort rows', async () => {
             await expect(insight.retention.table).toBeVisible()
-
             const rows = insight.retention.table.locator('tr')
             const rowCount = await rows.count()
             expect(rowCount).toBeGreaterThanOrEqual(1)
@@ -110,8 +92,8 @@ test.describe('Insight creation', () => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to new Paths insight and verify active tab', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.PATHS }))
-            await expect(insight.activeTab).toContainText('Paths', { ignoreCase: true })
+            await insight.goToNewInsight(InsightType.PATHS)
+            await expect(insight.activeTab).toContainText('Paths')
             await insight.paths.waitForChart()
         })
 
@@ -129,14 +111,14 @@ test.describe('Insight creation', () => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to new Stickiness insight and verify chart renders', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.STICKINESS }))
-            await expect(insight.activeTab).toContainText('Stickiness', { ignoreCase: true })
+            await insight.goToNewInsight(InsightType.STICKINESS)
+            await expect(insight.activeTab).toContainText('Stickiness')
             await insight.stickiness.waitForChart()
         })
 
         await test.step('verify details table shows day-based labels', async () => {
             await insight.stickiness.waitForDetailsTable()
-            const tableText = await page.getByTestId('insights-table-graph').textContent()
+            const tableText = await insight.stickiness.detailsTable.textContent()
             expect(tableText?.toLowerCase()).toContain('day')
         })
 
@@ -150,8 +132,8 @@ test.describe('Insight creation', () => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to new Lifecycle insight and verify chart renders', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.LIFECYCLE }))
-            await expect(insight.activeTab).toContainText('Lifecycle', { ignoreCase: true })
+            await insight.goToNewInsight(InsightType.LIFECYCLE)
+            await expect(insight.activeTab).toContainText('Lifecycle')
             await insight.lifecycle.waitForChart()
         })
 
@@ -169,7 +151,7 @@ test.describe('Insight creation', () => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to SQL editor and verify it renders', async () => {
-            await page.goto('/sql')
+            await insight.goToSql()
             await insight.sql.waitForChart()
         })
 
@@ -200,7 +182,7 @@ test.describe('Insight creation', () => {
         const dashboard = new DashboardPage(page)
 
         await test.step('create and save a Trends insight', async () => {
-            await page.goto(urls.insightNew({ type: InsightType.TRENDS }))
+            await insight.goToNewTrends()
             await insight.trends.waitForChart()
             await insight.save()
             await expect(insight.editButton).toBeVisible()

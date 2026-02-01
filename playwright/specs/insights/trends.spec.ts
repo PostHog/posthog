@@ -12,7 +12,7 @@ test.describe('Trends insights', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('create new insight with default settings and save', async ({ page }) => {
+    test('Create and save a new insight', async ({ page }) => {
         const insight = new InsightPage(page)
 
         await test.step('navigate to insights list', async () => {
@@ -43,7 +43,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('add, duplicate, and remove series', async ({ page }) => {
+    test('Add, duplicate, and delete series', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -80,7 +80,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('switch between aggregation methods', async ({ page }) => {
+    test('Switch between aggregation methods', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -122,7 +122,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('switch between chart types', async ({ page }) => {
+    test('Switch between chart types', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -164,7 +164,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('change date ranges, intervals, and comparison', async ({ page }) => {
+    test('Change date ranges, intervals, and comparison', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -224,7 +224,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('add, search, and remove breakdowns', async ({ page }) => {
+    test('Add and remove breakdowns', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -258,7 +258,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('add global filter group and toggle internal users filter', async ({ page }) => {
+    test('Add filter groups and toggle internal users filter', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -282,7 +282,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('enable and disable formula mode', async ({ page }) => {
+    test('Enable and disable formula mode', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.addSeries()
@@ -303,7 +303,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('configure display options and goal lines', async ({ page }) => {
+    test('Configure display options and goal lines', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
@@ -366,7 +366,7 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('edit saved insight and save as new', async ({ page }) => {
+    test('Edit saved insight and save as new', async ({ page }) => {
         const insight = new InsightPage(page)
 
         await test.step('create and save insight with complex config', async () => {
@@ -398,13 +398,13 @@ test.describe('Trends insights', () => {
         })
     })
 
-    test('export as CSV and XLSX', async ({ page }) => {
+    test('Export as CSV and XLSX', async ({ page }) => {
         const insight = new InsightPage(page)
         await insight.goToNewTrends()
         await insight.trends.waitForChart()
         await insight.trends.waitForDetailsTable()
 
-        await test.step('export as CSV', async () => {
+        await test.step('exports as CSV', async () => {
             await page.getByTestId('export-button').click()
             const csvDownload = page.waitForEvent('download')
             await page.getByTestId('export-button-csv').click()

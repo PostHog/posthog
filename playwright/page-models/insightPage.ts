@@ -16,6 +16,12 @@ export class InsightPage {
     readonly activeTab: Locator
 
     readonly trends: TrendsInsight
+    readonly funnels: FunnelsInsight
+    readonly retention: RetentionInsight
+    readonly paths: PathsInsight
+    readonly stickiness: StickinessInsight
+    readonly lifecycle: LifecycleInsight
+    readonly sql: SqlInsight
 
     constructor(page: Page) {
         this.page = page
@@ -26,6 +32,12 @@ export class InsightPage {
         this.activeTab = page.locator('.LemonTabs__tab--active')
 
         this.trends = new TrendsInsight(page)
+        this.funnels = new FunnelsInsight(page)
+        this.retention = new RetentionInsight(page)
+        this.paths = new PathsInsight(page)
+        this.stickiness = new StickinessInsight(page)
+        this.lifecycle = new LifecycleInsight(page)
+        this.sql = new SqlInsight(page)
     }
 
     async goToList(): Promise<InsightPage> {
@@ -33,9 +45,18 @@ export class InsightPage {
         return this
     }
 
-    async goToNewTrends(): Promise<InsightPage> {
-        await this.page.goto(urls.insightNew({ type: InsightType.TRENDS }), { waitUntil: 'domcontentloaded' })
+    async goToNewInsight(type: InsightType): Promise<InsightPage> {
+        await this.page.goto(urls.insightNew({ type }), { waitUntil: 'domcontentloaded' })
         await this.page.waitForSelector('.LemonTabs__tab--active')
+        return this
+    }
+
+    async goToNewTrends(): Promise<InsightPage> {
+        return this.goToNewInsight(InsightType.TRENDS)
+    }
+
+    async goToSql(): Promise<InsightPage> {
+        await this.page.goto('/sql', { waitUntil: 'domcontentloaded' })
         return this
     }
 
@@ -210,5 +231,105 @@ class TrendsInsight {
 
     taxonomicResults(): Locator {
         return this.page.locator('.taxonomic-list-row')
+    }
+}
+
+class FunnelsInsight {
+    readonly chart: Locator
+    readonly stepBars: Locator
+
+    constructor(private readonly page: Page) {
+        this.chart = page.getByTestId('funnel-bar-vertical').or(page.getByTestId('funnel-bar-horizontal'))
+        this.stepBars = page.getByTestId('funnel-bar-vertical').locator('.StepLegend')
+    }
+
+    async waitForChart(): Promise<void> {
+        await expect(this.chart.first()).toBeVisible()
+    }
+}
+
+class RetentionInsight {
+    readonly chart: Locator
+    readonly table: Locator
+
+    constructor(private readonly page: Page) {
+        this.chart = page.getByTestId('trend-line-graph')
+        this.table = page.getByTestId('retention-table')
+    }
+
+    async waitForChart(): Promise<void> {
+        await expect(this.table).toBeVisible()
+    }
+}
+
+class PathsInsight {
+    readonly container: Locator
+
+    constructor(private readonly page: Page) {
+        this.container = page.getByTestId('paths-viz')
+    }
+
+    async waitForChart(): Promise<void> {
+        await expect(this.container).toBeVisible()
+    }
+}
+
+class StickinessInsight {
+    readonly chart: Locator
+    readonly detailsTable: Locator
+
+    private readonly detailsLoader: Locator
+
+    constructor(private readonly page: Page) {
+        this.chart = page.getByTestId('insights-graph')
+        this.detailsTable = page.getByTestId('insights-table-graph')
+        this.detailsLoader = page.locator('.LemonTableLoader')
+    }
+
+    async waitForChart(): Promise<void> {
+        await expect(this.chart).toBeVisible()
+    }
+
+    async waitForDetailsTable(): Promise<void> {
+        await this.detailsTable.waitFor({ state: 'visible' })
+        await expect(this.detailsLoader).toHaveCount(0)
+    }
+}
+
+class LifecycleInsight {
+    readonly chart: Locator
+
+    constructor(private readonly page: Page) {
+        this.chart = page.getByTestId('trend-line-graph')
+    }
+
+    async waitForChart(): Promise<void> {
+        await expect(this.chart).toBeVisible()
+    }
+}
+
+class SqlInsight {
+    readonly editor: Locator
+    readonly runButton: Locator
+
+    constructor(private readonly page: Page) {
+        this.editor = page.getByTestId('editor-scene')
+        this.runButton = page.getByTestId('sql-editor-run-button')
+    }
+
+    async waitForChart(): Promise<void> {
+        await expect(this.editor).toBeVisible()
+    }
+
+    async writeQuery(query: string): Promise<void> {
+        const editorArea = this.page.getByTestId('hogql-query-editor')
+        await editorArea.waitFor({ state: 'visible' })
+        await editorArea.click()
+        await this.page.keyboard.press('Meta+A')
+        await this.page.keyboard.type(query)
+    }
+
+    async run(): Promise<void> {
+        await this.runButton.click()
     }
 }
