@@ -2698,6 +2698,23 @@
         "BreakdownValueInt": {
             "$ref": "#/definitions/integer"
         },
+        "COPODDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "contamination": {
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "type": {
+                    "const": "copod",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "CacheMissResponse": {
             "additionalProperties": false,
             "properties": {
@@ -11552,6 +11569,20 @@
             ],
             "type": "string"
         },
+        "DetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/SingleDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/EnsembleDetectorConfig"
+                }
+            ]
+        },
+        "DetectorType": {
+            "enum": ["threshold", "zscore", "mad", "iqr", "isolation_forest", "ecod", "copod", "knn", "ensemble"],
+            "type": "string"
+        },
         "DocumentArtifactContent": {
             "additionalProperties": false,
             "properties": {
@@ -11720,6 +11751,23 @@
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
+        },
+        "ECODDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "contamination": {
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "type": {
+                    "const": "ecod",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -12306,6 +12354,30 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "EnsembleDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "detectors": {
+                    "items": {
+                        "$ref": "#/definitions/SingleDetectorConfig"
+                    },
+                    "type": "array"
+                },
+                "mode": {
+                    "$ref": "#/definitions/EnsembleMode"
+                },
+                "type": {
+                    "const": "ensemble",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "mode", "detectors"],
+            "type": "object"
+        },
+        "EnsembleMode": {
+            "enum": ["and", "or"],
+            "type": "string"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -17652,6 +17724,26 @@
             "required": ["type", "content"],
             "type": "object"
         },
+        "IQRDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "multiplier": {
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "type": {
+                    "const": "iqr",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "InfinityValue": {
             "enum": [999999, -999999],
             "type": "number"
@@ -18539,6 +18631,46 @@
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "IsolationForestDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "contamination": {
+                    "type": "number"
+                },
+                "n_estimators": {
+                    "$ref": "#/definitions/integer"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "type": {
+                    "const": "isolation_forest",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "KNNDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "contamination": {
+                    "type": "number"
+                },
+                "n_neighbors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "type": {
+                    "const": "knn",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
@@ -19365,6 +19497,26 @@
             "description": "Field to break down sparkline data by",
             "enum": ["severity", "service"],
             "type": "string"
+        },
+        "MADDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "threshold": {
+                    "type": "number"
+                },
+                "type": {
+                    "const": "mad",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
         },
         "MarkdownBlock": {
             "additionalProperties": false,
@@ -22430,6 +22582,21 @@
                 "user_email",
                 "personal_api_key"
             ],
+            "type": "object"
+        },
+        "PreprocessingConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "diffs": {
+                    "type": "boolean"
+                },
+                "lags": {
+                    "$ref": "#/definitions/integer"
+                },
+                "smoothing": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
             "type": "object"
         },
         "ProductAnalyticsInsightQueryNode": {
@@ -30302,6 +30469,34 @@
             "enum": ["day", "month"],
             "type": "string"
         },
+        "SingleDetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                }
+            ]
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
@@ -31707,6 +31902,26 @@
             "required": ["success", "test_name"],
             "type": "object"
         },
+        "ThresholdDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/InsightsThresholdBounds"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "threshold_type": {
+                    "$ref": "#/definitions/InsightThresholdType"
+                },
+                "type": {
+                    "const": "threshold",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "threshold_type", "bounds"],
+            "type": "object"
+        },
         "TikTokAdsDefaultSources": {
             "enum": ["tiktok"],
             "type": "string"
@@ -32177,6 +32392,10 @@
                         }
                     ],
                     "description": "Customizations for the appearance of result datasets."
+                },
+                "showAlertPoints": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -34615,6 +34834,26 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZScoreDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig"
+                },
+                "threshold": {
+                    "type": "number"
+                },
+                "type": {
+                    "const": "zscore",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "integer": {

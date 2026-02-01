@@ -334,7 +334,7 @@ class TestPreprocessing:
         from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
 
         data = np.array([10, 20, 30, 40, 50])
-        config = {"smoothing": "moving_average", "smoothing_window": 3}
+        config = {"smoothing": 3}
         result = preprocess_data(data, config)
         assert len(result) == len(data)
 

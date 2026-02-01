@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0954_add_interval_to_alertcheck"),
+        ("posthog", "0997_add_interval_to_alertcheck"),
     ]
 
     operations = [

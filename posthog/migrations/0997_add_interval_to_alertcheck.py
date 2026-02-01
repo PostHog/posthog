@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0953_add_detector_config"),
+        ("posthog", "0996_add_detector_config"),
     ]
 
     operations = [

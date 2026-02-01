@@ -1287,11 +1287,6 @@ class EndpointsUsageOverviewItemKey(StrEnum):
     INLINE_REQUESTS = "inline_requests"
 
 
-class EnsembleMode(StrEnum):
-    AND_ = "and"
-    OR_ = "or"
-
-
 class MaterializationType(Enum):
     MATERIALIZED = "materialized"
     INLINE = "inline"
@@ -1304,6 +1299,11 @@ class Metric(StrEnum):
     REQUESTS = "requests"
     QUERY_DURATION = "query_duration"
     ERROR_RATE = "error_rate"
+
+
+class EnsembleMode(StrEnum):
+    AND_ = "and"
+    OR_ = "or"
 
 
 class EntityType(StrEnum):
@@ -3465,11 +3465,6 @@ class SlashCommandName(StrEnum):
     FIELD_TICKET = "/ticket"
 
 
-class SmoothingType(StrEnum):
-    MOVING_AVERAGE = "moving_average"
-    EXPONENTIAL = "exponential"
-
-
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3826,7 +3821,6 @@ class TrendsFilterLegacy(BaseModel):
     hidden_legend_keys: dict[str, bool | Any] | None = None
     min_decimal_places: float | None = None
     show_alert_threshold_lines: bool | None = None
-    show_alert_points: bool | None = None
     show_labels_on_series: bool | None = None
     show_legend: bool | None = None
     show_multiple_y_axes: bool | None = None
@@ -5577,8 +5571,8 @@ class PreprocessingConfig(BaseModel):
         extra="forbid",
     )
     diffs: bool | None = None
-    lags: int | None = None  # Number of lag features for multivariate models (KNN, Isolation Forest)
-    smoothing: int | None = None  # Moving average window size (0 or None = no smoothing)
+    lags: int | None = None
+    smoothing: int | None = None
 
 
 class ProductItem(BaseModel):
@@ -6682,8 +6676,8 @@ class TrendsFilter(BaseModel):
             description="Customizations for the appearance of result datasets.",
         )
     )
-    showAlertThresholdLines: bool | None = False
     showAlertPoints: bool | None = False
+    showAlertThresholdLines: bool | None = False
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
