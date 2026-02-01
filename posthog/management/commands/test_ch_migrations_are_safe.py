@@ -129,7 +129,8 @@ class Command(BaseCommand):
             _, index, name = re.findall(r"([a-z]+)/clickhouse/migrations/([0-9]+)_([a-zA-Z_0-9]+)\.py", new_migration)[
                 0
             ]
-        except (IndexError, CommandError):
+        except (IndexError, CommandError) as exc:
+            logger.warning("Could not parse migration path '%s': %s", new_migration, exc)
             return
 
         collisions = [f"{idx}_{n}" for idx, n in old_migrations if idx == index]
