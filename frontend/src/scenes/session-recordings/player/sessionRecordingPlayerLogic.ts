@@ -1112,6 +1112,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Tries to initialize a new player
             const windowId = values.segmentForTimestamp(values.currentTimestamp)?.windowId
 
+            // Skip reinitialization if we already have a player for this window
+            // This prevents unnecessary cleanup/create cycles and memory churn
+            if (values.player && values.player.windowId === windowId) {
+                return
+            }
+
+            // Dispose of the old replayer BEFORE clearing the DOM or setting state
+            // This ensures the old replayer releases its references to DOM elements
+            // before those elements are removed, preventing detached element memory leaks
+            cache.disposables.dispose(`replayer-${props.mode}`)
+
             actions.setPlayer(null)
 
             if (values.rootFrame) {
@@ -1124,7 +1135,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
                 values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
             ) {
-                actions.setPlayer(null)
                 return
             }
 
