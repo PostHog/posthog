@@ -17,7 +17,7 @@ jobs:
             - uses: actions/checkout@v6
             - uses: actions/setup-go@v6
               with:
-                  go-version-file: go.mod
+                  go-version-file: ./go/json_drop_keys_udf/go.mod
                   cache: true
             - name: Run integration tests
               run: ./go/json_drop_keys_udf/scripts/integration_test.sh
