@@ -32,7 +32,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         query,
         bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS,
         bounce_rate_duration=None,
-        sessions_v2_join_mode=SessionsV2JoinMode.STRING,
+        sessions_v2_join_mode=SessionsV2JoinMode.UUID,
     ):
         modifiers = HogQLQueryModifiers(
             sessionTableVersion=SessionTableVersion.V2,
