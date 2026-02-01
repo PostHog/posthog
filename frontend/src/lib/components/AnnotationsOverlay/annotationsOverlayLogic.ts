@@ -113,6 +113,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             null as Dayjs | null,
             {
                 activateDate: (_, { date }) => date,
+                deactivateDate: () => null,
+                closePopover: () => null,
             },
         ],
         isDateLocked: [
