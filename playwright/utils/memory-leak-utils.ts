@@ -442,9 +442,9 @@ function formatBytes(bytes: number): string {
 }
 
 export function generateReport(report: MemoryLeakReport): string {
-    const { testName, pagesTraversed, leakResults } = report
+    const { pagesTraversed, leakResults } = report
 
-    let output = `## Memory Leak Detection: ${testName}\n\n`
+    let output = ''
 
     if (leakResults.leakedObjectCount > 0) {
         output += `**${leakResults.leakedObjectCount} potential memory leaks detected**\n\n`

@@ -465,18 +465,33 @@ jobs:
                               console.log('Found directories:', dirs);
                               for (const dir of dirs) {
                                   const reportPath = path.join(resultsDir, dir, 'memory-leak-report.md');
+                                  const jsonPath = path.join(resultsDir, dir, 'memory-leak-report.json');
                                   console.log('Looking for report at:', reportPath);
                                   if (fs.existsSync(reportPath)) {
                                       const content = fs.readFileSync(reportPath, 'utf8');
                                       const testName = dir.replace(/^\d{4}-\d{2}-\d{2}T[\d-]+Z?-?/, '');
-                                      reports.push({ name: testName || dir, content });
+
+                                      // Read JSON to get leak count
+                                      let leakCount = 0;
+                                      if (fs.existsSync(jsonPath)) {
+                                          try {
+                                              const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+                                              leakCount = jsonData.leakResults?.leakedObjectCount || 0;
+                                          } catch (e) {
+                                              console.log('Failed to parse JSON for leak count:', e.message);
+                                          }
+                                      }
+
+                                      reports.push({ name: testName || dir, content, leakCount });
                                       console.log('Successfully read report file for:', testName || dir);
                                   } else {
                                       console.log('Report file does not exist in:', dir);
                                   }
                               }
                               if (reports.length > 0) {
-                                  reportContent = reports.map(r => `### Test: ${r.name}\n\n${r.content}`).join('\n\n---\n\n');
+                                  const totalLeaks = reports.reduce((sum, r) => sum + r.leakCount, 0);
+                                  const header = `# Memory Leak Detection Results\n\n**Total potential memory leaks detected: ${totalLeaks}**\n\n`;
+                                  reportContent = header + reports.map(r => `### Test: ${r.name}\n\n${r.content}`).join('\n\n---\n\n');
                               }
                           } else {
                               console.log('Results directory does not exist');
@@ -495,7 +510,7 @@ jobs:
                               logContent = 'Could not read log file';
                           }
 
-                          reportContent = `## Memory Leak Detection Results
+                          reportContent = `# Memory Leak Detection Results
 
                       **Test completed** - see artifacts for detailed results.
 
