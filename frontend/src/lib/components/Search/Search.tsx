@@ -601,7 +601,7 @@ function SearchResults({
                                 }
                             />
                             {group.isLoading && !isSearching ? (
-                                <div className="space-y-1">
+                                <div>
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
