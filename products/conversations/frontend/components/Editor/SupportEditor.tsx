@@ -136,7 +136,7 @@ function escapeMarkdown(text: string): string {
  * Escape characters that would break image alt text syntax (specifically ])
  */
 function escapeAltText(text: string): string {
-    return text.replace(/]/g, '\\]')
+    return text.replace(/([\\\]])/g, '\\$1')
 }
 
 /**
