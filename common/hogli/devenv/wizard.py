@@ -37,9 +37,10 @@ def _choose_config_location(local_path: Path) -> Path:
     if choice == "1":
         return local_path
 
-    # Create symlink from worktree to main repo
+    # Create symlink from worktree to main repo (config file created after this)
     local_path.parent.mkdir(parents=True, exist_ok=True)
     main_path.parent.mkdir(parents=True, exist_ok=True)
+    # exists() is False for broken symlinks, so check both
     if local_path.exists() or local_path.is_symlink():
         local_path.unlink()
     local_path.symlink_to(main_path)

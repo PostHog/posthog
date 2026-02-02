@@ -303,7 +303,10 @@ def get_main_repo_from_worktree() -> Path | None:
         git_path = parent / ".git"
         if git_path.is_file():
             # Worktree: .git file contains "gitdir: /path/to/main/.git/worktrees/<name>"
-            content = git_path.read_text().strip()
+            try:
+                content = git_path.read_text().strip()
+            except OSError:
+                return None
             if content.startswith("gitdir: ") and "worktrees" in content:
                 gitdir = Path(content.removeprefix("gitdir: ").strip())
                 # Resolve relative paths against .git file's directory
