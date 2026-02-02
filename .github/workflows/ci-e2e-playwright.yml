@@ -461,10 +461,10 @@ jobs:
                       try {
                           console.log('Checking for results in:', resultsDir);
                           if (fs.existsSync(resultsDir)) {
-                              const dirs = fs.readdirSync(resultsDir).sort().reverse(); // Latest first
+                              const dirs = fs.readdirSync(resultsDir).sort();
                               console.log('Found directories:', dirs);
 
-                              // Use a Map to deduplicate by test name, keeping only the latest
+                              // Use a Map to keep the result with highest leak count for each test
                               const reportMap = new Map();
 
                               for (const dir of dirs) {
@@ -474,12 +474,6 @@ jobs:
                                   if (fs.existsSync(reportPath)) {
                                       const content = fs.readFileSync(reportPath, 'utf8');
                                       const testName = dir.replace(/^\d{4}-\d{2}-\d{2}T[\d-]+Z?-?/, '');
-
-                                      // Skip if we already have this test (we're iterating latest-first)
-                                      if (reportMap.has(testName)) {
-                                          console.log('Skipping duplicate test:', testName);
-                                          continue;
-                                      }
 
                                       // Read JSON to get leak count
                                       let leakCount = 0;
@@ -492,8 +486,14 @@ jobs:
                                           }
                                       }
 
-                                      reportMap.set(testName, { name: testName || dir, content, leakCount });
-                                      console.log('Successfully read report file for:', testName || dir);
+                                      // Keep the result with highest leak count for this test
+                                      const existing = reportMap.get(testName);
+                                      if (!existing || leakCount > existing.leakCount) {
+                                          reportMap.set(testName, { name: testName || dir, content, leakCount });
+                                          console.log(`Updated report for ${testName} with ${leakCount} leaks`);
+                                      } else {
+                                          console.log(`Skipping ${testName} - existing has more leaks (${existing.leakCount} vs ${leakCount})`);
+                                      }
                                   } else {
                                       console.log('Report file does not exist in:', dir);
                                   }
