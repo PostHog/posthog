@@ -70,7 +70,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
-    ProjectViewSet as VisualReviewProjectViewSet,
+    RepoViewSet as VisualReviewRepoViewSet,
     RunViewSet as VisualReviewRunViewSet,
 )
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
@@ -899,9 +899,9 @@ environments_router.register(
 
 # Visual review
 projects_router.register(
-    r"visual_review/projects",
-    VisualReviewProjectViewSet,
-    "project_visual_review_projects",
+    r"visual_review/repos",
+    VisualReviewRepoViewSet,
+    "project_visual_review_repos",
     ["team_id"],
 )
 projects_router.register(

@@ -51,7 +51,7 @@ export class VisualReviewClient {
     }
 
     private url(path: string): string {
-        return `${this.apiUrl}/api/projects/${this.teamId}${path}`
+        return `${this.apiUrl}/api/repos/${this.teamId}${path}`
     }
 
     private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -75,7 +75,7 @@ export class VisualReviewClient {
      * Create a new visual review run.
      */
     async createRun(input: {
-        projectId: string
+        repoId: string
         runType: string
         commitSha: string
         branch: string
@@ -84,7 +84,7 @@ export class VisualReviewClient {
         baselineHashes?: Record<string, string>
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
-            project_id: input.projectId,
+            repo_id: input.repoId,
             run_type: input.runType,
             commit_sha: input.commitSha,
             branch: input.branch,

@@ -10,15 +10,15 @@ from ..api.dtos import (
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
-    CreateProjectInput,
+    CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
-    Project,
+    Repo,
     Run,
     RunSummary,
     Snapshot,
     SnapshotManifestItem,
-    UpdateProjectRequestInput,
+    UpdateRepoRequestInput,
     UploadTarget,
 )
 
@@ -50,9 +50,9 @@ class RunSerializer(DataclassSerializer):
         dataclass = Run
 
 
-class ProjectSerializer(DataclassSerializer):
+class RepoSerializer(DataclassSerializer):
     class Meta:
-        dataclass = Project
+        dataclass = Repo
 
 
 class UploadTargetSerializer(DataclassSerializer):
@@ -78,9 +78,9 @@ class CreateRunInputSerializer(DataclassSerializer):
         dataclass = CreateRunInput
 
 
-class UpdateProjectInputSerializer(DataclassSerializer):
+class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
-        dataclass = UpdateProjectRequestInput
+        dataclass = UpdateRepoRequestInput
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
@@ -93,6 +93,6 @@ class ApproveRunInputSerializer(DataclassSerializer):
         dataclass = ApproveRunRequestInput
 
 
-class CreateProjectInputSerializer(DataclassSerializer):
+class CreateRepoInputSerializer(DataclassSerializer):
     class Meta:
-        dataclass = CreateProjectInput
+        dataclass = CreateRepoInput

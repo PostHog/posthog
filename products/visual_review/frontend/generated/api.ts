@@ -10,16 +10,16 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ApproveRunRequestInputApi,
-    CreateProjectInputApi,
+    CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
-    PaginatedProjectListApi,
+    PaginatedRepoListApi,
     PaginatedRunListApi,
     PaginatedSnapshotListApi,
-    PatchedUpdateProjectRequestInputApi,
-    ProjectApi,
+    PatchedUpdateRepoRequestInputApi,
+    RepoApi,
     RunApi,
-    VisualReviewProjectsListParams,
+    VisualReviewReposListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotsListParams,
 } from './api.schemas'
@@ -27,7 +27,7 @@ import type {
 /**
  * List all projects for the team.
  */
-export const getVisualReviewProjectsListUrl = (projectId: string, params?: VisualReviewProjectsListParams) => {
+export const getVisualReviewReposListUrl = (projectId: string, params?: VisualReviewReposListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -39,77 +39,77 @@ export const getVisualReviewProjectsListUrl = (projectId: string, params?: Visua
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/visual_review/projects/?${stringifiedParams}`
-        : `/api/projects/${projectId}/visual_review/projects/`
+        ? `/api/projects/${projectId}/visual_review/repos/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/`
 }
 
-export const visualReviewProjectsList = async (
+export const visualReviewReposList = async (
     projectId: string,
-    params?: VisualReviewProjectsListParams,
+    params?: VisualReviewReposListParams,
     options?: RequestInit
-): Promise<PaginatedProjectListApi> => {
-    return apiMutator<PaginatedProjectListApi>(getVisualReviewProjectsListUrl(projectId, params), {
+): Promise<PaginatedRepoListApi> => {
+    return apiMutator<PaginatedRepoListApi>(getVisualReviewReposListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
 /**
- * Create a new project.
+ * Create a new repo.
  */
-export const getVisualReviewProjectsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/visual_review/projects/`
+export const getVisualReviewReposCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/`
 }
 
-export const visualReviewProjectsCreate = async (
+export const visualReviewReposCreate = async (
     projectId: string,
-    createProjectInputApi: CreateProjectInputApi,
+    createRepoInputApi: CreateRepoInputApi,
     options?: RequestInit
-): Promise<ProjectApi> => {
-    return apiMutator<ProjectApi>(getVisualReviewProjectsCreateUrl(projectId), {
+): Promise<RepoApi> => {
+    return apiMutator<RepoApi>(getVisualReviewReposCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(createProjectInputApi),
+        body: JSON.stringify(createRepoInputApi),
     })
 }
 
 /**
- * Get a project by ID.
+ * Get a repo by ID.
  */
-export const getVisualReviewProjectsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/projects/${id}/`
+export const getVisualReviewReposRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/`
 }
 
-export const visualReviewProjectsRetrieve = async (
+export const visualReviewReposRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<ProjectApi> => {
-    return apiMutator<ProjectApi>(getVisualReviewProjectsRetrieveUrl(projectId, id), {
+): Promise<RepoApi> => {
+    return apiMutator<RepoApi>(getVisualReviewReposRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
 /**
- * Update a project's settings.
+ * Update a repo's settings.
  */
-export const getVisualReviewProjectsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/projects/${id}/`
+export const getVisualReviewReposPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/`
 }
 
-export const visualReviewProjectsPartialUpdate = async (
+export const visualReviewReposPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUpdateProjectRequestInputApi: PatchedUpdateProjectRequestInputApi,
+    patchedUpdateRepoRequestInputApi: PatchedUpdateRepoRequestInputApi,
     options?: RequestInit
-): Promise<ProjectApi> => {
-    return apiMutator<ProjectApi>(getVisualReviewProjectsPartialUpdateUrl(projectId, id), {
+): Promise<RepoApi> => {
+    return apiMutator<RepoApi>(getVisualReviewReposPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUpdateProjectRequestInputApi),
+        body: JSON.stringify(patchedUpdateRepoRequestInputApi),
     })
 }
 

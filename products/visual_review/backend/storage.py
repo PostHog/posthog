@@ -20,14 +20,14 @@ class ArtifactStorage:
     MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10MB per image
     PRESIGNED_EXPIRATION = 60 * 15  # 15 minutes
 
-    def __init__(self, project_id: str):
-        self.project_id = project_id
+    def __init__(self, repo_id: str):
+        self.repo_id = repo_id
 
     def _key(self, content_hash: str) -> str:
         # Hash sharding: use first 2 chars as prefix for better S3 partitioning
         # Spreads load across 256 prefixes, improves listing performance at scale
         prefix = content_hash[:2]
-        return f"{self.FOLDER}/{self.project_id}/{prefix}/{content_hash}"
+        return f"{self.FOLDER}/{self.repo_id}/{prefix}/{content_hash}"
 
     def get_presigned_upload_url(self, content_hash: str) -> dict[str, Any] | None:
         if not settings.OBJECT_STORAGE_ENABLED:

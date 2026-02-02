@@ -74,11 +74,11 @@ def _diff_snapshot(snapshot) -> None:
     from .. import logic
     from ..diff import compute_diff
 
-    project_id = snapshot.run.project_id
+    repo_id = snapshot.run.repo_id
 
     # Download images from storage
-    baseline_bytes = logic.read_artifact_bytes(project_id, snapshot.baseline_artifact.content_hash)
-    current_bytes = logic.read_artifact_bytes(project_id, snapshot.current_artifact.content_hash)
+    baseline_bytes = logic.read_artifact_bytes(repo_id, snapshot.baseline_artifact.content_hash)
+    current_bytes = logic.read_artifact_bytes(repo_id, snapshot.current_artifact.content_hash)
 
     if not baseline_bytes or not current_bytes:
         logger.warning(
@@ -95,7 +95,7 @@ def _diff_snapshot(snapshot) -> None:
 
     # Upload diff image
     diff_artifact = logic.write_artifact_bytes(
-        project_id=project_id,
+        repo_id=repo_id,
         content_hash=result.diff_hash,
         content=result.diff_image,
         width=result.width,

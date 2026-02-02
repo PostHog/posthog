@@ -102,7 +102,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
 
     // 4. Create run with manifest
     const result = await client.createRun({
-        projectId: options.project,
+        repoId: options.project,
         runType: options.type,
         commitSha: options.commit,
         branch: options.branch,

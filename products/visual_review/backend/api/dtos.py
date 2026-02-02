@@ -28,7 +28,7 @@ class SnapshotManifestItem:
 class CreateRunInput:
     """Input for creating a new visual review run."""
 
-    project_id: UUID
+    repo_id: UUID
     run_type: str
     commit_sha: str
     branch: str
@@ -40,8 +40,8 @@ class CreateRunInput:
 
 
 @dataclass(frozen=True)
-class CreateProjectInput:
-    """Input for creating a project."""
+class CreateRepoInput:
+    """Input for creating a repo."""
 
     name: str
 
@@ -139,7 +139,7 @@ class Run:
     """A visual review run."""
 
     id: UUID
-    project_id: UUID
+    repo_id: UUID
     status: str
     run_type: str
     commit_sha: str
@@ -156,8 +156,8 @@ class Run:
 
 
 @dataclass(frozen=True)
-class UpdateProjectRequestInput:
-    """Request body for updating a project. project_id comes from URL."""
+class UpdateRepoRequestInput:
+    """Request body for updating a repo. repo_id comes from URL."""
 
     name: str | None = None
     repo_full_name: str | None = None
@@ -165,18 +165,18 @@ class UpdateProjectRequestInput:
 
 
 @dataclass(frozen=True)
-class UpdateProjectInput:
-    """Full input for updating a project (internal use)."""
+class UpdateRepoInput:
+    """Full input for updating a repo (internal use)."""
 
-    project_id: UUID
+    repo_id: UUID
     name: str | None = None
     repo_full_name: str | None = None
     baseline_file_paths: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
-class Project:
-    """A visual review project."""
+class Repo:
+    """A visual review repo."""
 
     id: UUID
     team_id: int

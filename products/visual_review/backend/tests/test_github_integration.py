@@ -21,7 +21,7 @@ import responses
 
 from products.visual_review.backend import logic
 from products.visual_review.backend.domain_types import RunStatus, SnapshotResult
-from products.visual_review.backend.models import Artifact, Project, Run, RunSnapshot
+from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 
 # --- Fixtures ---
 
@@ -265,10 +265,10 @@ def mock_github_integration(team, mocker):
 
 @pytest.fixture
 def vr_project_with_github(team, mock_github_integration):
-    """Create a visual review project configured for GitHub."""
-    return Project.objects.create(
+    """Create a visual review repo configured for GitHub."""
+    return Repo.objects.create(
         team=team,
-        name="test-project",
+        name="test-repo",
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},
     )
@@ -283,11 +283,11 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     - A run with pr_number and commit_sha matching the local repo
     - Snapshots marked as 'changed' with artifacts
     """
-    project = vr_project_with_github
+    repo = vr_project_with_github
     commit_sha = _get_head_sha(local_git_repo)
 
     run = Run.objects.create(
-        project=project,
+        repo=repo,
         status=RunStatus.COMPLETED,
         run_type="storybook",
         commit_sha=commit_sha,
@@ -299,14 +299,14 @@ def run_with_changes(vr_project_with_github, local_git_repo):
 
     # Create artifacts for the snapshots
     artifact1 = Artifact.objects.create(
-        project=project,
+        repo=repo,
         content_hash="abc123hash",
         storage_path="visual_review/test/abc123hash.png",
         width=800,
         height=600,
     )
     artifact2 = Artifact.objects.create(
-        project=project,
+        repo=repo,
         content_hash="def456hash",
         storage_path="visual_review/test/def456hash.png",
         width=1200,
@@ -493,11 +493,11 @@ class TestGitHubCommitOnApprove:
         user,
     ):
         """Approve for a run without pr_number should only update DB."""
-        project = vr_project_with_github
+        repo = vr_project_with_github
 
         # Create run without pr_number
         run = Run.objects.create(
-            project=project,
+            repo=repo,
             status=RunStatus.COMPLETED,
             run_type="storybook",
             commit_sha="abc123",
@@ -508,7 +508,7 @@ class TestGitHubCommitOnApprove:
         )
 
         artifact = Artifact.objects.create(
-            project=project,
+            repo=repo,
             content_hash="newhash",
             storage_path="path/to/artifact.png",
         )
@@ -584,15 +584,15 @@ class TestGitHubIntegrationErrors:
 
     def test_missing_github_integration(self, team, user):
         """Should raise error if team has no GitHub integration."""
-        project = Project.objects.create(
+        repo = Repo.objects.create(
             team=team,
-            name="no-github-project",
+            name="no-github-repo",
             repo_full_name="org/repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
         )
 
         run = Run.objects.create(
-            project=project,
+            repo=repo,
             status=RunStatus.COMPLETED,
             run_type="storybook",
             commit_sha="abc123",
@@ -602,7 +602,7 @@ class TestGitHubIntegrationErrors:
         )
 
         artifact = Artifact.objects.create(
-            project=project,
+            repo=repo,
             content_hash="hash123",
             storage_path="path.png",
         )

@@ -21,7 +21,7 @@ from .. import logic
 from . import dtos
 
 # Re-export exceptions for callers
-ProjectNotFoundError = logic.ProjectNotFoundError
+RepoNotFoundError = logic.RepoNotFoundError
 RunNotFoundError = logic.RunNotFoundError
 ArtifactNotFoundError = logic.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = logic.GitHubIntegrationNotFoundError
@@ -37,8 +37,8 @@ BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 # the mapper absorbs the change instead of it leaking everywhere.
 
 
-def _to_artifact(artifact, project_id: UUID) -> dtos.Artifact:
-    download_url = logic.get_presigned_download_url(project_id, artifact.content_hash)
+def _to_artifact(artifact, repo_id: UUID) -> dtos.Artifact:
+    download_url = logic.get_presigned_download_url(repo_id, artifact.content_hash)
     return dtos.Artifact(
         id=artifact.id,
         content_hash=artifact.content_hash,
@@ -48,14 +48,14 @@ def _to_artifact(artifact, project_id: UUID) -> dtos.Artifact:
     )
 
 
-def _to_snapshot(snapshot, project_id: UUID) -> dtos.Snapshot:
+def _to_snapshot(snapshot, repo_id: UUID) -> dtos.Snapshot:
     return dtos.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
         result=snapshot.result,
-        current_artifact=_to_artifact(snapshot.current_artifact, project_id) if snapshot.current_artifact else None,
-        baseline_artifact=_to_artifact(snapshot.baseline_artifact, project_id) if snapshot.baseline_artifact else None,
-        diff_artifact=_to_artifact(snapshot.diff_artifact, project_id) if snapshot.diff_artifact else None,
+        current_artifact=_to_artifact(snapshot.current_artifact, repo_id) if snapshot.current_artifact else None,
+        baseline_artifact=_to_artifact(snapshot.baseline_artifact, repo_id) if snapshot.baseline_artifact else None,
+        diff_artifact=_to_artifact(snapshot.diff_artifact, repo_id) if snapshot.diff_artifact else None,
         diff_percentage=snapshot.diff_percentage,
         diff_pixel_count=snapshot.diff_pixel_count,
         review_state=snapshot.review_state,
@@ -68,7 +68,7 @@ def _to_snapshot(snapshot, project_id: UUID) -> dtos.Snapshot:
 def _to_run(run) -> dtos.Run:
     return dtos.Run(
         id=run.id,
-        project_id=run.project_id,
+        repo_id=run.repo_id,
         status=run.status,
         run_type=run.run_type,
         commit_sha=run.commit_sha,
@@ -90,43 +90,43 @@ def _to_run(run) -> dtos.Run:
     )
 
 
-def _to_project(project) -> dtos.Project:
-    return dtos.Project(
-        id=project.id,
-        team_id=project.team_id,
-        name=project.name,
-        repo_full_name=project.repo_full_name,
-        baseline_file_paths=project.baseline_file_paths,
-        created_at=project.created_at,
+def _to_repo(repo) -> dtos.Repo:
+    return dtos.Repo(
+        id=repo.id,
+        team_id=repo.team_id,
+        name=repo.name,
+        repo_full_name=repo.repo_full_name,
+        baseline_file_paths=repo.baseline_file_paths,
+        created_at=repo.created_at,
     )
 
 
-# --- Project API ---
+# --- Repo API ---
 
 
-def get_project(project_id: UUID) -> dtos.Project:
-    project = logic.get_project(project_id)
-    return _to_project(project)
+def get_repo(repo_id: UUID) -> dtos.Repo:
+    repo = logic.get_repo(repo_id)
+    return _to_repo(repo)
 
 
-def list_projects(team_id: int) -> list[dtos.Project]:
-    projects = logic.list_projects_for_team(team_id)
-    return [_to_project(p) for p in projects]
+def list_repos(team_id: int) -> list[dtos.Repo]:
+    projects = logic.list_repos_for_team(team_id)
+    return [_to_repo(p) for p in projects]
 
 
-def create_project(team_id: int, name: str) -> dtos.Project:
-    project = logic.create_project(team_id=team_id, name=name)
-    return _to_project(project)
+def create_repo(team_id: int, name: str) -> dtos.Repo:
+    repo = logic.create_repo(team_id=team_id, name=name)
+    return _to_repo(repo)
 
 
-def update_project(input: dtos.UpdateProjectInput) -> dtos.Project:
-    project = logic.update_project(
-        project_id=input.project_id,
+def update_repo(input: dtos.UpdateRepoInput) -> dtos.Repo:
+    repo = logic.update_repo(
+        repo_id=input.repo_id,
         name=input.name,
         repo_full_name=input.repo_full_name,
         baseline_file_paths=input.baseline_file_paths,
     )
-    return _to_project(project)
+    return _to_repo(repo)
 
 
 # --- Run API ---
@@ -151,7 +151,7 @@ def create_run(input: dtos.CreateRunInput) -> dtos.CreateRunResult:
     ]
 
     run, uploads = logic.create_run(
-        project_id=input.project_id,
+        repo_id=input.repo_id,
         run_type=input.run_type,
         commit_sha=input.commit_sha,
         branch=input.branch,
@@ -182,8 +182,8 @@ def get_run_snapshots(run_id: UUID) -> list[dtos.Snapshot]:
     snapshots = logic.get_run_snapshots(run_id)
     if not snapshots:
         return []
-    project_id = snapshots[0].run.project_id
-    return [_to_snapshot(s, project_id) for s in snapshots]
+    repo_id = snapshots[0].run.repo_id
+    return [_to_snapshot(s, repo_id) for s in snapshots]
 
 
 def complete_run(run_id: UUID) -> dtos.Run:

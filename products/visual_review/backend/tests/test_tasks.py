@@ -13,14 +13,14 @@ from products.visual_review.backend.tasks.tasks import _process_diffs, process_r
 @pytest.mark.django_db
 class TestProcessRunDiffs:
     @pytest.fixture
-    def project(self, team):
-        return api.create_project(team_id=team.id, name="Test")
+    def repo(self, team):
+        return api.create_repo(team_id=team.id, name="Test")
 
-    def test_process_run_diffs_completes_run(self, project):
+    def test_process_run_diffs_completes_run(self, repo):
         # Create run without any changed snapshots
         create_result = api.create_run(
             CreateRunInput(
-                project_id=project.id,
+                repo_id=repo.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -36,10 +36,10 @@ class TestProcessRunDiffs:
         assert run.status == RunStatus.COMPLETED
         assert run.completed_at is not None
 
-    def test_process_run_diffs_handles_error(self, project):
+    def test_process_run_diffs_handles_error(self, repo):
         create_result = api.create_run(
             CreateRunInput(
-                project_id=project.id,
+                repo_id=repo.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -58,17 +58,17 @@ class TestProcessRunDiffs:
         assert run.status == RunStatus.FAILED
         assert "Something went wrong" in (run.error_message or "")
 
-    def test_process_diffs_skips_unchanged(self, project):
+    def test_process_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
         logic.get_or_create_artifact(
-            project_id=project.id,
+            repo_id=repo.id,
             content_hash="same_hash",
             storage_path="visual_review/same_hash",
         )
 
         create_result = api.create_run(
             CreateRunInput(
-                project_id=project.id,
+                repo_id=repo.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -85,10 +85,10 @@ class TestProcessRunDiffs:
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.UNCHANGED
 
-    def test_process_diffs_skips_new(self, project):
+    def test_process_diffs_skips_new(self, repo):
         create_result = api.create_run(
             CreateRunInput(
-                project_id=project.id,
+                repo_id=repo.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -104,23 +104,23 @@ class TestProcessRunDiffs:
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
 
-    def test_process_diffs_attempts_diff_for_changed(self, project):
+    def test_process_diffs_attempts_diff_for_changed(self, repo):
         # Create baseline artifact
         logic.get_or_create_artifact(
-            project_id=project.id,
+            repo_id=repo.id,
             content_hash="old_hash",
             storage_path="visual_review/old_hash",
         )
         # Create current artifact
         logic.get_or_create_artifact(
-            project_id=project.id,
+            repo_id=repo.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
         )
 
         create_result = api.create_run(
             CreateRunInput(
-                project_id=project.id,
+                repo_id=repo.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",

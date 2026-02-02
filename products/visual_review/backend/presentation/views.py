@@ -26,20 +26,20 @@ from ..api import api
 from ..api.dtos import (
     ApproveRunInput,
     ApproveRunRequestInput,
-    CreateProjectInput,
+    CreateRepoInput,
     CreateRunInput,
-    UpdateProjectInput,
-    UpdateProjectRequestInput,
+    UpdateRepoInput,
+    UpdateRepoRequestInput,
 )
 from .serializers import (
     ApproveRunInputSerializer,
-    CreateProjectInputSerializer,
+    CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
-    ProjectSerializer,
+    RepoSerializer,
     RunSerializer,
     SnapshotSerializer,
-    UpdateProjectInputSerializer,
+    UpdateRepoInputSerializer,
 )
 
 # TODO: Add VISUAL_REVIEW to frontend/src/queries/schema/schema-general.ts ProductKey enum
@@ -48,61 +48,61 @@ VISUAL_REVIEW_TAG = "visual_review"
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
-class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Projects for visual review.
 
-    A project typically represents a repository or test suite.
+    A repo typically represents a repository or test suite.
     """
 
     # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
-    scope_object = "project"
+    scope_object = "repo"
     scope_object_write_actions = ["create", "partial_update"]
     scope_object_read_actions = ["list", "retrieve"]
 
-    @extend_schema(responses={200: ProjectSerializer(many=True)})
+    @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
         """List all projects for the team."""
-        projects = api.list_projects(self.team_id)
-        return Response(ProjectSerializer(instance=projects, many=True).data)
+        projects = api.list_repos(self.team_id)
+        return Response(RepoSerializer(instance=projects, many=True).data)
 
     @validated_request(
-        request_serializer=CreateProjectInputSerializer,
-        responses={201: OpenApiResponse(response=ProjectSerializer)},
+        request_serializer=CreateRepoInputSerializer,
+        responses={201: OpenApiResponse(response=RepoSerializer)},
     )
-    def create(self, request: ValidatedRequest[CreateProjectInput], **kwargs) -> Response:
-        """Create a new project."""
-        project = api.create_project(team_id=self.team_id, name=request.validated_data.name)
-        return Response(ProjectSerializer(instance=project).data, status=status.HTTP_201_CREATED)
+    def create(self, request: ValidatedRequest[CreateRepoInput], **kwargs) -> Response:
+        """Create a new repo."""
+        repo = api.create_repo(team_id=self.team_id, name=request.validated_data.name)
+        return Response(RepoSerializer(instance=repo).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(responses={200: ProjectSerializer})
+    @extend_schema(responses={200: RepoSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Get a project by ID."""
+        """Get a repo by ID."""
         try:
-            project = api.get_project(UUID(pk))
-        except api.ProjectNotFoundError:
-            return Response({"detail": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
-        return Response(ProjectSerializer(instance=project).data)
+            repo = api.get_repo(UUID(pk))
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(RepoSerializer(instance=repo).data)
 
     @validated_request(
-        request_serializer=UpdateProjectInputSerializer,
-        responses={200: OpenApiResponse(response=ProjectSerializer)},
+        request_serializer=UpdateRepoInputSerializer,
+        responses={200: OpenApiResponse(response=RepoSerializer)},
     )
-    def partial_update(self, request: ValidatedRequest[UpdateProjectRequestInput], pk: str, **kwargs) -> Response:
-        """Update a project's settings."""
+    def partial_update(self, request: ValidatedRequest[UpdateRepoRequestInput], pk: str, **kwargs) -> Response:
+        """Update a repo's settings."""
         body = request.validated_data
-        input_dto = UpdateProjectInput(
-            project_id=UUID(pk),
+        input_dto = UpdateRepoInput(
+            repo_id=UUID(pk),
             name=body.name,
             repo_full_name=body.repo_full_name,
             baseline_file_paths=body.baseline_file_paths,
         )
 
         try:
-            project = api.update_project(input_dto)
-        except api.ProjectNotFoundError:
-            return Response({"detail": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
-        return Response(ProjectSerializer(instance=project).data)
+            repo = api.update_repo(input_dto)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(RepoSerializer(instance=repo).data)
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
@@ -114,7 +114,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
-    scope_object = "project"
+    scope_object = "repo"
     scope_object_write_actions = ["create", "complete", "approve"]
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
 

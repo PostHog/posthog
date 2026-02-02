@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import responses
 
-from products.visual_review.backend.models import Project
+from products.visual_review.backend.models import Repo
 
 # Import shared PostHog test fixtures (team, user, django_db_setup, etc.)
 # This makes posthog/conftest.py fixtures available to our tests
@@ -236,10 +236,10 @@ def mock_github_integration(team, mocker):
 
 @pytest.fixture
 def vr_project_with_github(team, mock_github_integration):
-    """Create a visual review project configured for GitHub."""
-    return Project.objects.create(
+    """Create a visual review repo configured for GitHub."""
+    return Repo.objects.create(
         team=team,
-        name="test-project",
+        name="test-repo",
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},
     )

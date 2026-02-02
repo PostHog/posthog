@@ -10,9 +10,9 @@ from posthog.models.user import User
 from .domain_types import ReviewState, RunStatus, RunType, SnapshotResult
 
 
-class Project(models.Model):
+class Repo(models.Model):
     """
-    A visual review project, typically representing a repository or test suite.
+    A visual review repo, typically representing a repository or test suite.
 
     Each Team can have multiple projects.
     """
@@ -39,11 +39,11 @@ class Artifact(models.Model):
     """
     Content-addressed image storage.
 
-    Same hash = same artifact. Deduplicated across all runs in a project.
+    Same hash = same artifact. Deduplicated across all runs in a repo.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="artifacts")
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
 
     content_hash = models.CharField(max_length=128, db_index=True)
     storage_path = models.CharField(max_length=1024)
@@ -56,7 +56,7 @@ class Artifact(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["project", "content_hash"], name="unique_artifact_hash_per_project"),
+            models.UniqueConstraint(fields=["repo", "content_hash"], name="unique_artifact_hash_per_repo"),
         ]
 
     def __str__(self) -> str:
@@ -71,7 +71,7 @@ class Run(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="runs")
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
 
     status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
     run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)

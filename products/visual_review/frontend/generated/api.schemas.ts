@@ -7,42 +7,42 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type ProjectApiBaselineFilePaths = { [key: string]: string }
+export type RepoApiBaselineFilePaths = { [key: string]: string }
 
-export interface ProjectApi {
+export interface RepoApi {
     id: string
     team_id: number
     name: string
     repo_full_name: string
-    baseline_file_paths: ProjectApiBaselineFilePaths
+    baseline_file_paths: RepoApiBaselineFilePaths
     created_at: string
 }
 
-export interface PaginatedProjectListApi {
+export interface PaginatedRepoListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ProjectApi[]
+    results: RepoApi[]
 }
 
-export interface CreateProjectInputApi {
+export interface CreateRepoInputApi {
     name: string
 }
 
 /**
  * @nullable
  */
-export type PatchedUpdateProjectRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
+export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
 
-export interface PatchedUpdateProjectRequestInputApi {
+export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     name?: string | null
     /** @nullable */
     repo_full_name?: string | null
     /** @nullable */
-    baseline_file_paths?: PatchedUpdateProjectRequestInputApiBaselineFilePaths
+    baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
 }
 
 export interface RunSummaryApi {
@@ -57,7 +57,7 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     id: string
-    project_id: string
+    repo_id: string
     status: string
     run_type: string
     commit_sha: string
@@ -102,7 +102,7 @@ export interface SnapshotManifestItemApi {
 }
 
 export interface CreateRunInputApi {
-    project_id: string
+    repo_id: string
     run_type: string
     commit_sha: string
     branch: string
@@ -176,7 +176,7 @@ export interface PaginatedSnapshotListApi {
     results: SnapshotApi[]
 }
 
-export type VisualReviewProjectsListParams = {
+export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
      */

@@ -11,11 +11,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from .domain_types import ReviewState, RunStatus, SnapshotResult
-from .models import Artifact, Project, Run, RunSnapshot
+from .models import Artifact, Repo, Run, RunSnapshot
 from .storage import ArtifactStorage
 
 
-class ProjectNotFoundError(Exception):
+class RepoNotFoundError(Exception):
     pass
 
 
@@ -46,55 +46,55 @@ class PRSHAMismatchError(Exception):
 
 
 class BaselineFilePathNotConfiguredError(Exception):
-    """Project does not have a baseline file path configured for this run type."""
+    """Repo does not have a baseline file path configured for this run type."""
 
     pass
 
 
-# --- Project Operations ---
+# --- Repo Operations ---
 
 
-def get_project(project_id: UUID) -> Project:
+def get_repo(repo_id: UUID) -> Repo:
     try:
-        return Project.objects.get(id=project_id)
-    except Project.DoesNotExist as e:
-        raise ProjectNotFoundError(f"Project {project_id} not found") from e
+        return Repo.objects.get(id=repo_id)
+    except Repo.DoesNotExist as e:
+        raise RepoNotFoundError(f"Repo {repo_id} not found") from e
 
 
-def list_projects_for_team(team_id: int) -> list[Project]:
-    return list(Project.objects.filter(team_id=team_id).order_by("-created_at"))
+def list_repos_for_team(team_id: int) -> list[Repo]:
+    return list(Repo.objects.filter(team_id=team_id).order_by("-created_at"))
 
 
-def create_project(team_id: int, name: str) -> Project:
-    return Project.objects.create(team_id=team_id, name=name)
+def create_repo(team_id: int, name: str) -> Repo:
+    return Repo.objects.create(team_id=team_id, name=name)
 
 
-def update_project(
-    project_id: UUID,
+def update_repo(
+    repo_id: UUID,
     name: str | None = None,
     repo_full_name: str | None = None,
     baseline_file_paths: dict[str, str] | None = None,
-) -> Project:
-    project = get_project(project_id)
+) -> Repo:
+    repo = get_repo(repo_id)
     if name is not None:
-        project.name = name
+        repo.name = name
     if repo_full_name is not None:
-        project.repo_full_name = repo_full_name
+        repo.repo_full_name = repo_full_name
     if baseline_file_paths is not None:
-        project.baseline_file_paths = baseline_file_paths
-    project.save()
-    return project
+        repo.baseline_file_paths = baseline_file_paths
+    repo.save()
+    return repo
 
 
 # --- Artifact Operations ---
 
 
-def get_artifact(project_id: UUID, content_hash: str) -> Artifact | None:
-    return Artifact.objects.filter(project_id=project_id, content_hash=content_hash).first()
+def get_artifact(repo_id: UUID, content_hash: str) -> Artifact | None:
+    return Artifact.objects.filter(repo_id=repo_id, content_hash=content_hash).first()
 
 
 def get_or_create_artifact(
-    project_id: UUID,
+    repo_id: UUID,
     content_hash: str,
     storage_path: str,
     width: int | None = None,
@@ -102,7 +102,7 @@ def get_or_create_artifact(
     size_bytes: int | None = None,
 ) -> tuple[Artifact, bool]:
     return Artifact.objects.get_or_create(
-        project_id=project_id,
+        repo_id=repo_id,
         content_hash=content_hash,
         defaults={
             "storage_path": storage_path,
@@ -113,32 +113,32 @@ def get_or_create_artifact(
     )
 
 
-def find_missing_hashes(project_id: UUID, hashes: list[str]) -> list[str]:
-    """Return hashes that don't exist as artifacts in the project."""
+def find_missing_hashes(repo_id: UUID, hashes: list[str]) -> list[str]:
+    """Return hashes that don't exist as artifacts in the repo."""
     existing = set(
-        Artifact.objects.filter(project_id=project_id, content_hash__in=hashes).values_list("content_hash", flat=True)
+        Artifact.objects.filter(repo_id=repo_id, content_hash__in=hashes).values_list("content_hash", flat=True)
     )
     return [h for h in hashes if h not in existing]
 
 
-def get_presigned_upload_url(project_id: UUID, content_hash: str) -> dict | None:
-    storage = ArtifactStorage(str(project_id))
+def get_presigned_upload_url(repo_id: UUID, content_hash: str) -> dict | None:
+    storage = ArtifactStorage(str(repo_id))
     return storage.get_presigned_upload_url(content_hash)
 
 
-def get_presigned_download_url(project_id: UUID, content_hash: str) -> str | None:
-    storage = ArtifactStorage(str(project_id))
+def get_presigned_download_url(repo_id: UUID, content_hash: str) -> str | None:
+    storage = ArtifactStorage(str(repo_id))
     return storage.get_presigned_download_url(content_hash)
 
 
-def read_artifact_bytes(project_id: UUID, content_hash: str) -> bytes | None:
+def read_artifact_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
     """Read artifact content from storage."""
-    storage = ArtifactStorage(str(project_id))
+    storage = ArtifactStorage(str(repo_id))
     return storage.read(content_hash)
 
 
 def write_artifact_bytes(
-    project_id: UUID,
+    repo_id: UUID,
     content_hash: str,
     content: bytes,
     width: int | None = None,
@@ -148,11 +148,11 @@ def write_artifact_bytes(
     Write artifact content to storage and create DB record.
     Used for server-generated artifacts like diff images.
     """
-    storage = ArtifactStorage(str(project_id))
+    storage = ArtifactStorage(str(repo_id))
     storage_path = storage.write(content_hash, content)
 
     artifact, _ = Artifact.objects.get_or_create(
-        project_id=project_id,
+        repo_id=repo_id,
         content_hash=content_hash,
         defaults={
             "storage_path": storage_path,
@@ -169,12 +169,12 @@ def write_artifact_bytes(
 
 def list_runs_for_team(team_id: int) -> list[Run]:
     """List all runs for projects belonging to a team, ordered by creation date (newest first)."""
-    return list(Run.objects.filter(project__team_id=team_id).select_related("project").order_by("-created_at"))
+    return list(Run.objects.filter(repo__team_id=team_id).select_related("repo").order_by("-created_at"))
 
 
 def get_run(run_id: UUID) -> Run:
     try:
-        return Run.objects.select_related("project").get(id=run_id)
+        return Run.objects.select_related("repo").get(id=run_id)
     except Run.DoesNotExist as e:
         raise RunNotFoundError(f"Run {run_id} not found") from e
 
@@ -192,7 +192,7 @@ def get_run_with_snapshots(run_id: UUID) -> Run:
 
 @transaction.atomic
 def create_run(
-    project_id: UUID,
+    repo_id: UUID,
     run_type: str,
     commit_sha: str,
     branch: str,
@@ -207,10 +207,10 @@ def create_run(
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
     """
-    project = get_project(project_id)
+    repo = get_repo(repo_id)
 
     run = Run.objects.create(
-        project=project,
+        repo=repo,
         run_type=run_type,
         commit_sha=commit_sha,
         branch=branch,
@@ -237,8 +237,8 @@ def create_run(
             all_hashes.add(baseline_hash)
 
         # Look up existing artifacts
-        current_artifact = get_artifact(project_id, current_hash)
-        baseline_artifact = get_artifact(project_id, baseline_hash) if baseline_hash else None
+        current_artifact = get_artifact(repo_id, current_hash)
+        baseline_artifact = get_artifact(repo_id, baseline_hash) if baseline_hash else None
 
         # Determine initial result based on baseline_hash presence, not artifact existence
         # (baseline artifact might not be uploaded yet)
@@ -273,8 +273,8 @@ def create_run(
     run.save(update_fields=["changed_count", "new_count", "removed_count"])
 
     # Find missing hashes and generate upload URLs
-    missing_hashes = find_missing_hashes(project_id, list(all_hashes))
-    storage = ArtifactStorage(str(project_id))
+    missing_hashes = find_missing_hashes(repo_id, list(all_hashes))
+    storage = ArtifactStorage(str(repo_id))
 
     uploads = []
     for content_hash in missing_hashes:
@@ -334,8 +334,8 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     Returns number of artifacts created.
     """
     run = get_run_with_snapshots(run_id)
-    project_id = run.project_id
-    storage = ArtifactStorage(str(project_id))
+    repo_id = run.repo_id
+    storage = ArtifactStorage(str(repo_id))
 
     # Collect all unique hashes we expect
     expected_hashes: dict[str, dict] = {}
@@ -354,7 +354,7 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     created_count = 0
     for content_hash, metadata in expected_hashes.items():
         # Check if artifact already exists
-        if get_artifact(project_id, content_hash):
+        if get_artifact(repo_id, content_hash):
             continue
 
         # Check if file exists in S3
@@ -364,7 +364,7 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
         # Create artifact record
         storage_path = storage._key(content_hash)
         artifact, created = get_or_create_artifact(
-            project_id=project_id,
+            repo_id=repo_id,
             content_hash=content_hash,
             storage_path=storage_path,
             width=metadata.get("width"),
@@ -373,7 +373,7 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
 
         if created:
             created_count += 1
-            link_artifact_to_snapshots(project_id, content_hash)
+            link_artifact_to_snapshots(repo_id, content_hash)
 
     return created_count
 
@@ -398,14 +398,14 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     return run
 
 
-def get_github_integration_for_project(project: Project):
-    """Get GitHub integration for the project's team."""
+def get_github_integration_for_repo(repo: Repo):
+    """Get GitHub integration for the repo's team."""
     from posthog.models.integration import GitHubIntegration, Integration
 
-    integration = Integration.objects.filter(team_id=project.team_id, kind="github").first()
+    integration = Integration.objects.filter(team_id=repo.team_id, kind="github").first()
 
     if not integration:
-        raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {project.team_id}")
+        raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
     return GitHubIntegration(integration)
 
@@ -497,7 +497,7 @@ def _build_snapshots_yaml(current_baselines: dict[str, str], updates: list[dict]
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
 
-def _commit_baseline_to_github(run: Run, project: Project, approved_snapshots: list[dict]) -> dict:
+def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[dict]) -> dict:
     """
     Commit updated baseline file to GitHub.
 
@@ -507,13 +507,13 @@ def _commit_baseline_to_github(run: Run, project: Project, approved_snapshots: l
         BaselineFilePathNotConfiguredError: No baseline path for run type
         GitHubCommitError: GitHub API error
     """
-    baseline_paths = project.baseline_file_paths or {}
+    baseline_paths = repo.baseline_file_paths or {}
     baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
 
     if not baseline_path:
         raise BaselineFilePathNotConfiguredError(f"No baseline file path configured for run type {run.run_type}")
 
-    github = get_github_integration_for_project(project)
+    github = get_github_integration_for_repo(repo)
 
     if github.access_token_expired():
         github.refresh_access_token()
@@ -521,7 +521,7 @@ def _commit_baseline_to_github(run: Run, project: Project, approved_snapshots: l
     if run.pr_number is None:
         raise GitHubCommitError("Cannot commit to GitHub: run has no associated PR number")
 
-    pr_info = _get_pr_info(github, project.repo_full_name, run.pr_number)
+    pr_info = _get_pr_info(github, repo.repo_full_name, run.pr_number)
 
     if pr_info["head_sha"] != run.commit_sha:
         raise PRSHAMismatchError(
@@ -529,16 +529,14 @@ def _commit_baseline_to_github(run: Run, project: Project, approved_snapshots: l
             "Please re-run visual tests on the latest commit."
         )
 
-    current_baselines, file_sha = _fetch_baseline_file(
-        github, project.repo_full_name, baseline_path, pr_info["head_ref"]
-    )
+    current_baselines, file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, pr_info["head_ref"])
 
     updates = [{"identifier": s["identifier"], "new_hash": s["new_hash"]} for s in approved_snapshots]
     new_content = _build_snapshots_yaml(current_baselines, updates)
 
     # Use GitHubIntegration.update_file() - it expects just the repo name, not full path
     # The org comes from github.organization()
-    repo_name = project.repo_full_name.split("/")[-1] if "/" in project.repo_full_name else project.repo_full_name
+    repo_name = repo.repo_full_name.split("/")[-1] if "/" in repo.repo_full_name else repo.repo_full_name
 
     result = github.update_file(
         repository=repo_name,
@@ -566,21 +564,21 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     3. Updates baseline hashes for approved snapshots in DB
     """
     run = get_run(run_id)
-    project = run.project
+    repo = run.repo
 
     # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
 
     # Validate all artifacts exist before making any changes
     for identifier, new_hash in approvals.items():
-        artifact = get_artifact(project.id, new_hash)
+        artifact = get_artifact(repo.id, new_hash)
         if not artifact:
             raise ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
 
     # Commit to GitHub first (if enabled and PR exists)
     # Do this before DB changes so we can fail cleanly
-    if commit_to_github and run.pr_number and project.repo_full_name:
-        _commit_baseline_to_github(run, project, approved_snapshots)
+    if commit_to_github and run.pr_number and repo.repo_full_name:
+        _commit_baseline_to_github(run, repo, approved_snapshots)
 
     # Record approval on each snapshot without mutating result/baseline
     # This preserves the diff history while tracking what was approved
@@ -625,26 +623,26 @@ def update_snapshot_diff(
     return snapshot
 
 
-def link_artifact_to_snapshots(project_id: UUID, content_hash: str) -> int:
+def link_artifact_to_snapshots(repo_id: UUID, content_hash: str) -> int:
     """
     After an artifact is uploaded, link it to any pending snapshots.
 
     Returns number of snapshots updated.
     """
-    artifact = get_artifact(project_id, content_hash)
+    artifact = get_artifact(repo_id, content_hash)
     if not artifact:
         return 0
 
     # Link as current artifact where hash matches but artifact not linked
     current_updated = RunSnapshot.objects.filter(
-        run__project_id=project_id,
+        run__repo_id=repo_id,
         current_hash=content_hash,
         current_artifact__isnull=True,
     ).update(current_artifact=artifact)
 
     # Link as baseline artifact where hash matches but artifact not linked
     baseline_updated = RunSnapshot.objects.filter(
-        run__project_id=project_id,
+        run__repo_id=repo_id,
         baseline_hash=content_hash,
         baseline_artifact__isnull=True,
     ).update(baseline_artifact=artifact)
