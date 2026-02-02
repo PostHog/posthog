@@ -17,20 +17,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 LOGGER = get_logger(__name__)
 
 
-def build_in_clause(values: list) -> tuple[sql.Composed, list]:
-    """Build an IN clause with proper parameterization for psycopg3.
-
-    Returns a tuple of (sql fragment, params list) to be used in a query.
-
-    Example:
-        clause, params = build_in_clause(["a", "b", "c"])
-        query = sql.SQL("SELECT * FROM t WHERE x IN ({})").format(clause)
-        cursor.execute(query, params)
-    """
-    placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in values)
-    return placeholders, list(values)
-
-
 def get_persons_database_url() -> str:
     """Get the connection URL for the persons database reader.
 
@@ -188,8 +174,7 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
 
         heartbeater.details = (f"Looking up {len(inputs.person_uuids)} persons in PostgreSQL",)
 
-        uuid_placeholders, uuid_params = build_in_clause(inputs.person_uuids)
-        query = sql.SQL("""
+        query = """
             SELECT
                 p.uuid::text as person_uuid,
                 pdi.distinct_id,
@@ -197,10 +182,10 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
             FROM posthog_person p
             JOIN posthog_persondistinctid pdi ON pdi.person_id = p.id
             WHERE p.team_id = %s
-              AND p.uuid IN ({uuids})
+              AND p.uuid IN (SELECT unnest(%s::uuid[]))
             ORDER BY p.uuid, pdi.id
-        """).format(uuids=uuid_placeholders)
-        params = [inputs.team_id, *uuid_params]
+        """
+        params = [inputs.team_id, inputs.person_uuids]
 
         persons_db_url = get_persons_database_url()
         conn = await psycopg.AsyncConnection.connect(persons_db_url)
@@ -243,14 +228,13 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
             heartbeater.details = (f"Categorizing {len(persons_not_found)} persons not found",)
 
             # Find which of the not-found persons exist in PG (without DIDs)
-            uuid_placeholders, uuid_params = build_in_clause(persons_not_found)
-            categorize_query = sql.SQL("""
+            categorize_query = """
                 SELECT uuid::text
                 FROM posthog_person
                 WHERE team_id = %s
-                  AND uuid IN ({uuids})
-            """).format(uuids=uuid_placeholders)
-            params = [inputs.team_id, *uuid_params]
+                  AND uuid IN (SELECT unnest(%s::uuid[]))
+            """
+            params = [inputs.team_id, persons_not_found]
 
             conn = await psycopg.AsyncConnection.connect(persons_db_url)
             async with conn:
