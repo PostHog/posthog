@@ -7,6 +7,7 @@ class AttioEndpointConfig:
     name: str
     path: str
     primary_key: str = "record_id"
+    partition_key: str = "created_at"
     method: Literal["GET", "POST"] = "GET"
     page_size: int = 500
 

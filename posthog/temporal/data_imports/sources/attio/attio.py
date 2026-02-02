@@ -185,8 +185,8 @@ def attio_source(
         primary_keys=[endpoint_config.primary_key],
         partition_count=1,
         partition_size=1,
-        partition_mode=None,
-        partition_format=None,
-        partition_keys=None,
+        partition_mode="datetime",
+        partition_format="week",
+        partition_keys=[endpoint_config.partition_key],
         sort_mode="asc",
     )
