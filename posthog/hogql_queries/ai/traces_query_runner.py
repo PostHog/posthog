@@ -78,8 +78,17 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset_value = self.paginator.offset
             pagination_limit = limit_value + offset_value + 1
 
-            # Determine ordering based on randomOrder parameter
-            order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
+            # Build SAMPLE clause if sampleFraction is set (efficient random sampling)
+            sample_clause = ""
+            if self.query.sampleFraction and 0 < self.query.sampleFraction < 1:
+                sample_clause = f"SAMPLE {self.query.sampleFraction}"
+
+            # When using SAMPLE, use timestamp ordering (SAMPLE provides randomness)
+            # When not using SAMPLE, respect randomOrder flag
+            if self.query.sampleFraction and 0 < self.query.sampleFraction < 1:
+                order_clause = "max(timestamp) DESC"
+            else:
+                order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
 
             trace_ids_query = parse_select(
                 f"""
@@ -92,7 +101,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         properties.$ai_trace_id as trace_id,
                         min(timestamp) as first_ts,
                         max(timestamp) as last_ts
-                    FROM events
+                    FROM events {sample_clause}
                     WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                       AND {{conditions}}
                     GROUP BY trace_id

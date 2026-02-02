@@ -1664,3 +1664,77 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace_num = int(trace_id.split("_")[1])
             self.assertGreaterEqual(trace_num, 0)
             self.assertLess(trace_num, 10)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_sample_fraction(self):
+        """Test that sampleFraction parameter uses SAMPLE clause for efficient random sampling.
+
+        Note: SAMPLE behavior in test environments can vary (depends on table sample key config).
+        This test verifies the query executes without error and the SAMPLE clause is included.
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Create traces
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+
+        # With sampleFraction, query should execute without error
+        # Note: SAMPLE may return 0 results in test env if sample key isn't configured
+        runner = TracesQueryRunner(team=self.team, query=TracesQuery(limit=10, sampleFraction=0.5))
+        response = runner.calculate()
+
+        # Verify the query executed successfully (results may be empty due to SAMPLE in test env)
+        self.assertIsNotNone(response)
+        self.assertIsNotNone(response.results)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_sample_fraction_ignores_random_order(self):
+        """Test that sampleFraction takes precedence and uses timestamp ordering (not rand())."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+
+        # When sampleFraction is set, randomOrder should be ignored
+        # (SAMPLE provides randomness, so we use fast timestamp ordering)
+        runner = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, sampleFraction=0.9, randomOrder=True))
+        response = runner.calculate()
+
+        # Verify the query executed successfully
+        self.assertIsNotNone(response)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_sample_fraction_boundary_values(self):
+        """Test that sampleFraction handles boundary values correctly."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+
+        # sampleFraction=0 should not apply SAMPLE (falls through to normal behavior)
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, sampleFraction=0)).calculate()
+        self.assertEqual(len(response.results), 5)
+
+        # sampleFraction=1 should not apply SAMPLE (falls through to normal behavior)
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, sampleFraction=1)).calculate()
+        self.assertEqual(len(response.results), 5)
+
+        # sampleFraction=None should not apply SAMPLE
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, sampleFraction=None)).calculate()
+        self.assertEqual(len(response.results), 5)

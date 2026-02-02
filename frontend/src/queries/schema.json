@@ -32015,6 +32015,10 @@
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
+                "sampleFraction": {
+                    "description": "Sample fraction (0.0-1.0) for efficient random sampling. Uses ClickHouse SAMPLE clause instead of ORDER BY rand().",
+                    "type": "number"
+                },
                 "showColumnConfigurator": {
                     "type": "boolean"
                 },
@@ -32193,6 +32197,10 @@
                         }
                     ],
                     "description": "Customizations for the appearance of result datasets."
+                },
+                "showAlertPoints": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "showAlertThresholdLines": {
                     "default": false,

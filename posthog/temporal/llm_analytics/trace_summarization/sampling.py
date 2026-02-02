@@ -52,10 +52,12 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         team = Team.objects.get(id=team_id)
 
         # Step 1: Sample traces using TracesQueryRunner
+        # Use sampleFraction for efficient random sampling via ClickHouse SAMPLE clause
+        # This is much faster than ORDER BY rand() for high-volume teams
         query = TracesQuery(
             dateRange=DateRange(date_from=window_start, date_to=window_end),
             limit=max_items,
-            randomOrder=True,
+            sampleFraction=0.1,  # Sample 10% of events for random trace selection
         )
 
         runner = TracesQueryRunner(team=team, query=query)
