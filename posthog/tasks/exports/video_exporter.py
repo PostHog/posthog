@@ -475,7 +475,7 @@ class PlaywrightRecorder(_ReplayVideoRecorder):
         page: Page,
         max_wait_ms: int,
         playback_started: float,
-    ) -> dict[int, float]:
+    ) -> dict[float, float]:
         """
         Wait for recording to end while tracking segment changes.
         Returns a dict mapping ts_from_s -> video_timestamp_seconds for each segment.
