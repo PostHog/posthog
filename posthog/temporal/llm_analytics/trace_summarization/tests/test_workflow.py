@@ -75,6 +75,43 @@ class TestSampleItemsInWindowActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    async def test_sample_items_uses_sample_fraction(self, mock_team):
+        """Test that sampling activity uses sampleFraction for efficient random sampling."""
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
+
+        with patch(
+            "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
+        ) as mock_runner_class:
+            from posthog.schema import LLMTrace, LLMTracePerson, TracesQuery
+
+            mock_person = LLMTracePerson(
+                uuid=str(uuid.uuid4()),
+                distinct_id="test_user",
+                created_at=datetime.now(UTC).isoformat(),
+                properties={},
+            )
+
+            mock_runner = mock_runner_class.return_value
+            mock_runner.calculate.return_value.results = [
+                LLMTrace(id="trace_1", createdAt=datetime.now(UTC).isoformat(), events=[], person=mock_person)
+            ]
+
+            await sample_items_in_window_activity(inputs)
+
+            # Verify TracesQueryRunner was called with sampleFraction
+            call_kwargs = mock_runner_class.call_args.kwargs
+            query = call_kwargs["query"]
+            assert isinstance(query, TracesQuery)
+            assert query.sampleFraction == 0.1  # Should use 10% sampling
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
     async def test_sample_items_success(self, mock_team):
         """Test successful item sampling from window."""
         inputs = BatchSummarizationInputs(

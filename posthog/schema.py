@@ -6742,6 +6742,7 @@ class TrendsFilter(BaseModel):
             description="Customizations for the appearance of result datasets.",
         )
     )
+    showAlertPoints: bool | None = False
     showAlertThresholdLines: bool | None = False
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
@@ -14296,6 +14297,13 @@ class TracesQuery(BaseModel):
         ),
     )
     response: TracesQueryResponse | None = None
+    sampleFraction: float | None = Field(
+        default=None,
+        description=(
+            "Sample fraction (0.0-1.0) for efficient random sampling. Uses ClickHouse"
+            " SAMPLE clause instead of ORDER BY rand()."
+        ),
+    )
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
