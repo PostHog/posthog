@@ -23,6 +23,12 @@ function ImageWithLightbox({ src, alt }: { src: string; alt?: string }): JSX.Ele
     const [isLoading, setIsLoading] = useState(true)
     const [hasError, setHasError] = useState(false)
 
+    // Reset state when src changes (e.g., if component is reused with different image)
+    React.useEffect(() => {
+        setIsLoading(true)
+        setHasError(false)
+    }, [src])
+
     if (hasError) {
         return (
             <span className="LemonMarkdown__image-error text-muted-alt text-xs italic">
