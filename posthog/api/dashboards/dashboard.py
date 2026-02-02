@@ -398,7 +398,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             insight = cast(Insight, insight_serializer.instance)
 
             # Create new insight's tags separately. Force create tags on dashboard duplication.
-            self._attempt_set_tags(new_tags, insight, force_create=True)
+            self._attempt_set_tags(new_tags, insight)
 
             DashboardTile.objects.create(
                 dashboard=dashboard,
@@ -472,7 +472,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
         for tile_data in duplicate_tiles:
             existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
-            existing_tile.layouts = {}
+            existing_tile.layouts = tile_data.get("layouts", {})
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
@@ -589,13 +589,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
         # Use the specified layout size to get the correct order for the current viewport
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
-            ),
-        )
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
@@ -962,7 +956,7 @@ class DashboardsViewSet(
                 creation_mode="unlisted",
             )
 
-            create_from_template(dashboard, template, cast(User, request.user), force_system_tags=True)
+            create_from_template(dashboard, template, cast(User, request.user))
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,

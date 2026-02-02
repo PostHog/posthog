@@ -51,14 +51,21 @@ export const urls = {
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (
-        query?: string,
-        view_id?: string,
-        insightShortId?: string,
-        draftId?: string,
-        outputTab?: OutputTab,
+    sqlEditor: ({
+        query,
+        view_id,
+        insightShortId,
+        draftId,
+        outputTab,
+        endpointName,
+    }: {
+        query?: string
+        view_id?: string
+        insightShortId?: string
+        draftId?: string
+        outputTab?: OutputTab
         endpointName?: string
-    ): string => {
+    } = {}): string => {
         const params = new URLSearchParams()
 
         if (query) {
@@ -106,6 +113,7 @@ export const urls = {
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
+    twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
@@ -211,8 +219,11 @@ export const urls = {
     productTour: (id: string, params?: string): string =>
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
-    approvals: (): string => '/settings/organization-approvals#change-requests',
+    approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    health: (): string => '/health',
+    pipelineStatus: (): string => '/health/pipeline-status',
+    sdkDoctor: (): string => '/health/sdk-doctor',
 }
 
 export interface UrlMatcher {

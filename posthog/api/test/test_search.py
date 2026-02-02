@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 from django.db import connection
 
-from posthog.api.search import class_queryset
+from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import process_query
 from posthog.models import Dashboard, FeatureFlag, Insight, Team
 from posthog.models.event_definition import EventDefinition
@@ -232,6 +232,78 @@ class TestSearch(APIBaseTest):
         )
         self.assertEqual(qs_key_filter.count(), 1)
         self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
+
+    def test_search_entities_returns_total_count(self):
+        for i in range(5):
+            Insight.objects.create(team=self.team, name=f"total count insight {i}", saved=True)
+
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        results, counts, total_count = search_entities(
+            entities={"insight"},
+            query="total count",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+        )
+
+        self.assertEqual(total_count, 5)
+        self.assertEqual(len(results), 5)
+
+    def test_search_entities_pagination_with_limit(self):
+        for i in range(10):
+            Insight.objects.create(team=self.team, name=f"pagination limit {i}", saved=True)
+
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        results, counts, total_count = search_entities(
+            entities={"insight"},
+            query="pagination limit",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+            limit=3,
+        )
+
+        self.assertEqual(total_count, 10)
+        self.assertEqual(len(results), 3)
+
+    def test_search_entities_pagination_with_offset(self):
+        for i in range(10):
+            Insight.objects.create(team=self.team, name=f"pagination offset {i}", saved=True)
+
+        mock_view = Mock()
+        mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+
+        results_page1, _, total_count1 = search_entities(
+            entities={"insight"},
+            query="pagination offset",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+            limit=3,
+            offset=0,
+        )
+        results_page2, _, total_count2 = search_entities(
+            entities={"insight"},
+            query="pagination offset",
+            project_id=self.team.project_id,
+            view=mock_view,
+            entity_map=ENTITY_MAP,
+            limit=3,
+            offset=3,
+        )
+
+        self.assertEqual(total_count1, 10)
+        self.assertEqual(total_count2, 10)
+        self.assertEqual(len(results_page1), 3)
+        self.assertEqual(len(results_page2), 3)
+
+        page1_ids = {r["result_id"] for r in results_page1}
+        page2_ids = {r["result_id"] for r in results_page2}
+        self.assertEqual(len(page1_ids & page2_ids), 0)
 
 
 @pytest.mark.django_db

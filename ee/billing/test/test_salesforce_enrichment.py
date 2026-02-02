@@ -1,3 +1,4 @@
+import copy
 import json
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,7 @@ from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.enrichment import (
     _extract_domain,
+    _is_yc_funded,
     _normalize_datetime_string,
     _values_match,
     enrich_accounts_async,
@@ -41,53 +43,45 @@ def load_harmonic_fixture():
 
 
 class TestDomainExclusion(BaseTest):
-    def test_is_excluded_domain_handles_none_and_empty(self):
-        """Test that None and empty domains are excluded (safe default)."""
-        assert is_excluded_domain(None) is True
-        assert is_excluded_domain("") is True
-        assert is_excluded_domain("   ") is True
-
-    def test_is_excluded_domain_standard_personal_domains(self):
-        """Test standard personal email domains are excluded."""
-        assert is_excluded_domain("gmail.com") is True
-        assert is_excluded_domain("yahoo.com") is True
-        assert is_excluded_domain("hotmail.com") is True
-        assert is_excluded_domain("outlook.com") is True
-
-    def test_is_excluded_domain_international_domains(self):
-        """Test international domains (3+ parts) are excluded."""
-        assert is_excluded_domain("yahoo.co.uk") is True
-        assert is_excluded_domain("yahoo.com.au") is True
-        assert is_excluded_domain("yahoo.co.jp") is True
-
-    def test_is_excluded_domain_subdomains(self):
-        """Test that subdomains of personal domains are excluded."""
-        assert is_excluded_domain("mail.gmail.com") is True
-        assert is_excluded_domain("login.yahoo.com") is True
-        assert is_excluded_domain("accounts.yahoo.com") is True
-
-    def test_is_excluded_domain_www_prefix_handling(self):
-        """Test that www prefix is stripped correctly."""
-        assert is_excluded_domain("www.gmail.com") is True
-        assert is_excluded_domain("www.yahoo.co.uk") is True
-
-    def test_is_excluded_domain_case_insensitive(self):
-        """Test case insensitive matching."""
-        assert is_excluded_domain("GMAIL.COM") is True
-        assert is_excluded_domain("Yahoo.Com") is True
-
-    def test_is_excluded_domain_business_domains(self):
-        """Test that business domains are not excluded."""
-        assert is_excluded_domain("posthog.com") is False
-        assert is_excluded_domain("stripe.com") is False
-        assert is_excluded_domain("microsoft.com") is False
-        assert is_excluded_domain("api.example.com") is False
-
-    def test_is_excluded_domain_edge_cases(self):
-        """Test edge cases and malformed domains."""
-        assert is_excluded_domain("gmail") is False  # No TLD
-        assert is_excluded_domain(".com") is False  # No domain
-        assert is_excluded_domain("notgmail.com") is False  # Similar but not excluded
+    @parameterized.expand(
+        [
+            # None and empty values
+            (None, True, "None input"),
+            ("", True, "empty string"),
+            ("   ", True, "whitespace only"),
+            # Standard personal email domains
+            ("gmail.com", True, "gmail"),
+            ("yahoo.com", True, "yahoo"),
+            ("hotmail.com", True, "hotmail"),
+            ("outlook.com", True, "outlook"),
+            # International domains (3+ parts)
+            ("yahoo.co.uk", True, "yahoo UK"),
+            ("yahoo.com.au", True, "yahoo Australia"),
+            ("yahoo.co.jp", True, "yahoo Japan"),
+            # Subdomains of personal domains
+            ("mail.gmail.com", True, "gmail subdomain"),
+            ("login.yahoo.com", True, "yahoo subdomain"),
+            ("accounts.yahoo.com", True, "yahoo accounts subdomain"),
+            # www prefix handling
+            ("www.gmail.com", True, "gmail with www"),
+            ("www.yahoo.co.uk", True, "yahoo UK with www"),
+            # Case insensitivity
+            ("GMAIL.COM", True, "uppercase gmail"),
+            ("Yahoo.Com", True, "mixed case yahoo"),
+            # Business domains (not excluded)
+            ("posthog.com", False, "posthog"),
+            ("stripe.com", False, "stripe"),
+            ("microsoft.com", False, "microsoft"),
+            ("api.example.com", False, "business subdomain"),
+            # Edge cases
+            ("gmail", False, "no TLD"),
+            (".com", False, "no domain name"),
+            ("notgmail.com", False, "similar but not excluded"),
+        ]
+    )
+    def test_is_excluded_domain(self, domain, expected, description):
+        result = is_excluded_domain(domain)
+        assert result is expected, f"Failed for: {description}"
 
 
 class TestExtractDomain(BaseTest):
@@ -117,6 +111,36 @@ class TestExtractDomain(BaseTest):
     )
     def test_extract_domain(self, input_url, expected, description):
         result = _extract_domain(input_url)
+        assert result == expected, f"Failed for: {description}"
+
+
+class TestYCCompanyDetection(BaseTest):
+    """Unit tests for Y Combinator company detection."""
+
+    @parameterized.expand(
+        [
+            # (investors_list, expected_result, description)
+            ([{"name": "Y Combinator"}], True, "exact YC company match"),
+            (
+                [{"name": "GV"}, {"name": "Y Combinator"}, {"name": "Stripe"}],
+                True,
+                "YC among other investors",
+            ),
+            ([{"fullName": "Y Combinator Partner"}], False, "person name containing YC - not a match"),
+            ([{"name": "Formus Capital"}, {"name": "Peak XV Partners"}], False, "no YC in list"),
+            ([], False, "empty investors list"),
+            (None, False, "None investors"),
+            ([{"name": "YCombinator"}], False, "no space - not a match"),
+            ([{"name": "y combinator"}], True, "lowercase YC match"),
+            # Edge cases: non-dict items in investors list
+            ([{"name": "GV"}, None, "invalid", {"name": "Y Combinator"}], True, "YC with invalid items in list"),
+            ([None, "string", 123], False, "list with only invalid items"),
+            # YC subsidiary fund matching
+            ([{"name": "Y Combinator Continuity Fund"}], True, "YC subsidiary fund matches"),
+        ]
+    )
+    def test_is_yc_funded(self, investors, expected, description):
+        result = _is_yc_funded(investors)
         assert result == expected, f"Failed for: {description}"
 
 
@@ -242,7 +266,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_funding(self):
         """Test transform_harmonic_data handles missing funding section."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["funding"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -254,7 +278,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_company_fields(self):
         """Test transform_harmonic_data handles missing company info fields."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["name"]
         del harmonic_data["companyType"]
         del harmonic_data["description"]
@@ -271,7 +295,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_malformed_website(self):
         """Test transform_harmonic_data handles malformed website data."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["website"] = "not-a-dict"  # Should be dict, now string
 
         result = transform_harmonic_data(harmonic_data)
@@ -282,7 +306,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_malformed_founding_date(self):
         """Test transform_harmonic_data handles malformed founding date."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["foundingDate"] = "1983-01-01"  # Should be dict, now string
 
         result = transform_harmonic_data(harmonic_data)
@@ -293,7 +317,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_traction_metrics(self):
         """Test transform_harmonic_data handles missing tractionMetrics."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["tractionMetrics"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -306,7 +330,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_metric_missing_latest_value(self):
         """Test transform_harmonic_data handles metrics without latestMetricValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         # Remove latestMetricValue from headcount metric
         del harmonic_data["tractionMetrics"]["headcount"]["latestMetricValue"]
 
@@ -321,7 +345,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_metric_with_null_latest_value(self):
         """Test transform_harmonic_data handles metrics with null latestMetricValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tractionMetrics"]["headcount"]["latestMetricValue"] = None
 
         result = transform_harmonic_data(harmonic_data)
@@ -335,7 +359,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_empty_historical_metrics(self):
         """Test transform_harmonic_data handles empty historical data."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tractionMetrics"]["headcount"]["metrics"] = []
 
         result = transform_harmonic_data(harmonic_data)
@@ -348,7 +372,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_tags(self):
         """Test transform_harmonic_data handles missing tags."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["tags"]
         del harmonic_data["tagsV2"]
 
@@ -361,7 +385,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_no_primary_tag_uses_first(self):
         """Test Salesforce update falls back to first tag when there's no primary tag."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         # Remove isPrimaryTag from all tags
         for tag in harmonic_data.get("tags", []):
             tag["isPrimaryTag"] = False
@@ -377,7 +401,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_empty_tags(self):
         """Test Salesforce update when both tags and tagsV2 arrays are empty."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = []
         harmonic_data["tagsV2"] = []
 
@@ -404,7 +428,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_fallback_to_tagsv2_market_vertical(self):
         """Test Salesforce update falls back to tagsV2 MARKET_VERTICAL when tags is empty."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = []  # Empty tags array
 
         transformed_data = transform_harmonic_data(harmonic_data)
@@ -418,7 +442,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_fallback_to_tagsv2_first_tag(self):
         """Test Salesforce update falls back to first tagsV2 tag when no MARKET_VERTICAL."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = []  # Empty tags array
         # Remove MARKET_VERTICAL from tagsV2
         harmonic_data["tagsV2"] = [
@@ -437,7 +461,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_skips_empty_displayvalue(self):
         """Test Salesforce update skips tags with empty displayValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = [
             {"type": "INDUSTRY", "displayValue": "", "isPrimaryTag": True},
             {"type": "CATEGORY", "displayValue": "Fallback", "isPrimaryTag": False},
@@ -450,6 +474,73 @@ class TestHarmonicDataTransformation(BaseTest):
         # Should skip empty displayValue and use the fallback
         assert salesforce_data is not None
         assert salesforce_data["harmonic_industry__c"] == "Fallback"
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_includes_is_yc_company_field(self):
+        """Test transform_harmonic_data includes is_yc_company field."""
+        harmonic_data = load_harmonic_fixture()
+        # Fixture already has investors including mock data
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert "is_yc_company" in result
+        # The fixture has investors but not YC, so this should be False
+        assert result["is_yc_company"] is False
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_includes_is_yc_company_with_yc_investor(self):
+        """Test transform_harmonic_data sets is_yc_company=True when YC is an investor."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["funding"]["investors"] = [
+            {"name": "GV"},
+            {"name": "Y Combinator"},
+            {"name": "Stripe"},
+        ]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["is_yc_company"] is True
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_is_yc_company_false_missing_funding(self):
+        """Test transform_harmonic_data sets is_yc_company=False when no funding section."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        del harmonic_data["funding"]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["is_yc_company"] is False
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_includes_yc_company_flag(self):
+        """Test Salesforce update includes harmonic_is_yc_company__c field."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["funding"]["investors"] = [{"name": "Y Combinator"}]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        assert salesforce_data is not None
+        assert "harmonic_is_yc_company__c" in salesforce_data
+        assert salesforce_data["harmonic_is_yc_company__c"] is True
+
+    @freeze_time("2025-07-29T12:00:00Z")
+    def test_prepare_salesforce_update_yc_company_false(self):
+        """Test Salesforce update includes harmonic_is_yc_company__c=False when not YC funded."""
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
+        harmonic_data["funding"]["investors"] = [{"name": "GV"}, {"name": "Sequoia"}]
+
+        transformed_data = transform_harmonic_data(harmonic_data)
+        assert transformed_data is not None
+        salesforce_data = prepare_salesforce_update_data("001TEST", transformed_data)
+
+        assert salesforce_data is not None
+        assert "harmonic_is_yc_company__c" in salesforce_data
+        assert salesforce_data["harmonic_is_yc_company__c"] is False
 
 
 class TestSalesforceAccountQuery(BaseTest):

@@ -1,5 +1,22 @@
 """Clustering utilities: HDBSCAN and k-means implementations."""
 
+import os
+import sys
+
+# Configure Numba threading layer BEFORE importing UMAP (which uses Numba internally).
+# The default "workqueue" threading layer is not thread-safe and crashes when multiple
+# Python threads call Numba functions concurrently - which happens when multiple
+# Temporal activities run UMAP on the same worker. TBB (Intel Threading Building Blocks)
+# is thread-safe and supports concurrent access from multiple Python threads.
+# TBB only has x86_64 wheels, so we only enable it on Linux x86_64 (our prod environment).
+# On other platforms (macOS, Linux arm64), we fall back to workqueue - this means
+# only one clustering activity should run at a time locally to avoid crashes.
+# See: https://numba.readthedocs.io/en/stable/user/threading-layer.html
+import platform
+
+if sys.platform == "linux" and platform.machine() == "x86_64":
+    os.environ.setdefault("NUMBA_THREADING_LAYER", "tbb")
+
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -145,7 +162,7 @@ def compute_2d_coordinates(
             centroid_coords = combined_coords[n_samples:]
 
     else:  # default to umap
-        # Lazy import to avoid numba JIT compilation at Django startup
+        # Lazy import: top-level crashes on prod read-only filesystem (numba JIT cache). Must stay inside function.
         from umap import UMAP
 
         # Adjust n_neighbors if we have fewer samples

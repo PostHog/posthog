@@ -128,7 +128,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         entities = set(params["entities"]) if params["entities"] else set(ENTITY_MAP.keys())
         query = params["q"]
 
-        results, counts = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
+        results, counts, _ = search_entities(entities, query, self.project_id, self, ENTITY_MAP)
 
         return Response({"results": results, "counts": counts})
 
@@ -139,7 +139,9 @@ def search_entities(
     project_id: int,
     view: TeamAndOrgViewSetMixin,
     entity_map: dict[str, EntityConfig],
-) -> tuple[list[dict[str, Any]], dict[str, int | None]]:
+    limit: int = LIMIT,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], dict[str, int | None], int]:
     # empty queryset to union things onto it
     counts: dict[str, int | None] = dict.fromkeys(entity_map)
     qs = (
@@ -162,16 +164,21 @@ def search_entities(
         )
         qs = qs.union(klass_qs)
         counts[entity_name] = klass_qs.count()
+
     # order by rank
     if query:
         qs = qs.order_by("-rank")
     else:
         qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-    results = cast(list[dict[str, Any]], list(qs[:LIMIT]))
+    # Get total count before pagination
+    total_count = qs.count()
+
+    # Apply pagination
+    results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
     for result in results:
         result.pop("_sort_name", None)
-    return results, counts
+    return results, counts, total_count
 
 
 def class_queryset(

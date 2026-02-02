@@ -32,7 +32,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import (
+    MAX_SELECT_POSTHOG_AI_LIMIT,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLParserBackend,
+    HogQLQuerySettings,
+    LimitContext,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
@@ -70,8 +78,9 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -1517,6 +1526,13 @@ class TestPrinter(BaseTest):
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000)) WITH TIES",
         )
 
+    def test_select_limit_with_posthog_ai_context(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
+        self.assertEqual(
+            self._select("select 1 limit 500", context=context),
+            f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
+        )
+
     def test_select_offset(self):
         # Only the default limit if OFFSET is specified alone
         self.assertEqual(
@@ -2515,7 +2531,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2528,7 +2544,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2558,61 +2574,49 @@ class TestPrinter(BaseTest):
         )
 
     def test_get_survey_response(self):
-        # Test with just question index
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
+        # Test with just question index (0) - dynamic key
+        printed = self._print(
+            "select getSurveyResponse(0) from events",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Dynamic key (no question_id) uses concat for key construction
+        self.assertIn("coalesce", printed)
+        self.assertIn("nullIf", printed)
+        self.assertIn("concat", printed)
 
-            printed = self._print(
-                "select getSurveyResponse(0) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(0, None, False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
-
-        # Test with question index and specific ID
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
-
-            printed = self._print(
-                "select getSurveyResponse(1, 'question123') from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(1, "question123", False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
+        # Test with question index and specific ID - static key uses ast.Field
+        printed = self._print(
+            "select getSurveyResponse(1, 'question123') from events",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Static key uses ast.Field which resolves to JSONExtractRaw (enables materialization)
+        self.assertIn("coalesce", printed)
+        self.assertIn("nullIf", printed)
+        self.assertIn("JSONExtractRaw", printed)
 
         # Test with multiple choice question
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
-
-            printed = self._print(
-                "select getSurveyResponse(2, 'abc123', true) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(2, "abc123", True)
+        printed = self._print(
+            "select getSurveyResponse(2, 'abc123', true) from events",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
+        self.assertIn("JSONHas", printed)
+        self.assertIn("JSONExtractArrayRaw", printed)
+        self.assertIn("if(", printed)
 
     def test_unique_survey_submissions_filter(self):
-        with patch(
-            "posthog.hogql.printer.base.filter_survey_sent_events_by_unique_submission"
-        ) as mock_filter_survey_sent_events_by_unique_submission:
-            mock_filter_survey_sent_events_by_unique_submission.return_value = (
-                "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
-            )
-            printed = self._print(
-                "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123", self.team.pk)
-            self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Should contain subquery with argMax for deduplication
+        # String literals are parameterized, so check for structure instead
+        self.assertIn("argMax", printed)
+        self.assertIn("in(events.uuid", printed)
+        self.assertIn("SELECT argMax(events.uuid", printed)
+        self.assertIn("FROM events WHERE", printed)
+        self.assertIn("GROUP BY", printed)
+        self.assertIn("JSONExtractString", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -2949,14 +2953,16 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    WITH some_remote_table AS
                                             (SELECT e.event, t.id
                                              FROM events e
                                                       JOIN test_table t on toString(t.id) = e.event)
                                    SELECT some_remote_table.event
                                    FROM events
-                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2980,11 +2986,13 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT e.event, s.event, t.id
                                    FROM events e
                                             JOIN (SELECT event from events) as s ON e.event = s.event
-                                            LEFT JOIN test_table t on e.event = toString(t.id)""")
+                                            LEFT JOIN test_table t on e.event = toString(t.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed  # Join #1
@@ -3011,11 +3019,13 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
 
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT event
                                    FROM events
                                    WHERE properties.$browser IN (SELECT id
-                                                                 FROM test_table)""")
+                                                                 FROM test_table)"""
+            )
 
             if using_global_joins:
                 assert "globalIn" in printed
@@ -3140,6 +3150,55 @@ class TestPrinter(BaseTest):
         result = self._select("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub", context)
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    def test_final_keyword_not_supported(self):
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+    @parameterized.expand(
+        [
+            # Integer types
+            ("int", "event::int", "toInt64(events.event)"),
+            ("integer", "event::integer", "toInt64(events.event)"),
+            ("int_upper", "event::INT", "toInt64(events.event)"),
+            # Float types
+            ("float", "event::float", "toFloat64(events.event)"),
+            ("double", "event::double", "toFloat64(events.event)"),
+            ("double_precision", 'event::"double precision"', "toFloat64(events.event)"),
+            ("real", "event::real", "toFloat64(events.event)"),
+            # String types
+            ("text", "event::text", "toString(events.event)"),
+            ("varchar", "event::varchar", "toString(events.event)"),
+            ("char", "event::char", "toString(events.event)"),
+            ("string", "event::string", "toString(events.event)"),
+            # Boolean types
+            ("boolean", "event::boolean", "toBoolean(events.event)"),
+            ("bool", "event::bool", "toBoolean(events.event)"),
+            # Date type
+            ("date", "event::date", "toDate(events.event)"),
+            # Constant cast
+            ("const_int", "'123'::int", "toInt64(%(hogql_val_0)s)"),
+            ("const_float", "123.45::float", "toFloat64(123.45)"),
+        ]
+    )
+    def test_postgres_style_cast(self, name, expr, expected):
+        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+
+    def test_postgres_style_cast_datetime(self):
+        # DateTime types include timezone, test separately
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+
+    def test_postgres_style_cast_unsupported_type(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("event::unsupported_type", backend="cpp-json")
+        self.assertIn("Unsupported type cast", str(ctx.exception))
 
 
 @snapshot_clickhouse_queries
@@ -3475,6 +3534,52 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "%@posthog.com%"},
             )
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_uses_ngram_index_for_non_nullable(self) -> None:
+        # toString() wrapper should use ngram index optimization when available
+        with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_prop, '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
+        # Numeric properties should not use the ILIKE optimization - fall back to default handling
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project=self.team.project,
+            name="test_numeric_prop",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        with materialized("events", "test_numeric_prop", is_nullable=False) as mat_col:
+            # Direct property access: optimization skipped, PropertySwapper wraps in accurateCastOrNull
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_numeric_prop, '%123%')",
+                f"ifNull(ilike(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
+
+            # With toString() wrapper: same behavior, optimization not applied
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_numeric_prop), '%123%')",
+                f"ifNull(ilike(toString(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s)), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
 
     def test_materialized_column_not_ilike_uses_raw_column_for_non_nullable(self) -> None:
         # For non-nullable columns, NOT ILIKE uses raw column directly
@@ -3582,6 +3687,41 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ifNull(notIn(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), 1)",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
+
+    def test_force_data_skipping_indices_works_with_simple_equality(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+
+            index_name = get_bloom_filter_index_name(mat_col.name)
+            result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'foo'",
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    forceClickhouseDataSkippingIndexes=[index_name],
+                ),
+            )
+
+            assert result.results == [("test",)]
+            assert result.clickhouse
+            assert f"force_data_skipping_indices='{index_name}'" in result.clickhouse
+
+    def test_force_data_skipping_indices_fails_when_index_cannot_be_used(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+
+            index_name = get_bloom_filter_index_name(mat_col.name)
+            with pytest.raises(Exception) as exc_info:
+                execute_hogql_query(
+                    team=self.team,
+                    query="SELECT distinct_id FROM events WHERE concat(properties.test_prop, '') = 'foo'",
+                    modifiers=HogQLQueryModifiers(
+                        materializationMode=MaterializationMode.AUTO,
+                        forceClickhouseDataSkippingIndexes=[index_name],
+                    ),
+                )
+
+            assert "index" in str(exc_info.value).lower()
 
     @parameterized.expand(
         [
@@ -3798,11 +3938,12 @@ class TestPostgresPrinter(BaseTest):
 
     def _expr(
         self,
-        query: str,
+        query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend) if isinstance(query, str) else query
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -3976,3 +4117,42 @@ class TestPostgresPrinter(BaseTest):
                 stack=[prepared_select_query],
             ),
         )
+
+    def test_postgres_style_cast(self):
+        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")
+
+    @parameterized.expand(
+        [
+            # SQL injection attempts
+            ("int); DROP TABLE users; --", '"int); DROP TABLE users; --"'),
+            ("text' OR '1'='1", "\"text' OR '1'='1\""),
+            ("int; DELETE FROM events;", '"int; DELETE FROM events;"'),
+            ("varchar(100)); --", '"varchar(100)); --"'),
+            # Quote escaping
+            ('int"test', '"int""test"'),
+            ("int'test", '"int\'test"'),
+            # Backslash handling
+            ("int\\test", '"int\\test"'),
+            # Unicode/special chars
+            ("int\x00test", '"int\x00test"'),
+            # Newlines and whitespace injection
+            ("int\nDROP TABLE", '"int\nDROP TABLE"'),
+            ("int\rtest", '"int\rtest"'),
+            # Simple identifiers should not be quoted
+            ("varchar", "varchar"),
+            ("integer", "integer"),
+        ]
+    )
+    def test_type_cast_typename_escape(self, type_name, expected_escaped):
+        node = ast.TypeCast(
+            expr=ast.Constant(value=123),
+            type_name=type_name,
+        )
+        self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")

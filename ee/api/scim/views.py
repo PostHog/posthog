@@ -23,7 +23,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
-from ee.api.scim.utils import detect_identity_provider, mask_scim_filter, mask_scim_payload
+from ee.api.scim.utils import detect_identity_provider, mask_scim_filter, mask_scim_payload, normalize_scim_operations
 from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
@@ -258,6 +258,7 @@ class SCIMUserDetailView(SCIMBaseView):
         scim_user = self.get_object(user_id)
         try:
             operations = request.data.get("Operations", [])
+            operations = normalize_scim_operations(operations)
             scim_user.handle_operations(operations)
             return Response(scim_user.to_dict())
         except Exception as e:

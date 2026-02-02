@@ -35,7 +35,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -46,7 +45,6 @@ import {
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    AvailableFeature,
     BaseMathType,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
@@ -257,7 +255,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.FEATURE_FLAGS,
 }
 
 export function OverViewTab({
@@ -272,14 +270,16 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
+        useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
-    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
+    const effectiveCount = pagination.entryCount ?? 0
+    const endCount = page * FLAGS_PER_PAGE < effectiveCount ? page * FLAGS_PER_PAGE : effectiveCount
+    const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -314,30 +314,26 @@ export function OverViewTab({
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(_, featureFlag: FeatureFlagType) {
-                          const tags = featureFlag.tags
-                          if (!tags || tags.length === 0) {
-                              return null
-                          }
-                          return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                              <FeatureFlagEvaluationTags
-                                  tags={tags}
-                                  evaluationTags={featureFlag.evaluation_tags || []}
-                                  flagId={featureFlag.id}
-                                  context="static"
-                              />
-                          ) : (
-                              <ObjectTags tags={tags} staticOnly />
-                          )
-                      },
-                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof FeatureFlagType,
+            render: function Render(_, featureFlag: FeatureFlagType) {
+                const tags = featureFlag.tags
+                if (!tags || tags.length === 0) {
+                    return null
+                }
+                return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                    <FeatureFlagEvaluationTags
+                        tags={tags}
+                        evaluationTags={featureFlag.evaluation_tags || []}
+                        flagId={featureFlag.id}
+                        context="static"
+                    />
+                ) : (
+                    <ObjectTags tags={tags} staticOnly />
+                )
+            },
+        } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         updatedAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
@@ -455,7 +451,7 @@ export function OverViewTab({
                 type: true,
                 status: true,
                 createdBy: true,
-                tags: hasAvailableFeature(AvailableFeature.TAGGING),
+                tags: true,
                 runtime: true,
             }}
         />
@@ -477,17 +473,21 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div>
-                <span className="text-secondary">
-                    {featureFlagsLoading ? (
-                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
-                    ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
+                <span
+                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
+                    aria-busy={filtersChanged}
+                    aria-live="polite"
+                >
+                    {filtersChanged ? (
+                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+                    ) : effectiveCount > 0 ? (
+                        flagCountText
                     ) : null}
                 </span>
             </div>
 
             <LemonTable
-                dataSource={featureFlags.results}
+                dataSource={displayedFlags}
                 columns={columns}
                 rowKey="key"
                 defaultSorting={{
@@ -496,6 +496,7 @@ export function OverViewTab({
                 }}
                 noSortingCancellation
                 loading={featureFlagsLoading}
+                disableTableWhileLoading={false}
                 pagination={pagination}
                 nouns={nouns}
                 data-attr="feature-flag-table"
@@ -514,6 +515,7 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection

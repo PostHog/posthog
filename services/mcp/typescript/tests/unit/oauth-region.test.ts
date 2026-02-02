@@ -91,27 +91,36 @@ describe('OAuth Region Routing', () => {
         })
     })
 
-    describe('401 Response Metadata URL', () => {
+    describe('401 Response Metadata URL (RFC 9728)', () => {
+        // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
+        // between the host and the resource path:
+        // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
+        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
         const testCases = [
             {
-                name: 'includes region param in metadata URL when specified',
+                name: 'includes region param and resource path /mcp in metadata URL',
                 requestUrl: 'https://mcp.posthog.com/mcp?region=eu',
-                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource?region=eu',
+                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp?region=eu',
             },
             {
-                name: 'no region param in metadata URL when not specified',
+                name: 'includes resource path /mcp when no region param',
                 requestUrl: 'https://mcp.posthog.com/mcp',
-                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource',
+                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp',
             },
             {
-                name: 'preserves region param with other params',
+                name: 'includes resource path /sse for SSE endpoint',
+                requestUrl: 'https://mcp.posthog.com/sse',
+                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/sse',
+            },
+            {
+                name: 'preserves region param with resource path',
                 requestUrl: 'https://mcp.posthog.com/mcp?features=flags&region=eu',
-                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource?region=eu',
+                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp?region=eu',
             },
             {
                 name: 'normalizes uppercase region to lowercase for consistency',
                 requestUrl: 'https://mcp.posthog.com/mcp?region=EU',
-                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource?region=eu',
+                expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp?region=eu',
             },
         ]
 
@@ -120,12 +129,49 @@ describe('OAuth Region Routing', () => {
             // Matches actual behavior: normalize to lowercase and include if present
             const regionParam = url.searchParams.get('region')?.toLowerCase()
 
-            const metadataUrl = new URL('/.well-known/oauth-protected-resource', requestUrl)
+            // Per RFC 9728: insert well-known path between host and resource path
+            const metadataUrl = new URL(requestUrl)
+            metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
+            metadataUrl.search = ''
             if (regionParam) {
                 metadataUrl.searchParams.set('region', regionParam)
             }
 
             expect(metadataUrl.toString()).toBe(expectedMetadataUrl)
+        })
+    })
+
+    describe('Protected Resource Metadata endpoint (RFC 9728)', () => {
+        // Per RFC 9728, the well-known endpoint extracts the resource path from the URL
+        // e.g., /.well-known/oauth-protected-resource/mcp → resource is /mcp
+        const testCases = [
+            {
+                name: 'extracts /mcp resource from well-known path',
+                wellKnownUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp',
+                expectedResource: 'https://mcp.posthog.com/mcp',
+            },
+            {
+                name: 'extracts /sse resource from well-known path',
+                wellKnownUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/sse',
+                expectedResource: 'https://mcp.posthog.com/sse',
+            },
+            {
+                name: 'returns root for well-known without path suffix',
+                wellKnownUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource',
+                expectedResource: 'https://mcp.posthog.com',
+            },
+        ]
+
+        it.each(testCases)('$name', ({ wellKnownUrl, expectedResource }) => {
+            const wellKnownPrefix = '/.well-known/oauth-protected-resource'
+            const url = new URL(wellKnownUrl)
+            const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
+
+            const resourceUrl = new URL(wellKnownUrl)
+            resourceUrl.pathname = resourcePath
+            resourceUrl.search = ''
+
+            expect(resourceUrl.toString().replace(/\/$/, '')).toBe(expectedResource)
         })
     })
 })

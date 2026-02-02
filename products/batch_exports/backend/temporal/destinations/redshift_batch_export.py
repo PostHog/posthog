@@ -133,10 +133,12 @@ class StringLimitExceededError(Exception):
         else:
             msg = f"A column "
 
-        msg += f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported"
+        msg += (
+            f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported."
+            " The 'json_parse_truncate_strings' setting can be enabled in Redshift to"
+            " automatically truncate strings to the maximum limit."
+        )
 
-        if column in {"properties", "set", "set_once", "person_properties"}:
-            msg += ". Consider switching this column to 'SUPER' type which can support longer documents compared to 'VARCHAR'"
         super().__init__(msg)
 
 

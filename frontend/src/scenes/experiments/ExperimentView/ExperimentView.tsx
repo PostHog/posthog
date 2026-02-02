@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
-import { ActivityScope, ProgressStatus } from '~/types'
+import { ActivityScope, ExperimentProgressStatus } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -244,7 +244,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
     if (
         !experimentLoading &&
-        getExperimentStatus(experiment) === ProgressStatus.Draft &&
+        getExperimentStatus(experiment) === ExperimentProgressStatus.Draft &&
         experiment.type === 'product' &&
         allPrimaryMetrics.length === 0
     ) {

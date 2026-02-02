@@ -11,7 +11,7 @@ import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationType } from '~/types'
+import { OrganizationType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'
 import { urls } from './urls'
@@ -105,10 +105,6 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
-        hasTagging: [
-            () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.TAGGING),
-        ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization, currentOrganizationLoading): boolean =>

@@ -16,6 +16,7 @@ import {
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
+    LemonSwitch,
     LemonTag,
     Link,
     Popover,
@@ -416,6 +417,19 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                     {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
                                                     {survey.type === SurveyType.ExternalSurvey && (
                                                         <>
+                                                            <Tooltip title="Enable this to embed the survey in tools like Framer, Webflow, or other website builders that use iframes.">
+                                                                <LemonSwitch
+                                                                    checked={!!survey.enable_iframe_embedding}
+                                                                    onChange={(checked) =>
+                                                                        setSurveyValue(
+                                                                            'enable_iframe_embedding',
+                                                                            checked
+                                                                        )
+                                                                    }
+                                                                    label="Allow embedding in iframes"
+                                                                    bordered
+                                                                />
+                                                            </Tooltip>
                                                             <div className="font-semibold">
                                                                 How hosted surveys work:
                                                             </div>

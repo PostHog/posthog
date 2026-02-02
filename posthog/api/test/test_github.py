@@ -1,15 +1,19 @@
 import json
+from datetime import timedelta
 from hashlib import sha256
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog import redis
 from posthog.api.github import (
+    GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+    GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
     GITHUB_TYPE_FOR_PERSONAL_API_KEY,
     GITHUB_TYPE_FOR_PROJECT_SECRET,
     SignatureVerificationError,
@@ -17,6 +21,7 @@ from posthog.api.github import (
     verify_github_signature,
 )
 from posthog.models import PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 
@@ -857,3 +862,465 @@ class TestSecretAlertRegionTracking(APIBaseTest):
         props = alert_calls[0][1]["properties"]
         self.assertNotIn("key_found_region", props)
         self.assertFalse(props["found"])
+
+
+class TestOAuthTokenSecretAlert(APIBaseTest):
+    def _create_oauth_app(self):
+        from django.conf import settings
+
+        from posthog.models.test.test_oauth import generate_rsa_key
+
+        with self.settings(
+            OAUTH2_PROVIDER={
+                **settings.OAUTH2_PROVIDER,
+                "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+            }
+        ):
+            return OAuthApplication.objects.create(
+                name="Test OAuth App",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                skip_authorization=False,
+                organization=self.organization,
+                user=self.user,
+            )
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_oauth_token_exposed")
+    def test_oauth_access_token_found_and_revoked(self, mock_send_email, mock_verify):
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+        token = "pha_test_access_token_github_alert_123"
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token=token,
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+        )
+        access_token_id = access_token.id
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "true_positive")
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        self.assertEqual(call_args[0][0], self.user.id)
+        self.assertEqual(call_args[0][1], "access")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_oauth_token_exposed")
+    def test_oauth_refresh_token_found_and_revoked(self, mock_send_email, mock_verify):
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+        token = "phr_test_refresh_token_github_alert_123"
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token=token,
+        )
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "true_positive")
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN)
+
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        self.assertEqual(call_args[0][0], self.user.id)
+        self.assertEqual(call_args[0][1], "refresh")
+
+    @patch("posthog.api.github.verify_github_signature")
+    def test_unknown_oauth_access_token_returns_false_positive(self, mock_verify):
+        mock_verify.return_value = None
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "pha_nonexistent_access_token_12345678901234567890",
+                        "type": GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "false_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    def test_unknown_oauth_refresh_token_returns_false_positive(self, mock_verify):
+        mock_verify.return_value = None
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "phr_nonexistent_refresh_token_12345678901234567890",
+                        "type": GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "false_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_oauth_token_exposed")
+    def test_oauth_access_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_related_refresh_token_123",
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_test_access_with_refresh_123",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+            source_refresh_token=refresh_token,
+        )
+        access_token_id = access_token.id
+
+        grant = OAuthGrant.objects.create(
+            user=self.user,
+            application=oauth_app,
+            code="test_grant_code",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri="https://example.com/callback",
+            scope="openid profile",
+            code_challenge="test_challenge",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+        grant_id = grant.id
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "pha_test_access_with_refresh_123",
+                        "type": GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_oauth_token_exposed")
+    def test_oauth_refresh_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_leaked_refresh_token_456",
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_related_access_token_456",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+            source_refresh_token=refresh_token,
+        )
+        access_token_id = access_token.id
+
+        grant = OAuthGrant.objects.create(
+            user=self.user,
+            application=oauth_app,
+            code="test_grant_code_refresh",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri="https://example.com/callback",
+            scope="openid profile",
+            code_challenge="test_challenge",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+        grant_id = grant.id
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "phr_leaked_refresh_token_456",
+                        "type": GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+
+        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+
+    @patch("posthog.api.github.verify_github_signature")
+    def test_revoked_oauth_refresh_token_returns_false_positive(self, mock_verify):
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+        token = "phr_already_revoked_token_123"
+        OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token=token,
+            revoked=timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "false_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_oauth_token_exposed")
+    def test_initial_access_token_revokes_paired_refresh_token(self, mock_send_email, mock_verify):
+        """Initial access token (no source_refresh_token) should still revoke paired refresh token."""
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+
+        # Create access token WITHOUT source_refresh_token (initial token from authorization flow)
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_initial_access_token_no_source",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+            source_refresh_token=None,  # Initial token has no source_refresh_token
+        )
+        access_token_id = access_token.id
+
+        # Create refresh token for same user+app (no source_refresh_token link)
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_paired_refresh_no_link",
+            access_token=access_token,
+        )
+
+        # Create grant for same user+app
+        grant = OAuthGrant.objects.create(
+            user=self.user,
+            application=oauth_app,
+            code="test_grant_code_initial",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri="https://example.com/callback",
+            scope="openid profile",
+            code_challenge="test_challenge",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+        grant_id = grant.id
+
+        # Leak the access token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "pha_initial_access_token_no_source",
+                        "type": GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        # Access token should be deleted
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+
+        # Refresh token should be revoked
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        # Grant should be deleted
+        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_oauth_token_exposed")
+    def test_initial_refresh_token_revokes_paired_access_token(self, mock_send_email, mock_verify):
+        """Initial refresh token should still revoke paired access token."""
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+
+        # Create access token WITHOUT source_refresh_token (initial token)
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_initial_access_for_refresh_leak",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+            source_refresh_token=None,
+        )
+        access_token_id = access_token.id
+
+        # Create refresh token for same user+app
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_initial_refresh_to_leak",
+            access_token=access_token,
+        )
+
+        # Create grant for same user+app
+        grant = OAuthGrant.objects.create(
+            user=self.user,
+            application=oauth_app,
+            code="test_grant_code_refresh_leak",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri="https://example.com/callback",
+            scope="openid profile",
+            code_challenge="test_challenge",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+        grant_id = grant.id
+
+        # Leak the refresh token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": "phr_initial_refresh_to_leak",
+                        "type": GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        # Access token should be deleted
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+
+        # Refresh token should be revoked
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        # Grant should be deleted
+        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())

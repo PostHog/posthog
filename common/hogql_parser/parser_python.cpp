@@ -1,6 +1,5 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
-#include <boost/algorithm/string.hpp>
 #include <string>
 
 #include "HogQLLexer.h"
@@ -1406,7 +1405,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       tokens.push_back("ASOF");
     }
     tokens.push_back("INNER");
-    return boost::algorithm::join(tokens, " ");
+    return join(tokens, " ");
   }
 
   VISIT(JoinOpLeftRight) {
@@ -1435,7 +1434,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (ctx->ASOF()) {
       tokens.push_back("ASOF");
     }
-    return boost::algorithm::join(tokens, " ");
+    return join(tokens, " ");
   }
 
   VISIT(JoinOpFull) {
@@ -1452,7 +1451,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (ctx->ANY()) {
       tokens.push_back("ANY");
     }
-    return boost::algorithm::join(tokens, " ");
+    return join(tokens, " ");
   }
 
   VISIT_UNSUPPORTED(JoinOpCross)
@@ -1669,8 +1668,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     PyObject* expr = visitAsPyObject(ctx->columnExpr());
 
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), boost::algorithm::to_lower_copy(alias)) !=
-        RESERVED_KEYWORDS.end()) {
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
       Py_DECREF(expr);
       throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
     }
@@ -2465,7 +2463,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     if (table.size() == 0 && nested.size() > 0) {
       string text = ctx->getText();
-      boost::algorithm::to_lower(text);
+      to_lower(text);
       if (!text.compare("true")) {
         RETURN_NEW_AST_NODE("Constant", "{s:O}", "value", Py_True);
       }
@@ -2493,8 +2491,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();
     string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), boost::algorithm::to_lower_copy(alias)) !=
-        RESERVED_KEYWORDS.end()) {
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
       throw SyntaxError("ALIAS is a reserved keyword");
     }
     PyObject* py_alias = PyUnicode_FromStringAndSize(alias.data(), alias.size());
@@ -2563,7 +2560,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(NumberLiteral) {
     string text = ctx->getText();
-    boost::algorithm::to_lower(text);
+    to_lower(text);
     if (text.find(".") != string::npos || text.find("e") != string::npos || !text.compare("-inf") ||
         !text.compare("inf") || !text.compare("nan")) {
       PyObject* py_text = PyUnicode_FromStringAndSize(text.data(), text.size());

@@ -4,6 +4,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { UserBasicType } from '~/types'
+
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
@@ -24,6 +26,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
+        setGreetingInputValue: (value: string | null) => ({ value }),
+        saveGreetingText: true,
+        // Notification recipients
+        setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -67,11 +73,21 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setIsAddingDomain: () => '',
             },
         ],
+        greetingInputValue: [
+            null as string | null,
+            {
+                setGreetingInputValue: (_, { value }) => value,
+            },
+        ],
     }),
     selectors({
         conversationsDomains: [
             (s) => [s.currentTeam],
             (currentTeam): string[] => currentTeam?.conversations_settings?.widget_domains || [],
+        ],
+        notificationRecipients: [
+            (s) => [s.currentTeam],
+            (currentTeam): number[] => currentTeam?.conversations_settings?.notification_recipients || [],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -112,6 +128,28 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         startEditDomain: ({ index }) => {
             actions.setEditingDomainIndex(index)
             actions.setDomainInputValue(values.conversationsDomains[index])
+        },
+        saveGreetingText: () => {
+            if (!values.greetingInputValue?.trim()) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_greeting_text: values.greetingInputValue,
+                },
+            })
+        },
+        setNotificationRecipients: ({ users }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    notification_recipients: users.map((u) => u.id),
+                },
+            })
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.setGreetingInputValue(null)
         },
     })),
 ])

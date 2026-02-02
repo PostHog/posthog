@@ -3,6 +3,24 @@ from typing import Literal
 
 from django.conf import settings
 
+# Consumer group names for Kafka tables.
+# US deployment uses named groups after the cluster reshard, other deployments use legacy group names.
+# Once we make all envs match, we can remove the _US check
+_US = settings.CLOUD_DEPLOYMENT == "US"
+CONSUMER_GROUP_EVENTS_JSON = "clickhouse_events_json" if _US else "group1"
+CONSUMER_GROUP_APP_METRICS = "clickhouse_app_metrics" if _US else "group1"
+CONSUMER_GROUP_APP_METRICS2 = "clickhouse_app_metrics2" if _US else "group1"
+CONSUMER_GROUP_INGESTION_WARNINGS = "clickhouse_ingestion_warnings" if _US else "group1"
+CONSUMER_GROUP_SESSION_REPLAY_EVENTS = "clickhouse_session_replay_events" if _US else "group1"
+CONSUMER_GROUP_LOG_ENTRIES = "clickhouse_log_entries_v3" if _US else "clickhouse_log_entries"
+CONSUMER_GROUP_DOCUMENT_EMBEDDINGS = "clickhouse_document_embeddings2" if _US else "clickhouse_document_embeddings"
+CONSUMER_GROUP_HEATMAPS = "clickhouse_heatmaps" if _US else "group1"
+CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US else "clickhouse_prefiltered_events"
+CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
+    "clickhouse_precalculated_person_properties2" if _US else "clickhouse_precalculated_person_properties"
+)
+CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
+
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"

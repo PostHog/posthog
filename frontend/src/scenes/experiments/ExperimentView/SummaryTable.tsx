@@ -389,7 +389,7 @@ export function SummaryTable({
     })
 
     return (
-        <div className="mb-4">
+        <div className="mb-4" data-attr="experiment-results">
             <LemonTable
                 loading={false}
                 columns={columns}

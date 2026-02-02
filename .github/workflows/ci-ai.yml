@@ -83,7 +83,7 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval/ci -vv
+              run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml
               env:
                   EVAL_MODE: ci
                   EXPORT_EVAL_RESULTS: true
@@ -104,3 +104,9 @@ jobs:
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')
                       script({ github, context, fs })
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-ai-evals
+                  path: junit.xml

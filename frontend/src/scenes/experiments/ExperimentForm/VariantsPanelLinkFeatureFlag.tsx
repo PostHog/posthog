@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { P, match } from 'ts-pattern'
 
 import { IconToggle } from '@posthog/icons'
 
@@ -18,22 +17,19 @@ interface VariantsPanelLinkFeatureFlagProps {
 }
 
 const getTargetingSummary = (flag: FeatureFlagType): string[] => {
-    return match(flag)
-        .with({ is_simple_flag: true, rollout_percentage: P.not(P.nullish) }, (f) => [
-            `${f.rollout_percentage}% of all users`,
-        ])
-        .with({ filters: { groups: P.when((g) => !g || g.length === 0) } }, () => ['All users'])
-        .otherwise((f) =>
-            f.filters.groups.map((group) => {
-                const rollout = group.rollout_percentage != null ? `${group.rollout_percentage}% of ` : ''
-                const users = group.properties?.length
-                    ? `users matching ${group.properties.length} ${group.properties.length === 1 ? 'condition' : 'conditions'}`
-                    : 'all users'
-                const variant = group.variant ? ` → variant "${group.variant}"` : ''
+    if (!flag.filters.groups || flag.filters.groups.length === 0) {
+        return ['All users']
+    }
 
-                return `${rollout}${users}${variant}`
-            })
-        )
+    return flag.filters.groups.map((group) => {
+        const rollout = group.rollout_percentage != null ? `${group.rollout_percentage}% of ` : ''
+        const users = group.properties?.length
+            ? `users matching ${group.properties.length} ${group.properties.length === 1 ? 'condition' : 'conditions'}`
+            : 'all users'
+        const variant = group.variant ? ` → variant "${group.variant}"` : ''
+
+        return `${rollout}${users}${variant}`
+    })
 }
 
 const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
@@ -107,7 +103,7 @@ export const VariantsPanelLinkFeatureFlag = ({
 
     return (
         <div>
-            <label className="text-sm font-semibold">Linked Feature Flag</label>
+            <label className="text-sm font-semibold">Linked feature flag</label>
             <div className="mt-2 border rounded-lg bg-bg-light p-4 space-y-2">
                 {/* Header: Flag key + link + change button */}
                 <div className="flex flex-row gap-4">

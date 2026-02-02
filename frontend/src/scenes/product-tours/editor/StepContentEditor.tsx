@@ -172,7 +172,7 @@ export function StepContentEditor({
                 defaultUpload.setFilesToUpload(files)
             }
         },
-        [uploadImage, editor, defaultUpload.setFilesToUpload]
+        [uploadImage, editor, defaultUpload.setFilesToUpload] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     const uploading = uploadImage ? customUploading : defaultUpload.uploading
