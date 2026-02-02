@@ -1,3 +1,6 @@
+jest.mock('puppeteer', () => ({}))
+jest.mock('puppeteer-screen-recorder', () => ({ PuppeteerScreenRecorder: jest.fn() }))
+
 const {
     scaleDimensionsIfNeeded,
     setupUrlForPlaybackSpeed,
