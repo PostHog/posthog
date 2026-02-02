@@ -1,11 +1,10 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
-import { ReadableStream } from 'node:stream/web'
+import { ReadableStream as NodeReadableStream } from 'stream/web'
 
 import api from 'lib/api'
 
 import { Mocks } from '~/mocks/utils'
-import { AssistantEventType, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 export const maxMocks: Mocks = {
@@ -36,57 +35,30 @@ export const MOCK_IN_PROGRESS_CONVERSATION: Conversation = {
     status: ConversationStatus.InProgress,
 }
 
-export function mockStream(): jest.SpyInstance {
-    return jest.spyOn(api.conversations, 'stream').mockImplementation(async (payload): Promise<Response> => {
-        const encoder = new TextEncoder()
-        const stream = new ReadableStream({
-            async start(controller) {
-                function enqueue({ event, data }: { event: AssistantEventType; data: any }): void {
-                    controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
-                }
+function buildReadableStream(chunks: string[]): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder()
+    let index = 0
+    const StreamConstructor = globalThis.ReadableStream ?? NodeReadableStream
 
-                const conversation: Conversation = {
-                    id: MOCK_CONVERSATION_ID,
-                    status: ConversationStatus.InProgress,
-                    title: '',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    user: MOCK_DEFAULT_BASIC_USER,
-                    type: ConversationType.Assistant,
-                }
-                enqueue({
-                    event: AssistantEventType.Conversation,
-                    data: conversation,
-                })
-
-                // Clear queues
-                await new Promise((r) => setTimeout(r))
-
-                // Simulate the main assistant response
-                const assistantResponseMessage: AssistantMessage = {
-                    id: 'mock-assistant-msg-1', // Finalized messages usually have an ID
-                    type: AssistantMessageType.Assistant,
-                    content: `Response to "${payload?.content}"`, // Use input from payload
-                }
-                enqueue({
-                    event: AssistantEventType.Message,
-                    data: assistantResponseMessage,
-                })
-
-                // Clear queues
-                await new Promise((r) => setTimeout(r))
-
-                // Close the stream
+    return new StreamConstructor({
+        pull(controller) {
+            if (index < chunks.length) {
+                controller.enqueue(encoder.encode(chunks[index]))
+                index += 1
+            } else {
                 controller.close()
-            },
-        })
-
-        const response = {
-            body: {
-                getReader: () => stream.getReader(),
-            },
-        }
-
-        return response as any
+            }
+        },
     })
+}
+
+export function mockStream(chunks: string[] = [': ping\n\n']): jest.SpyInstance {
+    return jest.spyOn(api.conversations, 'stream').mockResolvedValue({
+        body: buildReadableStream(chunks),
+    } as Response)
+}
+
+export function mockStreamWithEvents(events: Array<{ event: string; data: unknown }>): jest.SpyInstance {
+    const chunks = events.map((entry) => `event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\n\n`)
+    return mockStream(chunks)
 }
