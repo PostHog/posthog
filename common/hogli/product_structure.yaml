@@ -174,6 +174,14 @@ backend_files:
                 - Return ORM instances or QuerySets
                 """
 
+                from . import dtos
+
+                # --- Converters (model -> DTO) ---
+                #
+                # These look repetitive when fields align 1:1. The value is having ONE place
+                # where "internal" becomes "external contract". When models and DTOs drift,
+                # the mapper absorbs the change instead of it leaking everywhere.
+
         dtos.py:
             required: true
             template: |
@@ -276,19 +284,28 @@ backend_files:
                 # so tests automatically rerun when legacy code changes.
                 py_test(
                     name = "tests_unit",
+                    size = "large",
                     srcs = [
                         "test_models.py",
                         "test_logic.py",
                         "test_api.py",
                     ],
                     data = [
-                        "//products:conftest.py",
+                        "//posthog:conftest.py",
                     ],
+                    local = True,
+                    env = {{
+                        "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                        "DEBUG": "1",
+                        "TEST": "1",
+                    }},
                     pytest_main = True,
                     deps = [
                         "//products/{product}/backend:impl",
+                        "//posthog:core",
                         "@pypi//django",
                         "@pypi//pytest",
+                        "@pypi//pytest_django",
                     ],
                 )
 
@@ -296,21 +313,30 @@ backend_files:
                 # These run when any dependent :impl changes
                 py_test(
                     name = "tests_integration",
+                    size = "large",
                     srcs = [
                         "test_presentation.py",
                         "test_tasks.py",
                     ],
                     data = [
-                        "//products:conftest.py",
+                        "//posthog:conftest.py",
                     ],
+                    local = True,
+                    env = {{
+                        "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                        "DEBUG": "1",
+                        "TEST": "1",
+                    }},
                     pytest_main = True,
                     deps = [
                         "//products/{product}/backend:presentation",
                         "//products/{product}/backend:tasks",
+                        "//posthog:core",
                         "@pypi//celery",
                         "@pypi//django",
                         "@pypi//djangorestframework",
                         "@pypi//pytest",
+                        "@pypi//pytest_django",
                     ],
                 )
 
@@ -342,7 +368,7 @@ backend_files:
                     "apps.py",
                     "logic.py",
                     "models.py",
-                ],
+                ] + glob(["migrations/*.py"]),
                 visibility = [
                     "//products/{product}:__subpackages__",
                     "//products:integration_tests",
@@ -392,6 +418,9 @@ frontend_files:
 
     logics/:
         __init__: false # just create the folder
+
+    generated/:
+        __init__: false # for OpenAPI-generated TypeScript types
 
 # Files that are known but should live in specific locations
 # Used by lint to detect misplaced files in backend/
