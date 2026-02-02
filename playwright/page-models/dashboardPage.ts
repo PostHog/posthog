@@ -8,11 +8,13 @@ export class DashboardPage {
     readonly page: Page
 
     readonly topBarName: Locator
+    readonly items: Locator
 
     constructor(page: Page) {
         this.page = page
 
         this.topBarName = page.getByTestId('top-bar-name')
+        this.items = page.locator('.dashboard-items-wrapper')
     }
 
     async createNew(dashboardName: string = randomString('dashboard')): Promise<DashboardPage> {
@@ -25,8 +27,20 @@ export class DashboardPage {
         return this
     }
 
-    /** Checks assertions, reloads and checks again. This is useful for asserting both the local state
-     * and the backend side state are persisted correctly. */
+    async addInsightToNewDashboard(): Promise<void> {
+        // Dismiss Quick start popover if visible
+        const minimizeButton = this.page.getByText('Minimize')
+        if (await minimizeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await minimizeButton.click()
+        }
+
+        await this.page.getByTestId('info-actions-panel').click()
+        await this.page.getByTestId('insight-add-to-dashboard-button').click()
+        await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
+        await this.page.getByTestId('create-dashboard-blank').click()
+        await expect(this.items).toBeVisible()
+    }
+
     async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
         await beforeFn?.()
         await callback()
