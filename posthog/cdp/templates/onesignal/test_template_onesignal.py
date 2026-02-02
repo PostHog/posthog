@@ -47,7 +47,9 @@ class TestTemplateOneSignal(BaseHogFunctionTemplateTest):
         )
 
     def test_function_errors_on_bad_status(self):
-        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}
+        self.fetch_responses = {
+            "https://api.onesignal.com/apps/my-app-id/custom_events": {"status": 400, "body": {"error": "error"}}
+        }
         with pytest.raises(UncaughtHogVMException) as e:
             self.run_function(
                 inputs={
