@@ -256,6 +256,20 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
 const LOG_ZERO = 1e-10
 const EMPTY_DATES: string[] = []
 
+/**
+ * Checks if a data point at index `i` is an anomaly based on anomaly points data.
+ * Matches by date if available, otherwise falls back to index matching.
+ */
+function isAnomalyPoint(
+    i: number,
+    chartDays: string[] | undefined,
+    anomalyDates: Set<string>,
+    anomalyIndices: Set<number>
+): boolean {
+    const chartDate = chartDays?.[i]
+    return (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
+}
+
 export function LineGraph_({
     datasets: _datasets,
     labels,
