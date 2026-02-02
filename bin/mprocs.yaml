@@ -80,7 +80,7 @@ procs:
             JANITOR_ID=shadow-janitor \
             SHARD_ID=shadow \
             bin/start-rust-service cyclotron-janitor
-        capability: cyclotron_shadow
+        capability: cyclotron
 
     cymbal:
         shell: |-
@@ -175,7 +175,7 @@ procs:
 
     migrate-cyclotron-shadow:
         shell: 'bin/check_postgres_up cyclotron_shadow && bin/migrate --scope=cyclotron-shadow'
-        capability: cyclotron_shadow
+        capability: cyclotron
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && bin/migrate --scope=persons'
