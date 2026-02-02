@@ -146,13 +146,13 @@ class Backup:
         return f"https://{bucket}.s3.amazonaws.com"
 
     @classmethod
-    def from_s3_path(cls, path: str) -> "Backup":
+    def from_s3_path(cls, path: str) -> Optional["Backup"]:
         path_regex = re.compile(
             r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<shard>\w+)\/(?P<backup_type>full|inc)-(?P<date>\d{14})\/$"
         )
         match = path_regex.match(path)
         if not match:
-            raise ValueError(f"Could not parse backup path: {path}. It does not match the regex: {path_regex.pattern}")
+            return None
 
         return Backup(
             database=match.group("database"),
@@ -331,8 +331,16 @@ def get_latest_backups(
 
     # Parse all backups first, then sort by date (not lexicographically by prefix)
     # to ensure correct ordering regardless of backup type (full/inc)
+    parsed_backups = []
+    for backup in backups["CommonPrefixes"]:
+        parsed = Backup.from_s3_path(backup["Prefix"])
+        if parsed is None:
+            context.log.warning(f"Could not parse backup path: {backup['Prefix']}, skipping.")
+        else:
+            parsed_backups.append(parsed)
+
     latest_backups = sorted(
-        [Backup.from_s3_path(backup["Prefix"]) for backup in backups["CommonPrefixes"]],
+        parsed_backups,
         key=lambda x: x.date,
         reverse=True,
     )
