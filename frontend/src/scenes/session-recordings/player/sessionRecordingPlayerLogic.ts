@@ -2003,7 +2003,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    beforeUnmount(({ values, actions, cache, props }) => {
+    beforeUnmount(({ values, actions, cache, props, selectors }) => {
         actions.stopAnimation()
 
         // Note: Disposables (timers, event listeners) are automatically cleaned up
@@ -2014,6 +2014,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         actions.setPlayer(null)
         actions.setRootFrame(null)
+
+        // Clear selector cache to prevent memory leaks from memoized player references
+        // reselect v4 exposes clearCache on memoizedResultFunc
+        const playerSelector = selectors.player as {
+            clearCache?: () => void
+            memoizedResultFunc?: { clearCache?: () => void }
+        }
+        playerSelector.clearCache?.()
+        playerSelector.memoizedResultFunc?.clearCache?.()
 
         if (props.mode === SessionRecordingPlayerMode.Preview) {
             return
