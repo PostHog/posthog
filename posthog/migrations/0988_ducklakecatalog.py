@@ -40,7 +40,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "cross_account_external_id",
-                    models.CharField(help_text="External ID for cross-account role assumption", max_length=255),
+                    posthog.helpers.encrypted_fields.EncryptedTextField(
+                        help_text="External ID for cross-account role assumption (encrypted)", max_length=500
+                    ),
                 ),
                 (
                     "created_by",

@@ -190,7 +190,11 @@ function TraceSceneWrapper(): JSX.Element {
                                 path: urls.llmAnalyticsTraces(),
                                 key: 'traces',
                             }}
-                            actions={<TraceNavigation />}
+                            actions={
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
+                                    <TraceNavigation />
+                                ) : undefined
+                            }
                             noBorder
                         />
                         <div className="flex items-start justify-between">
@@ -834,6 +838,8 @@ const EventContent = React.memo(
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
+                                    timeToFirstToken={event.properties.$ai_time_to_first_token}
+                                    isStreaming={event.properties.$ai_stream === true}
                                 />
                             ) : (
                                 <MetadataHeader

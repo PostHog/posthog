@@ -17,6 +17,8 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
+from posthog.schema import ReplayInactivityPeriod
+
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -267,6 +269,34 @@ def detect_recording_resolution(
         logger.info("video_exporter.resolution_detection_complete")
 
 
+def detect_inactivity_periods(
+    page: Page,
+) -> list[ReplayInactivityPeriod] | None:
+    """Detect inactivity periods when recording session videos."""
+    try:
+        # Get data from the global variable using browser
+        logger.info("video_exporter.waiting_for_inactivity_periods_global")
+        inactivity_periods_raw = page.wait_for_function(
+            """
+            () => {
+                const r = (window).__POSTHOG_INACTIVITY_PERIODS__;
+                if (!r) return [];
+                return r.map(p => ({
+                    ts_from_s: Number(p.ts_from_s),
+                    ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
+                    active: Boolean(p.active),
+                }));
+            }
+            """,
+            timeout=15000,
+        ).json_value()
+        inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
+        return inactivity_periods
+    except Exception as e:
+        logger.warning("video_exporter.inactivity_periods_detection_failed", error=str(e))
+        return None
+
+
 def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
     """
     the export function might choose to change the playback speed
@@ -282,7 +312,7 @@ def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
 
 def record_replay_to_file(
     opts: RecordReplayToFileOptions,
-) -> None:
+) -> list[ReplayInactivityPeriod] | None:
     # Check if ffmpeg is available for video conversion
     ext = os.path.splitext(opts.image_path)[1].lower()
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
@@ -354,7 +384,8 @@ def record_replay_to_file(
             )
             measured_width: Optional[int] = None
             try:
-                dimensions = page.evaluate("""
+                dimensions = page.evaluate(
+                    """
                     () => {
                         const replayer = document.querySelector('.replayer-wrapper');
                         if (replayer) {
@@ -371,7 +402,8 @@ def record_replay_to_file(
                             width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0
                         };
                     }
-                """)
+                """
+                )
                 final_height = dimensions["height"]
                 width_candidate = dimensions["width"] or width
                 measured_width = max(width, min(1800, int(width_candidate)))
@@ -385,6 +417,11 @@ def record_replay_to_file(
             actual_duration = opts.recording_duration / playback_speed
             page.wait_for_timeout(int(actual_duration * 1000))
             video = page.video
+
+            # Collect data on inactivity periods and store in the exported asset
+            inactivity_periods = detect_inactivity_periods(page=page)
+
+            # Stop the recording
             page.close()
             if video is None:
                 raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
@@ -416,6 +453,7 @@ def record_replay_to_file(
                     browser.close()
                 except Exception:
                     pass
+        return inactivity_periods
     except Exception as e:
         with posthoganalytics.new_context():
             posthoganalytics.tag("url_to_render", opts.url_to_render)

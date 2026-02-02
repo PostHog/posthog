@@ -40,7 +40,6 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
         productTour,
         productTourLoading,
         productTourForm,
-        productTourFormAllErrors,
         targetingFlagFilters,
         isProductTourFormSubmitting,
         editTab,
@@ -241,11 +240,6 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                 {editTab === ProductTourEditTab.Steps &&
                     (isAnnouncement(productTour) ? (
                         <>
-                            {productTourFormAllErrors._form && (
-                                <LemonField name="_form" className="mb-4">
-                                    <span />
-                                </LemonField>
-                            )}
                             {isBannerAnnouncement(productTour) ? (
                                 <BannerContentEditor
                                     step={productTourForm.content?.steps?.[0]}

@@ -26,3 +26,6 @@ dist/
 .venv/
 
 .husy/
+
+# MCP UI Apps build files
+typescript/ui-apps-dist/
