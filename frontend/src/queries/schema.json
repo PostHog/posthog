@@ -15668,7 +15668,10 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status"
             ],
             "type": "string"
         },
