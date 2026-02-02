@@ -22,6 +22,16 @@
         border-radius: var(--radius);
     }
 
+    &__link {
+        color: var(--color-link);
+        text-decoration: underline;
+        cursor: pointer;
+
+        &:hover {
+            color: var(--color-link-dark);
+        }
+    }
+
     // Inline code styling
     code {
         padding: 0.125em 0.375em;
@@ -44,6 +54,15 @@
         margin: 0.5em 0;
         object-fit: contain;
         border-radius: var(--radius);
+    }
+
+    .SupportEditor__link {
+        color: var(--color-link);
+        text-decoration: underline;
+
+        &:hover {
+            color: var(--color-link-dark);
+        }
     }
 
     // Inline code styling for message display

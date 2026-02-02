@@ -3,6 +3,7 @@ import './SupportEditor.scss'
 import { JSONContent, TextSerializer } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
+import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
 import { EditorContent } from '@tiptap/react'
@@ -23,10 +24,12 @@ import { createEditor } from 'lib/components/RichContentEditor/utils'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -74,13 +77,22 @@ const ImageExtension = Image.configure({
     allowBase64: false,
 })
 
+const LinkExtension = Link.configure({
+    openOnClick: false, // Don't open links when clicking in editor
+    HTMLAttributes: {
+        class: 'SupportEditor__link',
+        rel: 'noopener noreferrer',
+        target: '_blank',
+    },
+})
+
 export const SUPPORT_EXTENSIONS = [
     MentionsExtension,
     RichContentNodeMention,
     ExtensionDocument,
     StarterKit.configure({
         document: false,
-        link: false,
+        link: false, // We use our own Link extension
         heading: false,
         blockquote: false,
         // bold: enabled - Cmd+B
@@ -99,6 +111,7 @@ export const SUPPORT_EXTENSIONS = [
     }),
     Underline, // Cmd+U
     ImageExtension,
+    LinkExtension,
 ]
 
 // Plain text serialization options for generateText() - used by Comment.tsx
@@ -109,6 +122,21 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
         image: ({ node }) => `![${node.attrs.alt || 'image'}](${node.attrs.src})`,
         hardBreak: () => '\n',
     },
+}
+
+/**
+ * Escape special markdown characters in plain text to prevent unintended formatting.
+ * Characters: \ ` * _ { } [ ] ( ) # + - . ! |
+ */
+function escapeMarkdown(text: string): string {
+    return text.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1')
+}
+
+/**
+ * Escape characters that would break image alt text syntax (specifically ])
+ */
+function escapeAltText(text: string): string {
+    return text.replace(/]/g, '\\]')
 }
 
 /**
@@ -128,22 +156,47 @@ function serializeNode(node: JSONContent): string {
     // Handle text nodes with marks
     if (node.type === 'text') {
         let text = node.text || ''
-        if (node.marks) {
-            for (const mark of node.marks) {
-                switch (mark.type) {
-                    case 'bold':
-                        text = `**${text}**`
-                        break
-                    case 'italic':
-                        text = `*${text}*`
-                        break
-                    case 'code':
+        const marks = node.marks || []
+        const hasCodeMark = marks.some((m) => m.type === 'code')
+
+        // Don't escape text inside code marks (it's meant to be literal)
+        // For other text, escape markdown special characters
+        if (!hasCodeMark) {
+            text = escapeMarkdown(text)
+        }
+
+        // Find link mark if present (needs special handling)
+        const linkMark = marks.find((m) => m.type === 'link')
+
+        for (const mark of marks) {
+            switch (mark.type) {
+                case 'bold':
+                    text = `**${text}**`
+                    break
+                case 'italic':
+                    text = `*${text}*`
+                    break
+                case 'code':
+                    // For code, escape backticks by using more backticks
+                    if (text.includes('`')) {
+                        text = `\`\` ${text} \`\``
+                    } else {
                         text = `\`${text}\``
-                        break
-                    // underline has no markdown equivalent, skip
-                }
+                    }
+                    break
+                case 'link':
+                    // Link is handled after other marks
+                    break
+                // underline has no markdown equivalent, skip
             }
         }
+
+        // Apply link mark last (wraps the formatted text)
+        if (linkMark && linkMark.attrs?.href) {
+            const href = linkMark.attrs.href
+            text = `[${text}](${href})`
+        }
+
         return text
     }
 
@@ -158,10 +211,18 @@ function serializeNode(node: JSONContent): string {
         }
 
         case 'hardBreak':
-            return '\n'
+            // Two spaces + newline is the standard markdown hard break
+            return '  \n'
 
-        case 'image':
-            return `![${node.attrs?.alt || 'image'}](${node.attrs?.src || ''})`
+        case 'image': {
+            const src = node.attrs?.src
+            // Skip images with empty/missing URLs to avoid broken markdown
+            if (!src) {
+                return ''
+            }
+            const alt = escapeAltText(node.attrs?.alt || 'image')
+            return `![${alt}](${src})`
+        }
 
         case RichContentNodeType.Mention:
             return `@member:${node.attrs?.id}`
@@ -189,6 +250,8 @@ export function SupportEditor({
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
     // Force re-render when selection changes so toolbar buttons update their active state
     const [, setEditorState] = useState(0)
+    const [linkPopoverOpen, setLinkPopoverOpen] = useState(false)
+    const [linkUrl, setLinkUrl] = useState('')
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
     const editor = useRichContentEditor({
@@ -307,6 +370,77 @@ export function SupportEditor({
                         icon={<IconCode />}
                         tooltip="Inline code (Cmd+E)"
                     />
+                    <Popover
+                        visible={linkPopoverOpen}
+                        onClickOutside={() => {
+                            setLinkPopoverOpen(false)
+                            setLinkUrl('')
+                        }}
+                        overlay={
+                            <div className="p-2 flex gap-2 items-center">
+                                <LemonInput
+                                    size="small"
+                                    placeholder="https://..."
+                                    value={linkUrl}
+                                    onChange={setLinkUrl}
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && linkUrl) {
+                                            e.preventDefault()
+                                            if (ttEditor) {
+                                                ttEditor.chain().focus().setLink({ href: linkUrl }).run()
+                                            }
+                                            setLinkPopoverOpen(false)
+                                            setLinkUrl('')
+                                        } else if (e.key === 'Escape') {
+                                            setLinkPopoverOpen(false)
+                                            setLinkUrl('')
+                                        }
+                                    }}
+                                />
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    onClick={() => {
+                                        if (ttEditor && linkUrl) {
+                                            ttEditor.chain().focus().setLink({ href: linkUrl }).run()
+                                        }
+                                        setLinkPopoverOpen(false)
+                                        setLinkUrl('')
+                                    }}
+                                    disabledReason={!linkUrl ? 'Enter a URL' : undefined}
+                                >
+                                    Add
+                                </LemonButton>
+                                {ttEditor?.isActive('link') && (
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            ttEditor?.chain().focus().unsetLink().run()
+                                            setLinkPopoverOpen(false)
+                                            setLinkUrl('')
+                                        }}
+                                    >
+                                        Remove
+                                    </LemonButton>
+                                )}
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('link')}
+                            onClick={() => {
+                                // Pre-fill with existing link URL if editing
+                                const existingHref = ttEditor?.getAttributes('link').href
+                                setLinkUrl(existingHref || '')
+                                setLinkPopoverOpen(true)
+                            }}
+                            icon={<IconLink />}
+                            tooltip="Add link (Cmd+K)"
+                        />
+                    </Popover>
                     <div className="w-px h-4 bg-border mx-1" />
                     <LemonFileInput
                         key="file-upload"
