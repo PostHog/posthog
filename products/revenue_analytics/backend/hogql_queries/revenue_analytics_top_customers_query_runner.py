@@ -1,21 +1,15 @@
 from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
-    DatabaseSchemaManagedViewTableKind,
     ResolvedDateRangeResponse,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import UnknownDatabaseField
+from posthog.hogql.database.models import SavedQuery, UnknownDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsCustomerView,
-    RevenueAnalyticsRevenueItemView,
-)
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views import CUSTOMER_ALIAS, REVENUE_ITEM_ALIAS, get_prefix
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -25,12 +19,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(
-            RevenueAnalyticsQueryRunner.revenue_subqueries(
-                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
-                self.database,
-            )
-        )
+        subqueries = list(RevenueAnalyticsQueryRunner.revenue_subqueries(REVENUE_ITEM_ALIAS, self.database))
         if not subqueries:
             columns = ["customer_id", "name", "amount", "month"]
             return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
@@ -38,7 +27,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _to_query_from(self, view: SavedQuery) -> ast.SelectQuery:
         is_monthly_grouping = self.query.groupBy == "month"
 
         with self.timings.measure("inner_query"):
@@ -75,16 +64,14 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
             limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )
 
-        customer_views = RevenueAnalyticsQueryRunner.revenue_subqueries(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER],
-            self.database,
-        )
+        view_prefix = get_prefix(view)
+        customer_views = RevenueAnalyticsQueryRunner.revenue_subqueries(CUSTOMER_ALIAS, self.database)
         customer_view = next(
-            (customer_view for customer_view in customer_views if customer_view.prefix == view.prefix), None
+            (customer_view for customer_view in customer_views if get_prefix(customer_view) == view_prefix), None
         )
         if customer_view is not None and query.select_from is not None:
             query.select_from.next_join = ast.JoinExpr(
-                alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+                alias=CUSTOMER_ALIAS,
                 table=ast.Field(chain=[customer_view.name]),
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
@@ -92,45 +79,43 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["inner", "customer_id"]),
-                        right=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                        right=ast.Field(chain=[CUSTOMER_ALIAS, "id"]),
                     ),
                 ),
             )
 
             if len(query.select) >= 2 and isinstance(query.select[1], ast.Alias) and query.select[1].alias == "name":
-                query.select[1] = ast.Alias(
-                    alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
-                )
+                query.select[1] = ast.Alias(alias="name", expr=ast.Field(chain=[CUSTOMER_ALIAS, "name"]))
             else:
                 raise ValueError("Name field not found in second position of query select")
 
         return query
 
-    def inner_query(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def inner_query(self, view: SavedQuery) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(
                     alias="customer_id",
-                    expr=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
+                    expr=ast.Field(chain=[REVENUE_ITEM_ALIAS, "customer_id"]),
                 ),
                 ast.Alias(
                     alias="month",
                     expr=ast.Call(
                         name="toStartOfMonth",
-                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
+                        args=[ast.Field(chain=[REVENUE_ITEM_ALIAS, "timestamp"])],
                     ),
                 ),
                 ast.Alias(
                     alias="amount",
                     expr=ast.Call(
                         name="sum",
-                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])],
+                        args=[ast.Field(chain=[REVENUE_ITEM_ALIAS, "amount"])],
                     ),
                 ),
             ],
             select_from=self._with_where_property_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    alias=REVENUE_ITEM_ALIAS,
                     table=ast.Field(chain=[view.name]),
                 ),
                 view,
@@ -139,7 +124,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
                 exprs=[
                     self.timestamp_where_clause(
                         [
-                            RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                            REVENUE_ITEM_ALIAS,
                             "timestamp",
                         ]
                     ),

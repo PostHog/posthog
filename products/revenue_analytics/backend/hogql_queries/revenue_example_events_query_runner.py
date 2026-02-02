@@ -3,7 +3,6 @@ from typing import Any, cast
 
 from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
-    DatabaseSchemaManagedViewTableKind,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
 )
@@ -17,7 +16,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views import CHARGE_ALIAS, is_event_view
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -34,12 +33,9 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
 
     def to_query(self) -> ast.SelectQuery:
         queries: list[ast.SelectQuery] = []
-        views = RevenueAnalyticsQueryRunner.revenue_subqueries(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE],
-            self.database,
-        )
+        views = RevenueAnalyticsQueryRunner.revenue_subqueries(CHARGE_ALIAS, self.database)
         for view in views:
-            if not view.is_event_view():
+            if not is_event_view(view):
                 continue
 
             queries.append(

@@ -49,7 +49,7 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
         self.assertEqual(built_query.prefix, expected_prefix)
 
         if expected_test_comments != "<SENTINEL_VALUE>":
-            self.assertEqual(built_query.test_comments, expected_test_comments)
+            self.assertEqual(built_query._test_comments, expected_test_comments)
 
     def assertQueryContainsFields(self, query: ast.Expr, schema: Schema):
         """

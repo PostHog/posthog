@@ -1,5 +1,11 @@
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
+from products.revenue_analytics.backend.views import (
+    CHARGE_ALIAS,
+    CUSTOMER_ALIAS,
+    MRR_ALIAS,
+    PRODUCT_ALIAS,
+    REVENUE_ITEM_ALIAS,
+    SUBSCRIPTION_ALIAS,
+)
 from products.revenue_analytics.backend.views.core import Builder
 
 from .charge import build as charge_builder
@@ -10,10 +16,10 @@ from .revenue_item import build as revenue_item_builder
 from .subscription import build as subscription_builder
 
 BUILDER: Builder = {
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE: charge_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION: subscription_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER: customer_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT: product_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM: revenue_item_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR: mrr_builder,  # Must be last, depends on revenue item and subscription to exist when building
+    CHARGE_ALIAS: charge_builder,
+    SUBSCRIPTION_ALIAS: subscription_builder,
+    CUSTOMER_ALIAS: customer_builder,
+    PRODUCT_ALIAS: product_builder,
+    REVENUE_ITEM_ALIAS: revenue_item_builder,
+    MRR_ALIAS: mrr_builder,  # Must be last, depends on revenue item and subscription to exist when building
 }

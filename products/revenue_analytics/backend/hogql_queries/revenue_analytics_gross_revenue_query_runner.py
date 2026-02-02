@@ -2,7 +2,6 @@ from decimal import Decimal
 
 from posthog.schema import (
     CachedRevenueAnalyticsGrossRevenueQueryResponse,
-    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsGrossRevenueQuery,
@@ -10,13 +9,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import UnknownDatabaseField
+from posthog.hogql.database.models import SavedQuery, UnknownDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views import REVENUE_ITEM_ALIAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -26,12 +24,7 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     cached_response: CachedRevenueAnalyticsGrossRevenueQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(
-            RevenueAnalyticsQueryRunner.revenue_subqueries(
-                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
-                self.database,
-            )
-        )
+        subqueries = list(RevenueAnalyticsQueryRunner.revenue_subqueries(REVENUE_ITEM_ALIAS, self.database))
         if not subqueries:
             columns = ["breakdown_by", "period_start", "amount"]
             return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
@@ -39,35 +32,33 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner[Revenu
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _to_query_from(self, view: SavedQuery) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 self._build_breakdown_expr(
                     "breakdown_by",
-                    ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                    ast.Field(chain=[REVENUE_ITEM_ALIAS, "source_label"]),
                     view,
                 ),
                 ast.Alias(
                     alias="period_start",
                     expr=ast.Call(
                         name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"])],
+                        args=[ast.Field(chain=[REVENUE_ITEM_ALIAS, "timestamp"])],
                     ),
                 ),
                 ast.Alias(alias="amount", expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])])),
             ],
             select_from=self._with_where_property_and_breakdown_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    alias=REVENUE_ITEM_ALIAS,
                     table=ast.Field(chain=[view.name]),
                 ),
                 view,
             ),
             where=ast.And(
                 exprs=[
-                    self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
-                    ),
+                    self.timestamp_where_clause(chain=[REVENUE_ITEM_ALIAS, "timestamp"]),
                     *self.where_property_exprs(view),
                 ]
             ),

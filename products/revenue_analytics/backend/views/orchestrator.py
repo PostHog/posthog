@@ -5,8 +5,6 @@ from typing import Optional
 
 from django.db.models import Prefetch
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
@@ -15,8 +13,8 @@ from posthog.models.team.team import Team
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
+from products.revenue_analytics.backend.views import RevenueAnalyticsViewKind
+from products.revenue_analytics.backend.views.core import BuiltQuery, BuiltView, SourceHandle
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
 from products.revenue_analytics.backend.views.sources.registry import BUILDERS
 
@@ -45,42 +43,31 @@ def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHa
                     yield SourceHandle(type=source.source_type.lower(), team=team, source=source)  # type: ignore
 
 
-def _query_to_view(
-    query: BuiltQuery, view_kind: DatabaseSchemaManagedViewTableKind, handle: SourceHandle
-) -> RevenueAnalyticsBaseView:
+def _query_to_view(query: BuiltQuery, view_kind: RevenueAnalyticsViewKind, handle: SourceHandle) -> BuiltView:
     schema = SCHEMAS[view_kind]
-    view_cls = KIND_TO_CLASS[view_kind]
 
     if handle.source is not None:
-        id = query.key  # Stable key (i.e. table.id)
         name = f"{query.prefix}.{schema.source_suffix}"
     else:
-        id = name = f"{query.prefix}.{schema.events_suffix}"
+        name = f"{query.prefix}.{schema.events_suffix}"
 
-    return view_cls(
-        id=id,
+    return BuiltView(
         name=name,
-        prefix=query.prefix,
         query=query.query.to_hogql(),
         fields=schema.fields,
-        source_id=str(handle.source.id) if handle.source else None,
-        event_name=handle.event.eventName if handle.event else None,
     )
 
 
-def build_all_revenue_analytics_views(
-    team: Team, timings: Optional[HogQLTimings] = None
-) -> list[RevenueAnalyticsBaseView]:
+def build_all_revenue_analytics_views(team: Team, timings: Optional[HogQLTimings] = None) -> list[BuiltView]:
     """Build all revenue-analytics views for a team.
 
     Walks event and external sources, runs registered builders per view kind, and
-    returns concrete `RevenueAnalytics*View` instances with schema-driven fields
-    and names (events omit source_id; warehouse sets it).
+    returns BuiltView instances with schema-driven fields and names.
     """
     if timings is None:
         timings = HogQLTimings()
 
-    views: list[RevenueAnalyticsBaseView] = []
+    views: list[BuiltView] = []
     for handle in _iter_source_handles(team, timings):
         identifier = handle.event.eventName if handle.event else handle.source.id if handle.source else None
         with timings.measure(f"builder.{handle.type}.{identifier}"):
