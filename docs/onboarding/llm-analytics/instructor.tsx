@@ -106,7 +106,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import Instructor from '@instructor-ai/instructor'
@@ -175,7 +175,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const UserInfo = z.object({

@@ -105,7 +105,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { PostHog } from 'posthog-node';
@@ -176,7 +176,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { createReactAgent } from '@langchain/langgraph/prebuilt';

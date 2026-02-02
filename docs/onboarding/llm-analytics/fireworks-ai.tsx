@@ -100,7 +100,7 @@ export const getFireworksAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { OpenAI } from '@posthog/ai'
@@ -174,7 +174,7 @@ export const getFireworksAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.chat.completions.create({

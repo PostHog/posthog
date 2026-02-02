@@ -108,7 +108,7 @@ export const getHeliconeSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { OpenAI } from '@posthog/ai'
@@ -182,7 +182,7 @@ export const getHeliconeSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.chat.completions.create({

@@ -106,7 +106,7 @@ export const getOpenRouterSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { OpenAI } from '@posthog/ai'
@@ -180,7 +180,7 @@ export const getOpenRouterSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.responses.create({

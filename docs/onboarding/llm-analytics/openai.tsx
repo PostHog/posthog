@@ -100,7 +100,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { OpenAI } from '@posthog/ai'
@@ -173,7 +173,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.responses.create({

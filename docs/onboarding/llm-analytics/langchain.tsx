@@ -114,7 +114,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { PostHog } from 'posthog-node';
@@ -182,7 +182,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const prompt = ChatPromptTemplate.fromMessages([
