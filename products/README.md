@@ -8,6 +8,8 @@ Backend and frontend are sub-parts of that package.
 
 This is the (future) home for all PostHog products ([RFC](https://github.com/PostHog/product-internal/pull/703)).
 
+For the detailed architecture rationale (DTOs, facades, Bazel integration), see [architecture.md](./architecture.md).
+
 ## Folder structure
 
 ```txt
@@ -15,21 +17,41 @@ products/
   __init__.py
   <product_name>/           # Turborepo package boundary
     __init__.py             # allows imports like products.<product>.backend.*
-    backend/                # Django app
-      __init__.py           # marks backend as Python package/Django app
-      models.py
-      migrations/
-      api.py
-      serializers.py
-      tests/                # backend tests live here
-    frontend/               # frontend app
-      components/
-      pages/
-      tests/                # frontend tests live here
-    shared/                 # optional: cross-cutting code for both backend & frontend
-    package.json            # defines the product package in Turborepo
     manifest.tsx            # describes the product's features
+    package.json            # defines the product package in Turborepo
+    backend/                # Django app
+      __init__.py
+      apps.py
+      models.py
+      domain_types.py       # enums, constants
+      logic.py              # business logic
+      BUILD.bazel
+      migrations/
+      api/                  # facade (public API for other modules)
+        __init__.py
+        api.py
+        dtos.py             # dataclass DTOs
+      presentation/         # DRF views/serializers
+        __init__.py
+        views.py
+        serializers.py
+        urls.py
+      tasks/                # Celery tasks
+        __init__.py
+        tasks.py
+      tests/
+        BUILD.bazel
+        conftest.py
+        test_*.py
+    frontend/
+      components/
+      scenes/
+      hooks/
+      logics/
+      generated/            # OpenAPI-generated TypeScript types
 ```
+
+Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this structure.
 
 ## Backend conventions
 
@@ -93,6 +115,22 @@ Keep shared code minimal to avoid tight coupling.
 
 ## Adding a new product
 
+The easiest way is to use hogli:
+
+```bash
+bin/hogli product:bootstrap your_product_name
+```
+
+This creates the full structure with BUILD.bazel files, apps.py, etc.
+
+To check your product structure follows conventions:
+
+```bash
+bin/hogli product:lint your_product_name
+```
+
+### Manual setup
+
 - Create a new folder `products/your_product_name`, keep it underscore-cased.
 - Create a `manifest.tsx` file
   - Describe the product's frontend `scenes`, `routes`, `urls`, file system types, and project tree (navbar) items.
@@ -130,6 +168,19 @@ Keep shared code minimal to avoid tight coupling.
   - Move all operations into `state_operations = []` and keep the `database_operations = []` empty in both migrations.
   - Run and test this a few times before merging. Data loss is irreversible.
 
-## TODO
+## Running tests with Bazel
 
-- [ ] A story for Python testing - run tests automatically, only test apps that changed, etc
+Products use Bazel for selective testing. Only tests affected by your changes run.
+
+```bash
+# Run all product tests
+bazelisk test //products/...:tests
+
+# Run specific product tests
+bazelisk test //products/visual_review/backend/tests:tests
+
+# See what would run without running
+bazelisk query //products/...:tests
+```
+
+See [architecture.md](./architecture.md) for how selective testing works.

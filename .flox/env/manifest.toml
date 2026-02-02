@@ -41,6 +41,7 @@ cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
 ffmpeg.pkg-path = "ffmpeg"
+bazelisk.pkg-path = "bazelisk"
 gh = { pkg-path = "gh" }
 protobuf = { pkg-path = "protobuf" } # protoc compiler for gRPC code generation
 watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery autoreload (uses pywatchman)

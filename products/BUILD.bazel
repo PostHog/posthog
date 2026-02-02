@@ -1,0 +1,72 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Products that have their own BUILD.bazel and isolated tests.
+# Add your product here when you create it - if you don't, all legacy
+# tests will run on your changes (which is how you'll know to add it!)
+ISOLATED_PRODUCTS = [
+    # Add isolated products here as they're created.
+    # Example: "visual_review",
+]
+
+# All non-isolated (legacy) product sources as one blob.
+# These products are still coupled with each other and core posthog.
+# As products get isolated, add them to ISOLATED_PRODUCTS above.
+filegroup(
+    name = "legacy_product_srcs",
+    srcs = glob(
+        ["*/**/*.py"],  # All Python files in all product subdirs
+        exclude = [p + "/**" for p in ISOLATED_PRODUCTS] + [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Data files from all products (JSON, YAML, etc.)
+filegroup(
+    name = "legacy_product_data",
+    srcs = glob(
+        [
+            "**/*.json",
+            "**/*.yaml",
+            "**/*.yml",
+            "**/*.html",
+            "**/*.txt",
+            "**/*.sql",
+        ],
+        exclude = [p + "/**" for p in ISOLATED_PRODUCTS],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# Dependency target for isolated products to access legacy products.
+# When legacy product code changes, target-determinator sees this and
+# triggers dependent isolated product tests to rerun.
+py_library(
+    name = "non_isolated",
+    srcs = ["__init__.py"],
+    data = [
+        ":legacy_product_srcs",
+        ":legacy_product_data",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Package group for integration tests across all products
+# Integration tests are allowed to depend on other products' :impl targets
+package_group(
+    name = "integration_tests",
+    packages = [
+        # Add product test packages as they're created.
+        # Example: "//products/visual_review/backend/tests",
+    ],
+)
+
+# Shared conftest for product tests (imports from main posthog conftest)
+exports_files(
+    ["conftest.py"],
+    visibility = ["//products:__subpackages__"],
+)

@@ -1,5 +1,11 @@
 # PostHog Development Guide
 
+## Codebase Structure
+
+- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
+- [Products README](products/README.md) - how to create and structure products
+- [Products architecture](products/architecture.md) - DTOs, facades, Bazel integration
+
 ## Commands
 
 - Environment:
@@ -9,6 +15,7 @@
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
+  - Product tests (Bazel, only for bazelified products): `bazelisk test //products/<name>/backend/tests:tests`
   - Frontend: `pnpm --filter=@posthog/frontend test`
   - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:

@@ -1,0 +1,34 @@
+load("@gazelle//:def.bzl", "gazelle")
+
+gazelle(
+    name = "gazelle",
+    gazelle = "@rules_python_gazelle_plugin//python:gazelle_binary",
+)
+
+# Update requirements_lock.txt from uv.lock
+# Run with: bazel run //:requirements.update
+sh_binary(
+    name = "requirements.update",
+    srcs = ["bin/update-requirements-lock"],
+)
+
+# gazelle:python_root
+
+# Map pip packages from uv.lock
+# gazelle:resolve py django @pypi//django
+# gazelle:resolve py django.apps @pypi//django
+# gazelle:resolve py django.conf @pypi//django
+# gazelle:resolve py django.db @pypi//django
+# gazelle:resolve py django.db.models @pypi//django
+# gazelle:resolve py rest_framework @pypi//djangorestframework
+# gazelle:resolve py rest_framework.viewsets @pypi//djangorestframework
+# gazelle:resolve py rest_framework.routers @pypi//djangorestframework
+# gazelle:resolve py rest_framework_dataclasses @pypi//djangorestframework_dataclasses
+# gazelle:resolve py rest_framework_dataclasses.serializers @pypi//djangorestframework_dataclasses
+# gazelle:resolve py pytest @pypi//pytest
+# gazelle:resolve py pytest_django @pypi//pytest_django
+
+# Internal posthog imports - placeholder until posthog is in Bazel
+# gazelle:resolve py posthog //posthog
+# gazelle:resolve py posthog.api //posthog
+# gazelle:resolve py posthog.api.routing //posthog
