@@ -605,7 +605,7 @@ function SearchResults({
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
-                                        <div key={i} className="px-1">
+                                        <div key={i} className="px-1 py-0.5">
                                             <WrappingLoadingSkeleton fullWidth>
                                                 <ButtonPrimitive fullWidth className="invisible">
                                                     &nbsp;
