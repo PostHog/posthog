@@ -346,7 +346,7 @@ def ensure_events_table_exists(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
@@ -395,7 +395,7 @@ def ensure_persons_table_exists(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
@@ -443,7 +443,7 @@ def delete_events_table(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
@@ -481,7 +481,7 @@ def delete_persons_table(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
@@ -518,7 +518,7 @@ def validate_duckling_schema(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
@@ -567,7 +567,7 @@ def validate_duckling_persons_schema(
     """Validate that the duckling's persons table schema matches our export columns."""
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
@@ -829,7 +829,7 @@ def register_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -958,7 +958,7 @@ def register_persons_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
