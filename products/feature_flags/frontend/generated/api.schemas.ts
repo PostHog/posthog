@@ -186,6 +186,8 @@ export interface FeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings: boolean
 }
 
 export interface PaginatedFeatureFlagListApi {
@@ -273,6 +275,8 @@ export interface PatchedFeatureFlagApi {
     last_called_at?: string | null
     _create_in_folder?: string
     _should_create_usage_dashboard?: boolean
+    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    readonly is_used_in_replay_settings?: boolean
 }
 
 export interface ChangeApi {

@@ -2643,6 +2643,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
         )
 
+    def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
+        # Set the flag as the session recording linked flag
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
+        )
+
+    def test_is_used_in_replay_settings_serializer_field(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
+
+        # Initially should be False
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        assert response.status_code == 200
+        assert response.json()["is_used_in_replay_settings"] is False
+
+        # Set the flag as the session recording linked flag
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
+        self.team.save()
+
+        # Now should be True
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        assert response.status_code == 200
+        assert response.json()["is_used_in_replay_settings"] is True
+
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",

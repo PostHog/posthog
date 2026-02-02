@@ -51,7 +51,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.models import FeatureFlag, Tag
+from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
@@ -467,6 +467,7 @@ class FeatureFlagSerializer(
         required=False,
         queryset=Dashboard.objects.all(),
     )
+    is_used_in_replay_settings = serializers.SerializerMethodField()
 
     name = serializers.CharField(
         required=False,
@@ -528,6 +529,7 @@ class FeatureFlagSerializer(
             "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
+            "is_used_in_replay_settings",
         ]
 
     def get_fields(self):
@@ -563,6 +565,20 @@ class FeatureFlagSerializer(
 
         return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
+
+    def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
+        """Check if this feature flag is used in any team's session recording linked flag setting."""
+        # Use annotated value if available (set by queryset annotation)
+        if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
+            return feature_flag.is_used_in_replay_settings_annotation
+        # Return False if team is not available
+        if not hasattr(feature_flag, "team") or feature_flag.team is None:
+            return False
+        # Fallback to database query if annotation is not available
+        return Team.objects.filter(
+            project_id=feature_flag.team.project_id,
+            session_recording_linked_flag__contains={"id": feature_flag.id},
+        ).exists()
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
@@ -1007,6 +1023,15 @@ class FeatureFlagSerializer(
                 raise exceptions.ValidationError(
                     f"Cannot delete this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
                     f"Please update or delete the dependent flags first."
+                )
+
+            # Check if flag is used in session replay settings
+            if Team.objects.filter(
+                project_id=instance.team.project_id,
+                session_recording_linked_flag__contains={"id": instance.id},
+            ).exists():
+                raise exceptions.ValidationError(
+                    "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
                 )
 
             # If all experiments are soft-deleted, rename the key to free it up
@@ -1462,6 +1487,8 @@ class FeatureFlagViewSet(
         return self._apply_filters(request.GET.dict(), queryset)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        from django.db.models import Exists, OuterRef
+
         from posthog.models.feature_flag import FeatureFlagEvaluationTag
 
         # Always prefetch experiment_set since it's used in both list and retrieve
@@ -1481,6 +1508,19 @@ class FeatureFlagViewSet(
             Prefetch(
                 "evaluation_tags",
                 queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
+            )
+        )
+
+        # Annotate with replay settings usage to avoid N+1 queries
+        # This checks if any team in the same project uses this flag for session recording
+        # Use .extra() for JSONB comparison since Django's ORM doesn't support OuterRef with JSONField key lookups
+        queryset = queryset.annotate(
+            is_used_in_replay_settings_annotation=Exists(
+                Team.objects.filter(
+                    project_id=OuterRef("team__project_id"),
+                )
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL with OuterRef, no user input)
+                .extra(where=["(session_recording_linked_flag->>'id')::int = posthog_featureflag.id"])
             )
         )
 

@@ -365,6 +365,7 @@ const featureFlagActionsMapping: Record<
     version: () => null,
     last_modified_by: () => null,
     last_called_at: () => null,
+    is_used_in_replay_settings: () => null,
     _create_in_folder: () => null,
     _should_create_usage_dashboard: () => null,
 }
