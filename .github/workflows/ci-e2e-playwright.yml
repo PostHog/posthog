@@ -338,7 +338,7 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
-                  python manage.py migrate_clickhouse 2>&1 | tee /tmp/migrate_clickhouse.log
+                  python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
 
             - name: Source celery queues
@@ -455,9 +455,6 @@ jobs:
               if: always()
               run: |
                   docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
-                  docker logs posthog-clickhouse-1 > playwright/test-results/docker-clickhouse-stdout.log 2>&1 || echo "No clickhouse container" > playwright/test-results/docker-clickhouse-stdout.log
-                  docker cp posthog-clickhouse-1:/var/log/clickhouse-server/clickhouse-server.log playwright/test-results/clickhouse-server.log 2>/dev/null || echo "No clickhouse log file" > playwright/test-results/clickhouse-server.log
-                  docker cp posthog-clickhouse-1:/var/log/clickhouse-server/clickhouse-server.err.log playwright/test-results/clickhouse-server.err.log 2>/dev/null || echo "No clickhouse error log file" > playwright/test-results/clickhouse-server.err.log
 
             - name: Archive test artifacts
               if: always()
