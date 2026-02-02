@@ -2,7 +2,6 @@ from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
-import dlt
 import requests
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
@@ -217,33 +216,23 @@ def _fetch_contacts_for_list(
             break
 
 
-def _create_contacts_resource(
+def _get_contacts_iterator(
     api_key: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> dlt.sources.DltResource:
-    """Create a dlt resource that fetches contacts from all lists."""
+) -> Iterator[dict[str, Any]]:
+    """Fetch contacts from all lists."""
     dc = extract_data_center(api_key)
 
     since_last_changed: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
         since_last_changed = _format_incremental_value(db_incremental_field_last_value)
 
-    @dlt.resource(
-        name="contacts",
-        primary_key=["list_id", "id"],
-        write_disposition={"disposition": "merge", "strategy": "upsert"} if should_use_incremental_field else "replace",
-        table_format="delta",
-    )
-    def contacts_resource() -> Iterator[dict[str, Any]]:
-        lists = _fetch_all_lists(api_key, dc)
+    lists = _fetch_all_lists(api_key, dc)
 
-        for lst in lists:
-            list_id = lst["id"]
-            yield from _fetch_contacts_for_list(api_key, dc, list_id, since_last_changed)
-
-    return contacts_resource()
+    for lst in lists:
+        list_id = lst["id"]
+        yield from _fetch_contacts_for_list(api_key, dc, list_id, since_last_changed)
 
 
 def mailchimp_source(
@@ -260,16 +249,13 @@ def mailchimp_source(
 
     # Contacts endpoint is special - fetches from all lists
     if endpoint == "contacts":
-        resource = _create_contacts_resource(
-            api_key,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-            incremental_field,
-        )
-
         return SourceResponse(
             name=endpoint,
-            items=lambda: resource,
+            items=lambda: _get_contacts_iterator(
+                api_key,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+            ),
             primary_keys=["list_id", "id"],
             partition_count=1,
             partition_size=1,
