@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { toParams } from 'lib/utils'
 
 import { PersonType } from '~/types'
 
@@ -56,18 +55,15 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
             null as PersonType | null,
             {
                 deletePerson: async ({ person, deleteEvents, deleteRecordings }) => {
-                    const params: Record<string, boolean> = {}
-
-                    if (deleteEvents) {
-                        params.delete_events = true
-                    }
-
-                    if (deleteRecordings) {
-                        params.delete_recordings = true
-                    }
-
-                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
-                    posthog.capture('delete person', params)
+                    await api.create(`api/person/bulk_delete`, {
+                        ids: [person.uuid],
+                        delete_events: deleteEvents,
+                        delete_recordings: deleteRecordings,
+                    })
+                    posthog.capture('delete person', {
+                        delete_events: deleteEvents,
+                        delete_recordings: deleteRecordings,
+                    })
 
                     lemonToast.success(
                         <>
