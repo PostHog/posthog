@@ -159,21 +159,6 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
 }
 
 /**
- * Get list of references for a task, sorted by creation date.
- * @summary List task references
- */
-export const getTasksReferencesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${id}/references/`
-}
-
-export const tasksReferencesRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTasksReferencesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
  * Create a new task run and kick off the workflow.
  * @summary Run task
  */

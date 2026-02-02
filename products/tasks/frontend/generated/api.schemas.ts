@@ -127,22 +127,6 @@ export interface PatchedTaskApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasicApi
-    /**
-     * Number of unique users affected by this issue
-     * @nullable
-     */
-    readonly relevant_user_count?: number | null
-    /**
-     * Total number of video segment occurrences (cases)
-     * @nullable
-     */
-    readonly occurrence_count?: number | null
-    /**
-     * When this issue was last observed in a video segment
-     * @nullable
-     */
-    readonly last_occurrence_at?: string | null
-    readonly reference_count?: number
 }
 
 /**
