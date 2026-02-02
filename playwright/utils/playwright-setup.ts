@@ -119,12 +119,25 @@ export class PlaywrightSetup {
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        // Use page.request to share cookies/session with the browser context
         await page.request.post(`${this.baseURL}/api/login/`, {
             data: {
                 email: workspace.user_email,
                 password: LOGIN_PASSWORD,
             },
         })
+    }
+
+    /**
+     * Login using workspace credentials and navigate to the team's project page
+     *
+     * Call this after creating a workspace to automatically login and navigate.
+     * The user will end up on /project/{teamId} ready to test.
+     */
+    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        await this.login(page, workspace)
+
+        await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
 }
 
