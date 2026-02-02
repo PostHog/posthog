@@ -794,7 +794,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-3">
                     {steps.map((step, index) => {
                         const isCompleted = step.status === 'completed'
                         const isInProgress = step.status === 'in_progress'
@@ -877,10 +877,11 @@ function AssistantActionComponent({
     showCompletionIcon = true,
     widget = null,
     isResultExpanded = false,
-    onExpandClick,
+    toolCall = null,
 }: {
     id: string
     content: string
+    // actually a markdown message
     substeps: string[]
     state: ExecutionStatus
     icon?: React.ReactNode
@@ -888,31 +889,31 @@ function AssistantActionComponent({
     showCompletionIcon?: boolean
     widget?: JSX.Element | null
     isResultExpanded?: boolean
-    onExpandClick?: () => void
+    toolCall?: EnhancedToolCall | null
 }): JSX.Element {
     const isPending = state === 'pending'
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showSubstepsChevron = !!substeps.length
+    const showSubstepsChevron = !!substeps.length || !!toolCall?.result?.content
     // Initialize with the same logic as the effect to prevent flickering
     const [isSubstepsExpanded, setIsSubstepsExpanded] = useState(showSubstepsChevron && !(isCompleted || isFailed))
+    const [showToolCallJson, setShowToolCallJson] = useState(false)
+    const [showResultJson, setShowResultJson] = useState(false)
 
     useLayoutEffect(() => {
         setIsSubstepsExpanded(showSubstepsChevron && !(isCompleted || isFailed))
     }, [showSubstepsChevron, isCompleted, isFailed])
 
     let markdownContent = <MarkdownMessage id={id} content={content} />
+    const result = toolCall?.result
+    const uiPayload = result?.ui_payload
 
     const handleClick = (): void => {
         if (showSubstepsChevron) {
             setIsSubstepsExpanded(!isSubstepsExpanded)
-        } else if (onExpandClick) {
-            onExpandClick()
         }
     }
-
-    const isClickable = showSubstepsChevron || onExpandClick
 
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
@@ -921,19 +922,17 @@ function AssistantActionComponent({
                     'transition-all duration-500 flex select-none',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
-                    !isClickable ? 'cursor-default' : 'cursor-pointer'
+                    !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
                 )}
-                onClick={isClickable ? handleClick : undefined}
+                onClick={showSubstepsChevron ? handleClick : undefined}
                 aria-label={
                     showSubstepsChevron
                         ? isSubstepsExpanded
                             ? 'Collapse history'
                             : 'Expand history'
-                        : onExpandClick
-                          ? isResultExpanded
-                              ? 'Collapse result'
-                              : 'Expand result'
-                          : undefined
+                        : isResultExpanded
+                          ? 'Collapse result'
+                          : 'Expand result'
                 }
             >
                 {icon && (
@@ -1000,6 +999,89 @@ function AssistantActionComponent({
                 </div>
             )}
             {widget}
+            {toolCall && isSubstepsExpanded && (
+                <>
+                    {!!uiPayload &&
+                        shouldRenderUIPayloadAnswer(toolCall.name, uiPayload) &&
+                        Object.entries(uiPayload).map(([toolName, toolPayload]) => (
+                            <div
+                                key={`${result?.tool_call_id}-${toolName}`}
+                                className="ml-3 border-l-2 border-border-secondary pl-3.5"
+                            >
+                                <UIPayloadAnswer
+                                    toolCallId={result!.tool_call_id}
+                                    toolName={toolName}
+                                    toolPayload={toolPayload}
+                                />
+                            </div>
+                        ))}
+                    <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                        <LemonButton
+                            size="xxsmall"
+                            type="tertiary"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowToolCallJson(!showToolCallJson)
+                            }}
+                            tooltip="Tool call arguments as JSON"
+                            tooltipPlacement="top-start"
+                            className="w-fit"
+                        >
+                            <span className="flex items-center gap-1">
+                                <b>Tool called:</b>
+                                <span className="text-secondary">{toolCall.name}</span>
+                                <span
+                                    className={clsx('transform transition-transform', showToolCallJson && 'rotate-90')}
+                                >
+                                    <IconChevronRight />
+                                </span>
+                            </span>
+                        </LemonButton>
+                        {showToolCallJson && (
+                            <CodeSnippet language={Language.JSON} className="text-xs">
+                                {JSON.stringify(toolCall.args, null, 2)}
+                            </CodeSnippet>
+                        )}
+                        {result && result.content && (
+                            <React.Fragment>
+                                <LemonButton
+                                    size="xxsmall"
+                                    type="tertiary"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setShowResultJson(!showResultJson)
+                                    }}
+                                    tooltip="Show tool call results"
+                                    tooltipPlacement="top-start"
+                                    className="w-fit"
+                                >
+                                    <span className="flex items-center gap-1">
+                                        <b>Tool result:</b>
+                                        <span className="text-secondary">{result.content.slice(0, 20)}...</span>
+                                        <span
+                                            className={clsx(
+                                                'transform transition-transform',
+                                                showResultJson && 'rotate-90'
+                                            )}
+                                        >
+                                            <IconChevronRight />
+                                        </span>
+                                    </span>
+                                </LemonButton>
+                                {showResultJson && (
+                                    <div className="border rounded p-2 bg-surface-primary">
+                                        <MarkdownMessage
+                                            id={`${toolCall.id}-result`}
+                                            content={result.content}
+                                            className="text-xs [&_code]:text-xs"
+                                        />
+                                    </div>
+                                )}
+                            </React.Fragment>
+                        )}
+                    </div>
+                </>
+            )}
         </div>
     )
 }
@@ -1062,139 +1144,25 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
                         const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
                         return (
-                            <ToolCallWithResult
+                            <AssistantActionComponent
                                 key={toolCall.id}
-                                toolCall={toolCall}
-                                description={description}
-                                updates={updates}
+                                id={toolCall.id}
+                                content={description}
+                                substeps={[]}
+                                state={toolCall.status}
                                 icon={definition?.icon || <IconWrench />}
+                                showCompletionIcon={true}
                                 widget={widget}
+                                toolCall={toolCall}
                             />
                         )
                     })}
                 </div>
             )}
         </>
-    )
-}
-
-interface ToolCallWithResultProps {
-    toolCall: EnhancedToolCall
-    description: string
-    updates: string[]
-    icon: React.ReactNode
-    widget: JSX.Element | null
-}
-
-function ToolCallWithResult({ toolCall, description, updates, icon, widget }: ToolCallWithResultProps): JSX.Element {
-    const [showToolCallJson, setShowToolCallJson] = useState(false)
-    const [showResultJson, setShowResultJson] = useState(false)
-    const [isExpanded, setIsExpanded] = useState(false)
-    const result = toolCall.result
-    const uiPayload = result?.ui_payload
-
-    return (
-        <div className="flex flex-col gap-1.5">
-            <AssistantActionComponent
-                id={toolCall.id}
-                content={description}
-                substeps={updates}
-                state={toolCall.status}
-                icon={icon}
-                showCompletionIcon={true}
-                widget={widget}
-                isResultExpanded={isExpanded}
-                onExpandClick={result ? () => setIsExpanded(!isExpanded) : undefined}
-            />
-
-            {/* Render tool call UI payload inline */}
-            {isExpanded &&
-                !!uiPayload &&
-                shouldRenderUIPayloadAnswer(toolCall.name, uiPayload) &&
-                Object.entries(uiPayload).map(([toolName, toolPayload]) => (
-                    <div className="ml-5 border-l-2 border-border-secondary pl-3.5">
-                        <UIPayloadAnswer
-                            key={`${result.tool_call_id}-${toolName}`}
-                            toolCallId={result.tool_call_id}
-                            toolName={toolName}
-                            toolPayload={toolPayload}
-                        />
-                    </div>
-                ))}
-
-            {isExpanded && (
-                <div className="ml-5 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
-                    {/* Tool call args */}
-                    <LemonButton
-                        size="xxsmall"
-                        type="tertiary"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            setShowToolCallJson(!showToolCallJson)
-                        }}
-                        tooltip="Tool call arguments as JSON"
-                        tooltipPlacement="top-start"
-                        className="w-fit"
-                    >
-                        <span className="flex items-center gap-1">
-                            <b>Tool called:</b>
-                            <span className="text-secondary">{toolCall.name}</span>
-                            <span className={clsx('transform transition-transform', showToolCallJson && 'rotate-90')}>
-                                <IconChevronRight />
-                            </span>
-                        </span>
-                    </LemonButton>
-                    {showToolCallJson && (
-                        <CodeSnippet language={Language.JSON} className="text-xs">
-                            {JSON.stringify(toolCall.args, null, 2)}
-                        </CodeSnippet>
-                    )}
-
-                    {/* Tool call result content */}
-                    {result && result.content && (
-                        <React.Fragment>
-                            <LemonButton
-                                size="xxsmall"
-                                type="tertiary"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    setShowResultJson(!showResultJson)
-                                }}
-                                tooltip="Show tool call results"
-                                tooltipPlacement="top-start"
-                                className="w-fit"
-                            >
-                                <span className="flex items-center gap-1">
-                                    <b>Tool result:</b>
-                                    <span className="text-secondary">{result.content.slice(0, 20)}...</span>
-                                    <span
-                                        className={clsx(
-                                            'transform transition-transform',
-                                            showResultJson && 'rotate-90'
-                                        )}
-                                    >
-                                        <IconChevronRight />
-                                    </span>
-                                </span>
-                            </LemonButton>
-                            {showResultJson && (
-                                <div className="border rounded p-2 bg-surface-primary">
-                                    <MarkdownMessage
-                                        id={`${toolCall.id}-result`}
-                                        content={result.content}
-                                        className="text-xs [&_code]:text-xs"
-                                    />
-                                </div>
-                            )}
-                        </React.Fragment>
-                    )}
-                </div>
-            )}
-        </div>
     )
 }
 
