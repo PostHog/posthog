@@ -115,7 +115,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.sessionTableVersion = SessionTableVersion.AUTO
 
     if modifiers.sessionsV2JoinMode is None:
-        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.STRING
+        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.UUID
 
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True

@@ -1,6 +1,10 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use super::{CheckpointDownloader, CheckpointMetadata};
+use crate::metrics_const::{
+    CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, CHECKPOINT_IMPORT_DURATION_HISTOGRAM,
+};
 
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;
@@ -13,6 +17,8 @@ pub struct CheckpointImporter {
     store_base_path: PathBuf,
     // Number of historical checkpoint attempts to import as fallbacks
     import_attempt_depth: usize,
+    // Maximum time allowed for a complete checkpoint import operation
+    import_timeout: Duration,
 }
 
 impl CheckpointImporter {
@@ -20,11 +26,13 @@ impl CheckpointImporter {
         downloader: Box<dyn CheckpointDownloader>,
         store_base_path: PathBuf,
         import_attempt_depth: usize,
+        import_timeout: Duration,
     ) -> Self {
         Self {
             downloader,
             store_base_path,
             import_attempt_depth,
+            import_timeout,
         }
     }
 
@@ -47,15 +55,60 @@ impl CheckpointImporter {
 
     /// Import checkpoint files with optional cancellation support.
     /// If cancel_token is provided and cancelled during download, returns an error early.
+    /// The import is wrapped with a timeout to prevent exceeding Kafka max poll interval.
     pub async fn import_checkpoint_for_topic_partition_cancellable(
         &self,
         topic: &str,
         partition_number: i32,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<PathBuf> {
-        let mut checkpoint_metadata = self
+        let start_time = Instant::now();
+
+        // Wrap the entire import with a timeout to prevent exceeding Kafka max poll interval
+        match tokio::time::timeout(
+            self.import_timeout,
+            self.import_checkpoint_inner(topic, partition_number, cancel_token, start_time),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(_elapsed) => {
+                error!(
+                    topic = topic,
+                    partition = partition_number,
+                    timeout_secs = self.import_timeout.as_secs(),
+                    elapsed_secs = start_time.elapsed().as_secs_f64(),
+                    "Checkpoint import timed out"
+                );
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "timeout")
+                    .record(start_time.elapsed().as_secs_f64());
+                Err(anyhow::anyhow!(
+                    "Checkpoint import timed out after {}s for topic:{topic} partition:{partition_number}",
+                    self.import_timeout.as_secs()
+                ))
+            }
+        }
+    }
+
+    /// Inner implementation of checkpoint import, called with a timeout wrapper.
+    async fn import_checkpoint_inner(
+        &self,
+        topic: &str,
+        partition_number: i32,
+        cancel_token: Option<&CancellationToken>,
+        start_time: Instant,
+    ) -> Result<PathBuf> {
+        let mut checkpoint_metadata = match self
             .fetch_checkpoint_metadata(topic, partition_number)
-            .await?;
+            .await
+        {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(start_time.elapsed().as_secs_f64());
+                return Err(e);
+            }
+        };
 
         info!(
             "Found {} checkpoint attempts for topic:{} partition:{}",
@@ -80,10 +133,13 @@ impl CheckpointImporter {
                         partition = partition_number,
                         "Checkpoint import cancelled before attempt"
                     );
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "cancelled")
+                        .record(start_time.elapsed().as_secs_f64());
                     return Err(anyhow::anyhow!("Checkpoint import cancelled"));
                 }
             }
 
+            let attempt_start = Instant::now();
             let local_attempt_path = attempt.get_store_path(&self.store_base_path);
             let local_path_tag = local_attempt_path.to_string_lossy().to_string();
             let attempt_tag = attempt.get_attempt_path();
@@ -100,41 +156,72 @@ impl CheckpointImporter {
                 ),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => {
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(attempt_start.elapsed().as_secs_f64());
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(start_time.elapsed().as_secs_f64());
                     return Err(e).with_context(|| {
                         format!(
                             "Failed to remove existing directory before import: {}",
                             local_path_tag
                         )
-                    })
+                    });
                 }
             }
 
             // Create the directory for this import attempt
-            tokio::fs::create_dir_all(&local_attempt_path)
-                .await
-                .with_context(|| {
+            if let Err(e) = tokio::fs::create_dir_all(&local_attempt_path).await {
+                metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(attempt_start.elapsed().as_secs_f64());
+                metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+                    .record(start_time.elapsed().as_secs_f64());
+                return Err(e).with_context(|| {
                     format!(
                         "Failed to create local directory for import: {}",
                         local_path_tag
                     )
-                })?;
+                });
+            }
+
+            // Create child token for this attempt - allows sibling download cancellation
+            // on error while preserving fallback to next checkpoint attempt.
+            // Child token is cancelled when parent is cancelled (rebalance), or when
+            // a file download fails (sibling cancellation).
+            let attempt_token = cancel_token
+                .map(|parent| parent.child_token())
+                .unwrap_or_default();
 
             match self
-                .fetch_checkpoint_files_cancellable(&attempt, &local_attempt_path, cancel_token)
+                .fetch_checkpoint_files_cancellable(
+                    &attempt,
+                    &local_attempt_path,
+                    Some(&attempt_token),
+                )
                 .await
             {
                 Ok(_) => {
+                    let attempt_duration = attempt_start.elapsed().as_secs_f64();
                     info!(
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
+                        attempt_duration_secs = attempt_duration,
+                        total_duration_secs = start_time.elapsed().as_secs_f64(),
                         "Successfully imported checkpoint to local directory"
                     );
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "success")
+                        .record(attempt_duration);
+                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "success")
+                        .record(start_time.elapsed().as_secs_f64());
                     return Ok(local_attempt_path);
                 }
                 Err(e) => {
+                    let attempt_duration = attempt_start.elapsed().as_secs_f64();
+                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
+                        .record(attempt_duration);
                     error!(
                         checkpoint = attempt_tag,
                         local_attempt_path = local_path_tag,
+                        attempt_duration_secs = attempt_duration,
                         error = e.to_string(),
                         "Failed to import checkpoint files"
                     );
@@ -165,6 +252,8 @@ impl CheckpointImporter {
             "No usable checkpoints identified in recovery window for topic:{topic} partition:{partition_number}"
         );
         error!(err_msg);
+        metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
+            .record(start_time.elapsed().as_secs_f64());
         Err(anyhow::anyhow!(err_msg))
     }
 
@@ -331,37 +420,25 @@ mod tests {
         }
     }
 
-    /// Mock downloader that can simulate failures and delays for cancellation testing
+    /// Mock downloader for testing pre-cancellation checks.
+    /// For more complex cancellation scenarios (sibling cancellation, fallback),
+    /// use MinIO integration tests which exercise the real S3Downloader.
     #[derive(Debug)]
     struct CancellationTestDownloader {
-        /// Checkpoints to return from list_recent_checkpoints (multiple for multi-attempt tests)
         checkpoints: Vec<CheckpointMetadata>,
-        /// Number of attempts that should fail before succeeding (for multi-attempt tests)
-        fail_count: AtomicUsize,
-        /// Delay to add during download (to simulate slow downloads)
-        download_delay: Option<Duration>,
     }
 
     impl CancellationTestDownloader {
         fn new(checkpoints: Vec<CheckpointMetadata>) -> Self {
-            Self {
-                checkpoints,
-                fail_count: AtomicUsize::new(0),
-                download_delay: None,
-            }
-        }
-
-        fn with_fail_count(mut self, count: usize) -> Self {
-            self.fail_count = AtomicUsize::new(count);
-            self
-        }
-
-        fn with_download_delay(mut self, delay: Duration) -> Self {
-            self.download_delay = Some(delay);
-            self
+            Self { checkpoints }
         }
     }
 
+    // NOTE: This mock uses sequential downloads and does NOT implement sibling cancellation
+    // (no FuturesUnordered, no token.cancel() on error). It is suitable only for testing
+    // pre-cancellation paths. Complex cancellation scenarios (sibling cancellation,
+    // fallback after attempt failure) are tested in checkpoint_integration_tests.rs
+    // using real S3Downloader with MinIO.
     #[async_trait]
     impl CheckpointDownloader for CancellationTestDownloader {
         async fn list_recent_checkpoints(
@@ -399,18 +476,6 @@ mod tests {
                 }
             }
 
-            // Simulate slow download if configured
-            if let Some(delay) = self.download_delay {
-                tokio::time::sleep(delay).await;
-            }
-
-            // Check cancellation after delay (simulates mid-stream cancellation)
-            if let Some(token) = cancel_token {
-                if token.is_cancelled() {
-                    return Err(anyhow::anyhow!("Download cancelled mid-stream"));
-                }
-            }
-
             tokio::fs::write(local_filepath, b"mock file content").await?;
             Ok(())
         }
@@ -421,23 +486,11 @@ mod tests {
             local_base_path: &Path,
             cancel_token: Option<&CancellationToken>,
         ) -> Result<()> {
-            // Apply delay first (simulates slow network/S3 response)
-            if let Some(delay) = self.download_delay {
-                tokio::time::sleep(delay).await;
-            }
-
-            // Check cancellation after delay
+            // Check cancellation before starting
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
                     return Err(anyhow::anyhow!("Download cancelled"));
                 }
-            }
-
-            // Check if this attempt should fail
-            let remaining_fails = self.fail_count.load(Ordering::SeqCst);
-            if remaining_fails > 0 {
-                self.fail_count.fetch_sub(1, Ordering::SeqCst);
-                return Err(anyhow::anyhow!("Simulated download failure"));
             }
 
             for key in remote_keys {
@@ -495,8 +548,12 @@ mod tests {
         let tmp_dir = TempDir::new().unwrap();
         let metadata = create_test_metadata("test-topic", 0, 12);
         let downloader = CancellationTestDownloader::new(vec![metadata]);
-        let importer =
-            CheckpointImporter::new(Box::new(downloader), tmp_dir.path().to_path_buf(), 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            tmp_dir.path().to_path_buf(),
+            3,
+            Duration::from_secs(60),
+        );
 
         // Create a pre-cancelled token
         let token = CancellationToken::new();
@@ -504,77 +561,6 @@ mod tests {
 
         let result = importer
             .import_checkpoint_for_topic_partition_cancellable("test-topic", 0, Some(&token))
-            .await;
-
-        assert!(result.is_err());
-        assert!(
-            result.unwrap_err().to_string().contains("cancelled"),
-            "Error should mention cancellation"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_import_checkpoint_cancelled_between_attempts() {
-        let tmp_dir = TempDir::new().unwrap();
-
-        // Create two checkpoint attempts
-        let metadata1 = create_test_metadata("test-topic", 0, 14); // Most recent
-        let metadata2 = create_test_metadata("test-topic", 0, 12); // Older
-
-        // First attempt will fail after 50ms delay, second would succeed
-        let downloader = CancellationTestDownloader::new(vec![metadata1, metadata2])
-            .with_fail_count(1) // First attempt fails
-            .with_download_delay(Duration::from_millis(50)); // Delay before failure
-
-        let importer =
-            CheckpointImporter::new(Box::new(downloader), tmp_dir.path().to_path_buf(), 3);
-
-        let token = CancellationToken::new();
-
-        // Cancel after 20ms - during first attempt's delay, before failure check
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            token_clone.cancel();
-        });
-
-        let result = importer
-            .import_checkpoint_for_topic_partition_cancellable("test-topic", 0, Some(&token))
-            .await;
-
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        // Cancellation should be detected during the download delay
-        assert!(
-            err_msg.contains("cancelled"),
-            "Error should mention cancellation, got: {err_msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_download_cancelled_mid_stream() {
-        let tmp_dir = TempDir::new().unwrap();
-        let metadata = create_test_metadata("test-topic", 0, 12);
-
-        // Add a delay to simulate slow download
-        let downloader = CancellationTestDownloader::new(vec![metadata])
-            .with_download_delay(Duration::from_millis(100));
-
-        let token = CancellationToken::new();
-
-        // Cancel after 20ms (before the 100ms download completes)
-        let token_clone = token.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            token_clone.cancel();
-        });
-
-        let result = downloader
-            .download_files_cancellable(
-                &["checkpoints/test-topic/0/file.sst".to_string()],
-                tmp_dir.path(),
-                Some(&token),
-            )
             .await;
 
         assert!(result.is_err());
@@ -621,7 +607,12 @@ mod tests {
 
         // Create importer with mock downloader
         let downloader = MockDownloader::new(metadata);
-        let importer = CheckpointImporter::new(Box::new(downloader), store_base_path, 3);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            store_base_path,
+            3,
+            Duration::from_secs(60),
+        );
 
         // Run import - should succeed after cleaning up the corrupted directory
         let result = importer

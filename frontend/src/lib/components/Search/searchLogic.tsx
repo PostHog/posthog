@@ -6,6 +6,7 @@ import { IconClock } from '@posthog/icons'
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { toSentenceCase } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +14,7 @@ import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils
 import { groupsModel } from '~/models/groupsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
+import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
 import { ActivityTab, Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
@@ -531,6 +533,76 @@ export const searchLogic = kea<searchLogicType>([
                 })
             },
         ],
+        settingsItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): SearchItem[] => {
+                const items: SearchItem[] = []
+
+                const checkFlag = (flag: string): boolean => {
+                    const isNegated = flag.startsWith('!')
+                    const flagName = isNegated ? flag.slice(1) : flag
+                    const flagValue = (featureFlags as Record<string, boolean>)[flagName]
+                    return isNegated ? !flagValue : !!flagValue
+                }
+
+                for (const section of SETTINGS_MAP) {
+                    if (section.level === 'environment') {
+                        // temporary until we finish removing environments entirely
+                        continue
+                    }
+
+                    // Filter by feature flag if required
+                    if (section.flag) {
+                        if (Array.isArray(section.flag)) {
+                            // All flags in the array must pass
+                            if (!section.flag.every(checkFlag)) {
+                                continue
+                            }
+                        } else {
+                            if (!checkFlag(section.flag)) {
+                                continue
+                            }
+                        }
+                    }
+
+                    // Create a search item for each settings section
+                    const levelPrefix = toSentenceCase(section.level)
+
+                    const settings = section.settings.flatMap((setting) => [
+                        toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                        ...(typeof setting.title === 'string' ? [setting.title] : []),
+                        ...(typeof setting.description === 'string' ? [setting.description] : []),
+                    ])
+
+                    // Create the display name for each settings section
+                    const displayName =
+                        typeof section.title === 'string'
+                            ? section.title
+                            : toSentenceCase(section.id.replace(/[-]/g, ' '))
+
+                    const displayNameSuffix =
+                        displayName === 'General' || displayName === 'Danger zone'
+                            ? ` (${toSentenceCase(section.level)})`
+                            : ''
+
+                    items.push({
+                        id: `settings-${section.id}`,
+                        name: `${levelPrefix}: ${displayName} (${settings})`,
+                        displayName: `${displayName}${displayNameSuffix}`,
+                        category: 'settings',
+                        href: section.to || urls.settings(section.id),
+                        itemType: 'settings',
+                        record: {
+                            type: 'settings',
+                            level: section.level,
+                            sectionId: section.id,
+                        },
+                    })
+                }
+
+                return items
+            },
+        ],
         unifiedSearchItems: [
             (s) => [s.unifiedSearchResults],
             (unifiedSearchResults): Record<string, SearchItem[]> => {
@@ -616,16 +688,8 @@ export const searchLogic = kea<searchLogicType>([
                 return categoryItems
             },
         ],
-        allCategories: [
+        loadingStates: [
             (s) => [
-                s.recentItems,
-                s.appsItems,
-                s.dataManagementItems,
-                s.newItems,
-                s.personItems,
-                s.groupItems,
-                s.playlistItems,
-                s.unifiedSearchItems,
                 s.unifiedSearchResultsLoading,
                 s.recentsLoading,
                 s.recentsHasLoaded,
@@ -633,17 +697,16 @@ export const searchLogic = kea<searchLogicType>([
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.playlistSearchResultsLoading,
-                s.search,
             ],
             (
-                recentItems,
-                appsItems,
-                dataManagementItems,
-                newItems,
-                personItems,
-                groupItems,
-                playlistItems,
-                unifiedSearchItems,
+                unifiedSearchResultsLoading: boolean,
+                recentsLoading: boolean,
+                recentsHasLoaded: boolean,
+                isAppsLoading: boolean,
+                personSearchResultsLoading: boolean,
+                groupSearchResultsLoading: boolean,
+                playlistSearchResultsLoading: boolean
+            ) => ({
                 unifiedSearchResultsLoading,
                 recentsLoading,
                 recentsHasLoaded,
@@ -651,8 +714,53 @@ export const searchLogic = kea<searchLogicType>([
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 playlistSearchResultsLoading,
-                search
+            }),
+        ],
+        allCategories: [
+            (s) => [
+                s.recentItems,
+                s.appsItems,
+                s.dataManagementItems,
+                s.settingsItems,
+                s.newItems,
+                s.personItems,
+                s.groupItems,
+                s.playlistItems,
+                s.unifiedSearchItems,
+                s.loadingStates,
+                s.search,
+            ],
+            (
+                recentItems: SearchItem[],
+                appsItems: SearchItem[],
+                dataManagementItems: SearchItem[],
+                settingsItems: SearchItem[],
+                newItems: SearchItem[],
+                personItems: SearchItem[],
+                groupItems: SearchItem[],
+                playlistItems: SearchItem[],
+                unifiedSearchItems: Record<string, SearchItem[]>,
+                loadingStates: {
+                    unifiedSearchResultsLoading: boolean
+                    recentsLoading: boolean
+                    recentsHasLoaded: boolean
+                    isAppsLoading: boolean
+                    personSearchResultsLoading: boolean
+                    groupSearchResultsLoading: boolean
+                    playlistSearchResultsLoading: boolean
+                },
+                search: string
             ): SearchCategory[] => {
+                const {
+                    unifiedSearchResultsLoading,
+                    recentsLoading,
+                    recentsHasLoaded,
+                    isAppsLoading,
+                    personSearchResultsLoading,
+                    groupSearchResultsLoading,
+                    playlistSearchResultsLoading,
+                } = loadingStates
+
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
@@ -698,6 +806,16 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'data-management',
                         items: isAppsLoading ? [] : filteredDataManagement,
                         isLoading: isAppsLoading,
+                    })
+                }
+
+                // Filter and show settings if searching with matching results
+                const filteredSettings = filterBySearch(settingsItems)
+                if (hasSearch && filteredSettings.length > 0) {
+                    categories.push({
+                        key: 'settings',
+                        items: filteredSettings,
+                        isLoading: false,
                     })
                 }
 

@@ -371,6 +371,67 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
+ * * `all` - all
+ * `pass` - pass
+ * `fail` - fail
+ * `na` - na
+ */
+export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
+
+export const FilterEnumApi = {
+    all: 'all',
+    pass: 'pass',
+    fail: 'fail',
+    na: 'na',
+} as const
+
+/**
+ * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
+ */
+export interface EvaluationSummaryRequestApi {
+    /** UUID of the evaluation config to summarize */
+    evaluation_id: string
+    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
+
+* `all` - all
+* `pass` - pass
+* `fail` - fail
+* `na` - na */
+    filter?: FilterEnumApi
+    /**
+     * Optional: specific generation IDs to include in summary (max 250)
+     * @maxItems 250
+     */
+    generation_ids?: string[]
+    /** If true, bypass cache and generate a fresh summary */
+    force_refresh?: boolean
+}
+
+export interface EvaluationPatternApi {
+    title: string
+    description: string
+    frequency: string
+    example_reasoning: string
+    example_generation_ids: string[]
+}
+
+export interface EvaluationSummaryStatisticsApi {
+    total_analyzed: number
+    pass_count: number
+    fail_count: number
+    na_count: number
+}
+
+export interface EvaluationSummaryResponseApi {
+    overall_assessment: string
+    pass_patterns: EvaluationPatternApi[]
+    fail_patterns: EvaluationPatternApi[]
+    na_patterns: EvaluationPatternApi[]
+    recommendations: string[]
+    statistics: EvaluationSummaryStatisticsApi
+}
+
+/**
  * * `unknown` - Unknown
  * `ok` - Ok
  * `invalid` - Invalid
@@ -695,6 +756,14 @@ export const EvaluationsListOrderByItem = {
     name: 'name',
     updated_at: 'updated_at',
 } as const
+
+export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
     /**

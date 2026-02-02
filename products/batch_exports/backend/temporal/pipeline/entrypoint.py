@@ -126,7 +126,11 @@ async def execute_batch_export_using_internal_stage(
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)
-        stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
+        stage_activity_start_to_close_timeout = dt.timedelta(hours=6)
+    elif interval == "week":
+        # TODO - review these once we have more users using weekly batch exports
+        main_activity_start_to_close_timeout = max(dt.timedelta(days=3), override_start_to_close_timeout_timedelta)
+        stage_activity_start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}

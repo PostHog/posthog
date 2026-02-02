@@ -295,10 +295,11 @@ async fn test_evaluate_feature_flags_with_errors() {
             key: "error-flag".to_string(),
             enabled: false,
             variant: None,
+            failed: true,
             reason: FlagEvaluationReason {
                 code: "dependency_not_found_cohort".to_string(),
                 condition_index: None,
-                description: None,
+                description: Some("Cohort dependency not found".to_string()),
             },
             metadata: FlagDetailsMetadata {
                 id: 1,
@@ -803,6 +804,7 @@ async fn test_evaluate_feature_flags_details() {
             key: "flag_1".to_string(),
             enabled: true,
             variant: None,
+            failed: false,
             reason: FlagEvaluationReason {
                 code: "condition_match".to_string(),
                 condition_index: Some(0),
@@ -822,6 +824,7 @@ async fn test_evaluate_feature_flags_details() {
             key: "flag_2".to_string(),
             enabled: false,
             variant: None,
+            failed: false,
             reason: FlagEvaluationReason {
                 code: "out_of_rollout_bound".to_string(),
                 condition_index: Some(0),

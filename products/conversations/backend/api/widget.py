@@ -281,6 +281,7 @@ class WidgetMessagesView(APIView):
                 {
                     "id": str(m.id),
                     "content": m.content,
+                    "rich_content": m.rich_content,
                     "author_type": author_type,
                     "author_name": author_name,
                     "created_at": m.created_at.isoformat(),

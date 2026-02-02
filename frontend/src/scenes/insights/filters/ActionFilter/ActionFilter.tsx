@@ -198,6 +198,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         hideRename,
         hideDuplicate,
         showCombine: canAccessEventsCombination && filters.insight === InsightType.TRENDS,
+        insightType: filters.insight,
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
@@ -266,6 +267,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                         actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
+                                        insightType={filters.insight}
                                     />
                                 ) : (
                                     <ActionFilterRow

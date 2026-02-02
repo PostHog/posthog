@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
-use crate::event_restrictions::EventRestrictionService;
+use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
@@ -376,11 +376,9 @@ where
         Option<JoinHandle<()>>,
     ) = if config.event_restrictions_enabled {
         if let Some(ref redis_url) = config.event_restrictions_redis_url {
-            let restrictions_redis = Arc::new(
-                RedisClient::with_config(
+            let repository = Arc::new(
+                RedisRestrictionsRepository::new(
                     redis_url.clone(),
-                    common_redis::CompressionConfig::disabled(),
-                    common_redis::RedisValueFormat::default(),
                     if config.redis_response_timeout_ms == 0 {
                         None
                     } else {
@@ -393,7 +391,7 @@ where
                     },
                 )
                 .await
-                .expect("failed to create event restrictions redis client"),
+                .expect("failed to create event restrictions repository"),
             );
 
             let service = EventRestrictionService::new(
@@ -411,7 +409,7 @@ where
             let task_cancel_token = cancel_token.clone();
             let handle = tokio::spawn(async move {
                 service_clone
-                    .start_refresh_task(restrictions_redis, refresh_interval, task_cancel_token)
+                    .start_refresh_task(repository, refresh_interval, task_cancel_token)
                     .await;
             });
 

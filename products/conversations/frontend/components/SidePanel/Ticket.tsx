@@ -34,7 +34,7 @@ export function Ticket(): JSX.Element {
             />
             <div className="border-t pt-3">
                 <MessageInput
-                    onSendMessage={(content, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
+                    onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
                     messageSending={messageSending}
                 />
             </div>

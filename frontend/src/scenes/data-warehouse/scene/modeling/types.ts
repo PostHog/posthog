@@ -18,6 +18,8 @@ export interface ModelNodeData extends Record<string, unknown> {
     savedQueryId?: string
     handles?: ModelNodeHandle[]
     userTag?: string
+    upstreamCount: number
+    downstreamCount: number
 }
 
 export type ModelNode = Node<ModelNodeData>

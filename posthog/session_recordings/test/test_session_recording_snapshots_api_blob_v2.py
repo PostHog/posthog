@@ -383,6 +383,47 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         """
         )
 
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.session_recording_api.session_recording_v2_object_storage.client")
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    def test_cannot_load_lts_data_for_different_session(
+        self,
+        _mock_exists: MagicMock,
+        mock_object_storage_client: MagicMock,
+    ) -> None:
+        session_a = str(uuid7())
+        session_b = str(uuid7())
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_a,
+            deleted=False,
+            storage_version="2023-08-01",
+            full_recording_v2_path="s3://the_bucket/lts_path/session_a_uuid?range=0-1000",
+        )
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_b,
+            deleted=False,
+            storage_version="2023-08-01",
+            full_recording_v2_path="s3://the_bucket/lts_path/session_b_uuid?range=0-2000",
+        )
+
+        mock_client_instance = MagicMock()
+        mock_object_storage_client.return_value = mock_client_instance
+        mock_client_instance.fetch_file.return_value = '{"timestamp": 9999, "type": "session_b_data"}'
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_a}/snapshots"
+            f"?source=blob_v2_lts&blob_key=lts_path/session_b_uuid"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     @parameterized.expand(
         [
             (True, "application/jsonl", 2, 0),

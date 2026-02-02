@@ -230,6 +230,7 @@ function TraceListItem({
                 <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 <Link
                     to={urls.llmAnalyticsTrace(clusteringLevel === 'generation' ? traceInfo.trace_id : traceId, {
+                        tab: 'summary',
                         // For generation-level, highlight the specific generation
                         ...(clusteringLevel === 'generation' && traceInfo.generation_id
                             ? { event: traceInfo.generation_id }

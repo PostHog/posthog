@@ -77,6 +77,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                     dbPerson?.properties ?? {}
                 )
 
+                if (!dbPerson && hogFlow.trigger?.type === 'event') {
+                    logger.warn('⚠️', 'Person not found for hog flow invocation', {
+                        hogFlowId: hogFlow.id,
+                        distinctId: hogFlowInvocationState.event.distinct_id,
+                        invocationId: item.id,
+                    })
+                }
+
                 const person: CyclotronPerson | undefined = dbPerson
                     ? {
                           id: dbPerson.id,

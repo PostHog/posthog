@@ -116,6 +116,40 @@ export const dataModelingJobsRetrieve = async (
 }
 
 /**
+ * Get recently completed/failed jobs (paginated).
+ */
+export const getDataModelingJobsRecentRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_modeling_jobs/recent/`
+}
+
+export const dataModelingJobsRecentRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataModelingJobApi> => {
+    return apiMutator<DataModelingJobApi>(getDataModelingJobsRecentRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get all currently running jobs.
+ */
+export const getDataModelingJobsRunningRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/data_modeling_jobs/running/`
+}
+
+export const dataModelingJobsRunningRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataModelingJobApi> => {
+    return apiMutator<DataModelingJobApi>(getDataModelingJobsRunningRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Returns completed/non-running activities (jobs with status 'Completed').
 Supports pagination and cutoff time filtering.
  */
@@ -1290,6 +1324,40 @@ export const dataModelingJobsRetrieve2 = async (
     options?: RequestInit
 ): Promise<DataModelingJobApi> => {
     return apiMutator<DataModelingJobApi>(getDataModelingJobsRetrieve2Url(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get recently completed/failed jobs (paginated).
+ */
+export const getDataModelingJobsRecentRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_modeling_jobs/recent/`
+}
+
+export const dataModelingJobsRecentRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataModelingJobApi> => {
+    return apiMutator<DataModelingJobApi>(getDataModelingJobsRecentRetrieve2Url(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get all currently running jobs.
+ */
+export const getDataModelingJobsRunningRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/data_modeling_jobs/running/`
+}
+
+export const dataModelingJobsRunningRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataModelingJobApi> => {
+    return apiMutator<DataModelingJobApi>(getDataModelingJobsRunningRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })

@@ -19,7 +19,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes", "week"], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)

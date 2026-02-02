@@ -154,7 +154,7 @@ export const SAMPLE_HOGQL_QUERIES: Record<SampleHogQLQuery, InsightQuery> = {
 
 type SampleTrendQuery = 'basicPageviews' | 'uniqueUsers' | 'multipleEvents' | 'withBreakdown' | 'withPropertyFilter'
 
-export const SAMPLE_TREND_QUERIES: Record<SampleTrendQuery, InsightQuery> = {
+export const SAMPLE_TREND_QUERIES = {
     basicPageviews: {
         kind: 'InsightVizNode',
         source: {
@@ -279,7 +279,7 @@ export const SAMPLE_TREND_QUERIES: Record<SampleTrendQuery, InsightQuery> = {
             filterTestAccounts: false,
         },
     },
-}
+} as const satisfies Record<SampleTrendQuery, InsightQuery>
 
 type SampleFunnelQuery =
     | 'basicFunnel'
@@ -288,7 +288,7 @@ type SampleFunnelQuery =
     | 'conversionWindow'
     | 'onboardingFunnel'
 
-export const SAMPLE_FUNNEL_QUERIES: Record<SampleFunnelQuery, InsightQuery> = {
+export const SAMPLE_FUNNEL_QUERIES = {
     basicFunnel: {
         kind: 'InsightVizNode',
         source: {
@@ -478,4 +478,4 @@ export const SAMPLE_FUNNEL_QUERIES: Record<SampleFunnelQuery, InsightQuery> = {
             filterTestAccounts: true,
         },
     },
-}
+} as const satisfies Record<SampleFunnelQuery, InsightQuery>

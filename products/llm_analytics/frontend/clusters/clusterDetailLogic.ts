@@ -11,7 +11,7 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
-import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
+import { NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
@@ -44,8 +44,6 @@ export interface ScatterDataset {
     pointHoverRadius: number
     pointStyle?: 'circle' | 'crossRot'
 }
-
-const OUTLIER_COLOR = '#888888'
 
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),

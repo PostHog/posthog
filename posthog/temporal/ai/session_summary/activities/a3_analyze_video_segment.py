@@ -6,6 +6,7 @@ Analyzing a specific segment of the session video with Gemini.
 
 import re
 import json
+import time
 from typing import Any, cast
 
 from django.conf import settings
@@ -15,6 +16,7 @@ import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
 
+from posthog.models import Team
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -28,9 +30,8 @@ from posthog.temporal.ai.session_summary.types.video import (
 )
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index, prepare_datetime
-
-SESSION_VIDEO_CHUNK_DURATION_S = 15
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +48,8 @@ async def analyze_video_segment_activity(
 
     Returns detailed descriptions of salient moments in the segment.
     """
+    start_time = time.monotonic()
+    success = False
     try:
         # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
         llm_input: SingleSessionSummaryLlmInputs | None = None
@@ -182,6 +185,7 @@ async def analyze_video_segment_activity(
             signals_type="session-summaries",
         )
 
+        success = True
         return segments
 
     except Exception as e:
@@ -192,6 +196,22 @@ async def analyze_video_segment_activity(
             signals_type="session-summaries",
         )
         raise
+    finally:
+        duration_seconds = time.monotonic() - start_time
+        team = await Team.objects.aget(id=inputs.team_id)
+        capture_session_summary_timing(
+            user_distinct_id=inputs.user_distinct_id_to_log,
+            team=team,
+            session_id=inputs.session_id,
+            timing_type="transcript",
+            duration_seconds=duration_seconds,
+            success=success,
+            extra_properties={
+                "segment_index": segment.segment_index,
+                "segment_start_time": segment.start_time,
+                "segment_end_time": segment.end_time,
+            },
+        )
 
 
 VIDEO_SEGMENT_ANALYSIS_PROMPT = """

@@ -1,3 +1,5 @@
+import { JSONContent } from '@tiptap/core'
+
 import { LemonCard } from '@posthog/lemon-ui'
 
 import type { ChatMessage, Ticket } from '../../types'
@@ -11,7 +13,7 @@ export interface ChatViewProps {
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
     ticket?: Ticket
-    onSendMessage: (content: string, isPrivate: boolean, onSuccess: () => void) => void
+    onSendMessage: (content: string, richContent: JSONContent | null, isPrivate: boolean, onSuccess: () => void) => void
     onLoadOlderMessages?: () => void
     header?: React.ReactNode
     minHeight?: string

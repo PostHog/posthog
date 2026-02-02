@@ -22,6 +22,7 @@ from posthog.api.test.batch_exports.operations import (
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
 ]
 
 

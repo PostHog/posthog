@@ -111,7 +111,11 @@ class ChatAgentRunner(BaseAgentRunner):
             )
             # Only set the agent mode if it was explicitly set.
             if self._selected_agent_mode:
-                new_state.agent_mode = self._selected_agent_mode
+                if self._selected_agent_mode == AgentMode.PLAN:
+                    new_state.supermode = AgentMode.PLAN
+                    new_state.agent_mode = AgentMode.SQL
+                else:
+                    new_state.agent_mode = self._selected_agent_mode
             return new_state
 
         # When resuming, do not set the mode. It should start from the same mode as the previous generation.
@@ -159,5 +163,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 "is_new_conversation": self._is_new_conversation,
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
+                "agent_mode": self._selected_agent_mode,
             },
         )

@@ -39,10 +39,10 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                 <Tabs.List className="relative z-0 flex gap-1 grow">
                     {[
                         ...(scenePanelIsPresent ? [SidePanelTab.Info] : []),
+                        SidePanelTab.Max,
                         SidePanelTab.Discussion,
                         SidePanelTab.AccessControl,
                         SidePanelTab.Notebooks,
-                        ...(activeTab === SidePanelTab.Max ? [SidePanelTab.Max] : []),
                     ]
                         .filter((tab) => tab === SidePanelTab.Info || visibleTabs.includes(tab))
                         .map((tab) => {
@@ -61,8 +61,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                             {tab === SidePanelTab.Max ? (
                                                 <IconSparkles
                                                     className={cn(
-                                                        'size-4 text-tertiary group-hover:text-primary -mt-[1px] ml-[2px]',
-                                                        activeTab === tab ? 'text-primary' : 'text-tertiary'
+                                                        'text-accent size-4 group-hover:text-accent-hover -mt-[1px] ml-[2px]'
                                                     )}
                                                 />
                                             ) : (

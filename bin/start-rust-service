@@ -116,7 +116,7 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
+    export DATABASE_URL=${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/cyclotron}
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;

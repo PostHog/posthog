@@ -683,6 +683,7 @@ def _recalculate_cohortpeople_for_team_hogql(
             },
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
+            team_id=team.id,
         )
 
     result, query_end_time = run_cohort_query(

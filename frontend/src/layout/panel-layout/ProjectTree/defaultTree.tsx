@@ -7,7 +7,6 @@ import {
     IconBug,
     IconCircleDashed,
     IconCode2,
-    IconCursor,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -31,6 +30,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlay,
     IconPlug,
     IconRetention,
     IconRewindPlay,
@@ -185,7 +185,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconBug />,
     },
     action: {
-        icon: <IconCursor />,
+        icon: <IconPlay />,
     },
     comment: {
         icon: <IconNotification />,

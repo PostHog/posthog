@@ -327,7 +327,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         logs = ActivityLog.objects.filter(
             scope="Endpoint",
             item_id=str(endpoint.id),
-            activity="updated",
+            activity="version_created",
         )
 
         self.assertEqual(1, logs.count())

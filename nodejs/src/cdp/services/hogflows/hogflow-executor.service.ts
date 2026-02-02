@@ -553,22 +553,27 @@ export class HogFlowExecutorService {
         const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
 
         const hasAssociatedPerson = Boolean(invocation.person)
+        const hasAssociatedEvent = Boolean(invocation.state.event)
         const isWebhookTriggered = ['webhook', 'manual', 'schedule'].includes(invocation.hogFlow.trigger.type)
         const isBatchWorkflow = invocation.hogFlow.trigger.type === 'batch'
 
-        let triggeredFor = ''
+        let triggeredForActor = ''
         if (!hasCurrentAction) {
-            triggeredFor = isWebhookTriggered
+            triggeredForActor = isWebhookTriggered
                 ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
                 : ''
-            triggeredFor += hasAssociatedPerson
+            triggeredForActor += hasAssociatedPerson
                 ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
                 : ''
         }
 
+        const triggeredByEvent = hasAssociatedEvent
+            ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
+            : ''
+
         return {
             level: 'debug',
-            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} ${isBatchWorkflow ? 'batch ' : ''}workflow execution at ${currentAction}${triggeredFor}`,
+            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} ${isBatchWorkflow ? 'batch ' : ''}workflow execution at ${currentAction}${triggeredForActor}${triggeredByEvent}`,
             timestamp: DateTime.now(),
         }
     }

@@ -85,12 +85,12 @@ def build_billing_token(
         if authorizer_actor != user:
             # We've done a privilege escalation
             report_user_action(
-                user,
+                authorizer_actor,
                 "$billing_privilege_escalation",
                 properties={
-                    "authorizer_actor_id": authorizer_actor.id,
-                    # NOTE(Marce): Hardcoded for now since it's the only place where it can happen
-                    # I have another PR with a better implementation of this.
+                    "target_user_id": user.id,
+                    "target_distinct_id": str(user.distinct_id),
+                    "target_email": user.email,
                     "action": "update_billing",
                 },
             )
@@ -404,6 +404,7 @@ class BillingManager:
                 ai_credits=usage_summary.get("ai_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
+                logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],

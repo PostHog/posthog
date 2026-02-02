@@ -116,6 +116,7 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Vitally` - Vitally
  * `BigQuery` - BigQuery
  * `Chargebee` - Chargebee
+ * `Clerk` - Clerk
  * `GoogleAds` - GoogleAds
  * `TemporalIO` - TemporalIO
  * `DoIt` - DoIt
@@ -133,6 +134,7 @@ export interface PaginatedExternalDataSchemaListApi {
  * `TikTokAds` - TikTokAds
  * `BingAds` - BingAds
  * `Shopify` - Shopify
+ * `Attio` - Attio
  * `SnapchatAds` - SnapchatAds
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
@@ -154,6 +156,7 @@ export const SourceTypeEnumApi = {
     Vitally: 'Vitally',
     BigQuery: 'BigQuery',
     Chargebee: 'Chargebee',
+    Clerk: 'Clerk',
     GoogleAds: 'GoogleAds',
     TemporalIO: 'TemporalIO',
     DoIt: 'DoIt',
@@ -171,6 +174,7 @@ export const SourceTypeEnumApi = {
     TikTokAds: 'TikTokAds',
     BingAds: 'BingAds',
     Shopify: 'Shopify',
+    Attio: 'Attio',
     SnapchatAds: 'SnapchatAds',
 } as const
 

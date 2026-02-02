@@ -19,6 +19,7 @@ from rest_framework.pagination import CursorPagination
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast, errors
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -802,7 +803,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             )
 
             if isinstance(field, ast.Alias):
-                alias = field.alias
+                alias = escape_clickhouse_identifier(field.alias)
             else:
                 alias = expression
 
@@ -823,6 +824,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         1. UNION ALL is not supported.
         2. Any JOINs are not supported.
         3. Query must SELECT FROM events, and only from events.
+        4. Subqueries in SELECT expressions are not supported.
         """
 
         if isinstance(hogql_query, ast.SelectSetQuery):
@@ -844,6 +846,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if parsed.select_from.next_join is not None:
             raise serializers.ValidationError("JOINs are not supported")
+
+        for field in parsed.select:
+            expr = field.expr if isinstance(field, ast.Alias) else field
+            if isinstance(expr, (ast.SelectQuery, ast.SelectSetQuery)):
+                raise serializers.ValidationError("Subqueries in SELECT expressions are not supported")
 
         return hogql_query
 

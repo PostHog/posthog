@@ -48,6 +48,7 @@ def register_all_admin():
         DashboardTemplate,
         DataColorTheme,
         DataWarehouseTable,
+        DuckLakeCatalog,
         EventIngestionRestrictionConfig,
         Experiment,
         ExperimentSavedMetric,
@@ -110,6 +111,7 @@ def register_all_admin():
     admin.site.register(ProductTour, ProductTourAdmin)
 
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+    admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
     admin.site.register(Link, LinkAdmin)
@@ -125,7 +127,3 @@ def register_all_admin():
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)
-
-    from posthog.ducklake.models import DuckLakeCatalog
-
-    admin.site.register(DuckLakeCatalog, DuckLakeCatalogAdmin)

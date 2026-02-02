@@ -302,3 +302,49 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_project_name_search_filter(self):
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                "name": "Projects",
+                "limit": None,
+            }
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Analytics Dashboard",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="Revenue Tracker",
+            initiating_user=self.user,
+        )
+        Project.objects.create_with_team(
+            organization=self.organization,
+            name="User Analytics",
+            initiating_user=self.user,
+        )
+
+        response = self.client.get("/api/projects/?search=Analytics")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        names = {r["name"] for r in results}
+        self.assertEqual(names, {"Analytics Dashboard", "User Analytics"})
+
+        response = self.client.get("/api/projects/?search=Revenue")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "Revenue Tracker")
+
+        response = self.client.get("/api/projects/?search=nonexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)

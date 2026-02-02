@@ -296,20 +296,3 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
-
-    def test_deprecated_has_active_dependents_endpoint(self):
-        """
-        Test the deprecated has_active_dependents endpoint still works.
-        Safe to delete after usage falls to zero, expected by Jan 22, 2026.
-        """
-        base_flag = self.create_flag("base_flag")
-        self.create_flag("dependent_flag", dependencies=[base_flag.id])
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/has_active_dependents/",
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["has_active_dependents"], True)
-        self.assertEqual(len(response.json()["dependent_flags"]), 1)

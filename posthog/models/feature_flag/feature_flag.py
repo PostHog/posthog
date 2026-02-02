@@ -579,7 +579,9 @@ def get_feature_flags(
     else:
         raise ValueError("Either team or project_id must be provided")
 
-    filter_kwargs.update({"active": True, "deleted": False})
+    # Include disabled flags (active=False) so flag dependencies can reference them
+    # and evaluate them as false, rather than raising DependencyNotFound errors
+    filter_kwargs.update({"deleted": False})
 
     # Build queryset with evaluation tags aggregated
     # Single-shot query: flags plus evaluation tag names aggregated to a string array.
@@ -667,7 +669,10 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 # This makes cache retrieval extremely fast - no DB queries needed.
                 flag._evaluation_tag_names = evaluation_tags_list
                 flags.append(flag)
-            return flags
+            # Filter to only return active flags. The cache includes inactive flags
+            # for dependency resolution (used by the Rust service), but Python callers
+            # expect only active flags for backward compatibility.
+            return [f for f in flags if f.active]
         except Exception as e:
             logger.exception("Error parsing flags from cache")
             capture_exception(e)

@@ -98,7 +98,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : placeholder || placeholderClass ? (
-        <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
+        <span className={placeholderClass}>{placeholder}</span>
     ) : null
     buttonPropsFinal.onClick = () => setVisible(!visible)
     if (!buttonPropsFinal.type) {

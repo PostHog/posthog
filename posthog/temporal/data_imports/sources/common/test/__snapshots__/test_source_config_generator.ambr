@@ -44,10 +44,12 @@
   def get_config_for_source(source: ExternalDataSourceType):
       return {
           ExternalDataSourceType.ASHBY: AshbySourceConfig,
+          ExternalDataSourceType.ATTIO: AttioSourceConfig,
           ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
           ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+          ExternalDataSourceType.CLERK: ClerkSourceConfig,
           ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,
           ExternalDataSourceType.GITHUB: GithubSourceConfig,

@@ -20,20 +20,28 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
     return region === 'eu' ? POSTHOG_EU_BASE_URL : POSTHOG_US_BASE_URL
 }
 
-export const CUSTOM_BASE_URL = env.POSTHOG_BASE_URL
+/**
+ * Custom API base URL for self-hosted PostHog instances.
+ *
+ * WARNING: In PostHog Production, this should NOT be set.
+ * The code automatically handles US/EU region routing via getAuthorizationServerUrl().
+ * Only set this for self-hosted PostHog deployments.
+ */
+export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
 
-// Get the authorization server URL for OAuth, respecting CUSTOM_BASE_URL for self-hosted instances
+// Get the authorization server URL for OAuth, respecting CUSTOM_API_BASE_URL for self-hosted instances
 export const getAuthorizationServerUrl = (regionParam: string | null): string => {
-    if (CUSTOM_BASE_URL) {
-        return CUSTOM_BASE_URL
+    if (CUSTOM_API_BASE_URL) {
+        return CUSTOM_API_BASE_URL
     }
+
     return getBaseUrlForRegion(toCloudRegion(regionParam))
 }
 
 // OAuth Authorization Server URL (where clients get tokens)
-// Defaults to CUSTOM_BASE_URL if not explicitly set
+// Defaults to CUSTOM_API_BASE_URL if not explicitly set
 export const OAUTH_AUTHORIZATION_SERVER_URL =
-    (env as unknown as Record<string, string | undefined>).OAUTH_AUTHORIZATION_SERVER_URL || CUSTOM_BASE_URL
+    (env as unknown as Record<string, string | undefined>).OAUTH_AUTHORIZATION_SERVER_URL || CUSTOM_API_BASE_URL
 
 export const MCP_DOCS_URL = 'https://posthog.com/docs/model-context-protocol'
 

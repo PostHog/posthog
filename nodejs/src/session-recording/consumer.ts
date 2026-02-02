@@ -4,6 +4,13 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
+import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
+import {
+    RestrictionPipelineInput,
+    RestrictionPipelineOutput,
+    applyRestrictions,
+    createRestrictionPipeline,
+} from '../ingestion/session_replay'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -32,7 +39,6 @@ import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
 import { RetentionService } from './retention/retention-service'
-import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
@@ -83,8 +89,13 @@ export class SessionRecordingIngester {
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private restrictionHandler?: SessionRecordingRestrictionHandler
-    private kafkaOverflowProducer?: KafkaProducerWrapper
+    private readonly restrictionPipeline: BatchPipelineUnwrapper<
+        RestrictionPipelineInput,
+        RestrictionPipelineOutput,
+        { message: Message }
+    >
+    private readonly kafkaMetadataProducer: KafkaProducerWrapper
+    private readonly kafkaMessageProducer: KafkaProducerWrapper
     private readonly overflowTopic: string
     private readonly topTracker: TopTracker
     private topTrackerLogInterval?: NodeJS.Timeout
@@ -93,7 +104,8 @@ export class SessionRecordingIngester {
         private hub: SessionRecordingIngesterHub,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
-        producer: KafkaProducerWrapper,
+        kafkaMetadataProducer: KafkaProducerWrapper,
+        kafkaMessageProducer: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.topic = consumeOverflow
@@ -112,6 +124,9 @@ export class SessionRecordingIngester {
             autoCommit: true,
             autoOffsetStore: false,
         })
+
+        this.kafkaMetadataProducer = kafkaMetadataProducer
+        this.kafkaMessageProducer = kafkaMessageProducer
 
         let s3Client: S3Client | null = null
         if (
@@ -190,11 +205,11 @@ export class SessionRecordingIngester {
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
-            producer,
+            this.kafkaMetadataProducer,
             this.hub.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
         )
         const consoleLogStore = new SessionConsoleLogStore(
-            producer,
+            this.kafkaMetadataProducer,
             this.hub.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
             { messageLimit: this.hub.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
@@ -231,6 +246,14 @@ export class SessionRecordingIngester {
             consoleLogStore,
             sessionTracker,
             sessionFilter,
+        })
+
+        this.restrictionPipeline = createRestrictionPipeline({
+            kafkaProducer: this.kafkaMessageProducer,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowEnabled: !this.consumeOverflow,
+            overflowTopic: this.overflowTopic,
+            promiseScheduler: this.promiseScheduler,
         })
     }
 
@@ -275,7 +298,7 @@ export class SessionRecordingIngester {
         // Apply event ingestion restrictions before parsing
         const messagesToProcess = await instrumentFn(
             `recordingingesterv2.handleEachBatch.applyRestrictions`,
-            async () => Promise.resolve(this.restrictionHandler!.applyRestrictions(messages))
+            async () => await applyRestrictions(this.restrictionPipeline, messages)
         )
 
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
@@ -359,23 +382,6 @@ export class SessionRecordingIngester {
             kafkaCapabilities: features,
         })
 
-        // Initialize overflow producer if not consuming from overflow
-        if (!this.consumeOverflow) {
-            this.kafkaOverflowProducer = await KafkaProducerWrapper.create(
-                this.hub.KAFKA_CLIENT_RACK,
-                'WARPSTREAM_PRODUCER'
-            )
-        }
-
-        // Initialize restriction handler with the overflow producer
-        this.restrictionHandler = new SessionRecordingRestrictionHandler(
-            this.eventIngestionRestrictionManager,
-            this.overflowTopic,
-            this.kafkaOverflowProducer,
-            this.promiseScheduler,
-            this.consumeOverflow
-        )
-
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
         await this.fileStorage.checkHealth()
@@ -432,13 +438,16 @@ export class SessionRecordingIngester {
         const assignedPartitions = this.assignedTopicPartitions
         await this.kafkaConsumer.disconnect()
 
-        if (this.kafkaOverflowProducer) {
-            await this.kafkaOverflowProducer.disconnect()
-        }
-
         void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
 
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
+
+        // Clean up resources owned by this ingester
+        await this.kafkaMessageProducer.disconnect()
+        await this.redisPool.drain()
+        await this.redisPool.clear()
+        await this.restrictionRedisPool.drain()
+        await this.restrictionRedisPool.clear()
 
         logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 

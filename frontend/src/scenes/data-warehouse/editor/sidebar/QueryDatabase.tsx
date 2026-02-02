@@ -232,6 +232,49 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                const joinMenu =
+                    item.record?.field && item.record?.table
+                        ? (() => {
+                              const joinKey = `${item.record.table}.${item.record.field.name}`
+                              const join = joinsByFieldName[joinKey]
+
+                              if (
+                                  !join ||
+                                  !isJoined(item.record.field) ||
+                                  join.source_table_name !== item.record.table
+                              ) {
+                                  return null
+                              }
+
+                              return (
+                                  <DropdownMenuGroup>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              toggleEditJoinModal(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              deleteJoin(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                              )
+                          })()
+                        : null
+
+                if (joinMenu) {
+                    return joinMenu
+                }
+
                 // Show menu for drafts
                 if (item.record?.type === 'draft') {
                     const draft = item.record.draft
@@ -409,47 +452,6 @@ export const QueryDatabase = (): JSX.Element => {
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )
-                }
-
-                if (item.record?.type === 'column') {
-                    if (
-                        isJoined(item.record.field) &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`] &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`].source_table_name ===
-                            item.record.table
-                    ) {
-                        return (
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            toggleEditJoinModal(
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            )
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            const join =
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-
-                                            deleteJoin(join)
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                        )
-                    }
                 }
 
                 if (item.record?.type === 'unsaved-query') {

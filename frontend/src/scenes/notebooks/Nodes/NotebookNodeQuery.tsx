@@ -50,6 +50,7 @@ const Component = ({
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
+    const { canvasFiltersOverride } = useValues(notebookLogic)
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
@@ -105,6 +106,11 @@ const Component = ({
             modifiedQuery.showTable = false
             modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
+        }
+
+        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
+            modifiedQuery.source.fixedProperties = canvasFiltersOverride
+            updateAttributes({ ...attributes, isDefaultFilterApplied: true })
         }
 
         return modifiedQuery

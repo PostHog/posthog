@@ -65,6 +65,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini"}),
         allow_api_keys=True,
     ),
+    "llma_eval_summary": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5-mini"}),
+        allow_api_keys=True,
+    ),
 }
 
 

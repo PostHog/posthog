@@ -88,14 +88,18 @@ function TraceListItem({
                         clusteringLevel === 'generation' ? traceInfo.trace_id : traceId,
                         clusteringLevel === 'generation'
                             ? {
+                                  tab: 'summary',
                                   event: traceInfo.generation_id,
                                   ...(traceInfo.timestamp
                                       ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() }
                                       : {}),
                               }
-                            : traceInfo.timestamp
-                              ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() }
-                              : {}
+                            : {
+                                  tab: 'summary',
+                                  ...(traceInfo.timestamp
+                                      ? { timestamp: dayjs.utc(traceInfo.timestamp).toISOString() }
+                                      : {}),
+                              }
                     )}
                     className="text-xs text-link hover:underline shrink-0"
                 >

@@ -1,6 +1,6 @@
 import { type Unzipped, strFromU8 } from 'fflate'
 
-import type { ResourceManifest, SkillsManifest } from './manifest-types'
+import type { ContextMillManifest, ResourceManifest } from './manifest-types'
 
 const MANIFEST_FILENAME = 'manifest.json'
 
@@ -43,43 +43,53 @@ export function loadManifest(archive: Unzipped): ResourceManifest {
 }
 
 /**
- * Validate a skills manifest object
+ * Validate a context-mill manifest object
  */
-export function loadSkillsManifest(manifest: unknown): SkillsManifest {
+export function loadContextMillManifest(manifest: unknown): ContextMillManifest {
     if (!manifest || typeof manifest !== 'object') {
-        throw new Error('Skills manifest must be an object')
+        throw new Error('Context-mill manifest must be an object')
     }
 
     const m = manifest as Record<string, unknown>
 
     if (!m.version || typeof m.version !== 'string') {
-        throw new Error('Skills manifest is missing required "version" field')
+        throw new Error('Context-mill manifest is missing required "version" field')
     }
 
-    if (!Array.isArray(m.skills)) {
-        throw new Error('Skills manifest is missing "skills" array')
+    if (!Array.isArray(m.resources)) {
+        throw new Error('Context-mill manifest is missing "resources" array')
     }
 
-    // Validate each skill has required fields
-    for (const skill of m.skills) {
-        if (!skill || typeof skill !== 'object') {
-            throw new Error('Each skill must be an object')
+    // Validate each resource has required fields
+    for (const entry of m.resources) {
+        if (!entry || typeof entry !== 'object') {
+            throw new Error('Each resource must be an object')
         }
 
-        const s = skill as Record<string, unknown>
-        if (!s.id || typeof s.id !== 'string') {
-            throw new Error('Skill is missing required "id" field')
+        const r = entry as Record<string, unknown>
+        if (!r.id || typeof r.id !== 'string') {
+            throw new Error('Resource is missing required "id" field')
         }
-        if (!s.name || typeof s.name !== 'string') {
-            throw new Error(`Skill "${s.id}" is missing required "name" field`)
+        if (!r.name || typeof r.name !== 'string') {
+            throw new Error(`Resource "${r.id}" is missing required "name" field`)
         }
-        if (!s.file || typeof s.file !== 'string') {
-            throw new Error(`Skill "${s.id}" is missing required "file" field`)
+        if (!r.uri || typeof r.uri !== 'string') {
+            throw new Error(`Resource "${r.id}" is missing required "uri" field`)
         }
-        if (!s.downloadUrl || typeof s.downloadUrl !== 'string') {
-            throw new Error(`Skill "${s.id}" is missing required "downloadUrl" field`)
+        if (!r.resource || typeof r.resource !== 'object') {
+            throw new Error(`Resource "${r.id}" is missing required "resource" field`)
+        }
+        const res = r.resource as Record<string, unknown>
+        if (!res.mimeType || typeof res.mimeType !== 'string') {
+            throw new Error(`Resource "${r.id}" resource is missing required "mimeType" field`)
+        }
+        if (!res.description || typeof res.description !== 'string') {
+            throw new Error(`Resource "${r.id}" resource is missing required "description" field`)
+        }
+        if (!res.text || typeof res.text !== 'string') {
+            throw new Error(`Resource "${r.id}" resource is missing required "text" field`)
         }
     }
 
-    return manifest as SkillsManifest
+    return manifest as ContextMillManifest
 }

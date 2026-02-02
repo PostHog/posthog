@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -23,7 +23,6 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -53,8 +52,6 @@ export function EnvironmentSwitcherOverlay({
     const { currentTeam, currentProject } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
-    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
-    const { openModal } = useActions(environmentRollbackModalLogic)
     const [open, setOpen] = useState(false)
 
     const { location } = useValues(router)
@@ -230,16 +227,7 @@ export function EnvironmentSwitcherOverlay({
             }
         }
         return [
-            hasEnvironmentsRollbackFeature ? (
-                <Combobox.Group value={['warning']} key="warning">
-                    <Combobox.Item asChild>
-                        <ButtonPrimitive menuItem onClick={openModal} variant="danger" className="h-auto">
-                            <IconWarning />
-                            We're rolling back the environments beta
-                        </ButtonPrimitive>
-                    </Combobox.Item>
-                </Combobox.Group>
-            ) : null,
+            null,
             currentProjectItems.length ? <>{currentProjectItems}</> : null,
             otherProjectsItems.length ? <>{otherProjectsItems}</> : null,
         ]
@@ -252,8 +240,6 @@ export function EnvironmentSwitcherOverlay({
         onClickInside,
         guardAvailableFeature,
         showCreateEnvironmentModal,
-        hasEnvironmentsRollbackFeature,
-        openModal,
     ])
 
     if (!currentOrganization || !currentTeam) {

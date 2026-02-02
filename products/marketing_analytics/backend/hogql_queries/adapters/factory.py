@@ -194,6 +194,14 @@ class MarketingSourceFactory:
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
 
+        # Fallback: if campaign_overview_stats not found, try legacy campaign_stats
+        if not campaign_stats_table:
+            for table in tables:
+                table_suffix = table.name.split(".")[-1].lower()
+                if "campaign_stats" in table_suffix:
+                    campaign_stats_table = table
+                    break
+
         if not (campaign_table and campaign_stats_table):
             return None
 

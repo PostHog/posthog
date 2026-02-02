@@ -707,7 +707,7 @@ def property_to_expr(
 
         expr: ast.Expr = map_virtual_properties(field)
 
-        if property.type == "recording" and property.key == "snapshot_source":
+        if property.type == "recording" and property.key in ("snapshot_source", "snapshot_library"):
             expr = ast.Call(name="argMinMerge", args=[field])
 
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"

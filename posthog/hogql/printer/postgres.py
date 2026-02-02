@@ -164,3 +164,7 @@ class PostgresPrinter(HogQLPrinter):
             return f"ROW({values[0]})"
 
         return f"({', '.join(values)})"
+
+    def visit_type_cast(self, node):
+        expr_sql = self.visit(node.expr)
+        return f"CAST({expr_sql} AS {escape_postgres_identifier(node.type_name)})"

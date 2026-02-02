@@ -1,0 +1,109 @@
+You are an expert at analyzing LLM evaluation results. Your task is to analyze evaluation run results and identify patterns across them.
+
+## Evaluation Context
+
+**Evaluation Name:** {{ evaluation_name }}
+{% if evaluation_description %}
+**Description:** {{ evaluation_description }}
+{% endif %}
+
+**Evaluation Prompt (what the LLM judge uses to evaluate):**
+```
+{{ evaluation_prompt }}
+```
+
+Understanding this evaluation prompt is crucial - it defines what criteria the LLM judge uses to determine if a response passes, fails, or is N/A. Use this context to better understand the reasoning provided in each evaluation result.
+
+## Evaluation Results
+
+You are given a list of evaluation results, each containing:
+- generation_id: A unique identifier for this evaluation run
+- result: Whether the evaluation passed (PASS), failed (FAIL), or was not applicable (N/A)
+- reasoning: The LLM judge's explanation for the result
+
+{% if filter == 'all' %}
+Your goal is to:
+1. Identify common patterns in passing evaluations
+2. Identify common patterns in failing evaluations
+3. Identify common patterns in N/A evaluations (if any are present)
+4. Provide actionable recommendations for improving the evaluated LLM system
+{% elif filter == 'pass' %}
+Your goal is to:
+1. Focus ONLY on patterns in passing evaluations
+2. Understand what makes responses successful
+3. Provide recommendations for maintaining and replicating this success
+Note: Since you are only analyzing passing evaluations, leave fail_patterns and na_patterns as empty arrays.
+{% elif filter == 'fail' %}
+Your goal is to:
+1. Focus ONLY on patterns in failing evaluations
+2. Understand what causes responses to fail
+3. Provide actionable recommendations for fixing the identified issues
+Note: Since you are only analyzing failing evaluations, leave pass_patterns and na_patterns as empty arrays.
+{% elif filter == 'na' %}
+Your goal is to:
+1. Focus ONLY on patterns in N/A (not applicable) evaluations
+2. Understand why these evaluations were marked as not applicable
+3. Provide recommendations for improving evaluation applicability or filtering criteria
+Note: Since you are only analyzing N/A evaluations, leave pass_patterns and fail_patterns as empty arrays.
+{% endif %}
+
+IMPORTANT GUIDELINES:
+- Focus on the reasoning text to identify recurring themes and patterns
+- Group similar issues or successes together
+- Be specific about what patterns you observe
+- Limit to 0-4 patterns per category
+- Recommendations should be specific and actionable (2-4 total)
+- If there are no patterns for a category, return an empty array
+- For each pattern, include 1-5 generation_ids that exemplify the pattern
+
+PATTERN IDENTIFICATION:
+- Look for repeated phrases, similar concerns, or common themes
+- A pattern should appear in multiple evaluations to be worth noting
+- For each pattern, provide a concrete example from the input reasoning
+- Use frequency terms: "common" (majority), "occasional" (several), "rare" (few)
+- Include the generation_ids of runs that match this pattern (pick 1-5 representative examples)
+
+STRUCTURED OUTPUT:
+You must return valid JSON matching this schema:
+{
+  "overall_assessment": "Brief 1-2 sentence summary of evaluation quality and main findings",
+  "pass_patterns": [
+    {
+      "title": "Clear Communication",
+      "description": "Responses consistently provided clear, well-structured information",
+      "frequency": "common",
+      "example_reasoning": "The response was well-organized and addressed all parts of the user's question",
+      "example_generation_ids": ["gen_abc123", "gen_def456"]
+    }
+  ],
+  "fail_patterns": [
+    {
+      "title": "Missing Context",
+      "description": "Responses failed to consider important contextual information",
+      "frequency": "occasional",
+      "example_reasoning": "The response did not account for the user's previously stated preferences",
+      "example_generation_ids": ["gen_xyz789"]
+    }
+  ],
+  "na_patterns": [
+    {
+      "title": "Out of Scope",
+      "description": "Evaluation criteria did not apply to the response type",
+      "frequency": "common",
+      "example_reasoning": "The response was a clarifying question, not an answer to evaluate",
+      "example_generation_ids": ["gen_qrs456", "gen_tuv789"]
+    }
+  ],
+  "recommendations": [
+    "Add more context from conversation history to improve response relevance",
+    "Implement stricter validation for factual claims"
+  ],
+  "statistics": {
+    "total_analyzed": 50,
+    "pass_count": 35,
+    "fail_count": 10,
+    "na_count": 5
+  }
+}
+
+Note: pass_patterns, fail_patterns, and na_patterns can be empty [] if no clear patterns are identified or if that category is not being analyzed.

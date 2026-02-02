@@ -243,7 +243,7 @@ class TestAgentToolkit(BaseTest):
 
 class TestChatAgentModeManagerPlanMode(BaseTest):
     def test_plan_mode_sets_supermode_and_mode(self):
-        """Test that agent_mode=PLAN from frontend sets _supermode=PLAN and _mode=PRODUCT_ANALYTICS"""
+        """Test that agent_mode=PLAN from frontend sets _supermode=PLAN and _mode=SQL"""
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={})
@@ -261,7 +261,7 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
         )
 
         self.assertEqual(mode_manager._supermode, AgentMode.PLAN)
-        self.assertEqual(mode_manager._mode, AgentMode.PRODUCT_ANALYTICS)
+        self.assertEqual(mode_manager._mode, AgentMode.SQL)
 
     def test_plan_mode_uses_plan_mode_registry(self):
         """Test that mode_registry returns plan mode registry when in plan mode"""
@@ -281,7 +281,9 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
 
         mode_names = list(mode_manager.mode_registry.keys())
         self.assertIn(AgentMode.EXECUTION, mode_names)  # Plan mode has EXECUTION mode
-        self.assertIn(AgentMode.PRODUCT_ANALYTICS, mode_names)
+        self.assertIn(AgentMode.SQL, mode_names)  # Plan mode has SQL mode
+        self.assertIn(AgentMode.SESSION_REPLAY, mode_names)  # Plan mode has SESSION_REPLAY mode
+        self.assertNotIn(AgentMode.PRODUCT_ANALYTICS, mode_names)  # Plan mode doesn't have PRODUCT_ANALYTICS
 
     def test_plan_mode_uses_plan_prompt_builder(self):
         """Test that prompt_builder_class returns ChatAgentPlanPromptBuilder when in plan mode"""
@@ -363,7 +365,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             # Mode context message
             self.assertIsInstance(next_state.messages[0], ContextMessage)
             assert isinstance(next_state.messages[0], ContextMessage)
-            self.assertIn("product_analytics", next_state.messages[0].content)
+            self.assertIn("product_analytics", next_state.messages[0].content)  # Default mode when no supermode
             # Original human message
             self.assertIsInstance(next_state.messages[1], HumanMessage)
             assert isinstance(next_state.messages[1], HumanMessage)

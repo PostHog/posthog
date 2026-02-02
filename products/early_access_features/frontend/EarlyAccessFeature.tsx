@@ -149,21 +149,12 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     resourceType={{
                         type: 'early_access_feature',
                     }}
-                    canEdit
-                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
+                    canEdit={isNewEarlyAccessFeature || isEditingFeature}
                     onNameChange={(name) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('name', name)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, name })
-                        }
+                        setEarlyAccessFeatureValue('name', name)
                     }}
                     onDescriptionChange={(description) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('description', description)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, description })
-                        }
+                        setEarlyAccessFeatureValue('description', description)
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={

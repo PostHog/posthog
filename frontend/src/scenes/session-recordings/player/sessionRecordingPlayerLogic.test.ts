@@ -605,4 +605,73 @@ describe('sessionRecordingPlayerLogic', () => {
             // seekForward should call seekToTime with current time + 20000
         })
     })
+
+    describe('setCurrentSegment graceful fallback', () => {
+        it('starts buffering instead of tryInitReplayer when segment windowId has no snapshots', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
+
+            // Segment with windowId that has no snapshots loaded
+            const segmentWithNoSnapshots = {
+                kind: 'window' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 99999, // non-existent window id
+                isActive: true,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(segmentWithNoSnapshots)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).toHaveBeenCalled()
+        })
+
+        it('keeps current player for gap segments without calling tryInitReplayer', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+            const startBufferSpy = jest.spyOn(logic.actions, 'startBuffer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+            startBufferSpy.mockClear()
+
+            const gapSegment = {
+                kind: 'gap' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: 99999,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(gapSegment)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+            expect(startBufferSpy).not.toHaveBeenCalled()
+        })
+
+        it('keeps current player when segment has no windowId', () => {
+            const tryInitReplayerSpy = jest.spyOn(logic.actions, 'tryInitReplayer')
+
+            // Clear any calls from initialization
+            tryInitReplayerSpy.mockClear()
+
+            const segmentWithNoWindowId = {
+                kind: 'buffer' as const,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                windowId: undefined,
+                isActive: false,
+                durationMs: 1000,
+            }
+
+            logic.actions.setCurrentSegment(segmentWithNoWindowId)
+
+            expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
 })

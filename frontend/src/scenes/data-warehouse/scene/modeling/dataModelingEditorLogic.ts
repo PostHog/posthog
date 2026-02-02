@@ -287,6 +287,8 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         savedQueryId: node.saved_query_id,
                         handles: Object.values(handlesByNodeId[node.id] ?? {}),
                         userTag,
+                        upstreamCount: node.upstream_count,
+                        downstreamCount: node.downstream_count,
                     },
                     position: { x: 0, y: 0 },
                     deletable: true,

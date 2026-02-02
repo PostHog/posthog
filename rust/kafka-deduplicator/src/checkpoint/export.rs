@@ -5,6 +5,7 @@ use crate::metrics_const::{CHECKPOINT_UPLOADS_COUNTER, CHECKPOINT_UPLOAD_DURATIO
 
 use anyhow::Result;
 use metrics;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 #[derive(Debug)]
@@ -17,8 +18,20 @@ impl CheckpointExporter {
         Self { uploader }
     }
 
-    /// Export checkpoint using a plan with incremental deduplication
+    /// Export checkpoint using a plan with incremental deduplication - legacy non-cancellable
     pub async fn export_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<()> {
+        self.export_checkpoint_with_plan_cancellable(plan, None)
+            .await
+    }
+
+    /// Export checkpoint with cancellation support.
+    /// If cancel_token is provided and cancelled during upload, returns an error early.
+    /// Cancellation is NOT treated as an error for metrics/logging purposes.
+    pub async fn export_checkpoint_with_plan_cancellable(
+        &self,
+        plan: &CheckpointPlan,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<()> {
         if !self.is_available().await {
             metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "unavailable").increment(1);
             warn!(
@@ -30,7 +43,11 @@ impl CheckpointExporter {
 
         let upload_start = Instant::now();
 
-        match self.uploader.upload_checkpoint_with_plan(plan).await {
+        match self
+            .uploader
+            .upload_checkpoint_with_plan_cancellable(plan, cancel_token)
+            .await
+        {
             Ok(uploaded_files) => {
                 let upload_duration = upload_start.elapsed();
                 let total_files = plan.info.metadata.files.len();
@@ -55,11 +72,31 @@ impl CheckpointExporter {
             }
 
             Err(e) => {
-                metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "error").increment(1);
-                error!(
-                    remote_path = plan.info.get_metadata_key(),
-                    "Export failed: uploading checkpoint: {}", e
-                );
+                let upload_duration = upload_start.elapsed();
+                // Cancellation is NOT an error - use distinct metrics tag and warn! instead of error!
+                let is_cancelled = e.to_string().contains("cancelled");
+
+                if is_cancelled {
+                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "result" => "cancelled")
+                        .record(upload_duration.as_secs_f64());
+                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "cancelled")
+                        .increment(1);
+                    warn!(
+                        remote_path = plan.info.get_metadata_key(),
+                        elapsed_seconds = upload_duration.as_secs_f64(),
+                        "Export cancelled"
+                    );
+                } else {
+                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "result" => "error")
+                        .record(upload_duration.as_secs_f64());
+                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "error").increment(1);
+                    error!(
+                        remote_path = plan.info.get_metadata_key(),
+                        elapsed_seconds = upload_duration.as_secs_f64(),
+                        "Export failed: uploading checkpoint: {}",
+                        e
+                    );
+                }
                 Err(e)
             }
         }
@@ -67,5 +104,127 @@ impl CheckpointExporter {
 
     pub async fn is_available(&self) -> bool {
         self.uploader.is_available().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use chrono::{TimeZone, Utc};
+
+    use crate::checkpoint::{CheckpointInfo, CheckpointMetadata};
+
+    /// Mock uploader for testing cancellation detection
+    #[derive(Debug)]
+    struct MockUploader {
+        should_return_cancelled: bool,
+        should_return_error: bool,
+    }
+
+    impl MockUploader {
+        fn new_success() -> Self {
+            Self {
+                should_return_cancelled: false,
+                should_return_error: false,
+            }
+        }
+
+        fn new_cancelled() -> Self {
+            Self {
+                should_return_cancelled: true,
+                should_return_error: false,
+            }
+        }
+
+        fn new_error() -> Self {
+            Self {
+                should_return_cancelled: false,
+                should_return_error: true,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl CheckpointUploader for MockUploader {
+        async fn upload_checkpoint_with_plan_cancellable(
+            &self,
+            _plan: &CheckpointPlan,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<Vec<String>> {
+            if self.should_return_cancelled {
+                Err(anyhow::anyhow!("Upload cancelled: test"))
+            } else if self.should_return_error {
+                Err(anyhow::anyhow!("S3 error: connection failed"))
+            } else {
+                Ok(vec!["test/key".to_string()])
+            }
+        }
+
+        async fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    fn create_test_plan() -> CheckpointPlan {
+        let timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
+        let metadata =
+            CheckpointMetadata::new("test-topic".to_string(), 0, timestamp, 12345, 100, 50);
+        let info = CheckpointInfo::new(metadata, "checkpoints".to_string());
+        CheckpointPlan {
+            info,
+            files_to_upload: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_export_success() {
+        let uploader = Box::new(MockUploader::new_success());
+        let exporter = CheckpointExporter::new(uploader);
+        let plan = create_test_plan();
+
+        let result = exporter
+            .export_checkpoint_with_plan_cancellable(&plan, None)
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_export_cancelled_returns_error_with_cancelled_message() {
+        let uploader = Box::new(MockUploader::new_cancelled());
+        let exporter = CheckpointExporter::new(uploader);
+        let plan = create_test_plan();
+
+        let result = exporter
+            .export_checkpoint_with_plan_cancellable(&plan, None)
+            .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("cancelled"),
+            "Error should contain 'cancelled': {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_export_error_returns_error_without_cancelled_message() {
+        let uploader = Box::new(MockUploader::new_error());
+        let exporter = CheckpointExporter::new(uploader);
+        let plan = create_test_plan();
+
+        let result = exporter
+            .export_checkpoint_with_plan_cancellable(&plan, None)
+            .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            !err.to_string().contains("cancelled"),
+            "Error should NOT contain 'cancelled': {}",
+            err
+        );
     }
 }

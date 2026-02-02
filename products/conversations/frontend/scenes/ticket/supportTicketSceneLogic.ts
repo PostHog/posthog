@@ -102,8 +102,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, isPrivate: boolean, onSuccess?: () => void) => ({
+        sendMessage: (
+            content: string,
+            richContent: Record<string, unknown> | null,
+            isPrivate: boolean,
+            onSuccess?: () => void
+        ) => ({
             content,
+            richContent,
             isPrivate,
             onSuccess,
         }),
@@ -285,6 +291,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return {
                         id: message.id,
                         content: message.content || '',
+                        richContent: message.rich_content,
                         authorType: authorType === 'support' ? 'human' : authorType,
                         authorName: displayName,
                         createdBy: message.created_by,
@@ -417,7 +424,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, isPrivate, onSuccess }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -426,6 +433,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await api.comments.create(
                     {
                         content,
+                        rich_content: richContent,
                         scope: 'conversations_ticket',
                         item_id: props.id.toString(),
                         item_context: {

@@ -2,10 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -87,6 +85,13 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getSvelteServerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+
+    return [
         {
             title: 'Server-side setup',
             badge: 'optional',
@@ -161,6 +166,16 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { snippets } = ctx
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return [
+        ...getSvelteClientSteps(ctx),
+        ...getSvelteServerSteps(ctx),
         {
             title: 'Send events',
             badge: undefined,

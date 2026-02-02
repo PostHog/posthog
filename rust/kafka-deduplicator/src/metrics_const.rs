@@ -69,13 +69,20 @@ pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 /// Histogram for checkpoint upload duration
+/// Tags: result=success|error|cancelled
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
 
 /// Counter for checkpoint upload outcome status
+/// Tags: result=success|error|cancelled|unavailable
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint file downloads outcome status
+/// Tags: status=success|error|cancelled
 pub const CHECKPOINT_FILE_DOWNLOADS_COUNTER: &str = "checkpoint_file_downloads_status";
+
+/// Counter for checkpoint file uploads outcome status
+/// Tags: status=success|error|cancelled
+pub const CHECKPOINT_FILE_UPLOADS_COUNTER: &str = "checkpoint_file_uploads_status";
 
 /// Counter for checkpoint files tracked in each attempt plan tagged by action taken
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
@@ -93,6 +100,18 @@ pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_a
 
 /// Histogram for checkpoint metadata file list duration; only measured on success
 pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
+
+/// Histogram for total checkpoint import duration from start to completion
+/// This measures the end-to-end time for import_checkpoint_for_topic_partition_cancellable,
+/// including listing checkpoints, downloading metadata files, downloading all SST files,
+/// and any fallback attempts. Tags: result=success|failed|cancelled|timeout
+pub const CHECKPOINT_IMPORT_DURATION_HISTOGRAM: &str = "checkpoint_import_duration_seconds";
+
+/// Histogram for per-checkpoint-attempt duration during import
+/// This measures the time for each individual checkpoint attempt (downloading one checkpoint's files).
+/// Multiple attempts may occur if earlier checkpoints fail. Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
+    "checkpoint_import_attempt_duration_seconds";
 
 /// Record outcomes for attempts to restore checkpoints
 /// when local store is missing after Kafka rebalances

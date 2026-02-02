@@ -587,6 +587,21 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
 }
 
+const TAB_DESCRIPTIONS: Record<string, string> = {
+    dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
+    traces: 'Explore end-to-end traces of your LLM interactions.',
+    generations: 'View individual LLM generations and their details.',
+    users: 'Understand how users are interacting with your LLM features.',
+    errors: 'Monitor and debug errors in your LLM pipeline.',
+    sessions: 'Analyze user sessions containing LLM interactions.',
+    playground: 'Test and experiment with LLM prompts in a sandbox environment.',
+    evaluations: 'Configure and monitor automated LLM output evaluations.',
+    datasets: 'Manage datasets for testing and evaluation.',
+    clusters: 'Discover patterns and clusters in your LLM usage.',
+    prompts: 'Track and manage your LLM prompts.',
+    settings: 'Configure LLM analytics settings and API keys.',
+}
+
 export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -812,7 +827,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}
-                    description={sceneConfigurations[Scene.LLMAnalytics].description}
+                    description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.LLMAnalytics].description}
                     resourceType={{
                         type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
                     }}

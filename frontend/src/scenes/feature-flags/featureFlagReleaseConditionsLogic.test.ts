@@ -239,7 +239,7 @@ describe('the feature flag release conditions logic', () => {
                     totalUsers: 2000,
                 })
 
-            // Add another condition set
+            // Add another condition set (auto-generated sortKey)
             await expectLogic(logic, () => {
                 nextUuid = 'B'
                 logic.actions.addConditionSet()
@@ -300,6 +300,33 @@ describe('the feature flag release conditions logic', () => {
                 .toMatchValues({
                     affectedUsers: { A: 248, B: 496 },
                 })
+        })
+
+        it('uses explicit sortKey when provided to addConditionSet', async () => {
+            jest.spyOn(api, 'create').mockReturnValueOnce(Promise.resolve({ users_affected: 500, total_users: 1000 }))
+
+            const testLogic = featureFlagReleaseConditionsLogic({
+                id: 'sortkey-test',
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [],
+                        rollout_percentage: 100,
+                        variant: null,
+                        sort_key: 'initial',
+                    },
+                ]),
+            })
+            testLogic.mount()
+
+            const explicitSortKey = 'my-custom-sort-key'
+            await expectLogic(testLogic, () => {
+                testLogic.actions.addConditionSet(explicitSortKey)
+            }).toDispatchActions(['setAffectedUsers'])
+
+            // Verify the new condition set has the explicit sortKey
+            expect(testLogic.values.filterGroups[1].sort_key).toBe(explicitSortKey)
+
+            testLogic.unmount()
         })
 
         it('computes blast radius percentages accurately', async () => {

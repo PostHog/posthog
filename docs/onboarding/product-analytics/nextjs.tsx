@@ -2,9 +2,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = ctx
-    const JSEventCapture = snippets?.JSEventCapture
+export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
 
     return [
         {
@@ -290,6 +289,13 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getNextJSServerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
+
+    return [
         {
             title: 'Server-side setup',
             badge: 'optional',
@@ -436,6 +442,16 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
+    ]
+}
+
+export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { snippets } = ctx
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return [
+        ...getNextJSClientSteps(ctx),
+        ...getNextJSServerSteps(ctx),
         {
             title: 'Send events',
             badge: 'recommended',

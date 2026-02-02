@@ -67,23 +67,34 @@ export interface ResourceManifest {
 }
 
 /**
- * Agent Skills manifest types
- * Skills are self-contained packages for SDK Skill tool installation
+ * Context-mill manifest types
+ *
+ * Only the fields the MCP server needs to register resources are typed here.
+ * Context-mill may include arbitrary additional fields — the MCP server
+ * ignores them and never needs updating when context-mill's schema evolves.
  */
-export interface SkillResource {
+export interface ContextMillResource {
+    /** Used for logging and archive validation */
     id: string
+    /** MCP resource registration name */
     name: string
-    description: string
-    tags: string[]
+    /** MCP resource URI */
     uri: string
-    file: string
-    /** Direct download URL for the skill ZIP file */
-    downloadUrl: string
+    /** Filename in the archive (for validation). Absent for inline resources. */
+    file?: string
+    /** Complete MCP resource representation, served directly to clients */
+    resource: {
+        mimeType: string
+        description: string
+        text: string
+        [key: string]: unknown
+    }
+    /** Any additional fields from context-mill are allowed */
+    [key: string]: unknown
 }
 
-export interface SkillsManifest {
+export interface ContextMillManifest {
     version: string
-    buildVersion: string
-    buildTimestamp: string
-    skills: SkillResource[]
+    resources: ContextMillResource[]
+    [key: string]: unknown
 }
