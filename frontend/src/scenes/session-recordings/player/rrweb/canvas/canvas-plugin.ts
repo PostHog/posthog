@@ -229,43 +229,54 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                      */
                     trackUrl(data.id, url)
 
-                    img.onload = () => {
-                        // Step 2: Apply the chosen dimensions and replace canvas
+                    const controller = new AbortController()
+                    img.addEventListener(
+                        'load',
+                        () => {
+                            // Apply the chosen dimensions to the image
+                            img.style.width = finalWidthStyle
+                            img.style.height = finalHeightStyle
+                            img.style.display = computedStyle.display || 'block'
+                            img.style.objectFit = 'fill'
 
-                        // Apply the chosen dimensions to the image
-                        img.style.width = finalWidthStyle
-                        img.style.height = finalHeightStyle
-                        img.style.display = computedStyle.display || 'block'
-                        img.style.objectFit = 'fill'
+                            // Copy other layout-related styles from canvas
+                            const layoutStyles = [
+                                'margin',
+                                'padding',
+                                'border',
+                                'boxSizing',
+                                'position',
+                                'top',
+                                'left',
+                                'right',
+                                'bottom',
+                            ]
+                            layoutStyles.forEach((prop) => {
+                                const value = computedStyle.getPropertyValue(prop)
+                                if (value && value !== 'auto' && value !== 'normal') {
+                                    img.style.setProperty(prop, value)
+                                }
+                            })
 
-                        // Copy other layout-related styles from canvas
-                        const layoutStyles = [
-                            'margin',
-                            'padding',
-                            'border',
-                            'boxSizing',
-                            'position',
-                            'top',
-                            'left',
-                            'right',
-                            'bottom',
-                        ]
-                        layoutStyles.forEach((prop) => {
-                            const value = computedStyle.getPropertyValue(prop)
-                            if (value && value !== 'auto' && value !== 'normal') {
-                                img.style.setProperty(prop, value)
+                            // Replace the canvas with the properly sized image
+                            const parent = originalCanvas.parentNode
+                            if (parent) {
+                                parent.replaceChild(img, originalCanvas)
                             }
-                        })
 
-                        // Replace the canvas with the properly sized image
-                        const parent = originalCanvas.parentNode
-                        if (parent) {
-                            parent.replaceChild(img, originalCanvas)
-                        }
-
-                        finalizeUrl(data.id, url)
-                    }
-                    img.onerror = () => finalizeUrl(data.id, url)
+                            finalizeUrl(data.id, url)
+                            controller.abort()
+                        },
+                        { signal: controller.signal }
+                    )
+                    img.addEventListener(
+                        'error',
+                        () => {
+                            finalizeUrl(data.id, url)
+                            controller.abort()
+                        },
+                        { signal: controller.signal }
+                    )
 
                     img.src = url
 
