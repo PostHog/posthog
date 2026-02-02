@@ -5,6 +5,7 @@ This activity consolidates raw video segments into meaningful semantic segments 
 """
 
 import json
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -254,7 +255,7 @@ class TestConsolidateVideoSegmentsActivity:
         inputs = create_video_summary_inputs(mock_video_session_id, ateam.id, auser.id)
 
         # Response missing required fields
-        incomplete_response = {
+        incomplete_response: dict[str, Any] = {
             "segments": [],
             # Missing session_outcome and segment_outcomes
         }
