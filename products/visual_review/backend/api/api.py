@@ -18,18 +18,7 @@ Do NOT:
 from uuid import UUID
 
 from .. import logic
-from .dtos import (
-    ApproveRunInput,
-    Artifact,
-    CreateRunInput,
-    CreateRunResult,
-    Project,
-    Run,
-    RunSummary,
-    Snapshot,
-    UpdateProjectInput,
-    UploadTarget,
-)
+from . import dtos
 
 # Re-export exceptions for callers
 ProjectNotFoundError = logic.ProjectNotFoundError
@@ -42,11 +31,15 @@ BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
 
 
 # --- Converters (model -> DTO) ---
+#
+# These look repetitive when fields align 1:1. The value is having ONE place
+# where "internal" becomes "external contract". When models and DTOs drift,
+# the mapper absorbs the change instead of it leaking everywhere.
 
 
-def _to_artifact(artifact, project_id: UUID) -> Artifact:
+def _to_artifact(artifact, project_id: UUID) -> dtos.Artifact:
     download_url = logic.get_presigned_download_url(project_id, artifact.content_hash)
-    return Artifact(
+    return dtos.Artifact(
         id=artifact.id,
         content_hash=artifact.content_hash,
         width=artifact.width,
@@ -55,8 +48,8 @@ def _to_artifact(artifact, project_id: UUID) -> Artifact:
     )
 
 
-def _to_snapshot(snapshot, project_id: UUID) -> Snapshot:
-    return Snapshot(
+def _to_snapshot(snapshot, project_id: UUID) -> dtos.Snapshot:
+    return dtos.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
         result=snapshot.result,
@@ -72,8 +65,8 @@ def _to_snapshot(snapshot, project_id: UUID) -> Snapshot:
     )
 
 
-def _to_run(run) -> Run:
-    return Run(
+def _to_run(run) -> dtos.Run:
+    return dtos.Run(
         id=run.id,
         project_id=run.project_id,
         status=run.status,
@@ -83,7 +76,7 @@ def _to_run(run) -> Run:
         pr_number=run.pr_number,
         approved=run.approved,
         approved_at=run.approved_at,
-        summary=RunSummary(
+        summary=dtos.RunSummary(
             total=run.total_snapshots,
             changed=run.changed_count,
             new=run.new_count,
@@ -97,8 +90,8 @@ def _to_run(run) -> Run:
     )
 
 
-def _to_project(project) -> Project:
-    return Project(
+def _to_project(project) -> dtos.Project:
+    return dtos.Project(
         id=project.id,
         team_id=project.team_id,
         name=project.name,
@@ -111,22 +104,22 @@ def _to_project(project) -> Project:
 # --- Project API ---
 
 
-def get_project(project_id: UUID) -> Project:
+def get_project(project_id: UUID) -> dtos.Project:
     project = logic.get_project(project_id)
     return _to_project(project)
 
 
-def list_projects(team_id: int) -> list[Project]:
+def list_projects(team_id: int) -> list[dtos.Project]:
     projects = logic.list_projects_for_team(team_id)
     return [_to_project(p) for p in projects]
 
 
-def create_project(team_id: int, name: str) -> Project:
+def create_project(team_id: int, name: str) -> dtos.Project:
     project = logic.create_project(team_id=team_id, name=name)
     return _to_project(project)
 
 
-def update_project(input: UpdateProjectInput) -> Project:
+def update_project(input: dtos.UpdateProjectInput) -> dtos.Project:
     project = logic.update_project(
         project_id=input.project_id,
         name=input.name,
@@ -139,13 +132,13 @@ def update_project(input: UpdateProjectInput) -> Project:
 # --- Run API ---
 
 
-def list_runs(team_id: int) -> list[Run]:
+def list_runs(team_id: int) -> list[dtos.Run]:
     """List all runs for a team across all projects."""
     runs = logic.list_runs_for_team(team_id)
     return [_to_run(r) for r in runs]
 
 
-def create_run(input: CreateRunInput) -> CreateRunResult:
+def create_run(input: dtos.CreateRunInput) -> dtos.CreateRunResult:
     snapshots = [
         {
             "identifier": s.identifier,
@@ -169,7 +162,7 @@ def create_run(input: CreateRunInput) -> CreateRunResult:
     )
 
     upload_targets = [
-        UploadTarget(
+        dtos.UploadTarget(
             content_hash=u["content_hash"],
             url=u["url"],
             fields=u["fields"],
@@ -177,15 +170,15 @@ def create_run(input: CreateRunInput) -> CreateRunResult:
         for u in uploads
     ]
 
-    return CreateRunResult(run_id=run.id, uploads=upload_targets)
+    return dtos.CreateRunResult(run_id=run.id, uploads=upload_targets)
 
 
-def get_run(run_id: UUID) -> Run:
+def get_run(run_id: UUID) -> dtos.Run:
     run = logic.get_run(run_id)
     return _to_run(run)
 
 
-def get_run_snapshots(run_id: UUID) -> list[Snapshot]:
+def get_run_snapshots(run_id: UUID) -> list[dtos.Snapshot]:
     snapshots = logic.get_run_snapshots(run_id)
     if not snapshots:
         return []
@@ -193,7 +186,7 @@ def get_run_snapshots(run_id: UUID) -> list[Snapshot]:
     return [_to_snapshot(s, project_id) for s in snapshots]
 
 
-def complete_run(run_id: UUID) -> Run:
+def complete_run(run_id: UUID) -> dtos.Run:
     """
     Complete a run: verify uploads, create artifacts, trigger diff processing.
 
@@ -214,7 +207,7 @@ def complete_run(run_id: UUID) -> Run:
     return _to_run(run)
 
 
-def approve_run(input: ApproveRunInput) -> Run:
+def approve_run(input: dtos.ApproveRunInput) -> dtos.Run:
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
 
     run = logic.approve_run(
