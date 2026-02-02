@@ -222,7 +222,12 @@ function PromptRelatedTraces(): JSX.Element {
             </div>
 
             {relatedTracesQuery && (
-                <DataTable query={relatedTracesQuery} context={tracesQueryContext} uniqueKey="prompt-related-traces" />
+                <DataTable
+                    query={relatedTracesQuery}
+                    setQuery={() => {}}
+                    context={tracesQueryContext}
+                    uniqueKey="prompt-related-traces"
+                />
             )}
         </div>
     )
