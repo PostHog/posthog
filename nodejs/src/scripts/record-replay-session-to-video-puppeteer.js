@@ -3,11 +3,11 @@
  * Input JSON:
  * {
  *   "url_to_render": "https://...",
- *   "output_path": "/tmp/video.webm",
+ *   "output_path": "/tmp/video.mp4",
  *   "wait_for_css_selector": ".replayer-wrapper",
  *   "recording_duration": 60,
- *   "screenshot_width": 1400,      // optional
- *   "screenshot_height": 600,      // optional
+ *   "screenshot_width": 1920,      // optional
+ *   "screenshot_height": 1080,     // optional
  *   "playback_speed": 1,           // optional, default 1
  *   "headless": true               // optional, default true
  * }
@@ -15,10 +15,10 @@
  * Output JSON (to stdout):
  * {
  *   "success": true,
- *   "video_path": "/tmp/video.webm",
+ *   "video_path": "/tmp/video.mp4",
  *   "pre_roll": 1.5,
  *   "playback_speed": 4,
- *   "measured_width": 1400,
+ *   "measured_width": 1920,
  *   "inactivity_periods": [...],
  *   "segment_start_timestamps": {...}
  * }
@@ -27,14 +27,12 @@
 const puppeteer = require('puppeteer')
 const { PuppeteerScreenRecorder } = require('puppeteer-screen-recorder')
 
-// Constants, replicated from Playwright flow
-const HEIGHT_OFFSET = 85
-const MAX_DIMENSION = 1400
-const DEFAULT_WIDTH = 1400
-const DEFAULT_HEIGHT = 600
+// Constants
+const MAX_DIMENSION = 1920
+const DEFAULT_WIDTH = 1920
+const DEFAULT_HEIGHT = 1080
 const RECORDING_BUFFER_SECONDS = 120
 const DEFAULT_FPS = 25 // Both Playwright and ffpmeg use 25 (PAL) as a default
-const MAX_FPS = 250 // Maximum FPS for the recording (10x playback), vibes, could experiment with higher numbers
 
 // Log to stderr so it doesn't interfere with JSON output
 function log(...args) {
@@ -84,45 +82,6 @@ async function waitForPageReady(page, urlToRender, waitForCssSelector) {
     }
 }
 
-// Detect the recording resolution from the UI
-async function detectRecordingResolution(browser, urlToRender, waitForCssSelector, defaultWidth, defaultHeight) {
-    log('Starting resolution detection...')
-    const page = await browser.newPage()
-    await page.setViewport({ width: defaultWidth, height: defaultHeight })
-    try {
-        await waitForPageReady(page, urlToRender, waitForCssSelector)
-        const resolution = await page.evaluate(() => {
-            return new Promise((resolve) => {
-                const checkResolution = () => {
-                    const r = window.__POSTHOG_RESOLUTION__
-                    if (r) {
-                        const w = Number(r.width)
-                        const h = Number(r.height)
-                        if (w > 0 && h > 0) {
-                            resolve({ width: w, height: h })
-                            return
-                        }
-                    }
-                    setTimeout(checkResolution, 100)
-                }
-                checkResolution()
-                // Timeout after 15s
-                setTimeout(() => resolve(null), 15000)
-            })
-        })
-        if (resolution) {
-            log('Resolution detected:', resolution)
-            return resolution
-        }
-    } catch (e) {
-        log('Resolution detection failed:', e.message)
-    } finally {
-        await page.close()
-    }
-    log('Using default resolution')
-    return { width: defaultWidth, height: defaultHeight }
-}
-
 // Wait for recording to complete while tracking segments to get real-world video timestamps
 async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
     const segmentStartTimestamps = {}
@@ -136,6 +95,7 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
         }
         try {
             const remainingMs = maxWaitMs - elapsedMs
+
             const result = await page.evaluate((lastCounterVal) => {
                 if (window.__POSTHOG_RECORDING_ENDED__) {
                     return { ended: true }
@@ -150,11 +110,11 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
                 return null
             }, lastCounter)
             if (result === null) {
-                await new Promise((r) => setTimeout(r, Math.min(1000, remainingMs)))
+                await new Promise((r) => setTimeout(r, Math.min(100, remainingMs)))
                 continue
             }
             if (result.ended) {
-                log('Recording ended signal received')
+                log('Recording ended signal received: ', elapsedMs, 'ms')
                 break
             }
             const segmentStartTs = result.segment_start_ts
@@ -196,6 +156,11 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
                 if (tsFromS !== undefined && segmentStartTimestamps[tsFromS] !== undefined) {
                     const rawTimestamp = segmentStartTimestamps[tsFromS]
                     period.recording_ts_from_s = rawTimestamp * playbackSpeed
+                    const tsToS = period.ts_to_s
+                    if (tsToS !== undefined) {
+                        const segmentDuration = tsToS - tsFromS
+                        period.recording_ts_to_s = period.recording_ts_from_s + segmentDuration * playbackSpeed
+                    }
                 }
             }
         }
@@ -253,95 +218,59 @@ async function main() {
                 '--use-gl=swiftshader',
                 '--disable-software-rasterizer', // Seems counterintuitive, because of GL, keeping just in case (copied from image export)
                 // Not applying `force-device-scale-factor`, as the original resolution should be high enough
-                '--window-size=1920,1080', // Enable for debugging when in non-headless mode
+                // `--window-size=${DEFAULT_WIDTH},${DEFAULT_HEIGHT}`, // Enable for debugging when in non-headless mode
             ],
         })
-        // Detect or use provided dimensions
+        let playbackSpeed = requestedPlaybackSpeed
+        const urlWithSpeed = setupUrlForPlaybackSpeed(urlToRender, playbackSpeed)
+        // Get provided dimensions or stick to default
         let width, height
         if (providedWidth && providedHeight) {
             width = providedWidth
             height = providedHeight
             log('Using provided dimensions:', width, 'x', height)
         } else {
-            const detected = await detectRecordingResolution(
-                browser,
-                urlToRender,
-                waitForCssSelector,
-                DEFAULT_WIDTH,
-                DEFAULT_HEIGHT
-            )
-            width = detected.width
-            height = detected.height
-            log('Using detected dimensions:', width, 'x', height)
+            width = DEFAULT_WIDTH
+            height = DEFAULT_HEIGHT
+            log('Using default dimensions:', width, 'x', height)
         }
         // Scale if needed
         const scaled = scaleDimensionsIfNeeded(width, height)
         width = scaled.width
         height = scaled.height
         log('Final dimensions after scaling:', width, 'x', height)
-        // Determine playback speed
-        let playbackSpeed = requestedPlaybackSpeed
         // Create page for recording
         const page = await browser.newPage()
         await page.setViewport({ width, height })
         const recordStarted = Date.now()
         // Videos are recorded at x playspeed, and will be slowed down to 1x later
         // The complication is mostly with CSS animations, as they aren't sped up by rrweb player when running at >1x playback
-        const customFps = Math.min(DEFAULT_FPS * playbackSpeed, MAX_FPS)
+        const customFps = DEFAULT_FPS * playbackSpeed
+        log('Custom FPS:', customFps)
         const recorderConfig = {
             followNewTab: false, // Always a single tab is recorded
             // Adjust FPS based on the playback speed, so we can speed up seamlessly later
             fps: customFps,
             ffmpeg_Path: ffmpegPath || null,
+            // Render everything at full HD 16:9 to unify the output format
             videoFrame: {
-                width,
-                height,
+                width: 1920,
+                height: 1080,
             },
             videoCrf: 23, // Keeping default
-            videoCodec: 'libvpx-vp9', // Using V9, think if it makes sense to record the original in lossless mode
-            // videoPreset should not be used as we use V9 codec
+            videoCodec: 'libx264',
+            videoPreset: 'veryfast',
             // Adjusting bitrate to match the playback speed to keep the quality
             videoBitrate: 1000 * (0.5 * playbackSpeed),
-            // No autopad
-            aspectRatio: `${width}:${height}`, // Keep the original aspect ratio
+            autopad: { color: 'black' },
+            aspectRatio: '16:9',
         }
         recorder = new PuppeteerScreenRecorder(page, recorderConfig)
         // Start recording
         log('Starting recording to:', outputPath)
         await recorder.start(outputPath)
         // Navigate and wait for page ready
-        const urlWithSpeed = setupUrlForPlaybackSpeed(urlToRender, playbackSpeed)
         await waitForPageReady(page, urlWithSpeed, waitForCssSelector)
-        // Adjust viewport based on content
-        let measuredWidth = null
-        try {
-            const dimensions = await page.evaluate(() => {
-                const replayer = document.querySelector('.replayer-wrapper')
-                if (replayer) {
-                    const rect = replayer.getBoundingClientRect()
-                    return {
-                        height: Math.max(rect.height, document.body.scrollHeight),
-                        width: replayer.offsetWidth || 0,
-                    }
-                }
-                const table = document.querySelector('table')
-                return {
-                    height: document.body.scrollHeight,
-                    width: table ? Math.floor((table.offsetWidth || 0) * 1.5) : 0,
-                }
-            })
-            const finalHeight = dimensions.height
-            const widthCandidate = dimensions.width || width
-            // TODO: Decide why 1800 here and why we detect resolution twice
-            measuredWidth = Math.max(width, Math.min(1800, Math.floor(widthCandidate)))
-            await page.setViewport({
-                width: measuredWidth,
-                height: Math.floor(finalHeight) + HEIGHT_OFFSET,
-            })
-            log('Viewport resized to:', measuredWidth, 'x', Math.floor(finalHeight) + HEIGHT_OFFSET)
-        } catch (e) {
-            log('Viewport resize failed:', e.message)
-        }
         const readyAt = Date.now()
         await new Promise((r) => setTimeout(r, 500))
         // Wait for recording to complete while tracking segments, with buffer for rendering
@@ -351,7 +280,11 @@ async function main() {
         const inactivityPeriods = await detectInactivityPeriods(page, playbackSpeed, segmentStartTimestamps)
         // Stop recording
         log('Stopping recording...')
+        const recordingStoppedAt = Date.now()
         await recorder.stop()
+        log('Recording stopped')
+        const recordingStoppingDuration = Date.now() - recordingStoppedAt
+        log('Recording stopping duration:', recordingStoppingDuration, 'ms')
         // Calculate pre_roll
         const preRoll = Math.max(0, (readyAt - recordStarted) / 1000)
         await page.close()
@@ -362,7 +295,7 @@ async function main() {
             video_path: outputPath,
             pre_roll: preRoll,
             playback_speed: playbackSpeed,
-            measured_width: measuredWidth,
+            measured_width: width,
             inactivity_periods: inactivityPeriods,
             segment_start_timestamps: segmentStartTimestamps,
             custom_fps: customFps,
@@ -407,11 +340,9 @@ module.exports = {
     scaleDimensionsIfNeeded,
     setupUrlForPlaybackSpeed,
     waitForPageReady,
-    detectRecordingResolution,
     waitForRecordingWithSegments,
     detectInactivityPeriods,
     // Constants
-    HEIGHT_OFFSET,
     MAX_DIMENSION,
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
