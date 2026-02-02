@@ -88,7 +88,6 @@ function SessionRecordingPlayerInternal({
 
     return (
         <div
-            ref={playerRef}
             className={clsx('SessionRecordingPlayerWrapper', {
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
