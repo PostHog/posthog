@@ -1,14 +1,22 @@
 import numpy as np
 
+from posthog.schema import DetectorType
+
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.registry import register_detector
 
 
+@register_detector(DetectorType.ZSCORE)
 class ZScoreDetector(BaseDetector):
     """
     Z-Score based anomaly detector.
 
     Detects anomalies by calculating how many standard deviations
     a value is from the rolling mean.
+
+    Config:
+        threshold: float - Z-score threshold (default: 3.0)
+        window: int - Rolling window size (default: 30)
     """
 
     def detect(self, data: np.ndarray) -> DetectionResult:
@@ -19,6 +27,7 @@ class ZScoreDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
         # Use rolling window for mean/std (exclude current point)
@@ -58,6 +67,7 @@ class ZScoreDetector(BaseDetector):
         if not self._validate_data(data, min_length=window + 1):
             return DetectionResult(is_anomaly=False)
 
+        data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
 
         triggered = []
@@ -92,3 +102,11 @@ class ZScoreDetector(BaseDetector):
             all_scores=scores,
             metadata={"threshold": threshold, "window": window},
         )
+
+    @classmethod
+    def get_default_config(cls) -> dict:
+        return {
+            "type": DetectorType.ZSCORE.value,
+            "threshold": 3.0,
+            "window": 30,
+        }

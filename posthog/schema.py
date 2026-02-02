@@ -635,6 +635,14 @@ class BreakdownValue(BaseModel):
     value: str
 
 
+class COPODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
+    type: Literal["copod"] = "copod"
+
+
 class Results(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1185,6 +1193,14 @@ class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
+
+
+class ECODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
+    type: Literal["ecod"] = "ecod"
 
 
 class Key(StrEnum):
@@ -2127,6 +2143,12 @@ class IntervalType(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+
+
+class Method(StrEnum):
+    LARGEST = "largest"
+    MEAN = "mean"
+    MEDIAN = "median"
 
 
 class LLMTraceEvent(BaseModel):
@@ -3753,6 +3775,15 @@ class TestSetupResponse(BaseModel):
     test_name: str
 
 
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    lower_bound: float | None = Field(default=None, description="Lower bound - values below this are anomalies")
+    type: Literal["threshold"] = "threshold"
+    upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
+
+
 class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
 
@@ -5283,6 +5314,21 @@ class HogQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class IQRDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiplier: float | None = Field(
+        default=None,
+        description=("IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"),
+    )
+    type: Literal["iqr"] = "iqr"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating quartiles (default: 30)",
+    )
+
+
 class DayItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5297,6 +5343,28 @@ class InsightThreshold(BaseModel):
     )
     bounds: InsightsThresholdBounds | None = None
     type: InsightThresholdType
+
+
+class IsolationForestDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
+    n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
+    type: Literal["isolation_forest"] = "isolation_forest"
+
+
+class KNNDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
+    method: Method | None = Field(
+        default=None,
+        description="Distance method: 'largest', 'mean', 'median' (default: 'largest')",
+    )
+    n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
+    type: Literal["knn"] = "knn"
 
 
 class LLMTrace(BaseModel):
@@ -5381,6 +5449,21 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    threshold: float | None = Field(
+        default=None,
+        description="MAD threshold multiplier for anomaly detection (default: 3.0)",
+    )
+    type: Literal["mad"] = "mad"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating median/MAD (default: 30)",
+    )
 
 
 class MarketingAnalyticsItem(BaseModel):
@@ -10381,8 +10464,28 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
-class DetectorConfig(RootModel[ZScoreDetectorConfig]):
-    root: ZScoreDetectorConfig = Field(..., description="Detector configuration - currently only Z-Score supported")
+class DetectorConfig(
+    RootModel[
+        ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+    ]
+):
+    root: (
+        ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+    ) = Field(..., description="Detector configuration types")
 
 
 class DocumentSimilarityQueryResponse(BaseModel):

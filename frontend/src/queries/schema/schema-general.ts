@@ -3807,8 +3807,70 @@ export interface ZScoreDetectorConfig {
     window?: integer
 }
 
-/** Detector configuration - currently only Z-Score supported */
-export type DetectorConfig = ZScoreDetectorConfig
+export interface MADDetectorConfig {
+    type: 'mad'
+    /** MAD threshold multiplier for anomaly detection (default: 3.0) */
+    threshold?: number
+    /** Rolling window size for calculating median/MAD (default: 30) */
+    window?: integer
+}
+
+export interface IQRDetectorConfig {
+    type: 'iqr'
+    /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
+    multiplier?: number
+    /** Rolling window size for calculating quartiles (default: 30) */
+    window?: integer
+}
+
+export interface ThresholdDetectorConfig {
+    type: 'threshold'
+    /** Upper bound - values above this are anomalies */
+    upper_bound?: number
+    /** Lower bound - values below this are anomalies */
+    lower_bound?: number
+}
+
+export interface ECODDetectorConfig {
+    type: 'ecod'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+}
+
+export interface COPODDetectorConfig {
+    type: 'copod'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+}
+
+export interface IsolationForestDetectorConfig {
+    type: 'isolation_forest'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+    /** Number of trees in the forest (default: 100) */
+    n_estimators?: integer
+}
+
+export interface KNNDetectorConfig {
+    type: 'knn'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+    /** Number of neighbors to consider (default: 5) */
+    n_neighbors?: integer
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: 'largest' | 'mean' | 'median'
+}
+
+/** Detector configuration types */
+export type DetectorConfig =
+    | ZScoreDetectorConfig
+    | MADDetectorConfig
+    | IQRDetectorConfig
+    | ThresholdDetectorConfig
+    | ECODDetectorConfig
+    | COPODDetectorConfig
+    | IsolationForestDetectorConfig
+    | KNNDetectorConfig
 
 export interface HogCompileResponse {
     bytecode: any[]
