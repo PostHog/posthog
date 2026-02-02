@@ -6,6 +6,10 @@
     height: 100%;
     overflow: hidden;
 
+    &:fullscreen {
+        background-color: var(--color-bg-surface-primary);
+    }
+
     .SessionRecordingPlayer__sidebar {
         position: relative;
         display: flex;

@@ -137,7 +137,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     recording_filter = RecordingPropertyFilter(
                         type="recording",
                         key="snapshot_library",
-                        value=prop.value,
+                        value=getattr(prop, "value", None),
                         operator=getattr(prop, "operator", PropertyOperator.EXACT),
                     )
                     expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
