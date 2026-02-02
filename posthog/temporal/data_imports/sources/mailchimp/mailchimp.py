@@ -215,10 +215,7 @@ def _create_contacts_resource(
     incremental_field: str | None = None,
 ) -> dlt.sources.DltResource:
     """Create a dlt resource that fetches contacts from all lists."""
-    try:
-        dc = extract_data_center(api_key)
-    except ValueError:
-        dc = "us1"
+    dc = extract_data_center(api_key)
 
     since_last_changed: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value:
@@ -272,10 +269,7 @@ def mailchimp_source(
             partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         )
 
-    try:
-        dc = extract_data_center(api_key)
-    except ValueError:
-        dc = "us1"
+    dc = extract_data_center(api_key)
 
     config: RESTAPIConfig = {
         "client": {
