@@ -20,6 +20,7 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, tag_queries
@@ -270,7 +271,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 product=Product.WAREHOUSE,
             )
             result = sync_execute(
-                f"SELECT max(`{column}`) FROM {s3_table_func}",
+                f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
             )
 

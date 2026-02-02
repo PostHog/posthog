@@ -26,6 +26,7 @@ from posthog.api import (
     sharing,
     signup,
     site_app,
+    two_factor_reset,
     unsubscribe,
     uploaded_media,
     user,
@@ -192,12 +193,17 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+    opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     path(
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
+    path(
+        "api/reset_2fa/<str:user_uuid>/",
+        two_factor_reset.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
     opt_slash_path(
         "api/public_hog_function_templates",

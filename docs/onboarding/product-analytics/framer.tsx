@@ -1,7 +1,10 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
-export const getFramerSteps = (CodeBlock: any, Markdown: any, dedent: any, snippets: any): StepDefinition[] => {
+export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent, snippets } = ctx
+
     const JSEventCapture = snippets?.JSEventCapture
 
     return [
@@ -37,8 +40,8 @@ export const getFramerSteps = (CodeBlock: any, Markdown: any, dedent: any, snipp
             content: (
                 <>
                     <Markdown>
-                        Go to your Framer project settings by clicking the gear in the top right. If you haven't already,
-                        sign up for at least the **Mini** site plan. This enables you to add custom code. Then:
+                        Go to your Framer project settings by clicking the gear in the top right. If you haven't
+                        already, sign up for at least the **Mini** site plan. This enables you to add custom code. Then:
                     </Markdown>
                     <Markdown>
                         {`1. Go to the **General** tab in site settings.
@@ -56,17 +59,4 @@ export const getFramerSteps = (CodeBlock: any, Markdown: any, dedent: any, snipp
     ]
 }
 
-export const FramerInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent, snippets } = useMDXComponents()
-    const steps = getFramerSteps(CodeBlock, Markdown, dedent, snippets)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const FramerInstallation = createInstallation(getFramerSteps)

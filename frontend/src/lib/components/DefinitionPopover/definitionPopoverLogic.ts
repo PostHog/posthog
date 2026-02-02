@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -10,12 +10,11 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
 import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
 
@@ -41,9 +40,6 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
-    })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
@@ -189,12 +185,6 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (s) => [s.state, s.definition, s.localDefinition],
             (state, definition, localDefinition) =>
                 state === DefinitionPopoverState.Edit && !equal(definition, localDefinition),
-        ],
-        hasTaxonomyFeatures: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) =>
-                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
-                hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isViewable: [
             (s) => [s.type],

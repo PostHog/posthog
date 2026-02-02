@@ -34,12 +34,7 @@ from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import (
-    PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
-    SURVEY_TARGETING_FLAG_PREFIX,
-    AvailableFeature,
-    FlagRequestType,
-)
+from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -50,7 +45,6 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -176,13 +170,6 @@ class EvaluationTagsChecker:
         if not hasattr(request, "user") or request.user.is_anonymous:
             return False
 
-        # Check TAGGING license
-        try:
-            if not request.user.organization.is_feature_available(AvailableFeature.TAGGING):
-                return False
-        except Exception:
-            return False
-
         # Check FLAG_EVALUATION_TAGS feature flag
         try:
             return posthoganalytics.feature_enabled(
@@ -222,7 +209,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not hasattr(self, "initial_data"):
             return attrs
 
-        # If user doesn't have access to TAGGING feature or FLAG_EVALUATION_TAGS is disabled, skip validation
+        # If FLAG_EVALUATION_TAGS is disabled, skip validation
         # Evaluation tags are preserved in DB but hidden from user (like regular tags)
         if not self._is_evaluation_tags_feature_enabled():
             return attrs
@@ -266,7 +253,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
 
-        If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled,
+        If FLAG_EVALUATION_TAGS is disabled,
         preserve existing evaluation tags in database (don't update them).
 
         Instead of deleting all tags and recreating them (which causes unnecessary
@@ -276,7 +263,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not obj:
             return
 
-        # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
+        # If FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
         # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
         if not self._is_evaluation_tags_feature_enabled():
             return
@@ -845,7 +832,7 @@ class FeatureFlagSerializer(
 
         return instance
 
-    @approval_gate(["feature_flag.enable", "feature_flag.disable"])
+    @approval_gate(["feature_flag.enable", "feature_flag.disable", "feature_flag.update"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # This is a workaround to ensure update works when called from a scheduled task.
@@ -888,6 +875,32 @@ class FeatureFlagSerializer(
             # This allows the original key to be reused while preserving referential integrity for deleted experiments
             if instance.experiment_set.filter(deleted=True).exists():
                 validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
+
+        # Check for dependency conflicts when disabling a flag
+        if "active" in validated_data and validated_data["active"] is False and instance.active is True:
+            # Check for other flags that depend on this flag
+            dependent_flags = self._find_dependent_flags(instance)
+            if dependent_flags:
+                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
+                if len(dependent_flags) > 5:
+                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
+                raise exceptions.ValidationError(
+                    f"Cannot disable this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
+                    f"Please update or disable the dependent flags first."
+                )
+
+        # Check for dependency conflicts when enabling a flag
+        if "active" in validated_data and validated_data["active"] is True and instance.active is False:
+            # Check if this flag depends on any disabled flags
+            disabled_dependencies = self._find_disabled_dependencies(instance)
+            if disabled_dependencies:
+                disabled_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in disabled_dependencies[:5]]
+                if len(disabled_dependencies) > 5:
+                    disabled_flag_names.append(f"and {len(disabled_dependencies) - 5} more")
+                raise exceptions.ValidationError(
+                    f"Cannot enable this feature flag because it depends on disabled flags: {', '.join(disabled_flag_names)}. "
+                    f"Please enable the dependency flags first."
+                )
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
@@ -1037,6 +1050,27 @@ class FeatureFlagSerializer(
                 params=[str(flag_to_check.id)],
             )
             .order_by("key")
+        )
+
+    def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
+        """Find all disabled flags that the given flag depends on."""
+        dependency_ids = []
+
+        # Extract flag dependencies from filters
+        filters = flag_to_check.filters or {}
+        for group in filters.get("groups", []):
+            for prop in group.get("properties", []):
+                if prop.get("type") == "flag":
+                    dependency_ids.append(int(prop.get("key")))
+
+        if not dependency_ids:
+            return []
+
+        # Find disabled dependency flags
+        return list(
+            FeatureFlag.objects.filter(
+                team=flag_to_check.team, id__in=dependency_ids, deleted=False, active=False
+            ).order_by("key")
         )
 
     def _update_filters(self, validated_data):
@@ -1661,37 +1695,6 @@ class FeatureFlagViewSet(
                 }
                 for flag in dependent_flags
             ],
-            status=200,
-        )
-
-    @action(methods=["POST"], detail=True)
-    def has_active_dependents(self, request: request.Request, **kwargs):
-        """
-        Deprecated: Use GET /dependent_flags instead.
-        Safe to delete after usage falls to zero, expected by Jan 22, 2026.
-        """
-        response = self.dependent_flags(request, **kwargs)
-        dependent_flags = response.data
-        TOMBSTONE_COUNTER.labels(
-            namespace="feature_flags",
-            operation="has_active_dependents",
-            component="api",
-        ).inc()
-        return Response(
-            {
-                "has_active_dependents": len(dependent_flags) > 0,
-                "dependent_flags": dependent_flags,
-                "warning": (
-                    (
-                        f"This feature flag is used by {len(dependent_flags)} other active "
-                        f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
-                        f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
-                        f"to evaluate this condition as false."
-                    )
-                    if dependent_flags
-                    else None
-                ),
-            },
             status=200,
         )
 

@@ -7,9 +7,9 @@ import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
@@ -18,7 +18,7 @@ import { logsSceneLogic } from './logsSceneLogic'
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsSceneLogic,
-    settingSectionId: 'environment-logs',
+    productKey: ProductKey.LOGS,
 }
 
 export function LogsScene(): JSX.Element {
@@ -71,16 +71,11 @@ const LogsSceneContent = (): JSX.Element => {
             )}
             <LemonBanner
                 type="warning"
-                dismissKey="logs-beta-banner"
+                dismissKey="logs-feedback-banner"
                 action={{ children: 'Send feedback', id: 'logs-feedback-button' }}
             >
-                <p>
-                    Logs is in beta and things will change as we figure out what works. Right now you have 7-day
-                    retention with ingestion rate limits. Tell us what you need, what's broken, or if you're hitting
-                    limits, we want to hear from you.
-                </p>
+                <p>Logs has just been released. We'd love to hear your feedback on how it's working for you.</p>
             </LemonBanner>
-            <LogsFilterBar />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
                     tabId={tabId}

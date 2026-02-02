@@ -12,88 +12,65 @@ import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/ope
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
 import { VercelAIInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai'
 
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-function LLMManualInstructions(): JSX.Element {
-    const snippets = {
-        GenerationEvent,
-        TraceEvent,
-        SpanEvent,
-        EmbeddingEvent,
-    }
+import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
-    return (
-        <OnboardingDocsContentWrapper snippets={snippets}>
-            <ManualInstallation />
-        </OnboardingDocsContentWrapper>
-    )
+// Snippet configurations, defined once
+const MANUAL_SNIPPETS = {
+    GenerationEvent,
+    TraceEvent,
+    SpanEvent,
+    EmbeddingEvent,
 }
 
-function LLMAnthropicInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <AnthropicInstallation />
-        </OnboardingDocsContentWrapper>
-    )
+const PROVIDER_SNIPPETS = {
+    NotableGenerationProperties,
 }
 
-function LLMOpenAIInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <OpenAIInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
+// Manual capture, all event types
+const LLMManualInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ManualInstallation,
+    snippets: MANUAL_SNIPPETS,
+})
 
-function LLMGoogleInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <GoogleInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function LLMOpenRouterInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <OpenRouterInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function LLMLangChainInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <LangChainInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function LLMLiteLLMInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <LiteLLMInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
-
-function LLMVercelAIInstructions(): JSX.Element {
-    return (
-        <OnboardingDocsContentWrapper snippets={{ NotableGenerationProperties }}>
-            <VercelAIInstallation />
-        </OnboardingDocsContentWrapper>
-    )
-}
+// LLM Providers
+const LLMOpenAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAnthropicInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AnthropicInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMGoogleInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoogleInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOpenRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenRouterInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLangChainInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LangChainInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LiteLLMInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VercelAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.OPENAI]: LLMOpenAIInstructions,
-    [SDKKey.ANTHROPIC]: LLMAnthropicInstructions,
-    [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructions,
-    [SDKKey.VERCEL_AI]: LLMVercelAIInstructions,
-    [SDKKey.LANGCHAIN]: LLMLangChainInstructions,
-    [SDKKey.LITELLM]: LLMLiteLLMInstructions,
-    [SDKKey.OPENROUTER]: LLMOpenRouterInstructions,
-    [SDKKey.MANUAL_CAPTURE]: LLMManualInstructions,
+    [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
+    [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
+    [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
+    [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
+    [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
+    [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,
+    [SDKKey.OPENROUTER]: LLMOpenRouterInstructionsWrapper,
+    [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }

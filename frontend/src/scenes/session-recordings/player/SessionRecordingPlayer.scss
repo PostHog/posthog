@@ -133,3 +133,30 @@
         }
     }
 }
+
+.SkipToNextButton {
+    position: relative;
+
+    &--animating {
+        &::after {
+            position: absolute;
+            inset: -2px;
+            content: '';
+            border: 2px solid var(--primary);
+            border-radius: 4px;
+            animation: SkipToNextButton__Countdown 3s linear forwards;
+        }
+    }
+}
+
+@keyframes SkipToNextButton__Countdown {
+    0% {
+        clip-path: inset(0 0 0 0);
+        opacity: 1;
+    }
+
+    100% {
+        clip-path: inset(0 0 0 100%);
+        opacity: 1;
+    }
+}

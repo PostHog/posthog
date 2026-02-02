@@ -5,6 +5,8 @@ import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemS
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
+import { SuperpowersModal } from 'lib/components/Superpowers/Superpowers'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
@@ -14,8 +16,6 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { EnvironmentRollbackModal } from 'scenes/settings/environment/EnvironmentRollbackModal'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
@@ -68,7 +68,7 @@ export function GlobalModals(): JSX.Element {
     } = useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
+    const { superpowersEnabled } = useValues(superpowersLogic)
 
     // Expose modal actions to window for debugging purposes
     useEffect(() => {
@@ -109,7 +109,7 @@ export function GlobalModals(): JSX.Element {
             <MoveToModal />
             <LinkToModal />
             <ItemSelectModal />
-            {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
+            {superpowersEnabled && <SuperpowersModal />}
         </>
     )
 }

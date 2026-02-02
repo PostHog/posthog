@@ -36,7 +36,6 @@ class Ticket(UUIDTModel):
     distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     priority = models.CharField(max_length=20, choices=Priority.choices, null=True, blank=True)
-    assigned_to = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
@@ -44,6 +43,11 @@ class Ticket(UUIDTModel):
     # Unread message counters
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
     unread_team_count = models.IntegerField(default=0)  # Messages team hasn't seen (from customer)
+
+    # Denormalized message stats (updated via signal on Comment save)
+    message_count = models.IntegerField(default=0)
+    last_message_at = models.DateTimeField(null=True, blank=True)
+    last_message_text = models.CharField(max_length=500, null=True, blank=True)  # Truncated preview
 
     # Session context (captured when ticket is created)
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
@@ -60,6 +64,10 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "status"]),
             models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),  # MAX() lookups
             models.Index(fields=["team", "session_id"]),  # Session context queries
+            # Dashboard ordering optimization
+            models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
+            # Dashboard filtered + ordered queries
+            models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

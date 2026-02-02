@@ -1,5 +1,6 @@
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
@@ -57,6 +58,8 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
+export const shadowFetchContext = new AsyncLocalStorage<boolean>()
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -66,6 +69,20 @@ export async function cdpTrackedFetch({
     fetchParams: FetchOptions
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
+    if (shadowFetchContext.getStore()) {
+        return {
+            fetchError: null,
+            fetchResponse: {
+                status: 200,
+                headers: {},
+                text: () => Promise.resolve(''),
+                json: () => Promise.resolve(null),
+                dump: () => Promise.resolve(),
+            },
+            fetchDuration: 0,
+        }
+    }
+
     const start = performance.now()
     const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
     const fetchDuration = performance.now() - start
@@ -336,7 +353,7 @@ export class HogExecutorService {
         return result
     }
 
-    @instrumented('hog-executor.execute')
+    @instrumented({ key: 'hog-executor.execute', sendException: false })
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {},
@@ -451,10 +468,10 @@ export class HogExecutorService {
                                 const givenCount = globals.event.properties?.$hog_function_execution_count
                                 const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
-                                if (executionCount > 0) {
+                                if (executionCount > 9) {
                                     addLog(
                                         'warn',
-                                        `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                        `postHogCapture was called from an event that already executed this function 10 times previously. To prevent unbounded infinite loops, the event was not captured.`
                                     )
                                     return
                                 }

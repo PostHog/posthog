@@ -6,6 +6,8 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
@@ -14,6 +16,7 @@ import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experime
 export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,
     logic: experimentSceneLogic,
+    productKey: ProductKey.EXPERIMENTS,
     paramsToProps: ({ params: { id, formMode } }) => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
         formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
@@ -21,7 +24,9 @@ export const scene: SceneExport<ExperimentSceneLogicProps> = {
     }),
 }
 
-export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
+export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
+    const { tabId } = props
+
     if (!tabId) {
         throw new Error('<Experiment /> must receive a tabId prop')
     }

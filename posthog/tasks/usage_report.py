@@ -15,7 +15,6 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
-import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -1038,6 +1037,10 @@ CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
     "US": 2,
 }
+CLOUD_REGION_TO_URL = {
+    "EU": "https://eu.posthog.com",
+    "US": "https://us.posthog.com",
+}
 
 
 @timed_log()
@@ -1066,11 +1069,19 @@ def get_teams_with_ai_credits_used_in_period(
     6. Convert 1:1 to credits
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
-    At time of writing, events in the US have a materialized region but nothing present in EU.
-    Using the field from properties to filter events instead.
+    We filter by $group_1 which contains the region URL (https://eu.posthog.com or https://us.posthog.com).
     """
     region = get_instance_region()
-    assert region is not None, "Region must be set in production infrastructure"
+
+    if region is None:
+        # In production, we want to fail fast if region is not set
+        # In non-production environments (e.g., tests), we can return gracefully
+        from posthog.settings import TEST
+
+        if not TEST:
+            assert region is not None, "Region must be set in production infrastructure"
+        return []
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
@@ -1126,7 +1137,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1150,7 +1161,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND JSONExtractString(properties, 'region') = %(region)s
+                        AND JSONExtractString(properties, '$group_1') = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
@@ -1180,7 +1191,7 @@ def get_teams_with_ai_credits_used_in_period(
             """,
             {
                 "team_to_query": team_to_query,
-                "region": region,
+                "region_url": CLOUD_REGION_TO_URL[region],
                 "begin": begin,
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
@@ -1335,6 +1346,7 @@ def get_teams_with_exceptions_captured_in_period(
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
+    # nosemgrep: clickhouse-fstring-param-audit - lib_expression from internal materialized column helper
     results = sync_execute(
         f"""
         SELECT
@@ -1724,11 +1736,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end
     )
 
-    # Check if AI billing usage report is enabled
-    is_ai_billing_enabled = posthoganalytics.feature_enabled(
-        "posthog-ai-billing-usage-report", "internal_billing_events"
-    )
-
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
@@ -1940,9 +1947,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
-        "teams_with_ai_credits_used_in_period": (
-            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
-        ),
+        "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(

@@ -135,7 +135,12 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Returns the names of the team's groups.
         """
-        return [group async for group in self.get_groups().values_list("group_type", flat=True)]
+
+        @database_sync_to_async(thread_sensitive=False)
+        def _get_group_names_sync() -> list[str]:
+            return list(self.get_groups().values_list("group_type", flat=True))
+
+        return await _get_group_names_sync()
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """

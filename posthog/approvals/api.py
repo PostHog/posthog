@@ -1,9 +1,10 @@
 import logging
 from typing import cast
 
+from django.db import IntegrityError
 from django.db.models import QuerySet
 
-from rest_framework import status, viewsets
+from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -173,3 +174,13 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization=self.organization,
             team=self.team if hasattr(self, "team") else None,
         )
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError as e:
+            if "posthog_approvalpolicy_organization_id_team_id" in str(e):
+                raise exceptions.ValidationError(
+                    "A policy for this action already exists. You can edit the existing policy instead."
+                )
+            raise

@@ -43,6 +43,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
@@ -66,32 +67,26 @@ import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import {
-    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    getDefaultGenerationsColumns,
-    llmAnalyticsLogic,
-} from './llmAnalyticsLogic'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { LLMPromptsScene } from './prompts/LLMPromptsScene'
 import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from './settings/TrialUsageMeter'
+import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
+import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
-    logic: llmAnalyticsLogic,
+    logic: llmAnalyticsSharedLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
 }
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
-    const {
-        dashboardDateFilter,
-        dateFilter,
-        shouldFilterTestAccounts,
-        generationsQuery,
-        propertyFilters,
-        activeTab,
-        selectedDashboardId,
-    } = useValues(llmAnalyticsLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
+        useValues(llmAnalyticsSharedLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { generationsQuery } = useValues(llmAnalyticsGenerationsLogic)
+    const { selectedDashboardId } = useValues(llmAnalyticsDashboardLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
@@ -126,8 +121,8 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 }
 
 function LLMAnalyticsDashboard(): JSX.Element {
-    const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
-        useValues(llmAnalyticsLogic)
+    const { dashboardDateFilter, propertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { selectedDashboardId, availableDashboardsLoading } = useValues(llmAnalyticsDashboardLogic)
 
     const dashboardLogicInstance = React.useMemo(
         () =>
@@ -158,7 +153,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
     return (
         <LLMAnalyticsSetupPrompt>
-            <div className="@container/dashboard">
+            <div className="@container/dashboard" data-attr="llm-analytics-costs">
                 <Filters />
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
@@ -174,21 +169,12 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const {
-        setDates,
-        setShouldFilterTestAccounts,
-        setPropertyFilters,
-        setGenerationsColumns,
-        toggleGenerationExpanded,
-        setGenerationsSort,
-    } = useActions(llmAnalyticsLogic)
-    const {
-        generationsQuery,
-        propertyFilters: currentPropertyFilters,
-        expandedGenerationIds,
-        loadedTraces,
-        generationsSort,
-    } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
+        useActions(llmAnalyticsGenerationsLogic)
+    const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
+        useValues(llmAnalyticsGenerationsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
@@ -601,8 +587,23 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
 }
 
+const TAB_DESCRIPTIONS: Record<string, string> = {
+    dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
+    traces: 'Explore end-to-end traces of your LLM interactions.',
+    generations: 'View individual LLM generations and their details.',
+    users: 'Understand how users are interacting with your LLM features.',
+    errors: 'Monitor and debug errors in your LLM pipeline.',
+    sessions: 'Analyze user sessions containing LLM interactions.',
+    playground: 'Test and experiment with LLM prompts in a sandbox environment.',
+    evaluations: 'Configure and monitor automated LLM output evaluations.',
+    datasets: 'Manage datasets for testing and evaluation.',
+    clusters: 'Discover patterns and clusters in your LLM usage.',
+    prompts: 'Track and manage your LLM prompts.',
+    settings: 'Configure LLM analytics settings and API keys.',
+}
+
 export function LLMAnalyticsScene(): JSX.Element {
-    const { activeTab } = useValues(llmAnalyticsLogic)
+    const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
@@ -653,7 +654,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             key: 'traces',
             label: 'Traces',
             content: (
-                <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsSetupPrompt thing="trace">
                     <LLMAnalyticsTraces />
                 </LLMAnalyticsSetupPrompt>
             ),
@@ -826,7 +827,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}
-                    description={sceneConfigurations[Scene.LLMAnalytics].description}
+                    description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.LLMAnalytics].description}
                     resourceType={{
                         type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
                     }}

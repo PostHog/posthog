@@ -91,6 +91,11 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class ClerkSourceConfig(config.Config):
+    secret_key: str
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     pass
 
@@ -102,7 +107,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    repository: str
 
 
 @config.config
@@ -124,7 +130,7 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class KlaviyoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -146,7 +152,7 @@ class MSSQLSourceConfig(config.Config):
 
 @config.config
 class MailchimpSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -269,6 +275,11 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
+class SnapchatAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
@@ -288,6 +299,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CLERK: ClerkSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
@@ -314,6 +326,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

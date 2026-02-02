@@ -36,6 +36,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationHogFlow[]> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
+        const skippedInvocations: CyclotronJobInvocation[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -47,6 +48,18 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                     })
 
                     failedInvocations.push(item)
+
+                    return null
+                }
+
+                // Skip execution if the workflow is no longer active (e.g., disabled/archived)
+                if (hogFlow.status !== 'active') {
+                    logger.info('⏭️', 'Skipping hog flow invocation - workflow is no longer active', {
+                        id: item.functionId,
+                        status: hogFlow.status,
+                    })
+
+                    skippedInvocations.push(item)
 
                     return null
                 }
@@ -63,6 +76,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                     hogFlowInvocationState.event.distinct_id,
                     dbPerson?.properties ?? {}
                 )
+
+                if (!dbPerson && hogFlow.trigger?.type === 'event') {
+                    logger.warn('⚠️', 'Person not found for hog flow invocation', {
+                        hogFlowId: hogFlow.id,
+                        distinctId: hogFlowInvocationState.event.distinct_id,
+                        invocationId: item.id,
+                    })
+                }
 
                 const person: CyclotronPerson | undefined = dbPerson
                     ? {
@@ -94,6 +115,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+        await this.cyclotronJobQueue.cancelInvocations(skippedInvocations)
 
         return loadedInvocations
     }

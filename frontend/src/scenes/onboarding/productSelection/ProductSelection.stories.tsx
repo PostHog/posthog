@@ -34,7 +34,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/onboarding/recommend_products/': {
-                    products: ['product_analytics', 'session_replay', 'experiments'],
+                    products: ['product-analytics', 'session-replay', 'experiments'],
                     reasoning:
                         'Based on your goal to improve checkout conversion, we recommend Product Analytics for funnel analysis, Session Replay to watch user behavior, and Experiments to test improvements.',
                 },
@@ -64,7 +64,7 @@ export const AfterAIRecommendation: StoryFn = () => {
 
         // Simulate AI recommendation result
         setAiRecommendation({
-            products: ['product_analytics', 'session_replay', 'experiments'],
+            products: ['product-analytics', 'session-replay', 'experiments'],
             reasoning:
                 'Based on your goal to improve checkout conversion, we recommend Product Analytics for funnel analysis, Session Replay to watch user behavior, and Experiments to test improvements.',
         })

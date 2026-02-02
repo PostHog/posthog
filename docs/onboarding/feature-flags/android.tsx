@@ -1,10 +1,13 @@
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { getAndroidSteps as getAndroidStepsPA } from '../product-analytics/android'
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getAndroidSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
+export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
     // Get installation steps from product-analytics
-    const installationSteps = getAndroidStepsPA(CodeBlock, Markdown, dedent)
+    const installationSteps = getAndroidStepsPA(ctx)
 
     // Add flag-specific steps
     const flagSteps: StepDefinition[] = [
@@ -82,17 +85,4 @@ export const getAndroidSteps = (CodeBlock: any, Markdown: any, dedent: any): Ste
     return [...installationSteps, ...flagSteps]
 }
 
-export const AndroidInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, Markdown, dedent } = useMDXComponents()
-    const steps = getAndroidSteps(CodeBlock, Markdown, dedent)
-
-    return (
-        <Steps>
-            {steps.map((step, index) => (
-                <Step key={index} title={step.title} badge={step.badge}>
-                    {step.content}
-                </Step>
-            ))}
-        </Steps>
-    )
-}
+export const AndroidInstallation = createInstallation(getAndroidSteps)

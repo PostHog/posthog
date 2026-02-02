@@ -33,23 +33,27 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
         help_texts = {
             "distinct_ids": (
                 "Optional: List of specific distinct IDs to restrict. "
-                "If all filter fields are empty, restriction applies to ALL events for this token. "
-                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+                "Empty = matches all distinct IDs. "
+                "Multiple values = matches if distinct_id is ANY of them (OR within field). "
+                "Combined with other filters using AND logic."
             ),
             "session_ids": (
                 "Optional: List of specific session IDs to restrict. "
-                "If all filter fields are empty, restriction applies to ALL events for this token. "
-                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+                "Empty = matches all session IDs. "
+                "Multiple values = matches if session_id is ANY of them (OR within field). "
+                "Combined with other filters using AND logic."
             ),
             "event_names": (
                 "Optional: List of specific event names to restrict (e.g., '$pageview', '$autocapture'). "
-                "If all filter fields are empty, restriction applies to ALL events for this token. "
-                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+                "Empty = matches all event names. "
+                "Multiple values = matches if event name is ANY of them (OR within field). "
+                "Combined with other filters using AND logic."
             ),
             "event_uuids": (
                 "Optional: List of specific event UUIDs to restrict. "
-                "If all filter fields are empty, restriction applies to ALL events for this token. "
-                "If any field has values, restriction applies when the event matches ANY of the specified values (OR logic)."
+                "Empty = matches all event UUIDs. "
+                "Multiple values = matches if event UUID is ANY of them (OR within field). "
+                "Combined with other filters using AND logic."
             ),
         }
 

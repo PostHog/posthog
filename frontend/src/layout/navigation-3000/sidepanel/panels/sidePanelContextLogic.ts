@@ -41,10 +41,15 @@ export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     if (activeSceneLogic && SIDE_PANEL_CONTEXT_KEY in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
-                        return activeSceneLogic.selectors[SIDE_PANEL_CONTEXT_KEY](
-                            state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
-                        )
+                        try {
+                            return activeSceneLogic.selectors[SIDE_PANEL_CONTEXT_KEY](
+                                state,
+                                activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            )
+                        } catch {
+                            // Scene logic may not be mounted yet, return null
+                            return null
+                        }
                     }
                     return null
                 },

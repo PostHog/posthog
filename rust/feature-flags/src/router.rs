@@ -68,6 +68,10 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
     /// Uses token-based lookup instead of team_id
     pub team_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for remote config (array/config.json)
+    /// Reads pre-computed config from Python's RemoteConfig.build_config()
+    /// Uses token-based lookup (api_token)
+    pub config_hypercache_reader: Arc<HyperCacheReader>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -84,6 +88,7 @@ pub fn router(
     flags_hypercache_reader: Arc<HyperCacheReader>,
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
+    config_hypercache_reader: Arc<HyperCacheReader>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -150,6 +155,7 @@ pub fn router(
         flags_hypercache_reader,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
+        config_hypercache_reader,
     };
 
     // Very permissive CORS policy, as old SDK versions

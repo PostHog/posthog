@@ -5,6 +5,7 @@ import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
+from datetime import date
 from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
@@ -178,6 +179,48 @@ class RangeAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class SafeDateLoader(Loader):
+    """Load PostgreSQL dates, handling edge cases beyond Python's date range.
+
+    PostgreSQL can store dates beyond Python's datetime.date limits (year 1 to
+    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999.
+    When encountering such dates, we clamp to Python's date limits rather than
+    raising an error.
+    """
+
+    def load(self, data) -> date | None:
+        if data is None:
+            return None
+
+        s = bytes(data).decode("utf-8")
+
+        if s in ("infinity", "-infinity"):
+            return date.max if s == "infinity" else date.min
+
+        # Handle negative years (BC dates)
+        if s.startswith("-") or "bc" in s.lower():
+            return date.min
+
+        try:
+            parts = s.split("-")
+            if len(parts) == 3:
+                year = int(parts[0])
+                month = int(parts[1])
+                day = int(parts[2])
+
+                if year > 9999:
+                    return date.max
+                if year < 1:
+                    return date.min
+
+                return date(year, month, day)
+        except (ValueError, IndexError):
+            pass
+
+        # Fallback: clamp to max for unparseable dates
+        return date.max
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -212,7 +255,7 @@ def _build_query(
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} AND random() < 0.01"
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -221,7 +264,7 @@ def _build_query(
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -229,7 +272,7 @@ def _build_query(
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -747,6 +790,7 @@ def postgres_source(
                 connection.adapters.register_loader("tsrange", RangeAsStringLoader)
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                connection.adapters.register_loader("date", SafeDateLoader)
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):

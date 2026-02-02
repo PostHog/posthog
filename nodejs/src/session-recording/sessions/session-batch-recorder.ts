@@ -8,8 +8,10 @@ import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+import { SessionFilter } from './session-filter'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SessionRateLimiter } from './session-rate-limiter'
+import { SessionTracker } from './session-tracker'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
@@ -70,6 +72,8 @@ export class SessionBatchRecorder {
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore,
         private readonly consoleLogStore: SessionConsoleLogStore,
+        private readonly sessionTracker: SessionTracker,
+        private readonly sessionFilter: SessionFilter,
         maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
     ) {
         this.batchId = uuidv7()
@@ -89,9 +93,26 @@ export class SessionBatchRecorder {
         const teamId = message.team.teamId
         const teamSessionKey = `${teamId}$${sessionId}`
 
-        const isAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
+        // Check if this is a new session and check if we're in breach of the rate limit
+        const isNewSession = await this.sessionTracker.trackSession(teamId, sessionId)
+        if (isNewSession) {
+            await this.sessionFilter.handleNewSession(teamId, sessionId)
+        }
 
-        if (!isAllowed) {
+        // Check if session is blocked
+        if (await this.sessionFilter.isBlocked(teamId, sessionId)) {
+            logger.debug('🔁', 'session_batch_recorder_session_blocked', {
+                partition,
+                sessionId,
+                teamId,
+                batchId: this.batchId,
+            })
+            return this.ignoreMessage(message)
+        }
+
+        const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
+
+        if (!isEventAllowed) {
             logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {
                 partition,
                 sessionId,
@@ -101,11 +122,7 @@ export class SessionBatchRecorder {
             })
 
             if (!this.partitionSessions.has(partition)) {
-                this.offsetManager.trackOffset({
-                    partition: message.message.metadata.partition,
-                    offset: message.message.metadata.offset,
-                })
-                return 0
+                return this.ignoreMessage(message)
             }
 
             const sessions = this.partitionSessions.get(partition)!
@@ -121,12 +138,7 @@ export class SessionBatchRecorder {
                 })
             }
 
-            this.offsetManager.trackOffset({
-                partition: message.message.metadata.partition,
-                offset: message.message.metadata.offset,
-            })
-
-            return 0
+            return this.ignoreMessage(message)
         }
 
         if (!this.partitionSessions.has(partition)) {
@@ -163,6 +175,20 @@ export class SessionBatchRecorder {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
+        return this.ackMessage(message, bytesWritten)
+    }
+
+    private ignoreMessage(message: MessageWithTeam): 0 {
+        this.offsetManager.trackOffset({
+            partition: message.message.metadata.partition,
+            offset: message.message.metadata.offset,
+        })
+        return 0
+    }
+
+    private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
+        const { partition } = message.message.metadata
+
         this.offsetManager.trackOffset({
             partition: message.message.metadata.partition,
             offset: message.message.metadata.offset,
@@ -170,8 +196,8 @@ export class SessionBatchRecorder {
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
-            sessionId,
-            teamId,
+            sessionId: message.message.session_id,
+            teamId: message.team.teamId,
             bytesWritten,
             totalSize: this._size,
         })
