@@ -8,7 +8,6 @@ from posthog.schema import (
     FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyGroupFilterValue,
-    PropertyOperator,
     RecordingOrder,
     RecordingPropertyFilter,
     RecordingsQuery,
@@ -138,7 +137,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         type="recording",
                         key="snapshot_library",
                         value=getattr(prop, "value", None),
-                        operator=getattr(prop, "operator", PropertyOperator.EXACT),
+                        operator=prop.operator,
                     )
                     expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
                 else:

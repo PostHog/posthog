@@ -93,7 +93,7 @@ function SessionRecordingPlayerInternal({
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+            <PurePlayer noMeta={noMeta} noBorder={noBorder} playerRef={playerRef} />
             {withSidebar && <PlayerSidebar />}
         </div>
     )
