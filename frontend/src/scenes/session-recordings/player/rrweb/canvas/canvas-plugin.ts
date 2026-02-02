@@ -418,4 +418,3 @@ const abortPreviousListeners = (id: number): void => {
         controllerById.delete(id)
     }
 }
-
