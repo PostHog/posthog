@@ -12,8 +12,8 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::deduplication_batch_processor::{
-    BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
+use crate::pipelines::ingestion_events::{
+    DeduplicationConfig, DuplicateEventProducerWrapper, IngestionEventsBatchProcessor,
 };
 use crate::{
     checkpoint::{
@@ -307,7 +307,7 @@ impl KafkaDeduplicatorService {
 
         // Create a processor with the store manager and both producers
         let processor = Arc::new(
-            BatchDeduplicationProcessor::new(
+            IngestionEventsBatchProcessor::new(
                 dedup_config,
                 self.store_manager.clone(),
                 main_producer,

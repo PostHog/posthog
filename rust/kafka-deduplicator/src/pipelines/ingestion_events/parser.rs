@@ -4,8 +4,8 @@ use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
 use tracing::{debug, error};
 
-use crate::event_parser::EventParser;
 use crate::kafka::batch_message::KafkaMessage;
+use crate::pipelines::traits::EventParser;
 use crate::utils::timestamp;
 
 /// Parser for ingestion events.
@@ -169,5 +169,248 @@ mod tests {
 
         let result = IngestionEventParser::parse(&message);
         assert!(result.is_err());
+    }
+
+    // ===== Error path tests =====
+
+    #[test]
+    fn test_parse_message_with_none_content_returns_error() {
+        // Create a KafkaMessage with None message (simulates deserialization failure upstream)
+        let message: KafkaMessage<CapturedEvent> = KafkaMessage::new(
+            Partition::new("test-topic".to_string(), 0),
+            42,
+            None, // key
+            None, // message is None
+            std::time::SystemTime::now(),
+            None, // headers
+            None, // payload
+        );
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Failed to extract CapturedEvent"));
+        assert!(err.to_string().contains("test-topic:0 offset 42"));
+    }
+
+    #[test]
+    fn test_parse_event_with_invalid_timestamp_uses_captured_event_now() {
+        // Invalid timestamp format: no timezone
+        let data = r#"{"event": "click", "timestamp": "2025-09-02T19:08:52.84", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Invalid timestamp should be replaced with CapturedEvent.now
+        assert_eq!(
+            raw_event.timestamp,
+            Some("2024-01-01T00:00:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_event_with_invalid_timestamp_format_truncated_offset() {
+        // Invalid timestamp: missing :00 in timezone offset
+        let data =
+            r#"{"event": "click", "timestamp": "2025-09-02T14:45:58.462+02", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Invalid timestamp should be replaced with CapturedEvent.now
+        assert_eq!(
+            raw_event.timestamp,
+            Some("2024-01-01T00:00:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_event_with_valid_timestamp_keeps_original() {
+        // Valid RFC3339 timestamp should be preserved
+        let data =
+            r#"{"event": "click", "timestamp": "2025-09-02T14:45:58.462Z", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Valid timestamp should be preserved
+        assert_eq!(
+            raw_event.timestamp,
+            Some("2025-09-02T14:45:58.462Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_event_with_empty_string_distinct_id_uses_captured_event() {
+        // RawEvent has empty distinct_id, should use CapturedEvent's value
+        let data = r#"{"event": "click", "distinct_id": "", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Empty string is still Some(""), not replaced since RawEvent.distinct_id is Some
+        // The logic only fills if raw_event.distinct_id.is_none()
+        assert_eq!(
+            raw_event.distinct_id,
+            Some(serde_json::Value::String("".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_event_with_null_distinct_id_uses_captured_event() {
+        // RawEvent has null distinct_id - serde deserializes JSON null as None for Option<Value>
+        let data = r#"{"event": "click", "distinct_id": null, "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // JSON null deserializes to None for Option<Value>, so it gets filled from CapturedEvent
+        assert_eq!(
+            raw_event.distinct_id,
+            Some(serde_json::Value::String("test_user".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_event_with_missing_distinct_id_uses_captured_event() {
+        // RawEvent has no distinct_id field, should use CapturedEvent's value
+        let data = r#"{"event": "click", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Missing distinct_id should be filled from CapturedEvent
+        assert_eq!(
+            raw_event.distinct_id,
+            Some(serde_json::Value::String("test_user".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_event_with_empty_string_token_uses_captured_event() {
+        // RawEvent has empty token, but CapturedEvent has a valid token
+        let data = r#"{"event": "click", "token": "", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Empty string is still Some(""), not replaced since raw_event.token is Some
+        // The logic only fills if raw_event.token.is_none()
+        assert_eq!(raw_event.token, Some("".to_string()));
+    }
+
+    #[test]
+    fn test_parse_event_with_missing_token_uses_captured_event() {
+        // RawEvent has no token field, should use CapturedEvent's value
+        let data = r#"{"event": "click", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Missing token should be filled from CapturedEvent
+        assert_eq!(raw_event.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_parse_event_with_missing_uuid_uses_captured_event() {
+        // RawEvent has no uuid field, should use CapturedEvent's uuid
+        let data = r#"{"event": "click", "properties": {}}"#;
+        let captured = create_test_captured_event(data);
+        let expected_uuid = captured.uuid;
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Missing uuid should be filled from CapturedEvent
+        assert_eq!(raw_event.uuid, Some(expected_uuid));
+    }
+
+    #[test]
+    fn test_parse_event_preserves_existing_uuid() {
+        // RawEvent has its own uuid, should be preserved
+        let uuid = Uuid::new_v4();
+        let data = format!(r#"{{"event": "click", "uuid": "{uuid}", "properties": {{}}}}"#);
+        let captured = create_test_captured_event(&data);
+        let captured_uuid = captured.uuid;
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // Existing uuid should be preserved (not replaced with CapturedEvent uuid)
+        assert_eq!(raw_event.uuid, Some(uuid));
+        assert_ne!(raw_event.uuid, Some(captured_uuid));
+    }
+
+    #[test]
+    fn test_parse_event_with_empty_captured_event_distinct_id_does_not_fill() {
+        // If CapturedEvent.distinct_id is empty, don't fill RawEvent.distinct_id
+        let data = r#"{"event": "click", "properties": {}}"#;
+        let mut captured = create_test_captured_event(data);
+        captured.distinct_id = "".to_string(); // Empty CapturedEvent distinct_id
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // RawEvent.distinct_id should remain None since CapturedEvent.distinct_id is empty
+        assert_eq!(raw_event.distinct_id, None);
+    }
+
+    #[test]
+    fn test_parse_event_with_empty_captured_event_token_does_not_fill() {
+        // If CapturedEvent.token is empty, don't fill RawEvent.token
+        let data = r#"{"event": "click", "properties": {}}"#;
+        let mut captured = create_test_captured_event(data);
+        captured.token = "".to_string(); // Empty CapturedEvent token
+        let message =
+            KafkaMessage::new_for_test(Partition::new("test-topic".to_string(), 0), 0, captured);
+
+        let result = IngestionEventParser::parse(&message);
+        assert!(result.is_ok());
+
+        let raw_event = result.unwrap();
+        // RawEvent.token should remain None since CapturedEvent.token is empty
+        assert_eq!(raw_event.token, None);
     }
 }

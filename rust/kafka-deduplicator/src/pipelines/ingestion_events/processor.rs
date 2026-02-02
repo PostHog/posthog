@@ -1,3 +1,8 @@
+//! Batch processor for ingestion events pipeline.
+//!
+//! This processor implements timestamp-based deduplication for PostHog
+//! ingestion events (CapturedEvent/RawEvent).
+
 use std::{collections::HashMap, sync::Arc, time::Duration, time::Instant};
 
 use anyhow::{Context, Result};
@@ -12,36 +17,33 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tracing::{debug, error, warn};
 
-use crate::event_parser::EventParser;
+use crate::kafka::batch_consumer::BatchConsumerProcessor;
+use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
-use crate::pipelines::ingestion_events::IngestionEventParser;
-use crate::{
-    duplicate_event::DuplicateEvent,
-    kafka::batch_consumer::BatchConsumerProcessor,
-    kafka::batch_message::KafkaMessage,
-    metrics::MetricsHelper,
-    metrics_const::{
-        DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
-        DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
-        MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
-        ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
-        TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
-        TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-        TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
-        UNIQUE_EVENTS_TOTAL_COUNTER,
-    },
-    rocksdb::dedup_metadata::DedupFieldName,
-    store::deduplication_store::{
-        DeduplicationResult, DeduplicationResultReason, DeduplicationType, TimestampBatchEntry,
-    },
-    store::keys::DeduplicationKeyExtractor,
-    store::metadata::TimestampMetadata,
-    store::DeduplicationStoreConfig,
-    store_manager::{StoreError, StoreManager},
+use crate::metrics::MetricsHelper;
+use crate::metrics_const::{
+    DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
+    DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
+    MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
+    ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
+    TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
+    TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
+    UNIQUE_EVENTS_TOTAL_COUNTER,
 };
+use crate::pipelines::traits::{DeduplicationKeyExtractor, EventParser};
+use crate::rocksdb::dedup_metadata::DedupFieldName;
+use crate::store::deduplication_store::TimestampBatchEntry;
+use crate::store::metadata::TimestampMetadata;
+use crate::store::DeduplicationStoreConfig;
+use crate::store_manager::{StoreError, StoreManager};
 
-/// Configuration for the deduplication processor
+use super::dedup_result::{DeduplicationResult, DeduplicationResultReason, DeduplicationType};
+use super::duplicate_event::DuplicateEvent;
+use super::IngestionEventParser;
+
+/// Configuration for the ingestion events deduplication processor
 #[derive(Debug, Clone)]
 pub struct DeduplicationConfig {
     pub output_topic: Option<String>,
@@ -120,7 +122,15 @@ struct EnrichedEvent<'a> {
     timestamp_key_bytes: Vec<u8>,
 }
 
-pub struct BatchDeduplicationProcessor {
+/// Batch processor for ingestion events with timestamp-based deduplication.
+///
+/// This processor:
+/// 1. Parses CapturedEvent (wire format) into RawEvent (domain format)
+/// 2. Extracts deduplication keys based on timestamp + event + distinct_id + token
+/// 3. Checks for duplicates in RocksDB
+/// 4. Publishes non-duplicate events to output topic
+/// 5. Optionally publishes duplicate detection results to a separate topic
+pub struct IngestionEventsBatchProcessor {
     config: DeduplicationConfig,
 
     /// Kafka producer for publishing non-duplicate events
@@ -137,7 +147,7 @@ pub struct BatchDeduplicationProcessor {
 }
 
 #[async_trait]
-impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
+impl BatchConsumerProcessor<CapturedEvent> for IngestionEventsBatchProcessor {
     async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
         // Organize messages by partition
         let messages_by_partition = messages
@@ -165,7 +175,7 @@ impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
     }
 }
 
-impl BatchDeduplicationProcessor {
+impl IngestionEventsBatchProcessor {
     /// Create a new deduplication processor with a store manager
     pub fn new(
         config: DeduplicationConfig,
@@ -783,7 +793,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -840,7 +850,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -895,7 +905,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -952,7 +962,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1003,7 +1013,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1073,7 +1083,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1136,7 +1146,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1177,7 +1187,7 @@ mod tests {
 
         // NOTE: We intentionally do NOT pre-create a store here
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
