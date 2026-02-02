@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
@@ -67,11 +69,23 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const hasLogsSettings = useFeatureFlag('LOGS_SETTINGS')
 
+    useEffect(() => {
+        posthog.capture('logs setup prompt viewed')
+    }, [])
+
     useInterval(() => {
         if (!hasLogs) {
             loadTeamHasLogs()
         }
     }, POLLING_INTERVAL_MS)
+
+    const onDocsLinkClick = (docsType: string): void => {
+        posthog.capture('logs onboarding docs clicked', { docs_type: docsType })
+        addProductIntent({
+            product_type: ProductKey.LOGS,
+            intent_context: ProductIntentContext.LOGS_DOCS_VIEWED,
+        })
+    }
 
     return (
         <ProductIntroduction
@@ -86,16 +100,16 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
             actionElementOverride={
                 <div className="flex flex-col items-start gap-4">
                     <p className="text-sm text-secondary m-0">
-                        Learn more about{' '}
+                        Read our{' '}
+                        <Link to="https://posthog.com/docs/logs" onClick={() => onDocsLinkClick('Logs')}>
+                            logs docs
+                        </Link>
+                        , learn more about{' '}
                         <Link
                             to="https://opentelemetry.io/docs/what-is-opentelemetry/"
                             target="_blank"
-                            onClick={() =>
-                                addProductIntent({
-                                    product_type: ProductKey.LOGS,
-                                    intent_context: ProductIntentContext.LOGS_DOCS_VIEWED,
-                                })
-                            }
+                            disableDocsPanel
+                            onClick={() => onDocsLinkClick('OpenTelemetry')}
                         >
                             OpenTelemetry
                         </Link>
@@ -107,15 +121,13 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                                 key={name}
                                 type="secondary"
                                 size="small"
-                                targetBlank
                                 to={docsLink}
-                                onClick={() => {
-                                    addProductIntent({
-                                        product_type: ProductKey.LOGS,
-                                        intent_context: ProductIntentContext.LOGS_DOCS_VIEWED,
-                                    })
-                                }}
-                                icon={image ? <img src={image} alt={name} className="w-5 h-5" /> : undefined}
+                                onClick={() => onDocsLinkClick(name)}
+                                icon={
+                                    image ? (
+                                        <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
+                                    ) : undefined
+                                }
                             >
                                 {name}
                             </LemonButton>
