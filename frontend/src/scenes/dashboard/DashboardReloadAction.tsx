@@ -44,8 +44,13 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, nextAllowedDashboardRefresh, dashboardLoadData } =
         useValues(dashboardLogic)
-    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
-        useActions(dashboardLogic)
+    const {
+        triggerDashboardRefresh,
+        setAutoRefresh,
+        setPageVisibility,
+        cancelDashboardRefresh,
+        analyzeDashboardRefresh,
+    } = useActions(dashboardLogic)
 
     usePageVisibilityCb(setPageVisibility)
 
@@ -131,6 +136,13 @@ export function DashboardReloadAction(): JSX.Element {
                             overlay: (
                                 <LemonMenuOverlay
                                     items={[
+                                        {
+                                            label: 'Refresh & analyze with AI',
+                                            onClick: () => analyzeDashboardRefresh(),
+                                            disabledReason: itemsLoading
+                                                ? 'Wait for current refresh to complete'
+                                                : refreshDisabledReason,
+                                        },
                                         {
                                             label: () => (
                                                 <LemonSwitch

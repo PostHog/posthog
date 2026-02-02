@@ -3,7 +3,7 @@ import './Dashboard.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -68,9 +68,10 @@ function DashboardScene(): JSX.Element {
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         hasVariables,
+        refreshAnalysisResult,
     } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult } = useActions(dashboardLogic)
 
     useFileSystemLogView({
         type: 'dashboard',
@@ -110,6 +111,12 @@ function DashboardScene(): JSX.Element {
                     })}
                 >
                     <DashboardOverridesBanner />
+
+                    {refreshAnalysisResult && (
+                        <LemonBanner type="info" onClose={() => setRefreshAnalysisResult(null)} className="mb-4">
+                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
+                        </LemonBanner>
+                    )}
 
                     <SceneStickyBar showBorderBottom={false}>
                         <div className="flex gap-2 justify-between">
