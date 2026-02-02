@@ -116,6 +116,26 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _get_token_expires_in(self, request) -> int:
+        """
+        Returns access token expiry in seconds.
+        Claude Code doesn't implement refresh tokens properly, so we extend to 4 hours.
+        See: https://github.com/anthropics/claude-code/issues/5706
+        """
+        if hasattr(request, "client") and request.client:
+            if request.client.name and "claude code" in request.client.name.lower():
+                return 60 * 60 * 4
+        return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
+
+    def save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Override to use custom token expiry for certain clients.
+        Sets token["expires_in"] before calling parent, which uses this value
+        when calculating the actual expiry datetime stored in the database.
+        """
+        token["expires_in"] = self._get_token_expires_in(request)
+        return super().save_bearer_token(token, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,

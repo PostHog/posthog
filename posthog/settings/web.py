@@ -13,22 +13,6 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 
-def _get_access_token_expires_in(request) -> int:
-    """
-    Returns the access token expiry in seconds.
-
-    Claude Code doesn't implement refresh tokens properly, so we extend to 4 hours.
-    See: https://github.com/anthropics/claude-code/issues/5706
-    """
-    from oauth2_provider.settings import oauth2_settings
-
-    if hasattr(request, "client") and request.client:
-        if request.client.name and "claude code" in request.client.name.lower():
-            return 60 * 60 * 4
-
-    return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
-
-
 ####
 # django-axes
 
@@ -572,9 +556,6 @@ OAUTH2_PROVIDER = {
     "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
     "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
     "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
-    "OAUTH2_SERVER_KWARGS": {
-        "token_expires_in": _get_access_token_expires_in,
-    },
 }
 
 OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
