@@ -1,10 +1,10 @@
 """Tests for the VideoSegmentClusteringWorkflow.
 
-The test data is stored in two files in the parent directory:
+The test data is stored in two files in the same directory:
 
-- `mock_video_segments.yaml` - Contains segment metadata (document_id, session_id,
-  timestamps, content/descriptions, etc.) in a human-readable format. This file can
-  be inspected and manually edited if needed.
+- `mock_video_segments.yaml.gz` - Gzip-compressed YAML containing segment metadata
+  (document_id, session_id, timestamps, content/descriptions, etc.). Compressed to
+  reduce repo size from 4.7MB to 600KB. Decompress with `gunzip -k` to inspect.
 
 - `mock_video_segments_embeddings.npy` - Contains the 3072-dimensional embeddings
   as a NumPy binary array. Stored separately because embeddings are large binary
@@ -15,6 +15,7 @@ This split format keeps metadata inspectable while efficiently storing the dense
 embedding vectors that are essential for clustering but not human-readable.
 """
 
+import gzip
 import uuid
 from pathlib import Path
 
@@ -155,10 +156,10 @@ async def mock_label_activity(inputs: LabelClustersActivityInputs) -> LabelingRe
 
 def load_test_data() -> tuple[list[dict], np.ndarray]:
     """Load test segments and embeddings from files."""
-    yaml_path = Path(__file__).parent / "mock_video_segments.yaml"
+    yaml_path = Path(__file__).parent / "mock_video_segments.yaml.gz"
     npy_path = Path(__file__).parent / "mock_video_segments_embeddings.npy"
 
-    with open(yaml_path) as f:
+    with gzip.open(yaml_path, "rt") as f:
         data = yaml.safe_load(f)
 
     embeddings = np.load(npy_path)
