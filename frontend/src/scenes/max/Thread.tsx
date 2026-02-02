@@ -918,12 +918,6 @@ function AssistantActionComponent({
     const result = toolCall?.result
     const uiPayload = result?.ui_payload
 
-    const handleClick = (): void => {
-        if (showSubstepsChevron) {
-            setIsSubstepsExpanded(!isSubstepsExpanded)
-        }
-    }
-
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
@@ -933,7 +927,7 @@ function AssistantActionComponent({
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showSubstepsChevron ? 'cursor-default' : 'cursor-pointer'
                 )}
-                onClick={showSubstepsChevron ? handleClick : undefined}
+                onClick={showSubstepsChevron ? () => setIsSubstepsExpanded(!isSubstepsExpanded) : undefined}
                 aria-label={
                     showSubstepsChevron
                         ? isSubstepsExpanded
