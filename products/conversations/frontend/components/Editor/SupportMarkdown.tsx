@@ -10,6 +10,23 @@ import { LemonMarkdown, LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+/**
+ * Validates that a URL is safe to render (http, https, or data URLs only)
+ * Prevents javascript: and other potentially dangerous URL schemes
+ */
+function isSafeImageUrl(url: string): boolean {
+    if (!url) {
+        return false
+    }
+    try {
+        const parsed = new URL(url, window.location.origin)
+        return ['http:', 'https:', 'data:'].includes(parsed.protocol)
+    } catch {
+        // Relative URLs are safe
+        return !url.includes(':') || url.startsWith('/')
+    }
+}
+
 function ImageWithLightbox({ src, alt }: { src: string; alt?: string }): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(true)
@@ -20,6 +37,15 @@ function ImageWithLightbox({ src, alt }: { src: string; alt?: string }): JSX.Ele
         setIsLoading(true)
         setHasError(false)
     }, [src])
+
+    // Validate URL is safe before rendering
+    if (!isSafeImageUrl(src)) {
+        return (
+            <span className="SupportMarkdown__image-error text-muted-alt text-xs italic">
+                Invalid image URL{alt ? `: ${alt}` : ''}
+            </span>
+        )
+    }
 
     if (hasError) {
         return (

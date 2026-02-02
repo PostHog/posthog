@@ -117,7 +117,7 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
  * Note: underline has no standard markdown syntax and is stripped
  */
 export function serializeToMarkdown(content: JSONContent): string {
-    return serializeNode(content)
+    return serializeNode(content).trim()
 }
 
 function serializeNode(node: JSONContent): string {
