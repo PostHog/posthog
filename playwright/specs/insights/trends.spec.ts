@@ -346,7 +346,7 @@ test.describe('Trends insights', () => {
             await expect(ciToggle.locator('..')).toHaveClass(/LemonSwitch--checked/)
 
             const maToggle = page.getByRole('switch', { name: 'Show moving average' })
-            await maToggle.scrollIntoViewIfNeeded()
+            await expect(maToggle).toBeVisible()
             await maToggle.click()
             await expect(maToggle.locator('..')).toHaveClass(/LemonSwitch--checked/)
         })

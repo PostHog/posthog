@@ -452,7 +452,9 @@ jobs:
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
               if: always()
-              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+              run: |
+                  docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
+                  docker logs posthog-clickhouse-1 > playwright/test-results/docker-clickhouse.log 2>&1 || echo "No clickhouse container" > playwright/test-results/docker-clickhouse.log
 
             - name: Archive test artifacts
               if: always()
