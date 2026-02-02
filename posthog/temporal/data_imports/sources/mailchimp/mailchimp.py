@@ -190,14 +190,17 @@ def _fetch_contacts_for_list(
     }
 
     while True:
+        params: dict[str, str | int] = {
+            "count": page_size,
+            "offset": offset,
+        }
+        if since_last_changed:
+            params["since_last_changed"] = since_last_changed
+
         response = requests.get(
             f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
             headers=headers,
-            params={
-                "count": page_size,
-                "offset": offset,
-                **({"since_last_changed": since_last_changed} if since_last_changed else {}),
-            },
+            params=params,
             timeout=120,
         )
         response.raise_for_status()
