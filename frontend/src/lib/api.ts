@@ -208,7 +208,7 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import { Task, TaskReferencesResponse, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -4118,9 +4118,6 @@ const api = {
         },
         async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
             return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
-        },
-        async getReferences(taskId: Task['id']): Promise<TaskReferencesResponse> {
-            return await new ApiRequest().task(taskId).withAction('references').get()
         },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
