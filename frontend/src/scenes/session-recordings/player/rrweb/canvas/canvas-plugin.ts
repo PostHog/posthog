@@ -415,4 +415,3 @@ const abortPreviousListeners = (id: number): void => {
         controller.abort()
     }
 }
-
