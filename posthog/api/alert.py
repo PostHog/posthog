@@ -6,7 +6,8 @@ from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -78,6 +79,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "anomaly_scores",
+            "triggered_points",
+            "triggered_dates",
+            "interval",
         ]
         read_only_fields = fields
 
@@ -339,6 +344,134 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["post"])
+    def backfill(self, request, *args, **kwargs):
+        """
+        Run a detector on historical insight data and optionally save results.
+
+        POST /api/projects/:team_id/alerts/backfill/
+        """
+        import structlog
+
+        from posthog.api.services.query import ExecutionMode
+        from posthog.caching.calculate_results import calculate_for_query_based_insight
+        from posthog.schema_migrations.upgrade_manager import upgrade_query
+        from posthog.tasks.alerts.detectors.registry import get_detector
+        from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS
+        from posthog.utils import get_from_dict_or_attr
+
+        logger = structlog.get_logger(__name__)
+
+        detector_config = request.data.get("detector_config")
+        n_observations = request.data.get("n_observations", 100)
+        insight_id = request.data.get("insight_id")
+        series_index = request.data.get("series_index", 0)
+        alert_id = request.data.get("alert_id")
+
+        if not detector_config:
+            return Response({"error": "detector_config is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not insight_id:
+            return Response({"error": "insight_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        n_observations = max(10, min(200, int(n_observations)))
+
+        try:
+            insight = Insight.objects.get(id=insight_id, team_id=self.team_id)
+        except Insight.DoesNotExist:
+            return Response({"error": "Insight not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        alert = None
+        if alert_id:
+            try:
+                alert = AlertConfiguration.objects.get(id=alert_id, team_id=self.team_id)
+            except AlertConfiguration.DoesNotExist:
+                return Response({"error": "Alert not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            query = insight.query
+            if query is None:
+                return Response({"error": "Insight has no query"}, status=status.HTTP_400_BAD_REQUEST)
+
+            kind = get_from_dict_or_attr(query, "kind")
+            if kind in WRAPPER_NODE_KINDS:
+                query = get_from_dict_or_attr(query, "source")
+
+            query = upgrade_query(query)
+
+            if not isinstance(query, dict) or query.get("kind") != "TrendsQuery":
+                return Response(
+                    {"error": "Only TrendsQuery insights are supported"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            calc_result = calculate_for_query_based_insight(
+                insight,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=request.user,
+            )
+
+            if not calc_result.result:
+                return Response({"error": "No results from insight query"}, status=status.HTTP_400_BAD_REQUEST)
+
+            results = calc_result.result
+            if series_index >= len(results):
+                return Response(
+                    {"error": f"Series index {series_index} out of range"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            series = results[series_index]
+            data = series.get("data", [])
+            labels = series.get("labels", [])
+            dates = series.get("days", labels)
+
+            if len(data) < n_observations:
+                n_observations = len(data)
+
+            data_slice = data[-n_observations:]
+            labels_slice = labels[-n_observations:] if labels else []
+            dates_slice = dates[-n_observations:] if dates else []
+
+            import numpy as np
+
+            detector = get_detector(detector_config)
+            detection_result = detector.detect_batch(np.array(data_slice))
+
+            response_data = {
+                "triggered_indices": detection_result.triggered_indices,
+                "scores": detection_result.all_scores,
+                "total_points": len(data_slice),
+                "anomaly_count": len(detection_result.triggered_indices),
+                "data": data_slice,
+                "labels": labels_slice,
+                "dates": dates_slice,
+                "series_label": series.get("label", ""),
+            }
+
+            if alert and detection_result.triggered_indices:
+                triggered_dates = [dates_slice[i] for i in detection_result.triggered_indices if i < len(dates_slice)]
+                check = AlertCheck.objects.create(
+                    alert_configuration=alert,
+                    calculated_value=data_slice[-1] if data_slice else 0,
+                    state=AlertState.FIRING if detection_result.is_anomaly else AlertState.NOT_FIRING,
+                    anomaly_scores=detection_result.all_scores,
+                    triggered_points=detection_result.triggered_indices,
+                    triggered_dates=triggered_dates,
+                )
+                response_data["saved_check_id"] = str(check.id)
+                response_data["check_state"] = check.state
+                logger.info(
+                    "backfill_saved",
+                    alert_id=alert_id,
+                    check_id=str(check.id),
+                    anomaly_count=len(detection_result.triggered_indices),
+                )
+
+            return Response(response_data)
+
+        except Exception as e:
+            logger.exception("backfill_failed", insight_id=insight_id, error=str(e))
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):
