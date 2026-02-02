@@ -329,7 +329,7 @@ jobs:
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
-                  python manage.py migrate_clickhouse &
+                  python manage.py migrate_clickhouse 2>&1 | tee /tmp/migrate_clickhouse.log &
                   python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database
@@ -337,8 +337,9 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
-                  python manage.py setup_dev
+                  # Wait for background migrations to complete and fail if they errored
                   wait
+                  python manage.py setup_dev
 
             - name: Source celery queues
               run: |
@@ -470,6 +471,7 @@ jobs:
                       playwright/test-results-attempt-*/
                       /tmp/celery.log
                       /tmp/server.log
+                      /tmp/migrate_clickhouse.log
                       /tmp/playwright-output-attempt-*.log
                   retention-days: 30
                   if-no-files-found: ignore
