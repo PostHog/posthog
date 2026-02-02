@@ -15,6 +15,8 @@ export enum RecordingExistsState {
 
 export type RecordingExistsStorage = Record<string, RecordingExistsState>
 
+const RECORDING_EXISTS_CACHE_LIMIT = 500
+
 export const sessionRecordingExistsLogic = kea<sessionRecordingExistsLogicType>([
     path(['lib', 'components', 'ViewRecordingButton', 'sessionRecordingExistsLogic']),
     actions({
@@ -24,12 +26,24 @@ export const sessionRecordingExistsLogic = kea<sessionRecordingExistsLogicType>(
     }),
     reducers({
         recordingExistsStorage: [
-            {} as RecordingExistsStorage, // Choosing not to persist here as we cache on the BE, I don't want to kill client memory
+            {} as RecordingExistsStorage,
             {
-                updateRecordingExistsStorage: (state, { updates }) => ({
-                    ...state,
-                    ...updates,
-                }),
+                // When the limit is exceeded, the oldest entries (earliest in insertion order) are evicted, keeping the most
+                // recent 500. This prevents the cache from growing indefinitely as users browse pages with session recording links.
+                updateRecordingExistsStorage: (state, { updates }) => {
+                    const merged = { ...state, ...updates }
+                    const keys = Object.keys(merged)
+                    if (keys.length <= RECORDING_EXISTS_CACHE_LIMIT) {
+                        return merged
+                    }
+                    const evicted: RecordingExistsStorage = {}
+                    let kept = 0
+                    for (let i = keys.length - 1; i >= 0 && kept < RECORDING_EXISTS_CACHE_LIMIT; i--) {
+                        evicted[keys[i]] = merged[keys[i]]
+                        kept++
+                    }
+                    return evicted
+                },
             },
         ],
     }),
