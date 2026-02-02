@@ -1139,7 +1139,7 @@ class ExperimentQueryBuilder:
 
         # Inject breakdown columns into the exposure query if needed
         if self.breakdown_injector:
-            breakdown_exprs = self.breakdown_injector._build_breakdown_exprs(table_alias="")
+            breakdown_exprs = self.breakdown_injector.build_breakdown_exprs(table_alias="")
 
             # Add breakdown columns to SELECT using argMin attribution
             # This ensures each user is attributed to exactly one breakdown value

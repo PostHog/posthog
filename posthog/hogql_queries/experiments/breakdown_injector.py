@@ -51,11 +51,13 @@ class BreakdownInjector:
         """Returns list of breakdown aliases: ['breakdown_value_1', 'breakdown_value_2', ...]"""
         return [f"breakdown_value_{i + 1}" for i in range(len(self.breakdowns))]
 
-    def _build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
+    def build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
         """
         Returns list of (alias, expression) tuples for extracting breakdown properties from events.
         Handles NULL values by replacing with BREAKDOWN_NULL_STRING_LABEL.
         Returns empty list if no breakdowns configured.
+
+        This is a public method used by exposure query building in ExperimentQueryBuilder.
         """
         if not self._has_breakdown():
             return []
@@ -89,7 +91,7 @@ class BreakdownInjector:
             return
 
         aliases = self._get_breakdown_aliases()
-        breakdown_exprs = self._build_breakdown_exprs(table_alias="")
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="")
 
         # Inject into metric_events CTE SELECT
         if query.ctes and "metric_events" in query.ctes:
@@ -103,6 +105,8 @@ class BreakdownInjector:
             entity_metrics_cte = query.ctes["entity_metrics"]
             if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
                 for alias in aliases:
+                    # nosemgrep: hogql-no-fstring
+                    # Safe: alias is programmatically generated as "breakdown_value_N" (not user input)
                     entity_metrics_cte.expr.select.append(
                         parse_expr(f"argMinIf({alias}, timestamp, step_0 = 1) AS {alias}")
                     )
@@ -138,7 +142,7 @@ class BreakdownInjector:
         assert isinstance(self.metric, ExperimentMeanMetric)
         is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
-        breakdown_exprs = self._build_breakdown_exprs(table_alias="metric_events" if is_dw else "events")
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="metric_events" if is_dw else "events")
 
         # Inject into metric_events CTE SELECT
         if query.ctes and "metric_events" in query.ctes:
