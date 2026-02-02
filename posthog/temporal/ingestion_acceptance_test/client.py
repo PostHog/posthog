@@ -5,17 +5,15 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 import structlog
 
-# Use posthoganalytics instead of posthog to avoid conflict with local posthog/ directory
-import posthoganalytics
-
-from posthog.models.utils import mask_key_value
-
 from .config import Config
+
+if TYPE_CHECKING:
+    from posthoganalytics import Posthog
 
 logger = structlog.get_logger(__name__)
 
@@ -49,22 +47,9 @@ class PostHogClient:
     (since the SDK doesn't support querying).
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, posthog_sdk: "Posthog"):
         self.config = config
-
-        # Configure the official SDK
-        posthoganalytics.api_key = config.project_api_key
-        posthoganalytics.host = config.api_host
-        posthoganalytics.debug = True
-        posthoganalytics.sync_mode = True  # Send events synchronously for testing
-
-        logger.info(
-            "PostHog SDK configured",
-            sdk_host=posthoganalytics.host,
-            sdk_api_key=mask_key_value(config.project_api_key),
-            sdk_sync_mode=posthoganalytics.sync_mode,
-            sdk_debug=posthoganalytics.debug,
-        )
+        self._posthog = posthog_sdk
 
     def capture_event(
         self,
@@ -80,10 +65,10 @@ class PostHogClient:
             event_name=event_name,
             event_uuid=event_uuid,
             distinct_id=distinct_id,
-            sdk_host=posthoganalytics.host,
+            sdk_host=self.config.api_host,
         )
 
-        posthoganalytics.capture(
+        self._posthog.capture(
             distinct_id=distinct_id,
             event=event_name,
             properties=properties or {},
@@ -120,7 +105,7 @@ class PostHogClient:
 
     def shutdown(self) -> None:
         """Shutdown the client and flush any pending events."""
-        posthoganalytics.shutdown()
+        self._posthog.shutdown()
 
     def _poll_until_found(
         self,
