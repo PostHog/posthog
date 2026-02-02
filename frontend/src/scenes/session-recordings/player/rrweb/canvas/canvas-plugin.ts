@@ -229,7 +229,12 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                      */
                     trackUrl(data.id, url)
 
+                    // Abort any previous listeners for this canvas to prevent accumulation
+                    abortPreviousListeners(data.id)
+
                     const controller = new AbortController()
+                    storeController(data.id, controller)
+
                     img.addEventListener(
                         'load',
                         () => {
@@ -265,7 +270,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                             }
 
                             finalizeUrl(data.id, url)
-                            controller.abort()
                         },
                         { signal: controller.signal }
                     )
@@ -273,7 +277,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                         'error',
                         () => {
                             finalizeUrl(data.id, url)
-                            controller.abort()
                         },
                         { signal: controller.signal }
                     )
@@ -399,3 +402,17 @@ const finalizeUrl = (id: number, url: string): void => {
         }
     }
 }
+
+const controllerById = new Map<number, AbortController>()
+
+const storeController = (id: number, controller: AbortController): void => {
+    controllerById.set(id, controller)
+}
+
+const abortPreviousListeners = (id: number): void => {
+    const controller = controllerById.get(id)
+    if (controller) {
+        controller.abort()
+    }
+}
+
