@@ -797,7 +797,7 @@ def clickhouse_send_license_usage() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
 def check_flags_to_rollback() -> None:
     try:
         from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
@@ -1086,7 +1086,7 @@ def delete_organization_data_and_notify_task(
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     autoretry_for=(Exception,),
     retry_backoff=30,
     retry_backoff_max=120,
