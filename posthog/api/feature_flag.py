@@ -1348,7 +1348,8 @@ class FeatureFlagViewSet(
                     stale_threshold = thirty_days_ago()
 
                     # Usage-based staleness (has last_called_at but not called recently)
-                    usage_based_stale = Q(last_called_at__lt=stale_threshold)
+                    # Only active flags can be stale - disabled flags should not be marked as stale
+                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
 
                     # Config-based staleness (no last_called_at, so fall back to rollout config)
                     # This uses raw SQL for the complex JSON filter

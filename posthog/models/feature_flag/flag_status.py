@@ -64,17 +64,21 @@ class FeatureFlagStatusChecker:
 
         if flag.last_called_at is not None:
             # We have usage data - use it as the primary signal
-            is_stale, stale_reason = self.is_flag_stale_by_usage(flag)
-            if is_stale:
-                return FeatureFlagStatus.STALE, stale_reason
-            # Flag has recent usage
-            days_since_called = (datetime.now(UTC) - flag.last_called_at).days
-            if days_since_called == 0:
-                return FeatureFlagStatus.ACTIVE, "Flag was called today"
-            return (
-                FeatureFlagStatus.ACTIVE,
-                f"Flag was last called {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
-            )
+            # But only for active flags - disabled flags should not be marked as stale
+            if flag.active:
+                is_stale, stale_reason = self.is_flag_stale_by_usage(flag)
+                if is_stale:
+                    return FeatureFlagStatus.STALE, stale_reason
+                # Flag has recent usage
+                days_since_called = (datetime.now(UTC) - flag.last_called_at).days
+                if days_since_called == 0:
+                    return FeatureFlagStatus.ACTIVE, "Flag was called today"
+                return (
+                    FeatureFlagStatus.ACTIVE,
+                    f"Flag was last called {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
+                )
+            else:
+                return FeatureFlagStatus.ACTIVE, "Flag is disabled"
         else:
             # No usage data - fall back to configuration-based detection
             # Only for flags that are old enough (30+ days) to have had a chance to be called
