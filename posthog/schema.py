@@ -2384,16 +2384,6 @@ class MatchingEventsResponse(BaseModel):
     results: list[MatchedRecordingEvent]
 
 
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
-
-
 class MaxAddonInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5415,6 +5405,16 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: str | None = None
+
+
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
 
 
 class MaxBillingContextBillingPeriod(BaseModel):
@@ -18650,7 +18650,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"
