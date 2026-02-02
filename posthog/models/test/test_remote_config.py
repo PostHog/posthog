@@ -41,7 +41,7 @@ class _RemoteConfigBase(BaseTest):
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
         self.team.surveys_opt_in = True
-        self.team.test_account_filters = [  # the default test account filters may use a cohort, which aren't supported by hog functions
+        self.team.test_account_filters = [  # the default test account filters may use a cohort, which aren't supported by site functions (real-time filters)
             {
                 "key": "email",
                 "value": "@posthog.com",
