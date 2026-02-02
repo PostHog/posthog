@@ -19275,6 +19275,9 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "resourceFingerprint": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
