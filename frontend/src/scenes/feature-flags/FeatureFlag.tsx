@@ -101,6 +101,7 @@ import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagForm } from './FeatureFlagForm'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -184,6 +185,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const useFormUI = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
 
     useFileSystemLogView({
         type: 'feature_flag',
@@ -212,6 +214,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 <LemonSkeleton active className="h-4 w-3/5" />
             </div>
         )
+    }
+
+    // Use new form UI for creating new flags or editing existing flags
+    // For viewing existing flags (readonly), use the existing FeatureFlag UI with tabs
+    if (useFormUI && (isNewFeatureFlag || isEditingFlag)) {
+        return <FeatureFlagForm id={id} />
     }
 
     if (accessDeniedToFeatureFlag) {
@@ -595,7 +603,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             )}
                             <SceneDivider />
-                            <SceneSection title="Tags & Evaluation Contexts">
+                            <SceneSection
+                                title={
+                                    featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
+                                        ? 'Tags & evaluation contexts'
+                                        : 'Tags'
+                                }
+                            >
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                     <div className="text-secondary text-sm mb-2">
                                         Use tags to organize and filter your feature flags. Mark specific tags as{' '}

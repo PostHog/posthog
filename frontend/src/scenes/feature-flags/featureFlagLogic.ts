@@ -100,7 +100,7 @@ export const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
+        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
         multivariate: null,
         payloads: {},
     },
@@ -132,9 +132,14 @@ const NEW_VARIANT = {
 const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     variants: [
         {
-            key: '',
+            key: 'control',
             name: '',
-            rollout_percentage: 100,
+            rollout_percentage: 50,
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
         },
     ],
 }
@@ -373,6 +378,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
+        // V2 form UI actions
+        setShowImplementation: (show: boolean) => ({ show }),
+        setOpenVariants: (openVariants: string[]) => ({ openVariants }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -683,6 +691,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Reset when operation changes away from UpdateStatus (recurring not supported for other ops)
                 setScheduledChangeOperation: (state, { changeType }) =>
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
+            },
+        ],
+        // V2 form UI state
+        showImplementation: [
+            false,
+            {
+                setShowImplementation: (_, { show }) => show,
+            },
+        ],
+        openVariants: [
+            [] as string[],
+            {
+                setOpenVariants: (_, { openVariants }) => openVariants,
             },
         ],
     }),
@@ -1228,7 +1249,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.editFeatureFlag(false)
                 return
             }
-
             lemonToast.error(`Failed to save flag: ${error}`)
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
