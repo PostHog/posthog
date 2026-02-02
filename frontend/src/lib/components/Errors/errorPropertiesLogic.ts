@@ -124,7 +124,9 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     }),
 
     afterMount(({ values, actions }) => {
-        const rawIds: string[] = values.exceptionList.flatMap((e) => e.stacktrace?.frames).map((frame) => frame.raw_id)
+        const rawIds: string[] = values.exceptionList
+            .flatMap((e) => (Array.isArray(e.stacktrace?.frames) ? e.stacktrace.frames : []))
+            .map((frame) => frame.raw_id)
         actions.loadFromRawIds(rawIds)
     }),
 ])

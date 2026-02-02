@@ -149,8 +149,18 @@ export function getExceptionList(properties: ErrorEventProperties): ErrorTrackin
 
 function processExceptionList(exceptionList: ErrorTrackingException[] = []): ErrorTrackingException[] {
     exceptionList = ensureStringExceptionValues(exceptionList)
+    exceptionList = ensureArrayFrames(exceptionList)
     exceptionList = ensureFrameIdFormat(exceptionList)
     return exceptionList
+}
+
+function ensureArrayFrames(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
+    return exceptionList.map((exception) => {
+        if (exception.stacktrace && !Array.isArray(exception.stacktrace.frames)) {
+            return { ...exception, stacktrace: { ...exception.stacktrace, frames: [] } }
+        }
+        return exception
+    })
 }
 
 function ensureFrameIdFormat(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
