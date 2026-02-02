@@ -5,7 +5,6 @@ import ExtensionDocument from '@tiptap/extension-document'
 import { Image } from '@tiptap/extension-image'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import { MarkdownManager } from '@tiptap/markdown'
 import { EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
@@ -47,6 +46,7 @@ function IconUnderline(): JSX.Element {
 }
 
 export type LemonRichContentEditorProps = {
+    logicKey?: string
     initialContent?: JSONContent | null
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void
@@ -112,19 +112,68 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
     },
 }
 
-// Markdown serializer for rich content - preserves bold, italic, code, images
-// Note: Underline has no standard markdown syntax, will be stripped in markdown output
-const markdownManager = new MarkdownManager({
-    extensions: [StarterKit, Image],
-})
-
 /**
  * Serialize tiptap JSON to markdown string.
- * Preserves formatting: **bold**, *italic*, `code`, ![images](url)
- * Note: underline is not supported in standard markdown
+ * Handles: bold, italic, code, images, mentions, hard breaks
+ * Note: underline has no standard markdown syntax and is stripped
  */
 export function serializeToMarkdown(content: JSONContent): string {
-    return markdownManager.serialize({ type: 'doc', content: content.content || [] })
+    return serializeNode(content)
+}
+
+function serializeNode(node: JSONContent): string {
+    if (!node) {
+        return ''
+    }
+
+    // Handle text nodes with marks
+    if (node.type === 'text') {
+        let text = node.text || ''
+        if (node.marks) {
+            for (const mark of node.marks) {
+                switch (mark.type) {
+                    case 'bold':
+                        text = `**${text}**`
+                        break
+                    case 'italic':
+                        text = `*${text}*`
+                        break
+                    case 'code':
+                        text = `\`${text}\``
+                        break
+                    // underline has no markdown equivalent, skip
+                }
+            }
+        }
+        return text
+    }
+
+    // Handle specific node types
+    switch (node.type) {
+        case 'doc':
+            return (node.content || []).map(serializeNode).join('')
+
+        case 'paragraph': {
+            const content = (node.content || []).map(serializeNode).join('')
+            return content + '\n\n'
+        }
+
+        case 'hardBreak':
+            return '\n'
+
+        case 'image':
+            return `![${node.attrs?.alt || 'image'}](${node.attrs?.src || ''})`
+
+        case RichContentNodeType.Mention:
+            return `@member:${node.attrs?.id}`
+
+        default:
+            // For unknown nodes, try to serialize children
+            if (node.content) {
+                return (node.content || []).map(serializeNode).join('')
+            }
+            return ''
+    }
 }
 
 export function RichContentPreview({
