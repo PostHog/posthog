@@ -5712,6 +5712,7 @@ export enum SDKKey {
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    NUXT_JS_36 = 'nuxtjs_36',
     OPENAI = 'openai',
     OPENROUTER = 'openrouter',
     PHP = 'php',
@@ -5735,6 +5736,7 @@ export enum SDKKey {
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
     ZAPIER = 'zapier',
+    HONO = 'hono',
 }
 
 export enum SDKTag {
