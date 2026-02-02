@@ -40,6 +40,13 @@ class CreateRunInput:
 
 
 @dataclass(frozen=True)
+class CreateProjectInput:
+    """Input for creating a project."""
+
+    name: str
+
+
+@dataclass(frozen=True)
 class ApproveSnapshotInput:
     """A snapshot approval from the UI."""
 
@@ -48,8 +55,16 @@ class ApproveSnapshotInput:
 
 
 @dataclass(frozen=True)
+class ApproveRunRequestInput:
+    """Request body for approving a run. run_id and user_id come from URL and auth."""
+
+    snapshots: list[ApproveSnapshotInput]
+    commit_to_github: bool = True
+
+
+@dataclass(frozen=True)
 class ApproveRunInput:
-    """Input for approving visual changes."""
+    """Full input for approving visual changes (internal use)."""
 
     run_id: UUID
     user_id: int
@@ -141,8 +156,17 @@ class Run:
 
 
 @dataclass(frozen=True)
+class UpdateProjectRequestInput:
+    """Request body for updating a project. project_id comes from URL."""
+
+    name: str | None = None
+    repo_full_name: str | None = None
+    baseline_file_paths: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
 class UpdateProjectInput:
-    """Input for updating a project."""
+    """Full input for updating a project (internal use)."""
 
     project_id: UUID
     name: str | None = None

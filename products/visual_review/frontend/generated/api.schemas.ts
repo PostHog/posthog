@@ -27,27 +27,22 @@ export interface PaginatedProjectListApi {
     results: ProjectApi[]
 }
 
+export interface CreateProjectInputApi {
+    name: string
+}
+
 /**
  * @nullable
  */
-export type PatchedUpdateProjectInputApiBaselineFilePaths = { [key: string]: string } | null | null
+export type PatchedUpdateProjectRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
 
-/**
- * Input for updating a project. project_id comes from URL.
- */
-export interface PatchedUpdateProjectInputApi {
-    /**
-     * @maxLength 255
-     * @nullable
-     */
+export interface PatchedUpdateProjectRequestInputApi {
+    /** @nullable */
     name?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
+    /** @nullable */
     repo_full_name?: string | null
     /** @nullable */
-    baseline_file_paths?: PatchedUpdateProjectInputApiBaselineFilePaths
+    baseline_file_paths?: PatchedUpdateProjectRequestInputApiBaselineFilePaths
 }
 
 export interface RunSummaryApi {
@@ -136,10 +131,7 @@ export interface ApproveSnapshotInputApi {
     new_hash: string
 }
 
-/**
- * Input for approving a run.
- */
-export interface ApproveRunInputApi {
+export interface ApproveRunRequestInputApi {
     snapshots: ApproveSnapshotInputApi[]
     commit_to_github?: boolean
 }

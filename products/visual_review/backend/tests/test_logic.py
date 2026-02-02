@@ -178,6 +178,7 @@ class TestRunOperations:
         )
 
         snapshot = run.snapshots.first()
+        assert snapshot is not None
         assert snapshot.baseline_artifact_id == baseline_artifact.id
         assert snapshot.result == SnapshotResult.CHANGED
 
@@ -315,6 +316,7 @@ class TestApproveRun:
 
         # Result should NOT be mutated - approval is recorded separately
         snapshot = updated.snapshots.first()
+        assert snapshot is not None
         assert snapshot.result == SnapshotResult.CHANGED  # Result preserved
         assert snapshot.approved_hash == "new_hash"  # Approval recorded
         assert snapshot.reviewed_at is not None

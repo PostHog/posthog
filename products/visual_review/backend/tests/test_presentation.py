@@ -53,7 +53,7 @@ class TestProjectViewSet(APIBaseTest):
 class TestRunViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.project = api.create_project(team_id=self.team.id, name="Test")
+        self.vr_project = api.create_project(team_id=self.team.id, name="Test")
 
     @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
     def test_create_run(self, mock_presigned):
@@ -65,7 +65,7 @@ class TestRunViewSet(APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/runs/",
             {
-                "project_id": str(self.project.id),
+                "project_id": str(self.vr_project.id),
                 "run_type": "storybook",
                 "commit_sha": "abc123def456789",
                 "branch": "main",
@@ -90,7 +90,7 @@ class TestRunViewSet(APIBaseTest):
     def test_retrieve_run(self):
         create_result = api.create_run(
             CreateRunInput(
-                project_id=self.project.id,
+                project_id=self.vr_project.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -108,7 +108,7 @@ class TestRunViewSet(APIBaseTest):
     def test_get_run_snapshots(self):
         create_result = api.create_run(
             CreateRunInput(
-                project_id=self.project.id,
+                project_id=self.vr_project.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -133,7 +133,7 @@ class TestRunViewSet(APIBaseTest):
         """Runs with no changes complete immediately without triggering diff task."""
         create_result = api.create_run(
             CreateRunInput(
-                project_id=self.project.id,
+                project_id=self.vr_project.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",
@@ -150,7 +150,7 @@ class TestRunViewSet(APIBaseTest):
     def test_approve_run(self):
         # Create artifact directly via logic (API no longer exposes register_artifact)
         logic.get_or_create_artifact(
-            project_id=self.project.id,
+            project_id=self.vr_project.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
         )
@@ -158,7 +158,7 @@ class TestRunViewSet(APIBaseTest):
         # Create run with changed snapshot
         create_result = api.create_run(
             CreateRunInput(
-                project_id=self.project.id,
+                project_id=self.vr_project.id,
                 run_type=RunType.STORYBOOK,
                 commit_sha="abc123",
                 branch="main",

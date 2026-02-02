@@ -10,20 +10,30 @@ Responsibilities:
 No business logic here - that belongs in logic.py via the facade.
 """
 
+from typing import cast
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..api import api
-from ..api.dtos import ApproveRunInput, UpdateProjectInput
+from ..api.dtos import (
+    ApproveRunInput,
+    ApproveRunRequestInput,
+    CreateProjectInput,
+    CreateRunInput,
+    UpdateProjectInput,
+    UpdateProjectRequestInput,
+)
 from .serializers import (
     ApproveRunInputSerializer,
+    CreateProjectInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
     ProjectSerializer,
@@ -56,11 +66,13 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         projects = api.list_projects(self.team_id)
         return Response(ProjectSerializer(instance=projects, many=True).data)
 
-    @extend_schema(responses={201: ProjectSerializer})
-    def create(self, request: Request, **kwargs) -> Response:
+    @validated_request(
+        request_serializer=CreateProjectInputSerializer,
+        responses={201: OpenApiResponse(response=ProjectSerializer)},
+    )
+    def create(self, request: ValidatedRequest[CreateProjectInput], **kwargs) -> Response:
         """Create a new project."""
-        name = request.data.get("name")
-        project = api.create_project(team_id=self.team_id, name=name)
+        project = api.create_project(team_id=self.team_id, name=request.validated_data.name)
         return Response(ProjectSerializer(instance=project).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: ProjectSerializer})
@@ -72,17 +84,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(ProjectSerializer(instance=project).data)
 
-    @extend_schema(request=UpdateProjectInputSerializer, responses={200: ProjectSerializer})
-    def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
+    @validated_request(
+        request_serializer=UpdateProjectInputSerializer,
+        responses={200: OpenApiResponse(response=ProjectSerializer)},
+    )
+    def partial_update(self, request: ValidatedRequest[UpdateProjectRequestInput], pk: str, **kwargs) -> Response:
         """Update a project's settings."""
-        serializer = UpdateProjectInputSerializer(data={**request.data, "project_id": pk})
-        serializer.is_valid(raise_exception=True)
-
+        body = request.validated_data
         input_dto = UpdateProjectInput(
             project_id=UUID(pk),
-            name=serializer.validated_data.get("name"),
-            repo_full_name=serializer.validated_data.get("repo_full_name"),
-            baseline_file_paths=serializer.validated_data.get("baseline_file_paths"),
+            name=body.name,
+            repo_full_name=body.repo_full_name,
+            baseline_file_paths=body.baseline_file_paths,
         )
 
         try:
@@ -115,15 +128,13 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(RunSerializer(instance=runs, many=True).data)
 
-    @extend_schema(request=CreateRunInputSerializer, responses={201: CreateRunResultSerializer})
-    def create(self, request: Request, **kwargs) -> Response:
+    @validated_request(
+        request_serializer=CreateRunInputSerializer,
+        responses={201: OpenApiResponse(response=CreateRunResultSerializer)},
+    )
+    def create(self, request: ValidatedRequest[CreateRunInput], **kwargs) -> Response:
         """Create a new run from a CI manifest."""
-        serializer = CreateRunInputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # DataclassSerializer returns a CreateRunInput dataclass directly
-        input_dto = serializer.validated_data
-        result = api.create_run(input_dto)
+        result = api.create_run(request.validated_data)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RunSerializer})
@@ -159,20 +170,19 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
 
-    @extend_schema(request=ApproveRunInputSerializer, responses={200: RunSerializer})
+    @validated_request(
+        request_serializer=ApproveRunInputSerializer,
+        responses={200: OpenApiResponse(response=RunSerializer)},
+    )
     @action(detail=True, methods=["post"])
-    def approve(self, request: Request, pk: str, **kwargs) -> Response:
+    def approve(self, request: ValidatedRequest[ApproveRunRequestInput], pk: str, **kwargs) -> Response:
         """Approve visual changes for snapshots in this run."""
-        serializer = ApproveRunInputSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        data = serializer.validated_data
-        # ApproveSnapshotInputSerializer returns ApproveSnapshotInput dataclass objects
+        body = request.validated_data
         input_dto = ApproveRunInput(
             run_id=UUID(pk),
-            user_id=request.user.id,
-            snapshots=data["snapshots"],  # Already a list of ApproveSnapshotInput
-            commit_to_github=data.get("commit_to_github", True),
+            user_id=cast(int, request.user.id),
+            snapshots=body.snapshots,
+            commit_to_github=body.commit_to_github,
         )
 
         try:

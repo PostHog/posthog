@@ -4,12 +4,13 @@ DRF serializers for visual_review.
 Converts DTOs to/from JSON using DataclassSerializer.
 """
 
-from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..api.dtos import (
+    ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
+    CreateProjectInput,
     CreateRunInput,
     CreateRunResult,
     Project,
@@ -17,6 +18,7 @@ from ..api.dtos import (
     RunSummary,
     Snapshot,
     SnapshotManifestItem,
+    UpdateProjectRequestInput,
     UploadTarget,
 )
 
@@ -76,16 +78,9 @@ class CreateRunInputSerializer(DataclassSerializer):
         dataclass = CreateRunInput
 
 
-class UpdateProjectInputSerializer(serializers.Serializer):
-    """Input for updating a project. project_id comes from URL."""
-
-    name = serializers.CharField(max_length=255, required=False, allow_null=True)
-    repo_full_name = serializers.CharField(max_length=255, required=False, allow_null=True, allow_blank=True)
-    baseline_file_paths = serializers.DictField(
-        child=serializers.CharField(max_length=512),
-        required=False,
-        allow_null=True,
-    )
+class UpdateProjectInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = UpdateProjectRequestInput
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
@@ -93,8 +88,11 @@ class ApproveSnapshotInputSerializer(DataclassSerializer):
         dataclass = ApproveSnapshotInput
 
 
-class ApproveRunInputSerializer(serializers.Serializer):
-    """Input for approving a run."""
+class ApproveRunInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ApproveRunRequestInput
 
-    snapshots = ApproveSnapshotInputSerializer(many=True)
-    commit_to_github = serializers.BooleanField(default=True, required=False)
+
+class CreateProjectInputSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CreateProjectInput

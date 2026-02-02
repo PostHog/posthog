@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar, cast
+from typing import Any, Generic, TypeVar, cast
 
 from django.conf import settings
 
@@ -18,15 +18,27 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+TData = TypeVar("TData")  # For validated_data typing (dict or dataclass)
 
 
-class ValidatedRequest(Request):
+class ValidatedRequest(Request, Generic[TData]):
     """
     Request with validated_data and validated_query_data attributes.
     These are set by the @validated_request decorator when serializers are provided.
+
+    Generic over TData to support both dict (regular serializers) and dataclass
+    (DataclassSerializer) return types:
+
+        # Regular serializer - returns dict
+        def create(self, request: ValidatedRequest[dict], **kwargs):
+            name = request.validated_data["name"]
+
+        # DataclassSerializer - returns typed dataclass
+        def create(self, request: ValidatedRequest[CreateRunInput], **kwargs):
+            result = api.create_run(request.validated_data)  # Typed as CreateRunInput
     """
 
-    validated_data: dict[str, Any]
+    validated_data: TData
     validated_query_data: dict[str, Any]
 
 
@@ -56,20 +68,23 @@ def validated_request(
     """
     Takes req/res serializers and validates against them.
 
-    Usage:
+    Usage with regular serializer (validated_data is dict):
         @validated_request(
             request_serializer=RequestBodySerializer,
             query_serializer=QuerySerializer,
-            responses={
-                200: Response(response=SuccessResponseSerializer, ...),
-            },
-            summary="Do something"
+            responses={200: OpenApiResponse(response=SuccessResponseSerializer)},
         )
-        def my_action(self, request: ValidatedRequest, **kwargs):
-            # request.validated_data contains validated body data (if request_serializer provided)
-            # request.validated_query_data contains validated query params (if query_serializer provided)
+        def my_action(self, request: ValidatedRequest[dict], **kwargs):
             body_field = request.validated_data["field"]
             query_param = request.validated_query_data["param"]
+
+    Usage with DataclassSerializer (validated_data is typed dataclass):
+        @validated_request(
+            request_serializer=CreateRunInputSerializer,  # DataclassSerializer
+            responses={201: OpenApiResponse(response=ResultSerializer)},
+        )
+        def create(self, request: ValidatedRequest[CreateRunInput], **kwargs):
+            result = api.create_run(request.validated_data)  # Typed as CreateRunInput
     """
 
     def decorator(view_func: Callable) -> Callable:

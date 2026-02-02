@@ -9,13 +9,14 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    ApproveRunInputApi,
+    ApproveRunRequestInputApi,
+    CreateProjectInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
     PaginatedProjectListApi,
     PaginatedRunListApi,
     PaginatedSnapshotListApi,
-    PatchedUpdateProjectInputApi,
+    PatchedUpdateProjectRequestInputApi,
     ProjectApi,
     RunApi,
     VisualReviewProjectsListParams,
@@ -60,10 +61,16 @@ export const getVisualReviewProjectsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/visual_review/projects/`
 }
 
-export const visualReviewProjectsCreate = async (projectId: string, options?: RequestInit): Promise<ProjectApi> => {
+export const visualReviewProjectsCreate = async (
+    projectId: string,
+    createProjectInputApi: CreateProjectInputApi,
+    options?: RequestInit
+): Promise<ProjectApi> => {
     return apiMutator<ProjectApi>(getVisualReviewProjectsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createProjectInputApi),
     })
 }
 
@@ -95,14 +102,14 @@ export const getVisualReviewProjectsPartialUpdateUrl = (projectId: string, id: s
 export const visualReviewProjectsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUpdateProjectInputApi: PatchedUpdateProjectInputApi,
+    patchedUpdateProjectRequestInputApi: PatchedUpdateProjectRequestInputApi,
     options?: RequestInit
 ): Promise<ProjectApi> => {
     return apiMutator<ProjectApi>(getVisualReviewProjectsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUpdateProjectInputApi),
+        body: JSON.stringify(patchedUpdateProjectRequestInputApi),
     })
 }
 
@@ -184,14 +191,14 @@ export const getVisualReviewRunsApproveCreateUrl = (projectId: string, id: strin
 export const visualReviewRunsApproveCreate = async (
     projectId: string,
     id: string,
-    approveRunInputApi: ApproveRunInputApi,
+    approveRunRequestInputApi: ApproveRunRequestInputApi,
     options?: RequestInit
 ): Promise<RunApi> => {
     return apiMutator<RunApi>(getVisualReviewRunsApproveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(approveRunInputApi),
+        body: JSON.stringify(approveRunRequestInputApi),
     })
 }
 

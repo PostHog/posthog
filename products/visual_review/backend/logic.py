@@ -518,6 +518,9 @@ def _commit_baseline_to_github(run: Run, project: Project, approved_snapshots: l
     if github.access_token_expired():
         github.refresh_access_token()
 
+    if run.pr_number is None:
+        raise GitHubCommitError("Cannot commit to GitHub: run has no associated PR number")
+
     pr_info = _get_pr_info(github, project.repo_full_name, run.pr_number)
 
     if pr_info["head_sha"] != run.commit_sha:
