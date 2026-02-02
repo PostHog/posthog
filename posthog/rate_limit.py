@@ -1,5 +1,6 @@
 import re
 import time
+import uuid
 import hashlib
 from contextlib import suppress
 from functools import lru_cache
@@ -624,10 +625,14 @@ class WidgetUploadThrottle(SimpleRateThrottle):
     rate = "10/minute"
 
     def get_cache_key(self, request, view):
-        # Throttle by widget_session_id if available, otherwise by IP
+        # Throttle by widget_session_id if valid UUID, otherwise fall back to IP
         widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
         if widget_session_id:
-            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
+            try:
+                uuid.UUID(widget_session_id)
+                ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
+            except (ValueError, AttributeError):
+                ident = self.get_ident(request)
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}

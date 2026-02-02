@@ -468,7 +468,9 @@ class WidgetUploadView(APIView):
         if not validate_origin(request, team):
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Validate widget_session_id
+        # Validate widget_session_id (used for rate limiting, not ownership - images are team-scoped)
+        # Unlike ticket endpoints, uploaded images aren't session-owned; they're publicly accessible URLs.
+        # Ownership validation happens when the image is used in a message via WidgetMessageView.
         serializer = WidgetUploadSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetUploadView", extra={"errors": serializer.errors})
