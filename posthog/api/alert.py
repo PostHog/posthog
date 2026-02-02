@@ -415,7 +415,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"error": "No results from insight query"}, status=status.HTTP_400_BAD_REQUEST)
 
             results = calc_result.result
-            if series_index >= len(results):
+            if series_index < 0 or series_index >= len(results):
                 return Response(
                     {"error": f"Series index {series_index} out of range"}, status=status.HTTP_400_BAD_REQUEST
                 )
@@ -448,8 +448,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "series_label": series.get("label", ""),
             }
 
-            if alert and detection_result.triggered_indices:
-                triggered_dates = [dates_slice[i] for i in detection_result.triggered_indices if i < len(dates_slice)]
+            if alert:
+                triggered_dates = (
+                    [dates_slice[i] for i in detection_result.triggered_indices if i < len(dates_slice)]
+                    if detection_result.triggered_indices
+                    else []
+                )
+                interval = query.get("interval") if isinstance(query, dict) else None
                 check = AlertCheck.objects.create(
                     alert_configuration=alert,
                     calculated_value=data_slice[-1] if data_slice else 0,
@@ -457,6 +462,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     anomaly_scores=detection_result.all_scores,
                     triggered_points=detection_result.triggered_indices,
                     triggered_dates=triggered_dates,
+                    interval=interval,
                 )
                 response_data["saved_check_id"] = str(check.id)
                 response_data["check_state"] = check.state
