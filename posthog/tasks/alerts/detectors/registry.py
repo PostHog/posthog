@@ -66,6 +66,9 @@ def _ensure_registered() -> None:
         return
 
     from posthog.tasks.alerts.detectors import ensemble, threshold  # noqa: F401
-    from posthog.tasks.alerts.detectors.statistical import mad, zscore  # noqa: F401
+    from posthog.tasks.alerts.detectors.statistical import iqr, mad, zscore  # noqa: F401
+
+    # PyOD detectors (require pyod package, already a core dependency)
+    from posthog.tasks.alerts.detectors.pyod_detectors import copod, ecod, isolation_forest, knn  # noqa: F401
 
     _REGISTERED = True
