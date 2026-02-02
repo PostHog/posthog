@@ -52,7 +52,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Build package
-              run: cd services/mcp/typescript && pnpm build
+              run: cd services/mcp && pnpm build
 
     unit-tests:
         name: Unit Tests
