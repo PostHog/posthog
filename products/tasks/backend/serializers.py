@@ -265,3 +265,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+
+
+class ConnectionTokenResponseSerializer(serializers.Serializer):
+    """Response containing a JWT token for direct sandbox connection"""
+
+    token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")

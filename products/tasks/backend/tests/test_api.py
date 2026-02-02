@@ -579,6 +579,32 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_connection_token_returns_jwt(self):
+        import jwt
+        from django.conf import settings
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("token", data)
+
+        decoded = jwt.decode(
+            data["token"],
+            settings.SECRET_KEY,
+            audience="posthog:sandbox_connection",
+            algorithms=["HS256"],
+        )
+
+        self.assertEqual(decoded["run_id"], str(run.id))
+        self.assertEqual(decoded["task_id"], str(task.id))
+        self.assertEqual(decoded["team_id"], self.team.id)
+        self.assertEqual(decoded["user_id"], self.user.id)
+        self.assertIn("exp", decoded)
+
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):

@@ -40,13 +40,14 @@ def get_default_scopes() -> list[str]:
         "organization:read",
         "project:read",
         "task:write",
+        "llm_gateway:read",
     ]
 
 
 def create_oauth_access_token(task: Task) -> str:
     """Create an OAuth access token for the Array app, scoped to the task's team.
 
-    OAuth tokens auto-expire after 1 hour, so no cleanup is needed.
+    OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
     """
     if not task.created_by:
         raise TaskInvalidStateError(
@@ -61,7 +62,7 @@ def create_oauth_access_token(task: Task) -> str:
 def create_oauth_access_token_for_user(user, team_id: int) -> str:
     """Create an OAuth access token for the Array app, scoped to a specific team.
 
-    OAuth tokens auto-expire after 1 hour, so no cleanup is needed.
+    OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
     """
     scopes = get_default_scopes()
     app = get_array_app()
@@ -71,7 +72,7 @@ def create_oauth_access_token_for_user(user, team_id: int) -> str:
         user=user,
         application=app,
         token=token_value,
-        expires=timezone.now() + timedelta(hours=1),
+        expires=timezone.now() + timedelta(hours=6),
         scope=" ".join(scopes),
         scoped_teams=[team_id],
     )
