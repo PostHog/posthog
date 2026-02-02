@@ -15,6 +15,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 from unittest.mock import MagicMock, patch
 
@@ -2564,6 +2565,158 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results[0]["data"] == [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+
+    @snapshot_clickhouse_queries
+    def test_fill_empty_with_previous(self):
+        # Create events with explicit gaps
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                # Gap on Jan 13, 14
+                                "2020-01-15T12:00:00Z",
+                                # Gap on Jan 16, 17, 18
+                                "2020-01-19T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome"},
+                ),
+            ]
+        )
+
+        # Without fill - should have zeros and no is_filling_gap metadata
+        response_without_fill = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(fillEmptyWithPrevious=False),
+            None,
+        )
+        # Gaps show as zeros: Jan 11, 12, (0, 0), 15, (0, 0, 0), 19
+        assert response_without_fill.results[0]["data"] == [1, 1, 0, 0, 1, 0, 0, 0, 1]
+        assert response_without_fill.results[0]["is_filling_gap"] is None
+
+        # With fill - zeros should be replaced with previous value and is_filling_gap metadata should be present
+        response_with_fill = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(fillEmptyWithPrevious=True),
+            None,
+        )
+        # Gaps filled: Jan 11, 12, (1, 1), 15, (1, 1, 1), 19
+        assert response_with_fill.results[0]["data"] == [1, 1, 1, 1, 1, 1, 1, 1, 1]
+        # is_filling_gap should mark which values were filled (True where original was 0)
+        # Original: [1, 1, 0, 0, 1, 0, 0, 0, 1] - events on Jan 11, 12, 15, 19
+        assert response_with_fill.results[0]["is_filling_gap"] == [
+            False,  # Jan 11 - real data (1 event)
+            False,  # Jan 12 - real data (1 event)
+            True,  # Jan 13 - filled gap (was 0)
+            True,  # Jan 14 - filled gap (was 0)
+            False,  # Jan 15 - real data (1 event)
+            True,  # Jan 16 - filled gap (was 0)
+            True,  # Jan 17 - filled gap (was 0)
+            True,  # Jan 18 - filled gap (was 0)
+            False,  # Jan 19 - real data (1 event)
+        ]
+
+    def test_fill_empty_with_previous_varying_values(self):
+        # Create events with varying counts and gaps to verify fill uses correct previous values
+        # Target pattern: [1, 1, 0, 0, 2, 2, 3, 0, 0] -> [1, 1, 1, 1, 2, 2, 3, 3, 3]
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",  # 1 event on Jan 11
+                                "2020-01-12T12:00:00Z",  # 1 event on Jan 12
+                                # Gap on Jan 13, 14
+                                "2020-01-15T12:00:00Z",  # 1 event on Jan 15 (will be 2 total with p2)
+                                "2020-01-16T12:00:00Z",  # 1 event on Jan 16 (will be 2 total with p2)
+                                "2020-01-17T12:00:00Z",  # 1 event on Jan 17 (will be 3 total with p2+p3)
+                                # Gap on Jan 18, 19
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Chrome"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-15T12:00:00Z",  # +1 on Jan 15
+                                "2020-01-16T12:00:00Z",  # +1 on Jan 16
+                                "2020-01-17T12:00:00Z",  # +1 on Jan 17
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Firefox"},
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-17T12:00:00Z",  # +1 on Jan 17 (total 3)
+                            ],
+                        ),
+                    ],
+                    properties={"$browser": "Safari"},
+                ),
+            ]
+        )
+
+        # Without fill - should show actual counts with zeros
+        response_without_fill = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(fillEmptyWithPrevious=False),
+            None,
+        )
+        assert response_without_fill.results[0]["data"] == [1, 1, 0, 0, 2, 2, 3, 0, 0]
+        assert response_without_fill.results[0]["is_filling_gap"] is None
+
+        # With fill - zeros should be replaced with their respective previous values
+        response_with_fill = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(fillEmptyWithPrevious=True),
+            None,
+        )
+        # Jan 13-14 filled with 1 (from Jan 12), Jan 18-19 filled with 3 (from Jan 17)
+        assert response_with_fill.results[0]["data"] == [1, 1, 1, 1, 2, 2, 3, 3, 3]
+        # is_filling_gap marks filled positions
+        # Original: [1, 1, 0, 0, 2, 2, 3, 0, 0]
+        assert response_with_fill.results[0]["is_filling_gap"] == [
+            False,  # Jan 11 - real data (1)
+            False,  # Jan 12 - real data (1)
+            True,  # Jan 13 - filled gap (was 0, filled with 1)
+            True,  # Jan 14 - filled gap (was 0, filled with 1)
+            False,  # Jan 15 - real data (2)
+            False,  # Jan 16 - real data (2)
+            False,  # Jan 17 - real data (3)
+            True,  # Jan 18 - filled gap (was 0, filled with 3)
+            True,  # Jan 19 - filled gap (was 0, filled with 3)
+        ]
 
     @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
     def test_cohort_modifier(self, patch_create_default_modifiers_for_team):

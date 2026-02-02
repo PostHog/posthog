@@ -502,7 +502,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         def get_value(name: str, val: Any):
-            if name not in ["date", "total", "breakdown_value"]:
+            if name not in ["date", "total", "breakdown_value", "is_filling_gap"]:
                 raise Exception("Column not found in hogql results")
             if response.columns is None:
                 raise Exception("No columns returned from hogql results")
@@ -564,6 +564,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
                 series_object = {
                     "data": get_value("total", val),
+                    "is_filling_gap": get_value("is_filling_gap", val),
                     "labels": [
                         format_label_date(item, self.query_date_range, self.team.week_start_day)
                         for item in get_value("date", val)

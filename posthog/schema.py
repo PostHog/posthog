@@ -6568,6 +6568,10 @@ class TrendsFilter(BaseModel):
         default=None, description="detailed results table"
     )
     display: ChartDisplayType | None = ChartDisplayType.ACTIONS_LINE_GRAPH
+    fillEmptyWithPrevious: bool | None = Field(
+        default=False,
+        description="Fill empty data points (zeros) with the previous non-zero value.",
+    )
     formula: str | None = None
     formulaNodes: list[TrendsFormulaNode] | None = Field(
         default=None,

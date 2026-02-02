@@ -9,6 +9,7 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { FillEmptyFilter } from 'lib/components/FillEmptyFilter/FillEmptyFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
@@ -114,6 +115,7 @@ export function InsightDisplayConfig(): JSX.Element {
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                           ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
+                          ...(isTrends ? [{ label: () => <FillEmptyFilter /> }] : []),
                       ],
                   },
               ]

@@ -1310,6 +1310,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** Fill empty data points (zeros) with the previous non-zero value. @default false */
+    fillEmptyWithPrevious?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1332,6 +1334,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'fillEmptyWithPrevious',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {

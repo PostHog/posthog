@@ -31906,6 +31906,11 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "default": "ActionsLineGraph"
                 },
+                "fillEmptyWithPrevious": {
+                    "default": false,
+                    "description": "Fill empty data points (zeros) with the previous non-zero value.",
+                    "type": "boolean"
+                },
                 "formula": {
                     "deprecated": "Use formulaNodes instead.",
                     "type": "string"

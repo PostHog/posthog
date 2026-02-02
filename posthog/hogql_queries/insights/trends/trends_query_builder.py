@@ -249,14 +249,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         """
         )
 
-        if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
-            # fill zeros in with the previous value
+        should_fill_empty = self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE or (
+            self.query.trendsFilter is not None and self.query.trendsFilter.fillEmptyWithPrevious
+        )
+
+        is_filling_gap_array: ast.Expr | None = None
+        if should_fill_empty:
+            # Store original array before filling to compute is_filling_gap mask
+            original_array = total_array
+            # Fill zeros with previous non-zero value
             total_array = parse_expr(
-                """
-            arrayFill(x -> x > 0, {total_array} )
-            """,
+                """arrayFill(x -> x > 0, {total_array})""",
                 {"total_array": total_array},
             )
+            # Only compute is_filling_gap for explicit fillEmptyWithPrevious (not cumulative display)
+            if self.query.trendsFilter is not None and self.query.trendsFilter.fillEmptyWithPrevious:
+                is_filling_gap_array = parse_expr(
+                    """arrayMap((orig, filled) -> orig = 0 and filled != 0, {original}, {filled})""",
+                    {"original": original_array, "filled": total_array},
+                )
 
         select: list[ast.Expr] = [
             self._get_date_subqueries(),
@@ -295,6 +306,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             ]
         else:
             select.append(ast.Alias(alias="total", expr=total_array))
+
+        # Add is_filling_gap mask when fillEmptyWithPrevious is enabled
+        if is_filling_gap_array is not None:
+            select.append(ast.Alias(alias="is_filling_gap", expr=is_filling_gap_array))
 
         query = ast.SelectQuery(
             select=select,
