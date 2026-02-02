@@ -74,6 +74,7 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
                     if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {
                         return null
                     }
+
                     return (
                         <text
                             key={i}

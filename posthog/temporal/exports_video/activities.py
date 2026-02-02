@@ -108,6 +108,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
                 screenshot_height=build.get("height"),  # None if not provided
                 recording_duration=build["duration"],
                 playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
+                use_puppeteer=build.get("use_puppeteer", False),
             ),
         )
         return {
@@ -126,14 +127,12 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
     asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
     tmp_path = inputs["tmp_path"]
     inactivity_periods = inputs.get("inactivity_periods")
-
     if inactivity_periods:
         if asset.export_context is None:
             asset.export_context = {}
         inactivity_periods = cast(list[dict[str, Any]], inactivity_periods)
         asset.export_context["inactivity_periods"] = inactivity_periods
         asset.save(update_fields=["export_context"])
-
     # Check file size first to prevent OOM
     file_size = os.path.getsize(tmp_path)
     MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
@@ -141,17 +140,14 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
         raise RuntimeError(
             f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
         )
-
     # Read in chunks to avoid loading entire file into memory at once
     chunk_size = 64 * 1024  # 64KB chunks for better I/O performance
     chunks = []
     with open(tmp_path, "rb") as f:
         while chunk := f.read(chunk_size):
             chunks.append(chunk)
-
     data = b"".join(chunks)
     save_content(asset, data)
-
     # Cleanup
     try:
         os.remove(tmp_path)
