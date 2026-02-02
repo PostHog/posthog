@@ -4808,6 +4808,7 @@ export const externalDataSources = [
     'TikTokAds',
     'BingAds',
     'Shopify',
+    'Attio',
     'SnapchatAds',
 ] as const
 
