@@ -28,9 +28,6 @@ KMEANS_K_MULTIPLIER = 50.0  # Multiplier for log10(n) to estimate K, e.g. 1000 s
 # Task matching threshold (for deduplication). Cosine distance - lower = more strict matching
 TASK_MATCH_THRESHOLD = 0.3
 
-# PCA dimensionality reduction clustering (originally 3072 dimensions)
-TARGET_DIMENSIONALITY_FOR_CLUSTERING = 100
-
 # Cluster labeling configuration
 DEFAULT_SEGMENT_SAMPLES_PER_CLUSTER_FOR_LABELING = 5
 LABELING_LLM_MODEL = "gemini-3-flash-preview"

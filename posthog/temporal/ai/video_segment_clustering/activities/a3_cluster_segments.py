@@ -9,9 +9,7 @@ import asyncio
 
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering, KMeans
-from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_distances
-from sklearn.preprocessing import normalize
 from temporalio import activity
 
 from posthog.models.team import Team
@@ -166,8 +164,6 @@ def _perform_iterative_kmeans_clustering(
     max_iterations: int = constants.KMEANS_MAX_ITERATIONS,
     min_cluster_size: int = constants.MIN_CLUSTER_SIZE,
     k_multiplier: float = constants.KMEANS_K_MULTIPLIER,
-    pca_dimensions: int = constants.TARGET_DIMENSIONALITY_FOR_CLUSTERING,
-    pca_reduction_min_samples: int = constants.NOISE_DISCARDING_SEGMENT_THRESHOLD,
 ) -> ClusteringResult:
     if len(segments) == 0:
         logger.debug("Iterative K-means clustering: no segments provided, returning empty result")
@@ -186,26 +182,10 @@ def _perform_iterative_kmeans_clustering(
         max_iterations=max_iterations,
         min_cluster_size=min_cluster_size,
         k_multiplier=k_multiplier,
-        pca_dimensions=pca_dimensions,
-        pca_reduction_min_samples=pca_reduction_min_samples,
     )
 
     all_embeddings = np.array([s.embedding for s in segments])
     all_document_ids = [s.document_id for s in segments]
-
-    # Normalize embeddings to unit vectors so that K-means (which uses Euclidean distance)
-    # behaves like spherical K-means, consistent with our cosine distance evaluation ignoring magnitudes
-    all_embeddings = normalize(all_embeddings)
-
-    # At larger scale, reduce dimensions for K-means efficiency with PCA (this makes sense at above 3*pca_dimensions segments)
-    if len(segments) > pca_reduction_min_samples:
-        logger.debug(
-            "Applying PCA dimensionality reduction", original_dim=all_embeddings.shape[1], target_dim=pca_dimensions
-        )
-        reduced_embeddings = _reduce_dimensions(all_embeddings, pca_dimensions)
-    else:
-        logger.debug("Skipping PCA reduction", n_segments=n_segments, threshold=pca_reduction_min_samples)
-        reduced_embeddings = all_embeddings
 
     # Mapping from document_id to index
     doc_id_to_idx = {doc_id: idx for idx, doc_id in enumerate(all_document_ids)}
@@ -223,8 +203,7 @@ def _perform_iterative_kmeans_clustering(
 
         # Get embeddings for remaining segments
         remaining_indices = [doc_id_to_idx[doc_id] for doc_id in remaining_doc_ids]
-        remaining_reduced = reduced_embeddings[remaining_indices]
-        remaining_original = all_embeddings[remaining_indices]
+        remaining_embeddings = all_embeddings[remaining_indices]
         remaining_ids = list(remaining_doc_ids)
 
         # Estimate K, capping at count of remaining segments
@@ -241,7 +220,7 @@ def _perform_iterative_kmeans_clustering(
         try:
             # TODO: Consider using MiniBatchKMeans when n_remaining > 5000 for perf at scale
             kmeans = KMeans(n_clusters=k, random_state=42)  # Static random seed for reproducibility
-            labels = kmeans.fit_predict(remaining_reduced)
+            labels = kmeans.fit_predict(remaining_embeddings)
         except Exception as e:
             logger.exception(
                 "K-means fitting failed",
@@ -266,13 +245,12 @@ def _perform_iterative_kmeans_clustering(
                 continue
 
             cluster_doc_ids = [remaining_ids[i] for i in cluster_indices]
-            cluster_original_embeddings = remaining_original[cluster_indices]
+            cluster_embeddings = remaining_embeddings[cluster_indices]
 
-            # Compute centroid from ORIGINAL embeddings (not PCA-reduced)
-            centroid = np.mean(cluster_original_embeddings, axis=0)
+            centroid = np.mean(cluster_embeddings, axis=0)
 
             # Compute cosine distances to centroid
-            distances = cosine_distances(cluster_original_embeddings, centroid.reshape(1, -1)).flatten()
+            distances = cosine_distances(cluster_embeddings, centroid.reshape(1, -1)).flatten()
             near_max_dist = float(np.percentile(distances, 95))  # 95th percentile to be robust against outliers
 
             if near_max_dist < distance_threshold:
@@ -365,29 +343,6 @@ def _perform_iterative_kmeans_clustering(
     )
 
 
-def _reduce_dimensions(
-    embeddings: np.ndarray, n_components: int = constants.TARGET_DIMENSIONALITY_FOR_CLUSTERING
-) -> np.ndarray:
-    """Reduce embedding dimensions using PCA for efficient clustering.
-
-    Args:
-        embeddings: Array of embedding vectors, shape (n_samples, n_features)
-        n_components: Target number of dimensions
-
-    Returns:
-        Reduced embeddings array, shape (n_samples, n_components)
-    """
-    n_samples, n_features = embeddings.shape
-    if n_samples == 0:
-        return embeddings
-    if n_features <= n_components:
-        raise ValueError(f"Embeddings already have target dimensionality: {n_features} <= {n_components}")
-    if n_samples <= n_components:
-        raise ValueError(f"Not enough samples to reduce dimensions effectively: {n_samples} < {n_components}")
-    pca = PCA(n_components=n_components)
-    return pca.fit_transform(embeddings)
-
-
 def _create_single_segment_clusters(
     *,
     noise_segment_ids: list[str],
@@ -426,9 +381,6 @@ def _perform_agglomerative_clustering(
 
     all_embeddings = np.array([s.embedding for s in segments])
     all_document_ids = [s.document_id for s in segments]
-
-    # Normalize embeddings for consistent distance computation
-    all_embeddings = normalize(all_embeddings)
 
     # Compute pairwise cosine distance matrix
     distance_matrix = cosine_distances(all_embeddings)
