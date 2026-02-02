@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -11,6 +11,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
@@ -202,6 +203,37 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const [openConditions, setOpenConditions] = useState<string[]>(
         filterGroups.length === 1 ? [`condition-${filterGroups[0]?.sort_key ?? 0}`] : []
     )
+
+    // Track previous sort_keys to preserve open/closed state when aggregation type changes
+    const prevSortKeysRef = useRef<string[]>(filterGroups.map((g) => g.sort_key ?? ''))
+    useEffect(() => {
+        const currentSortKeys = filterGroups.map((g) => g.sort_key ?? '')
+        const prevSortKeys = prevSortKeysRef.current
+
+        // Check if sort_keys changed (e.g., due to aggregation type change resetting groups)
+        const keysChanged =
+            currentSortKeys.length !== prevSortKeys.length || currentSortKeys.some((key, i) => key !== prevSortKeys[i])
+
+        if (keysChanged && currentSortKeys.length > 0) {
+            // Map open state from old keys to new keys by index
+            const openIndices = prevSortKeys
+                .map((key, i) => (openConditions.includes(`condition-${key}`) ? i : -1))
+                .filter((i) => i !== -1)
+
+            const newOpenConditions = openIndices
+                .filter((i) => i < currentSortKeys.length)
+                .map((i) => `condition-${currentSortKeys[i]}`)
+
+            // If we had conditions open and now have fewer groups, keep first one open
+            if (newOpenConditions.length === 0 && openConditions.length > 0 && currentSortKeys.length > 0) {
+                newOpenConditions.push(`condition-${currentSortKeys[0]}`)
+            }
+
+            setOpenConditions(newOpenConditions)
+        }
+
+        prevSortKeysRef.current = currentSortKeys
+    }, [filterGroups, openConditions])
 
     const handleAddConditionSet = (): void => {
         const newSortKey = uuidv4()
@@ -442,10 +474,29 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             </div>
 
                             {variants && variants.length > 0 && (
-                                <div>
-                                    <LemonLabel className="mb-1">Variant override (optional)</LemonLabel>
+                                <div className="flex items-center gap-2 flex-wrap text-sm text-muted">
+                                    <span className="flex items-center gap-1">
+                                        <span className="font-medium text-default">Optional override</span>
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Force all matching {aggregationTargetName} to receive a specific
+                                                    variant.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more
+                                                    </Link>
+                                                </>
+                                            }
+                                        >
+                                            <IconInfo className="text-base" />
+                                        </Tooltip>
+                                    </span>
+                                    <span>Set variant for all {aggregationTargetName} in this set to</span>
                                     <LemonSelect
-                                        placeholder="No override"
+                                        placeholder="Select variant"
                                         allowClear={true}
                                         value={group.variant ?? null}
                                         onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
@@ -453,12 +504,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                             label: variant.key,
                                             value: variant.key,
                                         }))}
-                                        className="w-full"
+                                        size="small"
                                         data-attr="feature-flags-variant-override-select"
                                     />
-                                    <div className="text-xs text-muted mt-1">
-                                        Force all matching {aggregationTargetName} to receive a specific variant
-                                    </div>
                                 </div>
                             )}
                         </div>
