@@ -168,8 +168,9 @@ export const sdksLogic = kea<sdksLogicType>([
         tags: [
             (s) => [s.sdks],
             (sdks: SDK[]): string[] => {
-                const tagsWithSDKs = Object.values(SDKTag).filter((tag: SDKTag) =>
-                    sdks.some((sdk) => sdk.tags.includes(tag))
+                const tagsWithSDKs = Object.values(SDKTag).filter(
+                    (tag: SDKTag) =>
+                        sdks.some((sdk) => sdk.tags.includes(tag)) && !sdks.every((sdk) => sdk.tags.includes(tag))
                 )
                 return ['All', ...tagsWithSDKs]
             },

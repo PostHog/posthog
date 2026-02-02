@@ -5762,6 +5762,9 @@ export enum SDKTag {
     MOBILE = 'Mobile',
     SERVER = 'Server',
     LLM = 'LLM',
+    FRAMEWORK = 'Framework',
+    MODEL_PROVIDER = 'Model provider',
+    GATEWAY = 'Gateway',
     INTEGRATION = 'Integration',
     OTHER = 'Other',
 }
