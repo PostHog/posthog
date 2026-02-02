@@ -758,32 +758,32 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-localstorage:
         specifier: ^3.1.0
-        version: 3.1.0(kea@3.1.7(react@18.2.0))
+        version: 3.1.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-test-utils:
         specifier: ^0.2.4
-        version: 0.2.4(kea@3.1.7(react@18.2.0))
+        version: 0.2.4(kea@4.0.0-pre.1(react@18.2.0))
       kea-waitfor:
         specifier: ^0.2.1
-        version: 0.2.1(kea@3.1.7(react@18.2.0))
+        version: 0.2.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-window-values:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       liquidjs:
         specifier: ^10.21.1
         version: 10.21.1
@@ -1580,20 +1580,20 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1619,14 +1619,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1638,7 +1638,7 @@ importers:
         version: 0.36.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@4.0.0-pre.1(react@18.2.0)))(kea@4.0.0-pre.1(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@tiptap/core':
         specifier: '*'
         version: 3.13.0(@tiptap/pm@3.13.0)
@@ -1673,17 +1673,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       posthog-js:
         specifier: 1.336.2
         version: 1.336.2
@@ -1712,14 +1712,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1739,14 +1739,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1768,20 +1768,20 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1801,17 +1801,17 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1864,20 +1864,20 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       posthog-js:
         specifier: 1.336.2
         version: 1.336.2
@@ -1912,14 +1912,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1939,14 +1939,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1966,14 +1966,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1993,14 +1993,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2020,17 +2020,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.2.0)
@@ -2105,20 +2105,20 @@ importers:
         specifier: '*'
         version: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       posthog-js:
         specifier: 1.336.2
         version: 1.336.2
@@ -2140,7 +2140,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: '*'
-        version: 0.2.4(kea@3.1.7(react@18.2.0))
+        version: 0.2.4(kea@4.0.0-pre.1(react@18.2.0))
 
   products/logs:
     dependencies:
@@ -2187,17 +2187,17 @@ importers:
         specifier: '*'
         version: 29.7.0(@types/node@25.0.9)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.9)(typescript@5.4.5))
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       papaparse:
         specifier: '*'
         version: 5.4.1
@@ -2225,7 +2225,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: '*'
-        version: 0.2.4(kea@3.1.7(react@18.2.0))
+        version: 0.2.4(kea@4.0.0-pre.1(react@18.2.0))
 
   products/managed_migrations:
     dependencies:
@@ -2234,22 +2234,22 @@ importers:
         version: 0.36.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@4.0.0-pre.1(react@18.2.0)))(kea@4.0.0-pre.1(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: 17.0.52
         version: 17.0.52
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2269,14 +2269,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2296,14 +2296,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2323,14 +2323,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2352,14 +2352,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2379,17 +2379,17 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2403,14 +2403,14 @@ importers:
         specifier: 17.0.52
         version: 17.0.52
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2430,14 +2430,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2514,14 +2514,14 @@ importers:
         specifier: '*'
         version: 1.2.1
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       posthog-js:
         specifier: 1.336.2
         version: 1.336.2
@@ -2544,14 +2544,14 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2580,20 +2580,20 @@ importers:
         specifier: '*'
         version: 6.6.2
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
+        specifier: ^4.0.0-pre.1
+        version: 4.0.0-pre.1(react@18.2.0)
       kea-forms:
         specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
+        version: 3.2.0(kea@4.0.0-pre.1(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
+        version: 3.1.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-router:
         specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
+        version: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
+        version: 3.0.1(kea@4.0.0-pre.1(react@18.2.0))
       posthog-js:
         specifier: 1.336.2
         version: 1.336.2
@@ -2609,7 +2609,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: '*'
-        version: 0.2.4(kea@3.1.7(react@18.2.0))
+        version: 0.2.4(kea@4.0.0-pre.1(react@18.2.0))
 
   rust/cyclotron-node:
     devDependencies:
@@ -15198,6 +15198,11 @@ packages:
     peerDependencies:
       react: '>= 16.8'
 
+  kea@4.0.0-pre.1:
+    resolution: {integrity: sha512-tIYRvNe+GYwaQ9K/uLXCeMjPbhTNfRIT22e0++sW7A8YqKTvsU3BlZLzQW/ILIxAgG9fyqwUmNW1PEokWQLBgg==}
+    peerDependencies:
+      react: '>= 16.8'
+
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
@@ -18373,6 +18378,9 @@ packages:
   redux@4.2.0:
     resolution: {integrity: sha512-oSBmcKKIuIR4ME29/AeNUnl5L+hvBq7OaJWzaptTQJAntaPvxIJqfnjbaEiCzzaIz+XmVILfqAM3Ob0aXLPfjA==}
 
+  redux@5.0.1:
+    resolution: {integrity: sha512-M9/ELqF6fy8FwmkpnF0S3YKOqMyoWJ4+CS5Efg2ct3oY9daQvd/Pc71FpGZsVsbl3Cpb+IIcjBDUnnyBdQbq4w==}
+
   refractor@3.6.0:
     resolution: {integrity: sha512-MY9W41IOWxxk31o+YvFCNyNzdkc9M20NoZK5vq6jkv4I/uh2zkWcfudj0Q1fovjUQJrNewS9NMzeTtqPf+n5EA==}
 
@@ -20068,8 +20076,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.361.0:
-    resolution: {integrity: sha512-7COdU2qEuJ4xz/mzC2xHqw2yoaw2X/e5s580tx8wf4uib2e/cmbmpLU7i/2ECoIwJXG+uPIwPlOvRzYLu6Ag2Q==}
+  unlayer-types@1.365.0:
+    resolution: {integrity: sha512-OIY6+isxDkyYrxzO/XPQgb1V5Vv+4vqHMZ1MhP7VuRU6z5CeNCSEVo7uzsOUj5cMGwhJjXziHFMKsWKRSd8STA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -27286,6 +27294,14 @@ snapshots:
       antd: 5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       kea: 3.1.7(react@18.2.0)
       kea-router: 3.4.1(kea@3.1.7(react@18.2.0))
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@4.0.0-pre.1(react@18.2.0)))(kea@4.0.0-pre.1(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      antd: 5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      kea: 4.0.0-pre.1(react@18.2.0)
+      kea-router: 3.4.1(kea@4.0.0-pre.1(react@18.2.0))
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
@@ -37594,27 +37610,49 @@ snapshots:
     dependencies:
       kea: 3.1.7(react@18.2.0)
 
+  kea-forms@3.2.0(kea@4.0.0-pre.1(react@18.2.0)):
+    dependencies:
+      kea: 4.0.0-pre.1(react@18.2.0)
+
   kea-loaders@3.1.1(kea@3.1.7(react@18.2.0)):
     dependencies:
       kea: 3.1.7(react@18.2.0)
 
-  kea-localstorage@3.1.0(kea@3.1.7(react@18.2.0)):
+  kea-loaders@3.1.1(kea@4.0.0-pre.1(react@18.2.0)):
     dependencies:
-      kea: 3.1.7(react@18.2.0)
+      kea: 4.0.0-pre.1(react@18.2.0)
+
+  kea-localstorage@3.1.0(kea@4.0.0-pre.1(react@18.2.0)):
+    dependencies:
+      kea: 4.0.0-pre.1(react@18.2.0)
 
   kea-router@3.4.1(kea@3.1.7(react@18.2.0)):
     dependencies:
       kea: 3.1.7(react@18.2.0)
       url-pattern: 1.0.3
 
+  kea-router@3.4.1(kea@4.0.0-pre.1(react@18.2.0)):
+    dependencies:
+      kea: 4.0.0-pre.1(react@18.2.0)
+      url-pattern: 1.0.3
+
   kea-subscriptions@3.0.1(kea@3.1.7(react@18.2.0)):
     dependencies:
       kea: 3.1.7(react@18.2.0)
+
+  kea-subscriptions@3.0.1(kea@4.0.0-pre.1(react@18.2.0)):
+    dependencies:
+      kea: 4.0.0-pre.1(react@18.2.0)
 
   kea-test-utils@0.2.4(kea@3.1.7(react@18.2.0)):
     dependencies:
       kea: 3.1.7(react@18.2.0)
       kea-waitfor: 0.2.1(kea@3.1.7(react@18.2.0))
+
+  kea-test-utils@0.2.4(kea@4.0.0-pre.1(react@18.2.0)):
+    dependencies:
+      kea: 4.0.0-pre.1(react@18.2.0)
+      kea-waitfor: 0.2.1(kea@4.0.0-pre.1(react@18.2.0))
 
   kea-typegen@3.5.0(typescript@5.4.5):
     dependencies:
@@ -37633,9 +37671,13 @@ snapshots:
     dependencies:
       kea: 3.1.7(react@18.2.0)
 
-  kea-window-values@3.0.1(kea@3.1.7(react@18.2.0)):
+  kea-waitfor@0.2.1(kea@4.0.0-pre.1(react@18.2.0)):
     dependencies:
-      kea: 3.1.7(react@18.2.0)
+      kea: 4.0.0-pre.1(react@18.2.0)
+
+  kea-window-values@3.0.1(kea@4.0.0-pre.1(react@18.2.0)):
+    dependencies:
+      kea: 4.0.0-pre.1(react@18.2.0)
 
   kea@3.1.7(react@18.2.0):
     dependencies:
@@ -37643,6 +37685,13 @@ snapshots:
       redux: 4.2.0
       reselect: 4.1.7
       use-sync-external-store: 1.5.0(react@18.2.0)
+
+  kea@4.0.0-pre.1(react@18.2.0):
+    dependencies:
+      react: 18.2.0
+      redux: 5.0.1
+      reselect: 5.1.1
+      use-sync-external-store: 1.6.0(react@18.2.0)
 
   keyv@4.5.4:
     dependencies:
@@ -41244,7 +41293,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.361.0
+      unlayer-types: 1.365.0
 
   react-error-overlay@6.0.9: {}
 
@@ -41544,6 +41593,8 @@ snapshots:
   redux@4.2.0:
     dependencies:
       '@babel/runtime': 7.28.4
+
+  redux@5.0.1: {}
 
   refractor@3.6.0:
     dependencies:
@@ -42721,7 +42772,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
       react: 18.2.0
-      use-sync-external-store: 1.5.0(react@18.2.0)
+      use-sync-external-store: 1.6.0(react@18.2.0)
 
   symbol-tree@3.2.4: {}
 
@@ -43474,7 +43525,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.361.0: {}
+  unlayer-types@1.365.0: {}
 
   unpipe@1.0.0: {}
 
