@@ -163,5 +163,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 "is_new_conversation": self._is_new_conversation,
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
+                "agent_mode": self._selected_agent_mode,
             },
         )

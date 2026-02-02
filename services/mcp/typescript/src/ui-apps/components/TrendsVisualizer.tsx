@@ -1,7 +1,8 @@
-import { useState, type ReactElement } from 'react'
-import type { TrendsVisualizerProps, TrendsResultItem } from './types'
-import { getDisplayType, isBarChart, getSeriesLabel } from './utils'
-import { LineChart, BarChart, BigNumber, Select, type Series } from './charts'
+import { type ReactElement, useState } from 'react'
+
+import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
+import type { TrendsResultItem, TrendsVisualizerProps } from './types'
+import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
 type ChartMode = 'line' | 'bar'
 
@@ -81,6 +82,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+                {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
             {chartMode === 'bar' ? (

@@ -12,7 +12,7 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
-import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID } from './constants'
+import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
@@ -24,9 +24,6 @@ import {
     getLevelFromRunId,
     getTimestampBoundsFromRunId,
 } from './types'
-
-// Special color for outliers cluster
-const OUTLIER_COLOR = '#888888'
 
 export interface ScatterDataset {
     label: string

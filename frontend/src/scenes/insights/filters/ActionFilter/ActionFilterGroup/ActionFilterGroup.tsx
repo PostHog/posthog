@@ -1,6 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -15,9 +16,10 @@ import {
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
-import { BaseMathType } from '~/types'
+import { BaseMathType, InsightType } from '~/types'
 
 import {
     ActionFilterRow,
@@ -46,6 +48,7 @@ interface ActionFilterGroupProps {
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
     trendsDisplayCategory?: any
+    insightType?: InsightType
 }
 
 export function ActionFilterGroup({
@@ -62,7 +65,9 @@ export function ActionFilterGroup({
     dataWarehousePopoverFields,
     excludedProperties,
     trendsDisplayCategory,
+    insightType,
 }: ActionFilterGroupProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { setNodeRef, attributes, transform, transition, isDragging } = useSortable({ id: filter.uuid })
@@ -214,7 +219,13 @@ export function ActionFilterGroup({
                                 <LemonButton
                                     size="small"
                                     icon={<IconUndo />}
-                                    onClick={() => splitLocalFilter(index)}
+                                    onClick={() => {
+                                        splitLocalFilter(index)
+                                        posthog.capture('split_events', {
+                                            insight_type: insightType,
+                                            team_id: currentTeamId,
+                                        })
+                                    }}
                                     data-attr={`group-filter-split-${index}`}
                                 />
                             </Tooltip>
@@ -281,6 +292,10 @@ export function ActionFilterGroup({
                                 const entityType = taxonomicFilterGroupTypeToEntityType(groupType)
                                 if (entityType && value) {
                                     addNestedFilter(String(value), item?.name || String(value), entityType)
+                                    posthog.capture('add_event_to_group', {
+                                        insight_type: insightType,
+                                        team_id: currentTeamId,
+                                    })
                                 }
                             }}
                             groupTypes={actionsTaxonomicGroupTypes}
