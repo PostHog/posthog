@@ -252,6 +252,14 @@ class LogsQueryRunnerMixin(QueryRunner):
                 )
             )
 
+        if self.query.resourceFingerprint:
+            exprs.append(
+                parse_expr(
+                    "resource_fingerprint = {resourceFingerprint}",
+                    placeholders={"resourceFingerprint": ast.Constant(value=str(self.query.resourceFingerprint))},
+                )
+            )
+
         if self.query.filterGroup:
             exprs.append(self.resource_filter(existing_filters=exprs))
 
