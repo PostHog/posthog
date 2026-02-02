@@ -388,11 +388,12 @@ function DeleteKeyModal({
     const hasEvaluations = (dependentConfigs?.evaluations.length ?? 0) > 0
     const hasAlternatives = (dependentConfigs?.alternative_keys.length ?? 0) > 0
 
+    const firstAlternativeKeyId = dependentConfigs?.alternative_keys[0]?.id
     useEffect(() => {
-        if (hasAlternatives && dependentConfigs?.alternative_keys[0]) {
-            setReplacementKeyId(dependentConfigs.alternative_keys[0].id)
+        if (hasAlternatives && firstAlternativeKeyId) {
+            setReplacementKeyId(firstAlternativeKeyId)
         }
-    }, [hasAlternatives, dependentConfigs])
+    }, [hasAlternatives, firstAlternativeKeyId])
 
     const handleClose = (): void => {
         setKeyToDelete(null)

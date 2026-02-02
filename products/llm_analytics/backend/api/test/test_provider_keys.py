@@ -518,7 +518,7 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(model_config.provider_key, key2)
         self.assertEqual(LLMProviderKey.objects.filter(id=key1.id).count(), 0)
 
-    def test_delete_without_replacement_nullifies_model_configs_and_disables_evaluations(self):
+    def test_delete_without_replacement_disables_evaluations(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",

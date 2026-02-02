@@ -269,10 +269,18 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
-            LLMModelConfiguration.objects.filter(provider_key=instance).update(provider_key=replacement_key)
+            LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).update(
+                provider_key=replacement_key
+            )
         else:
-            model_config_ids = LLMModelConfiguration.objects.filter(provider_key=instance).values_list("id", flat=True)
-            Evaluation.objects.filter(model_configuration_id__in=model_config_ids, deleted=False).update(enabled=False)
+            model_config_ids = list(
+                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                    "id", flat=True
+                )
+            )
+            Evaluation.objects.filter(
+                model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
+            ).update(enabled=False)
 
         return super().destroy(request, *args, **kwargs)
 

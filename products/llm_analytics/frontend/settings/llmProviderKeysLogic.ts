@@ -238,7 +238,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         return values.providerKeys
                     }
                     const url = replacementKeyId
-                        ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${replacementKeyId}`
+                        ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
                         : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
                     await api.delete(url)
                     // If deleted key was active, reload config to reflect change
