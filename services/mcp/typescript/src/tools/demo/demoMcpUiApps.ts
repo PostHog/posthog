@@ -8,10 +8,7 @@ const schema = DemoMcpUiAppsSchema
 
 type Params = z.infer<typeof schema>
 
-export const demoMcpUiAppsHandler: ToolBase<typeof schema>['handler'] = async (
-    _context: Context,
-    params: Params
-) => {
+export const demoMcpUiAppsHandler: ToolBase<typeof schema>['handler'] = async (_context: Context, params: Params) => {
     return {
         message: params.message || 'Hello from demo-mcp-ui-apps!',
         timestamp: new Date().toISOString(),
