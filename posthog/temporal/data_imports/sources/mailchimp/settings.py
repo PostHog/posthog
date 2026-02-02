@@ -29,35 +29,14 @@ MAILCHIMP_ENDPOINTS: dict[str, MailchimpEndpointConfig] = {
         data_selector="campaigns",
         partition_key="create_time",
         default_incremental_field="create_time",
-        incremental_fields=[
-            {
-                "label": "create_time",
-                "type": IncrementalFieldType.DateTime,
-                "field": "create_time",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-            {
-                "label": "send_time",
-                "type": IncrementalFieldType.DateTime,
-                "field": "send_time",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=[],
     ),
     "reports": MailchimpEndpointConfig(
         name="reports",
         path="/reports",
         data_selector="reports",
         partition_key="send_time",
-        default_incremental_field="send_time",
-        incremental_fields=[
-            {
-                "label": "send_time",
-                "type": IncrementalFieldType.DateTime,
-                "field": "send_time",
-                "field_type": IncrementalFieldType.DateTime,
-            },
-        ],
+        incremental_fields=[],
     ),
     "contacts": MailchimpEndpointConfig(
         name="contacts",
