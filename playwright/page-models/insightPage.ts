@@ -77,6 +77,21 @@ export class InsightPage {
         await nameField.blur()
     }
 
+    async createNew(name: string, type: InsightType): Promise<InsightPage> {
+        await this.goToNewInsight(type)
+        await this.editName(name)
+        return this
+    }
+
+    async goToNew(type: InsightType): Promise<InsightPage> {
+        return this.goToNewInsight(type)
+    }
+
+    async openPersonsModal(): Promise<void> {
+        await this.page.locator('.TrendsInsight canvas').click()
+        await this.page.waitForSelector('[data-attr="persons-modal"]', { state: 'visible' })
+    }
+
     async saveAsNew(name: string): Promise<void> {
         const originalUrl = this.page.url()
         await this.page.locator('[data-attr="insight-save-dropdown"]').click()
@@ -178,9 +193,14 @@ class TrendsInsight {
     async selectDateRange(text: string): Promise<void> {
         await this.page.mouse.move(0, 0)
         await this.dateRangeButton.click()
-        const option = this.page.getByText(text, { exact: true })
-        await option.waitFor({ state: 'attached' })
-        await option.click({ force: true })
+        const popover = this.page.locator('.Popover__content').last()
+        await popover.waitFor({ state: 'visible' })
+        // The date filter popover re-renders as floating-ui repositions it,
+        // causing elements to detach before Playwright's stability checks pass.
+        // Using evaluate to click via JS bypasses these checks.
+        const option = popover.getByText(text, { exact: true })
+        await option.waitFor({ state: 'visible' })
+        await option.evaluate((el: HTMLElement) => el.click())
         await this.waitForChart()
     }
 
