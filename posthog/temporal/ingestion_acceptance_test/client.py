@@ -13,9 +13,8 @@ import structlog
 # Use posthoganalytics instead of posthog to avoid conflict with local posthog/ directory
 import posthoganalytics
 
-from posthog.models.utils import mask_key_value
-
 from .config import Config
+from .utils import mask_key_value
 
 logger = structlog.get_logger(__name__)
 
@@ -52,18 +51,20 @@ class PostHogClient:
     def __init__(self, config: Config):
         self.config = config
 
-        # Configure the official SDK
-        posthoganalytics.api_key = config.project_api_key
-        posthoganalytics.host = config.api_host
-        posthoganalytics.debug = True
-        posthoganalytics.sync_mode = True  # Send events synchronously for testing
+        # Instantiate the official SDK client explicitly
+        self._posthog = posthoganalytics.Posthog(
+            config.project_api_key,
+            host=config.api_host,
+            debug=True,
+            sync_mode=True,  # Send events synchronously for testing
+        )
 
         logger.info(
             "PostHog SDK configured",
-            sdk_host=posthoganalytics.host,
+            sdk_host=config.api_host,
             sdk_api_key=mask_key_value(config.project_api_key),
-            sdk_sync_mode=posthoganalytics.sync_mode,
-            sdk_debug=posthoganalytics.debug,
+            sdk_sync_mode=True,
+            sdk_debug=True,
         )
 
     def capture_event(
@@ -80,10 +81,10 @@ class PostHogClient:
             event_name=event_name,
             event_uuid=event_uuid,
             distinct_id=distinct_id,
-            sdk_host=posthoganalytics.host,
+            sdk_host=self.config.api_host,
         )
 
-        posthoganalytics.capture(
+        self._posthog.capture(
             distinct_id=distinct_id,
             event=event_name,
             properties=properties or {},
@@ -120,7 +121,7 @@ class PostHogClient:
 
     def shutdown(self) -> None:
         """Shutdown the client and flush any pending events."""
-        posthoganalytics.shutdown()
+        self._posthog.shutdown()
 
     def _poll_until_found(
         self,

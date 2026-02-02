@@ -12,6 +12,7 @@ from posthog.temporal.ingestion_acceptance_test.results import TestSuiteResult
 from posthog.temporal.ingestion_acceptance_test.runner import run_tests
 from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification
 from posthog.temporal.ingestion_acceptance_test.test_cases_discovery import discover_tests
+from posthog.temporal.ingestion_acceptance_test.utils import mask_key_value
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +37,6 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info("Starting ingestion acceptance tests")
 
     config = Config()
-    from posthog.models.utils import mask_key_value
 
     logger.info(
         "Loaded config",
