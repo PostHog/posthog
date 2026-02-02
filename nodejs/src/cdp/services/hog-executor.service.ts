@@ -9,6 +9,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
+    CyclotronInvocationQueueParametersSendPushNotificationSchema,
 } from '~/schema/cyclotron'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
@@ -33,8 +34,13 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
-import { FcmErrorDetail, PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
+import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
 import { EmailService, EmailServiceHub } from './messaging/email.service'
+import {
+    PushNotificationFetchUtils,
+    PushNotificationService,
+    PushNotificationServiceHub,
+} from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by destination executors */
@@ -43,6 +49,7 @@ export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_
 export type HogExecutorServiceHub = CdpFetchConfig &
     HogInputsServiceHub &
     EmailServiceHub &
+    PushNotificationServiceHub &
     Pick<Hub, 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS' | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'>
 
 const cdpHttpRequests = new Counter({
@@ -55,12 +62,6 @@ const cdpHttpRequestTiming = new Histogram({
     name: 'cdp_http_request_timing_ms',
     help: 'Timing of HTTP requests',
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
-})
-
-const pushNotificationSentCounter = new Counter({
-    name: 'push_notification_sent_total',
-    help: 'Total number of push notifications successfully sent',
-    labelNames: ['platform'],
 })
 
 export async function cdpTrackedFetch({
@@ -137,7 +138,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
+    asyncFunctionsNames?: ('fetch' | 'sendPushNotification' | 'sendEmail')[]
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -147,6 +148,7 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 export class HogExecutorService {
     private hogInputsService: HogInputsService
     private emailService: EmailService
+    private pushNotificationService: PushNotificationService
     private recipientTokensService: RecipientTokensService
     private pushSubscriptionsManager: PushSubscriptionsManagerService
 
@@ -155,6 +157,17 @@ export class HogExecutorService {
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
         this.pushSubscriptionsManager = new PushSubscriptionsManagerService(hub.postgres, hub.encryptedFields)
+        const fetchUtils: PushNotificationFetchUtils = {
+            trackedFetch: cdpTrackedFetch,
+            isFetchResponseRetriable,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+        }
+        this.pushNotificationService = new PushNotificationService(
+            hub,
+            this.hogInputsService,
+            this.pushSubscriptionsManager,
+            fetchUtils
+        )
     }
 
     async buildInputsWithGlobals(
@@ -299,7 +312,7 @@ export class HogExecutorService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             const queueParamsType = nextInvocation.queueParameters?.type
-            if (['fetch', 'email'].includes(queueParamsType ?? '')) {
+            if (['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -310,6 +323,8 @@ export class HogExecutorService {
 
                 if (queueParamsType === 'fetch') {
                     result = await this.executeFetch(nextInvocation)
+                } else if (queueParamsType === 'sendPushNotification') {
+                    result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
                 } else if (queueParamsType === 'email') {
                     result = await this.emailService.executeSendEmail(nextInvocation)
                 } else {
@@ -394,7 +409,11 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? [
+                    'fetch',
+                    'sendPushNotification',
+                    'sendEmail',
+                ]
                 const asyncFunctions = asyncFunctionsNames.reduce(
                     (acc, fn) => {
                         acc[fn] = async () => Promise.resolve()
@@ -544,13 +563,36 @@ export class HogExecutorService {
                                 method,
                                 body,
                                 headers: pickBy(headers, (v) => typeof v == 'string'),
-                                ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+                                timeoutMs,
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters
                             break
                         }
 
+                        case 'sendPushNotification': {
+                            const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
+                            const method = fetchOptions?.method || 'POST'
+                            const headers = fetchOptions?.headers || {
+                                'Content-Type': 'application/json',
+                            }
+                            const body: string | undefined = fetchOptions?.body
+                                ? typeof fetchOptions.body === 'string'
+                                    ? fetchOptions.body
+                                    : JSON.stringify(fetchOptions.body)
+                                : fetchOptions?.body
+                            const timeoutMs = fetchOptions?.timeoutMs ?? undefined
+                            result.invocation.queueParameters =
+                                CyclotronInvocationQueueParametersSendPushNotificationSchema.parse({
+                                    type: 'sendPushNotification',
+                                    url,
+                                    method,
+                                    body,
+                                    headers: pickBy(headers, (v) => typeof v == 'string'),
+                                    timeoutMs,
+                                })
+                            break
+                        }
                         case 'sendEmail': {
                             result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
                                 ...args[0],
@@ -701,12 +743,7 @@ export class HogExecutorService {
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
-                // Filter out undefined timeoutMs to avoid snapshot issues
-                const { timeoutMs, ...restParams } = params
-                result.invocation.queueParameters = {
-                    ...restParams,
-                    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-                }
+                result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
@@ -735,32 +772,6 @@ export class HogExecutorService {
             body = undefined
         }
 
-        if (params.url.includes('fcm.googleapis.com/v1/projects/') && params.url.includes('/messages:send')) {
-            const fcmToken = this.getFcmTokenFromInvocation(invocation)
-            if (fcmToken) {
-                const status = fetchResponse?.status
-                let errorDetails: FcmErrorDetail[] | undefined
-                if (status === 400 && body && typeof body === 'object') {
-                    const errorBody = body as Record<string, unknown>
-                    const error = errorBody?.error as { details?: FcmErrorDetail[] } | undefined
-                    errorDetails = error?.details
-                }
-
-                await this.pushSubscriptionsManager.updateTokenLifecycle(
-                    invocation.teamId,
-                    fcmToken,
-                    status,
-                    errorDetails
-                )
-
-                if (status && status >= 200 && status < 300) {
-                    pushNotificationSentCounter.labels({ platform: 'android' }).inc()
-                }
-            } else {
-                addLog('warn', 'FCM token not found in inputs, skipping FCM response handling')
-            }
-        }
-
         const hogVmResponse: {
             status: number
             body: unknown
@@ -782,19 +793,6 @@ export class HogExecutorService {
         })
 
         return result
-    }
-
-    private getFcmTokenFromInvocation(invocation: CyclotronJobInvocationHogFunction): string | null {
-        if (!invocation.state.globals?.inputs) {
-            return null
-        }
-        const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
-            (schema) => schema.type === 'push_subscription'
-        )?.key
-        if (!pushSubscriptionKey || !invocation.state.globals.inputs[pushSubscriptionKey]) {
-            return null
-        }
-        return invocation.state.globals.inputs[pushSubscriptionKey] || null
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {

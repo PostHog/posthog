@@ -57,7 +57,7 @@ if (inputs.debug) {
     print('Sending push notification', url, payload)
 }
 
-let res := fetch(url, payload)
+let res := sendPushNotification(url, payload)
 
 if (res.status < 200 or res.status >= 300) {
     throw Error(f'Failed to send push notification via FCM: {res.status} {res.body}')

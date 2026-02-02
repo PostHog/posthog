@@ -9,33 +9,33 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogInputsService, formatHogInput, getFirebaseAppIdForPush } from './hog-inputs.service'
+import { HogInputsService, formatHogInput, getFcmProjectIdForPush } from './hog-inputs.service'
 
-describe('getFirebaseAppIdForPush', () => {
+describe('getFcmProjectIdForPush', () => {
     it('throws when firebase_account or value is missing', () => {
-        expect(() => getFirebaseAppIdForPush({})).toThrow(
+        expect(() => getFcmProjectIdForPush({})).toThrow(
             /firebase_account integration is required for push subscription inputs but was not found/
         )
-        expect(() => getFirebaseAppIdForPush({ firebase_account: { value: null } })).toThrow(
+        expect(() => getFcmProjectIdForPush({ firebase_account: { value: null } })).toThrow(
             /firebase_account integration is required for push subscription inputs but was not found/
         )
     })
 
     it('throws when project_id is missing in firebase_account', () => {
         expect(() =>
-            getFirebaseAppIdForPush({
+            getFcmProjectIdForPush({
                 firebase_account: { value: {} },
             })
-        ).toThrow(/Firebase app ID \(project_id\) not found in firebase_account integration/)
+        ).toThrow(/FCM project ID \(project_id\) not found in firebase_account integration/)
         expect(() =>
-            getFirebaseAppIdForPush({
+            getFcmProjectIdForPush({
                 firebase_account: { value: { key_info: {} } },
             })
-        ).toThrow(/Firebase app ID \(project_id\) not found in firebase_account integration/)
+        ).toThrow(/FCM project ID \(project_id\) not found in firebase_account integration/)
     })
 
     it('returns project_id when firebase_account has key_info.project_id', () => {
-        const result = getFirebaseAppIdForPush({
+        const result = getFcmProjectIdForPush({
             firebase_account: { value: { key_info: { project_id: 'my-project' } } },
         })
         expect(result).toBe('my-project')

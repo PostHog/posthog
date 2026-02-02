@@ -222,6 +222,7 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
+        | 'sendPushNotification'
         | 'billable_invocation'
         | 'dropped'
         | 'email_sent'

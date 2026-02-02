@@ -25,7 +25,7 @@ describe('PushSubscriptionsManagerService', () => {
             platform: 'android' | 'ios',
             isActive: boolean = true,
             provider: 'fcm' | 'apns' = 'fcm',
-            firebaseAppId: string | null = null
+            fcmProjectId: string | null = null
         ): Promise<void> => {
             const id = randomUUID()
             const encryptedToken = hub.encryptedFields.encrypt(token)
@@ -34,10 +34,10 @@ describe('PushSubscriptionsManagerService', () => {
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO workflows_pushsubscription 
-                 (id, team_id, distinct_id, token, token_hash, platform, provider, firebase_app_id, is_active, created_at, updated_at)
+                 (id, team_id, distinct_id, token, token_hash, platform, provider, fcm_project_id, is_active, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
                  RETURNING *`,
-                [id, teamId, distinctId, encryptedToken, tokenHash, platform, provider, firebaseAppId, isActive],
+                [id, teamId, distinctId, encryptedToken, tokenHash, platform, provider, fcmProjectId, isActive],
                 'insertPushSubscription'
             )
         }
@@ -103,7 +103,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -128,7 +128,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -150,7 +150,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -168,7 +168,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -188,7 +188,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -211,7 +211,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId: newDistinctId,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -247,7 +247,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId: distinctIdA,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }
@@ -270,12 +270,12 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 android_token: {
                     distinctId: distinctId1,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
                 ios_token: {
                     distinctId: distinctId2,
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'ios',
                 },
             }
@@ -297,7 +297,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId,
-                    firebaseAppId: 'app-123',
+                    fcmProjectId: 'app-123',
                     platform: 'android',
                 },
             }
@@ -311,7 +311,7 @@ describe('PushSubscriptionsManagerService', () => {
             const inputsToLoad: Record<string, PushSubscriptionInputToLoad> = {
                 push_subscription: {
                     distinctId: 'non-existent-user',
-                    firebaseAppId: 'test-project',
+                    fcmProjectId: 'test-project',
                     platform: 'android',
                 },
             }

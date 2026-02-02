@@ -70,6 +70,16 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     timeoutMs: z.number().optional(),
 })
 
+export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
+    type: z.literal('sendPushNotification'),
+    url: z.string(),
+    method: z.string(),
+    body: z.union([z.string(), z.null()]).optional(),
+    max_tries: z.number().optional(),
+    headers: z.record(z.string()).optional(),
+    timeoutMs: z.number().optional(),
+})
+
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
     to: z.object({
@@ -89,8 +99,12 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
 })
 
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
+export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer<
+    typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
+>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
 
 export type CyclotronInvocationQueueParametersType =
     | CyclotronInvocationQueueParametersFetchType
+    | CyclotronInvocationQueueParametersSendPushNotificationType
     | CyclotronInvocationQueueParametersEmailType

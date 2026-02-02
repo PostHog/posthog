@@ -18,7 +18,7 @@ class TestPushSubscription(BaseTest):
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
         )
 
         self.assertEqual(subscription.distinct_id, "user-123")
@@ -26,7 +26,7 @@ class TestPushSubscription(BaseTest):
         self.assertEqual(subscription.token_hash, PushSubscription._hash_token("fcm-token-abc123"))
         self.assertEqual(subscription.platform, PushPlatform.ANDROID)
         self.assertEqual(subscription.provider, PushProvider.FCM)
-        self.assertEqual(subscription.firebase_app_id, "app-123")
+        self.assertEqual(subscription.fcm_project_id, "app-123")
         self.assertTrue(subscription.is_active)
         self.assertIsNotNone(subscription.id)
 
@@ -37,14 +37,14 @@ class TestPushSubscription(BaseTest):
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
         )
 
         self.assertEqual(subscription.distinct_id, "user-123")
         self.assertEqual(subscription.token, "fcm-token-abc123")
         self.assertEqual(subscription.platform, PushPlatform.ANDROID)
         self.assertEqual(subscription.provider, PushProvider.FCM)
-        self.assertEqual(subscription.firebase_app_id, "app-123")
+        self.assertEqual(subscription.fcm_project_id, "app-123")
         self.assertTrue(subscription.is_active)
 
     def test_upsert_token_updates_existing(self):
@@ -54,7 +54,7 @@ class TestPushSubscription(BaseTest):
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
         )
 
         subscription1.is_active = False
@@ -80,7 +80,7 @@ class TestPushSubscription(BaseTest):
             token="token-1",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
             is_active=True,
         )
         PushSubscription.objects.create(
@@ -97,7 +97,7 @@ class TestPushSubscription(BaseTest):
             token="token-3",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
             is_active=False,
         )
 
@@ -117,7 +117,7 @@ class TestPushSubscription(BaseTest):
             token="token-1",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
             is_active=True,
         )
         PushSubscription.objects.create(
@@ -145,7 +145,7 @@ class TestPushSubscription(BaseTest):
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
             is_active=True,
         )
         subscription_2 = PushSubscription.objects.create(
@@ -154,7 +154,7 @@ class TestPushSubscription(BaseTest):
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
             is_active=True,
         )
 
@@ -179,7 +179,7 @@ class TestPushSubscription(BaseTest):
             token="fcm-token-abc123",
             platform=PushPlatform.ANDROID,
             provider=PushProvider.FCM,
-            firebase_app_id="app-123",
+            fcm_project_id="app-123",
             is_active=True,
         )
 

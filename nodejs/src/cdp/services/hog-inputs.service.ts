@@ -142,11 +142,11 @@ export class HogInputsService {
             return {}
         }
 
-        const firebaseAppId = getFirebaseAppIdForPush(integrationInputs)
+        const fcmProjectId = getFcmProjectIdForPush(integrationInputs)
 
         const pushSubscriptionPairs: Record<
             string,
-            { distinctId: string; firebaseAppId: string; platform?: 'android' | 'ios' }
+            { distinctId: string; fcmProjectId: string; platform?: 'android' | 'ios' }
         > = {}
         for (const [key, { rawValue, schema }] of Object.entries(inputsToLoad)) {
             let resolvedValue: unknown = rawValue
@@ -169,7 +169,7 @@ export class HogInputsService {
             }
             pushSubscriptionPairs[key] = {
                 distinctId: resolvedValue,
-                firebaseAppId,
+                fcmProjectId,
                 platform: schema.platform,
             }
         }
@@ -312,7 +312,7 @@ export const formatLiquidInput = (
     return value
 }
 
-export function getFirebaseAppIdForPush(
+export function getFcmProjectIdForPush(
     integrationInputs: Record<string, { value: Record<string, any> | null }>
 ): string {
     const firebaseAccountInput = integrationInputs['firebase_account']
@@ -322,12 +322,12 @@ export function getFirebaseAppIdForPush(
                 `Please configure the firebase_account integration in your hog function.`
         )
     }
-    const firebaseAppId = (firebaseAccountInput.value as { key_info?: { project_id?: string } })?.key_info?.project_id
-    if (!firebaseAppId) {
+    const fcmProjectId = (firebaseAccountInput.value as { key_info?: { project_id?: string } })?.key_info?.project_id
+    if (!fcmProjectId) {
         throw new Error(
-            `Firebase app ID (project_id) not found in firebase_account integration. ` +
+            `FCM project ID (project_id) not found in firebase_account integration. ` +
                 `Please ensure the Firebase service account key contains a valid project_id.`
         )
     }
-    return firebaseAppId
+    return fcmProjectId
 }

@@ -49,23 +49,23 @@ class RegisterPushSubscriptionRequestSerializer(serializers.Serializer):
             "invalid_choice": f"Invalid provider. Must be one of: {PROVIDER_CHOICES}",
         },
     )
-    firebase_app_id = serializers.CharField(required=False, allow_blank=True, allow_null=True, default=None)
+    fcm_project_id = serializers.CharField(required=False, allow_blank=True, allow_null=True, default=None)
 
     def validate(self, attrs):
-        if attrs.get("provider") == PushProvider.FCM.value and not attrs.get("firebase_app_id"):
-            raise serializers.ValidationError({"firebase_app_id": ["firebase_app_id is required when provider is fcm"]})
+        if attrs.get("provider") == PushProvider.FCM.value and not attrs.get("fcm_project_id"):
+            raise serializers.ValidationError({"fcm_project_id": ["fcm_project_id is required when provider is fcm"]})
         return attrs
 
 
 class PushSubscriptionSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         provider = attrs.get("provider", getattr(self.instance, "provider", None) if self.instance else None)
-        firebase_app_id = attrs.get(
-            "firebase_app_id", getattr(self.instance, "firebase_app_id", None) if self.instance else None
+        fcm_project_id = attrs.get(
+            "fcm_project_id", getattr(self.instance, "fcm_project_id", None) if self.instance else None
         )
 
-        if provider == PushProvider.FCM and not firebase_app_id:
-            raise serializers.ValidationError({"firebase_app_id": "firebase_app_id is required when provider is fcm"})
+        if provider == PushProvider.FCM and not fcm_project_id:
+            raise serializers.ValidationError({"fcm_project_id": "fcm_project_id is required when provider is fcm"})
 
         return attrs
 
@@ -80,7 +80,7 @@ class PushSubscriptionSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
             "updated_at",
-            "firebase_app_id",
+            "fcm_project_id",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {"token": {"write_only": True}}
@@ -109,7 +109,7 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "token": "fcm-token-abc123...",
             "platform": "android" | "ios",
             "provider": "fcm" | "apns",
-            "firebase_app_id": "app-id-123" (required if provider is fcm)
+            "fcm_project_id": "app-id-123" (required if provider is fcm)
         }
         """
         serializer = RegisterPushSubscriptionRequestSerializer(data=request.data)
@@ -122,7 +122,7 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             token=data["token"],
             platform=PushPlatform(data["platform"]),
             provider=PushProvider(data["provider"]),
-            firebase_app_id=data.get("firebase_app_id") or None,
+            fcm_project_id=data.get("fcm_project_id") or None,
         )
 
         return Response(PushSubscriptionSerializer(subscription).data, status=status.HTTP_200_OK)
@@ -159,7 +159,7 @@ def sdk_push_subscription_register(request: HttpRequest):
         "token": "fcm-token-abc123...",
         "platform": "android" | "ios",
         "provider": "fcm" | "apns",
-        "firebase_app_id": "app-id-123" (required if provider is fcm)
+        "fcm_project_id": "app-id-123" (required if provider is fcm)
     }
 
     Security note: This endpoint uses @csrf_exempt because it's called by mobile SDKs
@@ -205,7 +205,7 @@ def sdk_push_subscription_register(request: HttpRequest):
         token=validated["token"],
         platform=PushPlatform(validated["platform"]),
         provider=PushProvider(validated["provider"]),
-        firebase_app_id=validated.get("firebase_app_id") or None,
+        fcm_project_id=validated.get("fcm_project_id") or None,
     )
 
     logger.info(

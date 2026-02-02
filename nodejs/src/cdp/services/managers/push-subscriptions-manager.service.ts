@@ -20,7 +20,7 @@ export type PushSubscriptionGetArgs = {
     teamId: number
     distinctId: string
     platform?: 'android' | 'ios'
-    firebaseAppId?: string
+    fcmProjectId?: string
     provider?: 'fcm' | 'apns'
 }
 
@@ -30,19 +30,19 @@ const toKey = (args: PushSubscriptionGetArgs): string => {
         args.teamId,
         args.distinctId,
         args.platform ?? 'all',
-        args.firebaseAppId ?? 'all',
+        args.fcmProjectId ?? 'all',
         args.provider ?? 'all',
     ])
 }
 
 const fromKey = (key: string): PushSubscriptionGetArgs => {
     // Parse JSON-encoded key to safely handle distinctIds containing colons or other special characters
-    const [teamId, distinctId, platform, firebaseAppId, provider] = parseJSON(key)
+    const [teamId, distinctId, platform, fcmProjectId, provider] = parseJSON(key)
     return {
         teamId: parseInt(teamId),
         distinctId,
         platform: platform === 'all' ? undefined : (platform as 'android' | 'ios'),
-        firebaseAppId: firebaseAppId === 'all' ? undefined : firebaseAppId,
+        fcmProjectId: fcmProjectId === 'all' ? undefined : fcmProjectId,
         provider: provider === 'all' ? undefined : (provider as 'fcm' | 'apns'),
     }
 }
@@ -59,7 +59,7 @@ type PushSubscriptionRow = {
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
-    firebase_app_id: string | null
+    fcm_project_id: string | null
 }
 
 export type PushSubscription = {
@@ -73,12 +73,12 @@ export type PushSubscription = {
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
-    firebase_app_id: string | null
+    fcm_project_id: string | null
 }
 
 export type PushSubscriptionInputToLoad = {
     distinctId: string
-    firebaseAppId: string
+    fcmProjectId: string
     platform?: 'android' | 'ios'
 }
 
@@ -121,7 +121,7 @@ export class PushSubscriptionsManagerService {
                 last_successfully_used_at,
                 created_at,
                 updated_at,
-                firebase_app_id
+                fcm_project_id
             FROM workflows_pushsubscription
             WHERE id = $1 AND team_id = $2 AND is_active = true
             LIMIT 1`
@@ -153,7 +153,7 @@ export class PushSubscriptionsManagerService {
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
-            firebase_app_id: row.firebase_app_id,
+            fcm_project_id: row.fcm_project_id,
         }
     }
 
@@ -178,9 +178,9 @@ export class PushSubscriptionsManagerService {
                 params.push(args.provider)
             }
 
-            if (args.firebaseAppId) {
-                conditionParts.push(`(firebase_app_id = $${paramIdx++} OR firebase_app_id IS NULL)`)
-                params.push(args.firebaseAppId)
+            if (args.fcmProjectId) {
+                conditionParts.push(`(fcm_project_id = $${paramIdx++} OR fcm_project_id IS NULL)`)
+                params.push(args.fcmProjectId)
             }
 
             conditionParts.push('is_active = true')
@@ -198,7 +198,7 @@ export class PushSubscriptionsManagerService {
                 last_successfully_used_at,
                 created_at,
                 updated_at,
-                firebase_app_id
+                fcm_project_id
             FROM workflows_pushsubscription
             WHERE ${conditions.join(' OR ')}
             ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
@@ -225,7 +225,7 @@ export class PushSubscriptionsManagerService {
                 const matchesPlatform = !args.platform || args.platform === row.platform
                 const matchesProvider = !args.provider || args.provider === row.provider
                 const matchesAppId =
-                    !args.firebaseAppId || args.firebaseAppId === row.firebase_app_id || row.firebase_app_id === null
+                    !args.fcmProjectId || args.fcmProjectId === row.fcm_project_id || row.fcm_project_id === null
 
                 if (
                     args.teamId === row.team_id &&
@@ -247,7 +247,7 @@ export class PushSubscriptionsManagerService {
                         last_successfully_used_at: row.last_successfully_used_at,
                         created_at: row.created_at,
                         updated_at: row.updated_at,
-                        firebase_app_id: row.firebase_app_id,
+                        fcm_project_id: row.fcm_project_id,
                     })
                 }
             }
@@ -373,7 +373,7 @@ export class PushSubscriptionsManagerService {
         teamId: number,
         distinctIds: string[],
         platform?: 'android' | 'ios',
-        firebaseAppId?: string,
+        fcmProjectId?: string,
         provider?: 'fcm' | 'apns'
     ): Promise<PushSubscription | null> {
         if (distinctIds.length === 0) {
@@ -384,7 +384,7 @@ export class PushSubscriptionsManagerService {
         let paramIndex = distinctIds.length + 2
         const platformFilter = platform ? `AND platform = $${paramIndex++}` : ''
         const providerFilter = provider ? `AND provider = $${paramIndex++}` : ''
-        const appIdFilter = firebaseAppId ? `AND (firebase_app_id = $${paramIndex++} OR firebase_app_id IS NULL)` : ''
+        const appIdFilter = fcmProjectId ? `AND (fcm_project_id = $${paramIndex++} OR fcm_project_id IS NULL)` : ''
 
         const params: any[] = [teamId, ...distinctIds]
         if (platform) {
@@ -393,8 +393,8 @@ export class PushSubscriptionsManagerService {
         if (provider) {
             params.push(provider)
         }
-        if (firebaseAppId) {
-            params.push(firebaseAppId)
+        if (fcmProjectId) {
+            params.push(fcmProjectId)
         }
 
         const queryString = `SELECT
@@ -408,7 +408,7 @@ export class PushSubscriptionsManagerService {
                 last_successfully_used_at,
                 created_at,
                 updated_at,
-                firebase_app_id
+                fcm_project_id
             FROM workflows_pushsubscription
             WHERE team_id = $1 AND distinct_id IN (${placeholders}) AND is_active = true ${platformFilter} ${providerFilter} ${appIdFilter}
             ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC
@@ -441,7 +441,7 @@ export class PushSubscriptionsManagerService {
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
-            firebase_app_id: row.firebase_app_id,
+            fcm_project_id: row.fcm_project_id,
         }
     }
 
@@ -449,7 +449,7 @@ export class PushSubscriptionsManagerService {
         teamId: number,
         distinctIds: string[],
         platform?: 'android' | 'ios',
-        firebaseAppId?: string,
+        fcmProjectId?: string,
         provider?: 'fcm' | 'apns'
     ): Promise<PushSubscription[]> {
         if (distinctIds.length === 0) {
@@ -460,7 +460,7 @@ export class PushSubscriptionsManagerService {
         let paramIndex = distinctIds.length + 2
         const platformFilter = platform ? `AND platform = $${paramIndex++}` : ''
         const providerFilter = provider ? `AND provider = $${paramIndex++}` : ''
-        const appIdFilter = firebaseAppId ? `AND (firebase_app_id = $${paramIndex++} OR firebase_app_id IS NULL)` : ''
+        const appIdFilter = fcmProjectId ? `AND (fcm_project_id = $${paramIndex++} OR fcm_project_id IS NULL)` : ''
 
         const params: any[] = [teamId, ...distinctIds]
         if (platform) {
@@ -469,8 +469,8 @@ export class PushSubscriptionsManagerService {
         if (provider) {
             params.push(provider)
         }
-        if (firebaseAppId) {
-            params.push(firebaseAppId)
+        if (fcmProjectId) {
+            params.push(fcmProjectId)
         }
 
         const queryString = `SELECT
@@ -484,7 +484,7 @@ export class PushSubscriptionsManagerService {
                 last_successfully_used_at,
                 created_at,
                 updated_at,
-                firebase_app_id
+                fcm_project_id
             FROM workflows_pushsubscription
             WHERE team_id = $1 AND distinct_id IN (${placeholders}) AND is_active = true ${platformFilter} ${providerFilter} ${appIdFilter}
             ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
@@ -510,7 +510,7 @@ export class PushSubscriptionsManagerService {
                 last_successfully_used_at: row.last_successfully_used_at,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
-                firebase_app_id: row.firebase_app_id,
+                fcm_project_id: row.fcm_project_id,
             }
         })
     }
@@ -535,13 +535,13 @@ export class PushSubscriptionsManagerService {
         const returnInputs: Record<string, { value: string | null }> = {}
         const provider = 'fcm' as const
 
-        const entries = Object.entries(inputsToLoad).map(([key, { distinctId, firebaseAppId, platform }]) => ({
+        const entries = Object.entries(inputsToLoad).map(([key, { distinctId, fcmProjectId, platform }]) => ({
             inputKey: key,
             getArgs: {
                 teamId: hogFunction.team_id,
                 distinctId,
                 platform,
-                firebaseAppId,
+                fcmProjectId,
                 provider,
             },
         }))
@@ -569,7 +569,7 @@ export class PushSubscriptionsManagerService {
                         hogFunction.team_id,
                         relatedDistinctIds,
                         getArgs.platform,
-                        getArgs.firebaseAppId,
+                        getArgs.fcmProjectId,
                         provider
                     )
 
