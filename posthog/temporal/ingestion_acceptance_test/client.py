@@ -13,6 +13,8 @@ import structlog
 # Use posthoganalytics instead of posthog to avoid conflict with local posthog/ directory
 import posthoganalytics
 
+from posthog.models.utils import mask_key_value
+
 from .config import Config
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +61,7 @@ class PostHogClient:
         logger.info(
             "PostHog SDK configured",
             sdk_host=posthoganalytics.host,
+            sdk_api_key=mask_key_value(config.project_api_key),
             sdk_sync_mode=posthoganalytics.sync_mode,
             sdk_debug=posthoganalytics.debug,
         )
