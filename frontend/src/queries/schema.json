@@ -22396,6 +22396,9 @@
             "properties": {
                 "organization_name": {
                     "type": "string"
+                },
+                "use_current_time": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
