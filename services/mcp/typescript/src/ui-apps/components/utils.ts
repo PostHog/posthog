@@ -32,7 +32,7 @@ export function getSeriesLabel(item: { label?: string; action?: { name?: string 
 }
 
 export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: string; count: number; order: number }> {
-    if (results.length === 0) return []
+    if (results.length === 0) {return []}
 
     const firstItem = results[0]
     if (Array.isArray(firstItem)) {

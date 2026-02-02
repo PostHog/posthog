@@ -3,7 +3,7 @@ import type { TableVisualizerProps } from './types'
 import { BigNumber, DataTable, LineChart, type Series } from './charts'
 
 function isTimestampLike(value: unknown): boolean {
-    if (typeof value !== 'string') return false
+    if (typeof value !== 'string') {return false}
     const datePatterns = [
         /^\d{4}-\d{2}-\d{2}/, // 2024-01-15 or 2024-01-15T...
         /^\d{4}\/\d{2}\/\d{2}/, // 2024/01/15

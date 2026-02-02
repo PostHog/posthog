@@ -7,10 +7,11 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -303,7 +304,14 @@ export const sceneLogic = kea<sceneLogicType>([
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
         actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
-        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
+        values: [
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['organizationBeingDeleted'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -1323,6 +1331,12 @@ export const sceneLogic = kea<sceneLogicType>([
                     targetPathname = urls.projectHomepage()
                 }
                 router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
+                return
+            }
+
+            const isRemovingSidePanel = !!values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]
+            if (isRemovingSidePanel) {
+                router.actions.replace(withForwardedSearchParams(urls.ai(), searchParams, forwardedRedirectQueryParams))
                 return
             }
 

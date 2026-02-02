@@ -76,7 +76,7 @@ export function BarChart({ series, labels, maxValue, showLegend = true }: BarCha
 
                 {/* X-axis labels */}
                 {labels.map((label, i) => {
-                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) return null
+                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {return null}
                     const x = PADDING.left + (i + 0.5) * barGroupWidth
                     return (
                         <text

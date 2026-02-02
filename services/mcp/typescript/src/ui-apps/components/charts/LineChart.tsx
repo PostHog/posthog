@@ -73,7 +73,7 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
 
                 {/* X-axis labels */}
                 {labels.map((label, i) => {
-                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) return null
+                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {return null}
                     return (
                         <text
                             key={i}
@@ -90,7 +90,7 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
 
                 {/* Lines */}
                 {series.map((s, seriesIndex) => {
-                    if (s.points.length === 0) return null
+                    if (s.points.length === 0) {return null}
 
                     const pathD = s.points
                         .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.x)} ${yScale(p.y)}`)

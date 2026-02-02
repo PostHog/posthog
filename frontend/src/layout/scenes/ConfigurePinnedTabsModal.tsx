@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconAI } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -25,6 +27,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const { pinTab, unpinTab, setHomepage } = useActions(sceneLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
+    const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
     const homepageTabForDisplay = homepage ? (tabs.find((tab) => tab.id === homepage.id) ?? homepage) : null
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
@@ -39,8 +43,16 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
 
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
-        : "Project's default dashboard"
-    const homepageSubtitle = isUsingProjectDefault ? projectDefaultSubtitle : isUsingNewTabHomepage ? 'Search' : null
+        : isRemovingSidePanel
+          ? 'PostHog AI'
+          : "Project's default dashboard"
+    const homepageSubtitle = isUsingProjectDefault
+        ? isRemovingSidePanel
+            ? null
+            : projectDefaultSubtitle
+        : isUsingNewTabHomepage
+          ? 'Search'
+          : null
 
     const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
         { value: null, label: 'No default dashboard / show the "new tab" page' },
@@ -51,13 +63,18 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     ]
 
     const homepageIcon = homepageTabForDisplay?.iconType
-    const homepageIconElement = iconForType(
-        homepageIcon && homepageIcon !== 'loading' && homepageIcon !== 'blank'
-            ? (homepageIcon as FileSystemIconType)
-            : isUsingNewTabHomepage
-              ? ('default_icon_type' as FileSystemIconType)
-              : ('home' as FileSystemIconType)
-    )
+    const homepageIconElement =
+        isRemovingSidePanel && isUsingProjectDefault ? (
+            <IconAI />
+        ) : (
+            iconForType(
+                homepageIcon && homepageIcon !== 'loading' && homepageIcon !== 'blank'
+                    ? (homepageIcon as FileSystemIconType)
+                    : isUsingNewTabHomepage
+                      ? ('default_icon_type' as FileSystemIconType)
+                      : ('home' as FileSystemIconType)
+            )
+        )
 
     const newTabHomepage: SceneTab = {
         id: 'homepage-new-tab',
@@ -179,7 +196,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                 onClick={() => setHomepage(null)}
                                 disabled={isUsingProjectDefault}
                             >
-                                Use default dashboard
+                                {isRemovingSidePanel ? 'Use PostHog AI' : 'Use default dashboard'}
                             </LemonButton>
                             <LemonButton
                                 size="small"
@@ -192,22 +209,24 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                         </div>
                     </div>
                 </section>
-                <section className="space-y-3">
-                    <div>
-                        <h3 className="text-lg font-semibold text-primary">Project default dashboard</h3>
-                        <p className="text-sm text-muted-alt">
-                            This dashboard opens by default for everyone who has not set a custom homepage.
-                        </p>
-                    </div>
-                    <LemonSelect<number | null>
-                        className="w-full"
-                        fullWidth
-                        options={projectDefaultDashboardOptions}
-                        value={projectDefaultDashboardId}
-                        onChange={(dashboardId) => updateCurrentTeam({ primary_dashboard: dashboardId ?? null })}
-                        disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
-                    />
-                </section>
+                {!isRemovingSidePanel && (
+                    <section className="space-y-3">
+                        <div>
+                            <h3 className="text-lg font-semibold text-primary">Project default dashboard</h3>
+                            <p className="text-sm text-muted-alt">
+                                This dashboard opens by default for everyone who has not set a custom homepage.
+                            </p>
+                        </div>
+                        <LemonSelect<number | null>
+                            className="w-full"
+                            fullWidth
+                            options={projectDefaultDashboardOptions}
+                            value={projectDefaultDashboardId}
+                            onChange={(dashboardId) => updateCurrentTeam({ primary_dashboard: dashboardId ?? null })}
+                            disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
+                        />
+                    </section>
+                )}
             </div>
         </LemonModal>
     )

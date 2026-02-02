@@ -17,7 +17,7 @@ type VisualizationType = 'trends' | 'funnel' | 'table'
  * Check if results look like TrendsResult (array of items with data/labels arrays).
  */
 function isTrendsResult(results: unknown): results is TrendsResult {
-    if (!Array.isArray(results) || results.length === 0) return false
+    if (!Array.isArray(results) || results.length === 0) {return false}
     const first = results[0] as Record<string, unknown>
     // TrendsResult items have: data (number[]), labels or days (string[])
     return (
@@ -31,10 +31,10 @@ function isTrendsResult(results: unknown): results is TrendsResult {
  * Check if results look like FunnelResult (array of steps with count/order/name).
  */
 function isFunnelResult(results: unknown): results is FunnelResult {
-    if (!Array.isArray(results) || results.length === 0) return false
+    if (!Array.isArray(results) || results.length === 0) {return false}
     // Handle both flat array and nested array formats
     const items = Array.isArray(results[0]) ? (results[0] as unknown[]) : results
-    if (items.length === 0) return false
+    if (items.length === 0) {return false}
     const first = items[0] as Record<string, unknown>
     // FunnelResult items have: name, count, order
     return (
@@ -49,7 +49,7 @@ function isFunnelResult(results: unknown): results is FunnelResult {
  * Check if results look like HogQLResult (object with columns and results arrays).
  */
 function isHogQLResult(results: unknown): results is HogQLResult {
-    if (typeof results !== 'object' || results === null) return false
+    if (typeof results !== 'object' || results === null) {return false}
     const r = results as Record<string, unknown>
     return 'columns' in r && 'results' in r && Array.isArray(r.columns) && Array.isArray(r.results)
 }
@@ -59,7 +59,7 @@ function isHogQLResult(results: unknown): results is HogQLResult {
  * This mimics how the main PostHog app determines visualization from query/results.
  */
 function inferVisualizationType(data: unknown): VisualizationType | null {
-    if (typeof data !== 'object' || data === null) return null
+    if (typeof data !== 'object' || data === null) {return null}
     const d = data as Record<string, unknown>
 
     const results = d.results
@@ -77,9 +77,9 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 
     // Infer from query kind as fallback
     const query = d.query as Record<string, unknown> | undefined
-    if (query?.kind === 'TrendsQuery') return 'trends'
-    if (query?.kind === 'FunnelsQuery') return 'funnel'
-    if (query?.kind === 'HogQLQuery') return 'table'
+    if (query?.kind === 'TrendsQuery') {return 'trends'}
+    if (query?.kind === 'FunnelsQuery') {return 'funnel'}
+    if (query?.kind === 'HogQLQuery') {return 'table'}
 
     return null
 }
