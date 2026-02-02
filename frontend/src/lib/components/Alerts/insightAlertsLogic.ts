@@ -115,7 +115,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             },
         ],
         anomalyPoints: [
-            (s: any) => [s.alerts, s.currentInterval],
+            (s) => [s.alerts, s.currentInterval],
             (alerts: AlertType[], currentInterval: IntervalType | null): AnomalyPoint[] => {
                 const points: AnomalyPoint[] = []
 
