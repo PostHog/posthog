@@ -23,6 +23,10 @@ class DistinctIdUsageMonitoringConfig(dagster.Config):
         default=30,
         description="Percentage of events from a single distinct_id that triggers an alert (0-100)",
     )
+    high_usage_min_events_threshold: int = pydantic.Field(
+        default=10_000,
+        description="Minimum total team events required before high usage percentage alerts apply (filters out low-volume test accounts)",
+    )
     high_cardinality_threshold: int = pydantic.Field(
         default=1_000_000,
         description="Number of unique distinct_ids per team that triggers a high cardinality alert",
@@ -113,7 +117,7 @@ def query_distinct_id_usage(
             FROM {settings.CLICKHOUSE_DATABASE}.{TABLE_BASE_NAME}
             WHERE minute >= %(lookback_start)s
             GROUP BY team_id
-            HAVING total_events > 0
+            HAVING total_events >= %(min_events_threshold)s
         ),
         distinct_id_totals AS (
             SELECT
@@ -142,6 +146,7 @@ def query_distinct_id_usage(
             {
                 "lookback_start": lookback_start,
                 "threshold": config.high_usage_percentage_threshold,
+                "min_events_threshold": config.high_usage_min_events_threshold,
             },
             settings=query_settings,
         )
@@ -184,16 +189,17 @@ def query_distinct_id_usage(
         ]
 
         # Query 3: Find burst events (high events per minute)
+        # No GROUP BY needed - data is already aggregated per (team_id, distinct_id, minute)
+        # by the SummingMergeTree table engine
         burst_query = f"""
         SELECT
             team_id,
             distinct_id,
             minute,
-            sum(event_count) as event_count
+            event_count
         FROM {settings.CLICKHOUSE_DATABASE}.{TABLE_BASE_NAME}
         WHERE minute >= %(lookback_start)s
-        GROUP BY team_id, distinct_id, minute
-        HAVING event_count >= %(threshold)s
+          AND event_count >= %(threshold)s
         ORDER BY event_count DESC
         LIMIT 100
         """
@@ -274,7 +280,7 @@ def truncate_distinct_id(distinct_id: str, max_length: int = 30) -> str:
 def send_alerts(
     context: dagster.OpExecutionContext,
     results: MonitoringResults,
-    slack: dagster_slack.SlackResource,
+    slack: dagster.ResourceParam[dagster_slack.SlackResource],
 ) -> None:
     """Send Slack alerts for any detected issues."""
 
