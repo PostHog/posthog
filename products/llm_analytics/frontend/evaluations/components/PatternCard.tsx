@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { IconCheck, IconMinus, IconX } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -26,9 +26,6 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                 <span className="text-xs text-muted bg-bg-light px-2 py-0.5 rounded">{pattern.frequency}</span>
             </div>
             <p className="text-sm text-default mb-2">{pattern.description}</p>
-            <div className="text-xs text-muted bg-bg-light p-2 rounded">
-                <strong>Example:</strong> {pattern.example_reasoning}
-            </div>
             {pattern.example_generation_ids.length > 0 && (
                 <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
                     <span className="text-xs text-muted">Generations:</span>
@@ -36,25 +33,26 @@ export function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JS
                         const run = runsLookup[genId]
                         if (run) {
                             return (
-                                <Link
-                                    key={genId}
-                                    to={urls.llmAnalyticsTrace(run.trace_id, { event: genId, tab: 'evals' })}
-                                    className="text-xs font-mono text-primary hover:underline"
-                                    data-attr="llma-evaluation-summary-example-link"
-                                    onClick={() => {
-                                        posthog.capture('llma evaluation summary example clicked', {
-                                            pattern_type: type,
-                                            pattern_title: pattern.title,
-                                        })
-                                    }}
-                                >
-                                    {genId.slice(0, 8)}...
-                                </Link>
+                                <Tooltip key={genId} title={run.reasoning}>
+                                    <Link
+                                        to={urls.llmAnalyticsTrace(run.trace_id, { event: genId, tab: 'evals' })}
+                                        className="text-xs font-mono text-primary hover:underline"
+                                        data-attr="llma-evaluation-summary-example-link"
+                                        onClick={() => {
+                                            posthog.capture('llma evaluation summary example clicked', {
+                                                pattern_type: type,
+                                                pattern_title: pattern.title,
+                                            })
+                                        }}
+                                    >
+                                        {genId.slice(0, 8)}
+                                    </Link>
+                                </Tooltip>
                             )
                         }
                         return (
                             <span key={genId} className="text-xs font-mono text-muted">
-                                {genId.slice(0, 8)}...
+                                {genId.slice(0, 8)}
                             </span>
                         )
                     })}
