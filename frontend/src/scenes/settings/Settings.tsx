@@ -6,19 +6,25 @@ import { router } from 'kea-router'
 import React from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonButtonProps,
+    LemonDivider,
+    LemonInput,
+    LemonSegmentedButton,
+} from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybookTestRunner } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
@@ -86,10 +92,7 @@ export function Settings({
             : React.Fragment
 
     // Helper to build section options
-    const buildSectionOption = (
-        section: (typeof filteredSections)[0],
-        level: SettingLevelId
-    ): SettingOption => {
+    const buildSectionOption = (section: (typeof filteredSections)[0], level: SettingLevelId): SettingOption => {
         const { id, to, accessControl } = section
         const isDangerZone = id.endsWith('-danger-zone')
 
@@ -127,7 +130,10 @@ export function Settings({
     }
 
     // Helper to build sections with groups for a given level
-    const buildSectionsWithGroups = (levelSections: typeof filteredSections, level: SettingLevelId): SettingOption[] => {
+    const buildSectionsWithGroups = (
+        levelSections: typeof filteredSections,
+        level: SettingLevelId
+    ): SettingOption[] => {
         const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
         const nonDangerSections = levelSections.filter((s) => !s.id.endsWith('-danger-zone'))
         const renderedGroups = new Set<string>()
@@ -167,9 +173,7 @@ export function Settings({
                                 {section.group}
                             </OptionButton>
                         ),
-                        items: !isGroupCollapsed
-                            ? sectionsInGroup.map((s) => buildSectionOption(s, level))
-                            : [],
+                        items: !isGroupCollapsed ? sectionsInGroup.map((s) => buildSectionOption(s, level)) : [],
                     },
                 ]
             }),
@@ -199,9 +203,7 @@ export function Settings({
                 const levelSections = filteredSections.filter((x) => x.level === level)
                 const isCollapsed = collapsedLevels[level]
                 const hasItems = levelSections.length > 0
-                const levelItems: SettingOption[] = !isCollapsed
-                    ? buildSectionsWithGroups(levelSections, level)
-                    : []
+                const levelItems: SettingOption[] = !isCollapsed ? buildSectionsWithGroups(levelSections, level) : []
 
                 return {
                     key: level,
@@ -252,7 +254,7 @@ export function Settings({
                                     onChange={(newLevel) => selectLevel(newLevel)}
                                     options={filteredLevels.map((level) => ({
                                         value: level,
-                                        label: SettingLevelNames[level],
+                                        label: SettingLevelLabels[level],
                                     }))}
                                     fullWidth
                                     size="small"
@@ -406,6 +408,14 @@ const OptionButton = ({
 
 export const SettingLevelNames: Record<SettingLevelId, string> = {
     environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'Account',
+} as const
+
+/** Shorter labels for the level toggle to fit in constrained space */
+export const SettingLevelLabels: Record<SettingLevelId, string> = {
+    environment: 'Env',
     project: 'Project',
     organization: 'Organization',
     user: 'Account',
