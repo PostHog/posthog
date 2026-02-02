@@ -6,11 +6,20 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import { getInterval, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { InsightLogicProps, IntervalType } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
 import { AlertType } from './types'
+
+export interface AnomalyPoint {
+    index: number
+    date: string | null
+    score: number | null
+    alertId: string
+    alertName: string
+    seriesIndex: number
+}
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -59,6 +68,17 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     selectors({
+        currentInterval: [
+            (s) => [s.insight],
+            (insight: any): IntervalType | null => {
+                const query = insight?.query
+                if (!query) {
+                    return null
+                }
+                const source = 'source' in query ? query.source : query
+                return getInterval(source) ?? null
+            },
+        ],
         alertThresholdLines: [
             (s) => [s.alerts, s.showAlertThresholdLines],
             (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
@@ -92,6 +112,59 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     return annotations
                 })
                 return result
+            },
+        ],
+        anomalyPoints: [
+            (s) => [s.alerts, s.currentInterval],
+            (alerts: AlertType[], currentInterval: IntervalType | null): AnomalyPoint[] => {
+                const points: AnomalyPoint[] = []
+
+                for (const alert of alerts) {
+                    if (!alert.checks || alert.checks.length === 0) {
+                        continue
+                    }
+
+                    // Only consider the most recent check - don't show stale anomaly data from older checks
+                    const mostRecentCheck = alert.checks[0]
+                    if (!mostRecentCheck?.triggered_points || mostRecentCheck.triggered_points.length === 0) {
+                        continue
+                    }
+
+                    // Skip if interval doesn't match current insight interval
+                    if (
+                        mostRecentCheck.interval &&
+                        currentInterval &&
+                        mostRecentCheck.interval !== currentInterval
+                    ) {
+                        continue
+                    }
+
+                    const seriesIndex = alert.config?.series_index ?? 0
+                    const scores = mostRecentCheck.anomaly_scores ?? []
+                    const dates = mostRecentCheck.triggered_dates ?? []
+
+                    for (let i = 0; i < mostRecentCheck.triggered_points.length; i++) {
+                        const dataIndex = mostRecentCheck.triggered_points[i]
+                        // Use scores[i] when scores array matches triggered_points length,
+                        // otherwise use scores[dataIndex] for full-length score arrays
+                        const score =
+                            scores.length === 1
+                                ? scores[0]
+                                : scores.length === mostRecentCheck.triggered_points.length
+                                  ? scores[i]
+                                  : scores[dataIndex]
+                        points.push({
+                            index: dataIndex,
+                            date: dates[i] ?? null,
+                            score: score ?? null,
+                            alertId: alert.id,
+                            alertName: alert.name,
+                            seriesIndex,
+                        })
+                    }
+                }
+
+                return points
             },
         ],
     }),

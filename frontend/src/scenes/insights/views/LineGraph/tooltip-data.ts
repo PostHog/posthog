@@ -1,15 +1,52 @@
 import { TooltipItem } from 'lib/Chart'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { AnomalyInfo, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { GraphDataset } from '~/types'
 
+export interface AnomalyPointData {
+    index: number
+    date: string | null
+    score: number | null
+    alertName: string
+    seriesIndex: number
+}
+
 export function createTooltipData(
     tooltipDataPoints: TooltipItem<any>[],
-    filterFn?: (s: SeriesDatum) => boolean
+    filterFn?: (s: SeriesDatum) => boolean,
+    anomalyPoints?: AnomalyPointData[],
+    chartDays?: string[]
 ): SeriesDatum[] {
     if (!tooltipDataPoints) {
         return []
     }
+
+    const getAnomalyInfo = (dataIndex: number, datasetIndex: number): AnomalyInfo | undefined => {
+        if (!anomalyPoints || anomalyPoints.length === 0) {
+            return undefined
+        }
+
+        const chartDate = chartDays?.[dataIndex]
+
+        const anomaly = anomalyPoints.find((ap) => {
+            if (ap.seriesIndex !== datasetIndex) {
+                return false
+            }
+            if (chartDate && ap.date) {
+                return chartDate === ap.date
+            }
+            return ap.index === dataIndex
+        })
+
+        if (anomaly) {
+            return {
+                score: anomaly.score,
+                alertName: anomaly.alertName,
+            }
+        }
+        return undefined
+    }
+
     let data = tooltipDataPoints
         .map((dp, idx) => {
             const pointDataset = (dp?.dataset ?? {}) as GraphDataset
@@ -34,6 +71,7 @@ export function createTooltipData(
                 count: pointDataset?.data?.[dp.dataIndex] || 0,
                 filter: pointDataset?.filter ?? {},
                 hideTooltip: (pointDataset as any).hideTooltip,
+                anomalyInfo: getAnomalyInfo(dp.dataIndex, dp.datasetIndex),
             }
         })
         .sort((a, b) => {

@@ -297,3 +297,69 @@ class TestAlertAPIKeyAccess(APIBaseTest):
         assert response.status_code == expected_status
         if error_scope:
             assert error_scope in response.json()["detail"]
+
+
+class TestAlertBackfill(APIBaseTest):
+    """Test the alert backfill endpoint for anomaly detection."""
+
+    def setUp(self):
+        super().setUp()
+        self.insight_data = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "trendsFilter": {"display": "BoldNumber"},
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="Test Alert",
+            created_by=self.user,
+        )
+
+    def test_backfill_requires_insight_id(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/backfill/",
+            data={"detector_config": {"type": "zscore", "threshold": 3.0, "window": 10}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "insight_id" in response.json()["error"]
+
+    def test_backfill_requires_detector_config(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/backfill/",
+            data={"insight_id": self.insight["id"]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "detector_config" in response.json()["error"]
+
+    def test_backfill_rejects_non_trends_insight(self) -> None:
+        # Create a non-TrendsQuery insight
+        funnel_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={"query": {"kind": "FunnelsQuery", "series": []}},
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/backfill/",
+            data={
+                "insight_id": funnel_insight["id"],
+                "detector_config": {"type": "threshold", "upper_bound": 100},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "TrendsQuery" in response.json()["error"]
+
+    def test_backfill_rejects_invalid_insight_id(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/backfill/",
+            data={
+                "insight_id": 999999,
+                "detector_config": {"type": "threshold", "upper_bound": 100},
+            },
+        )
+        # Invalid insight returns 404 Not Found
+        assert response.status_code == status.HTTP_404_NOT_FOUND
