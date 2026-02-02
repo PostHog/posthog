@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconLock } from '@posthog/icons'
-import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { IconLock, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -14,7 +14,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -51,10 +50,12 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { flagSelectionLogic } from './flagSelectionLogic'
 
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -275,6 +276,10 @@ export function OverViewTab({
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
+    const { selectedFlagIds, selectedCount, isAllSelected, isSomeSelected, bulkDeleteResponseLoading } =
+        useValues(flagSelectionLogic)
+    const { toggleFlagSelection, selectAll, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
+
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
     const effectiveCount = pagination.entryCount ?? 0
@@ -282,6 +287,33 @@ export function OverViewTab({
     const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
+        {
+            key: 'selection',
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
+                    onChange={(checked: boolean) => {
+                        if (checked) {
+                            selectAll()
+                        } else {
+                            clearSelection()
+                        }
+                    }}
+                />
+            ),
+            render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
+                if (featureFlag.id === null) {
+                    return null
+                }
+                return (
+                    <LemonCheckbox
+                        checked={selectedFlagIds.includes(featureFlag.id)}
+                        onChange={() => toggleFlagSelection(featureFlag.id, index)}
+                    />
+                )
+            },
+        },
         {
             title: 'Key',
             dataIndex: 'key',
@@ -472,7 +504,7 @@ export function OverViewTab({
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
-            <div>
+            <div className="flex items-center justify-between">
                 <span
                     className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
                     aria-busy={filtersChanged}
@@ -484,7 +516,44 @@ export function OverViewTab({
                         flagCountText
                     ) : null}
                 </span>
+                {selectedCount > 0 && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-muted text-sm">
+                            {selectedCount} flag{selectedCount !== 1 ? 's' : ''} selected
+                        </span>
+                        <LemonButton type="secondary" size="small" onClick={clearSelection}>
+                            Clear
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            status="danger"
+                            size="small"
+                            icon={<IconTrash />}
+                            loading={bulkDeleteResponseLoading}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
+                                    description: `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`,
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => bulkDeleteFlags(),
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                        >
+                            Delete selected
+                        </LemonButton>
+                    </div>
+                )}
             </div>
+            <BulkDeleteResultsModal />
 
             <LemonTable
                 dataSource={displayedFlags}

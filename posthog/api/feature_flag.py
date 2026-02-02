@@ -1829,6 +1829,144 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    @action(methods=["POST"], detail=False)
+    def bulk_delete(self, request: request.Request, **kwargs):
+        """
+        Bulk delete feature flags by IDs.
+        Accepts a list of feature flag IDs and soft-deletes them.
+        Returns success/error per flag.
+        """
+        flag_ids = request.data.get("ids", [])
+
+        if not flag_ids:
+            return Response(
+                {"error": "No flag IDs provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Limit to 100 flags per request
+        if len(flag_ids) > 100:
+            return Response(
+                {"error": "Cannot delete more than 100 flags at once"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Convert to integers and track invalid IDs
+        validated_ids = []
+        invalid_ids = []
+        for flag_id in flag_ids:
+            if str(flag_id).isdigit():
+                try:
+                    validated_ids.append(int(flag_id))
+                except (ValueError, TypeError):
+                    invalid_ids.append(flag_id)
+            else:
+                invalid_ids.append(flag_id)
+
+        if not validated_ids:
+            return Response(
+                {"error": "No valid flag IDs provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Fetch all flags that exist and belong to this project
+        flags = FeatureFlag.objects.filter(
+            id__in=validated_ids, team__project_id=self.project_id, deleted=False
+        ).prefetch_related("features", "experiment_set")
+
+        flags_by_id = {flag.id: flag for flag in flags}
+
+        deleted = []
+        errors = []
+
+        # Add errors for invalid IDs
+        for invalid_id in invalid_ids:
+            errors.append({"id": invalid_id, "reason": "Invalid flag ID format"})
+
+        # Add errors for non-existent flags
+        for flag_id in validated_ids:
+            if flag_id not in flags_by_id:
+                errors.append({"id": flag_id, "reason": "Flag not found"})
+
+        # Get the serializer to use its dependency checking methods
+        serializer = self.serializer_class()
+
+        # Process each flag
+        for flag_id, flag in flags_by_id.items():
+            # Check for linked early access features
+            if flag.features.count() > 0:
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": "Cannot delete a feature flag that is in use with early access features",
+                    }
+                )
+                continue
+
+            # Check for linked active experiments
+            active_experiments = flag.experiment_set.filter(deleted=False)
+            if active_experiments.exists():
+                experiment_ids = list(active_experiments.values_list("id", flat=True))
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": f"Cannot delete a feature flag linked to active experiment(s): {', '.join(map(str, experiment_ids))}",
+                    }
+                )
+                continue
+
+            # Check for other flags that depend on this flag
+            dependent_flags = serializer._find_dependent_flags(flag)
+            if dependent_flags:
+                dependent_flag_names = [f"{f.key} (ID: {f.id})" for f in dependent_flags[:3]]
+                if len(dependent_flags) > 3:
+                    dependent_flag_names.append(f"and {len(dependent_flags) - 3} more")
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": f"Cannot delete because other flags depend on it: {', '.join(dependent_flag_names)}",
+                    }
+                )
+                continue
+
+            # All checks passed - soft delete the flag
+            old_key = flag.key
+
+            # If all experiments are soft-deleted, rename the key to free it up
+            if flag.experiment_set.filter(deleted=True).exists():
+                flag.key = f"{flag.key}:deleted:{flag.id}"
+
+            flag.deleted = True
+            flag.last_modified_by = request.user
+            flag.save()
+
+            # Log activity
+            log_activity(
+                organization_id=flag.team.organization_id,
+                team_id=flag.team_id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=flag.id,
+                scope="FeatureFlag",
+                activity="deleted",
+                detail=Detail(
+                    changes=[],
+                    name=old_key,
+                ),
+            )
+
+            deleted.append({"id": flag_id, "key": old_key})
+
+        return Response(
+            {
+                "deleted": deleted,
+                "errors": errors,
+            }
+        )
+
     @validated_request(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
