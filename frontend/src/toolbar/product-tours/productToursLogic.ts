@@ -162,6 +162,8 @@ export const productToursLogic = kea<productToursLogicType>([
 
         setEditorState: (state: EditorState) => ({ state }),
 
+        setSessionRecordingConsent: (consent: boolean) => ({ consent }),
+
         // Step actions
         addStep: (stepType: ProductTourStepType) => ({ stepType }),
         selectElement: (element: HTMLElement) => ({ element }),
@@ -305,6 +307,13 @@ export const productToursLogic = kea<productToursLogicType>([
             {
                 setLaunchedFromMainApp: (_, { value }) => value,
                 selectTour: (state, { id }) => (id === null ? false : state),
+            },
+        ],
+        sessionRecordingConsent: [
+            null as boolean | null,
+            { persist: true },
+            {
+                setSessionRecordingConsent: (_, { consent }) => consent,
             },
         ],
     }),
@@ -602,10 +611,26 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         newTour: () => {
             toolbarLogic.actions.setVisibleMenu('none')
+            if (values.sessionRecordingConsent) {
+                toolbarPosthogJS.startSessionRecording()
+            }
+        },
+        setSessionRecordingConsent: ({ consent }) => {
+            toolbarPosthogJS.capture(ProductTourEvent.CONSENT_SELECTED, { consent })
+            if (consent && values.selectedTourId !== null) {
+                toolbarPosthogJS.startSessionRecording()
+            } else if (!consent) {
+                toolbarPosthogJS.stopSessionRecording()
+            }
         },
         selectTour: ({ id }) => {
             if (id !== null) {
                 toolbarLogic.actions.setVisibleMenu('none')
+                if (values.sessionRecordingConsent) {
+                    toolbarPosthogJS.startSessionRecording()
+                }
+            } else if (!values.isPreviewing && values.sessionRecordingConsent) {
+                toolbarPosthogJS.stopSessionRecording()
             }
         },
         saveTour: () => {
@@ -876,6 +901,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 window.removeEventListener('PHProductTourCompleted', cache.onTourEnded)
                 window.removeEventListener('PHProductTourDismissed', cache.onTourEnded)
             }
+            toolbarPosthogJS.stopSessionRecording()
         },
     })),
 ])
