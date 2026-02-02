@@ -43,6 +43,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
+from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
@@ -67,7 +68,7 @@ class MessageMinimalSerializer(serializers.Serializer):
 class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
-        allow_null=True,  # Null content means we're continuing previous generation or resuming streaming
+        allow_null=True,  # Null content means we're resuming streaming or continuing previous generation
         max_length=40000,  # Roughly 10k tokens
     )
     conversation = serializers.UUIDField(
@@ -81,7 +82,8 @@ class MessageSerializer(MessageMinimalSerializer):
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
-    def validate(self, data):
+    def validate(self, attrs):
+        data = attrs
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
@@ -117,12 +119,73 @@ class MessageSerializer(MessageMinimalSerializer):
         return data
 
 
+class QueueMessageSerializer(serializers.Serializer):
+    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+    contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
+    ui_context = serializers.JSONField(required=False)
+    billing_context = serializers.JSONField(required=False)
+    agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+
+    def validate(self, attrs):
+        data = attrs
+        try:
+            HumanMessage.model_validate(
+                {
+                    "content": data["content"],
+                    "ui_context": data.get("ui_context"),
+                }
+            )
+        except pydantic.ValidationError:
+            raise serializers.ValidationError("Invalid message content.")
+
+        billing_context = data.get("billing_context")
+        if billing_context:
+            try:
+                parsed_context = MaxBillingContext.model_validate(billing_context)
+                data["billing_context"] = parsed_context.model_dump()
+            except pydantic.ValidationError as e:
+                capture_exception(e)
+                data["billing_context"] = None
+
+        if agent_mode := data.get("agent_mode"):
+            try:
+                data["agent_mode"] = AgentMode(agent_mode).value
+            except ValueError:
+                raise serializers.ValidationError("Invalid agent mode.")
+
+        return data
+
+
+class QueueMessageUpdateSerializer(serializers.Serializer):
+    content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+
+
 @extend_schema(tags=["max"])
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
+
+    def _queue_conversation_id(self) -> str:
+        if not self.lookup_url_kwarg:
+            raise exceptions.ValidationError("Conversation not provided")
+        conversation_id = self.kwargs.get(self.lookup_url_kwarg)
+        if not conversation_id:
+            raise exceptions.ValidationError("Conversation not provided")
+        return str(conversation_id)
+
+    def _ensure_queue_access(self, request: Request, conversation_id: str) -> Response | None:
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
+        if conversation.user != request.user or conversation.team != self.team:
+            return Response({"error": "Cannot access other users' conversations"}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def _queue_response(self, queue_store: ConversationQueueStore, queue: list[ConversationQueueMessage]) -> Response:
+        return Response({"messages": queue, "max_queue_messages": queue_store.max_messages})
 
     def safely_get_queryset(self, queryset):
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
@@ -291,6 +354,74 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             ),
             content_type="text/event-stream",
         )
+
+    @action(detail=True, methods=["GET", "POST"], url_path="queue")
+    def queue(self, request: Request, *args, **kwargs):
+        conversation_id = self._queue_conversation_id()
+        error_response = self._ensure_queue_access(request, conversation_id)
+        if error_response:
+            return error_response
+
+        queue_store = ConversationQueueStore(conversation_id)
+
+        if request.method == "GET":
+            return self._queue_response(queue_store, queue_store.list())
+
+        serializer = QueueMessageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message = build_queue_message(
+            content=serializer.validated_data["content"],
+            contextual_tools=serializer.validated_data.get("contextual_tools"),
+            ui_context=serializer.validated_data.get("ui_context"),
+            billing_context=serializer.validated_data.get("billing_context"),
+            agent_mode=serializer.validated_data.get("agent_mode"),
+            session_id=request.headers.get("X-POSTHOG-SESSION-ID"),
+        )
+
+        try:
+            queue = queue_store.enqueue(message)
+        except QueueFullError:
+            return Response(
+                {
+                    "error": "queue_full",
+                    "detail": "Only two messages can be queued at a time.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return self._queue_response(queue_store, queue)
+
+    @action(detail=True, methods=["PATCH", "DELETE"], url_path=r"queue/(?P<queue_id>[^/.]+)")
+    def queue_item(self, request: Request, queue_id: str, *args, **kwargs):
+        conversation_id = self._queue_conversation_id()
+        error_response = self._ensure_queue_access(request, conversation_id)
+        if error_response:
+            return error_response
+
+        queue_store = ConversationQueueStore(conversation_id)
+        queue = queue_store.list()
+        queue_index = next((index for index, item in enumerate(queue) if item.get("id") == queue_id), None)
+
+        if queue_index is None:
+            return Response({"detail": "Queue message not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == "PATCH":
+            serializer = QueueMessageUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            queue = queue_store.update(queue_id, serializer.validated_data["content"])
+        else:
+            queue = queue_store.delete(queue_id)
+
+        return self._queue_response(queue_store, queue)
+
+    @action(detail=True, methods=["POST"], url_path="queue/clear")
+    def clear_queue(self, request: Request, *args, **kwargs):
+        conversation_id = self._queue_conversation_id()
+        error_response = self._ensure_queue_access(request, conversation_id)
+        if error_response:
+            return error_response
+        queue_store = ConversationQueueStore(conversation_id)
+        return self._queue_response(queue_store, queue_store.clear())
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):

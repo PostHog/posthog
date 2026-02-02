@@ -1,0 +1,30 @@
+[package]
+name = "personhog-router"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-proto = { path = "../personhog-proto" }
+common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }
+health = { path = "../common/health" }
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+envconfig = { workspace = true }
+http = { workspace = true }
+metrics = { workspace = true }
+pin-project = "1.1"
+tokio = { workspace = true }
+tonic = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tokio-stream = "0.1"
+
+[lints]
+workspace = true
