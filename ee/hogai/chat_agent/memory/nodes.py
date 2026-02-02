@@ -67,6 +67,7 @@ from .prompts import (
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
 )
+from .queryable_memory_sync import sync_memory_to_queryable
 
 
 class MemoryInitializerContextMixin(AssistantContextMixin):
@@ -345,6 +346,9 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         await core_memory.aset_core_memory(compressed_memory)
 
+        # Sync the compressed memory to the queryable memory system (only if no similar memory exists)
+        await sync_memory_to_queryable(self._team, self._user, compressed_memory)
+
         context_message = ContextMessage(
             content=format_prompt_string(MEMORY_INITIALIZED_CONTEXT_PROMPT, core_memory=core_memory.initial_text),
             id=str(uuid4()),
@@ -525,10 +529,14 @@ class MemoryCollectorToolsNode(AssistantNode):
         for tool_call, schema in zip(last_message.tool_calls, tool_calls):
             if isinstance(schema, core_memory_append):
                 await core_memory.aappend_core_memory(schema.memory_content)
+                # Sync to queryable memory system (only if no similar memory exists)
+                await sync_memory_to_queryable(self._team, self._user, schema.memory_content)
                 new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
             if isinstance(schema, core_memory_replace):
                 try:
                     await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)
+                    # Sync the new fragment to queryable memory system (only if no similar memory exists)
+                    await sync_memory_to_queryable(self._team, self._user, schema.new_fragment)
                     new_messages.append(LangchainToolMessage(content="Memory replaced.", tool_call_id=tool_call["id"]))
                 except ValueError as e:
                     new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))

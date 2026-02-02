@@ -542,7 +542,10 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.node = MemoryOnboardingFinalizeNode(team=self.team, user=self.user)
 
     async def test_run(self):
-        with patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock:
+        with (
+            patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock,
+            patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable") as sync_mock,
+        ):
             model_mock.return_value = RunnableLambda(lambda _: "Compressed memory about enterprise product")
             self.core_memory.initial_text = "Question: What does the company do?\nAnswer: Product description"
             await self.core_memory.asave()
@@ -553,6 +556,12 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertEqual(new_state.messages[0].id, new_state.start_id)
             await self.core_memory.arefresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
+            # Verify sync was called with compressed memory
+            sync_mock.assert_called_once()
+            call_args = sync_mock.call_args
+            self.assertEqual(call_args[0][0], self.team)
+            self.assertEqual(call_args[0][1], self.user)
+            self.assertEqual(call_args[0][2], "Compressed memory about enterprise product")
 
     async def test_handles_json_content_in_memory(self):
         """Test that memory compression works when memory contains JSON with curly braces."""
@@ -569,7 +578,10 @@ Answer: We use JSON like this:
 
 Additional context: Our system also handles nested configurations like {"feature_flags": {"experiment_1": true, "experiment_2": false}}"""
 
-        with patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock:
+        with (
+            patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock,
+            patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"),
+        ):
             model_mock.return_value = RunnableLambda(lambda _: "Company uses structured JSON for event tracking")
 
             # This content contains JSON with curly braces that could be misinterpreted as template variables
@@ -868,7 +880,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        new_state = await self.node.arun(state, {})
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
         self.assertEqual(len(new_state.memory_collection_messages), 3)
@@ -932,7 +945,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        new_state = await self.node.arun(state, {})
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
         self.assertEqual(len(new_state.memory_collection_messages), 4)
@@ -970,7 +984,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        new_state = await self.node.arun(state, {})
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
         self.assertEqual(len(new_state.memory_collection_messages), 2)
@@ -1031,7 +1046,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        new_state = await self.node.arun(state, {})
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            new_state = await self.node.arun(state, {})
         assert new_state is not None
         assert new_state.memory_collection_messages is not None
         self.assertEqual(len(new_state.memory_collection_messages), 2)
@@ -1083,7 +1099,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
         )
 
         # Should not raise an error and should create core memory
-        new_state = await self.node.arun(state, {})
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            new_state = await self.node.arun(state, {})
         assert new_state is not None
 
         # Verify core memory was created
@@ -1162,7 +1179,8 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        new_state = await self.node.arun(state, {})
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            new_state = await self.node.arun(state, {})
         assert new_state is not None
 
         # Verify memory was appended to existing content
@@ -1179,3 +1197,81 @@ class TestMemoryCollectorToolsNode(BaseTest):
         self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
         self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
         self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+
+    async def test_syncs_appended_memory_to_queryable_system(self):
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Appending memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "Important fact about the product"},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable") as sync_mock:
+            await self.node.arun(state, {})
+
+        sync_mock.assert_called_once_with(self.team, self.user, "Important fact about the product")
+
+    async def test_syncs_replaced_memory_to_queryable_system(self):
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Replacing memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "Initial memory",
+                                "new_fragment": "Updated product information",
+                            },
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable") as sync_mock:
+            await self.node.arun(state, {})
+
+        # Should sync the new fragment, not the original
+        sync_mock.assert_called_once_with(self.team, self.user, "Updated product information")
+
+    async def test_does_not_sync_when_replace_fails(self):
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Replacing non-existent memory",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "Non-existent fragment",
+                                "new_fragment": "New content",
+                            },
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable") as sync_mock:
+            new_state = await self.node.arun(state, {})
+
+        # Should not sync when replace fails
+        sync_mock.assert_not_called()
+        # Verify the error message was returned
+        assert new_state is not None
+        assert new_state.memory_collection_messages is not None
+        self.assertIn("not found", new_state.memory_collection_messages[1].content.lower())
