@@ -68,27 +68,6 @@ export interface Task {
         first_name: string
         email: string
     } | null
-    // Video segment clustering fields
-    relevant_user_count: number
-    occurrence_count: number
-    last_occurrence_at: string | null
-    reference_count: number
-}
-
-export interface TaskReference {
-    id: string
-    session_id: string
-    start_time: string
-    end_time: string
-    distinct_id: string
-    content: string
-    distance_to_centroid: number | null
-    created_at: string
-}
-
-export interface TaskReferencesResponse {
-    results: TaskReference[]
-    count: number
 }
 
 export type TaskUpsertProps = Optional<

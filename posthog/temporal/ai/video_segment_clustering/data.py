@@ -56,7 +56,7 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
             ),
             placeholders={
                 "lookback_hours": ast.Constant(value=lookback_hours),
-                "product": ast.Constant(value=Product.SESSION_SUMMARY),
+                "product": ast.Constant(value="session-replay"),
                 "document_type": ast.Constant(value="video-segment"),
                 "rendering": ast.Constant(value="video-analysis"),
                 "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),
@@ -89,7 +89,7 @@ def fetch_video_segment_embedding_rows(team: Team, document_ids: list[str]):
             ),
             placeholders={
                 "doc_ids": ast.Constant(value=document_ids),
-                "product": ast.Constant(value=Product.SESSION_SUMMARY),
+                "product": ast.Constant(value="session-replay"),
                 "document_type": ast.Constant(value="video-segment"),
                 "rendering": ast.Constant(value="video-analysis"),
                 "max_segments_returned": ast.Constant(value=MAX_SEGMENTS_RETURNED),

@@ -4,7 +4,6 @@ import logging
 import traceback
 from typing import cast
 
-from django.db.models import Count
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -22,11 +21,10 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
-from .models import Task, TaskReference, TaskRun
+from .models import Task, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
     TaskListQuerySerializer,
-    TaskReferenceSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
@@ -62,7 +60,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "destroy",
             "run",
             "cluster_video_segments",
-            "references",
         ]
     }
 
@@ -112,8 +109,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
-        # Annotate reference_count to avoid N+1 queries
-        qs = qs.annotate(reference_count=Count("references"))
 
         return qs
 
@@ -216,9 +211,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "error": result.get("error"),
                     "segments_processed": result.get("segments_processed"),
                     "clusters_found": result.get("clusters_found"),
-                    "tasks_created": result.get("tasks_created"),
-                    "tasks_updated": result.get("tasks_updated"),
-                    "links_created": result.get("links_created"),
+                    "reports_created": result.get("reports_created"),
+                    "reports_updated": result.get("reports_updated"),
+                    "artefacts_created": result.get("artefacts_created"),
                 },
                 status=response_status,
             )
@@ -228,28 +223,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": "Failed to run video segment clustering workflow"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-    @validated_request(
-        request_serializer=None,
-        responses={
-            200: OpenApiResponse(description="Paginated list of references"),
-            404: OpenApiResponse(description="Task not found"),
-        },
-        summary="List task references",
-        description="Get list of references for a task, sorted by creation date.",
-    )
-    @action(detail=True, methods=["get"], url_path="references", required_scopes=["task:read"])
-    def references(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        references = TaskReference.objects.filter(task=task).order_by("-start_time")
-        total_count = references.count()
-        serializer = TaskReferenceSerializer(references, many=True)
-        return Response(
-            {
-                "results": serializer.data,
-                "count": total_count,
-            }
-        )
 
 
 @extend_schema(tags=["task-runs"])

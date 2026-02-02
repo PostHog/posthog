@@ -63,39 +63,6 @@ class Task(DeletedMetaFields, models.Model):
         help_text="JSON schema for the task. This is used to validate the output of the task.",
     )
 
-    # Video segment clustering fields (for session_summaries origin_product)
-    cluster_centroid = ArrayField(
-        models.FloatField(),
-        null=True,
-        blank=True,
-        help_text="Embedding centroid for this task's video segment cluster (3072 dimensions)",
-    )
-    cluster_centroid_updated_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When the cluster centroid was last updated",
-    )
-    priority_score = models.FloatField(
-        null=True,
-        blank=True,
-        help_text="Calculated priority score for ranking tasks",
-    )
-    relevant_user_count = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Number of unique users affected by this issue",
-    )
-    occurrence_count = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Total number of video segment occurrences (cases)",
-    )
-    last_occurrence_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When this issue was last observed in a video segment",
-    )
-
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -552,45 +519,3 @@ class SandboxEnvironment(UUIDModel):
             return domains
 
         return []
-
-
-class TaskReference(UUIDModel):
-    """Links a reference (video segment, in the future also errors etc.) to a Task.
-
-    Each record represents one occurrence that contributed to or matches a Task's cluster.
-    Used for tracking cases and calculating priority.
-    """
-
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="references")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    # Reference identification
-    session_id = models.CharField(max_length=255)
-    start_time = models.DateTimeField(null=False, blank=False)
-    end_time = models.DateTimeField(null=True, blank=True)
-    distinct_id = models.CharField(
-        max_length=255, help_text="The distinct_id of the user who experienced the reference"
-    )
-    content = models.TextField(
-        blank=True,
-        help_text="The reference description text (i.e. what happened)",
-    )
-
-    # Clustering metadata
-    distance_to_centroid = models.FloatField(
-        null=True,
-        blank=True,
-        help_text="Cosine distance from this reference to the task's cluster centroid",
-    )
-
-    class Meta:
-        db_table = "posthog_task_reference"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["task_id", "session_id", "start_time", "end_time"],
-                name="unique_task_reference",
-            ),
-        ]
-
-    def __str__(self):
-        return f"Reference {self.session_id}:{self.start_time}-{self.end_time} -> Task {self.task_id}"

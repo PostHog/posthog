@@ -1,6 +1,6 @@
 """
 Activity 4 of the video segment clustering workflow:
-Matching clusters to existing tasks.
+Matching clusters to existing signal reports.
 """
 
 import numpy as np
@@ -13,40 +13,40 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
     MatchClustersActivityInputs,
     MatchingResult,
-    TaskMatch,
+    ReportMatch,
 )
 
-from products.tasks.backend.models import Task
+from products.signals.backend.models import SignalReport
 
 
 @activity.defn
 async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> MatchingResult:
-    """Match new clusters to existing Tasks.
+    """Match new clusters to existing SignalReports.
 
-    Compares cluster centroids to existing Task centroids using cosine distance.
-    Clusters within threshold are matched, others become new Tasks.
+    Compares cluster centroids to existing report centroids using cosine distance.
+    Clusters within threshold are matched, others become new reports.
     """
     team = await Team.objects.aget(id=inputs.team_id)
-    existing_task_centroids = await _fetch_existing_task_centroids(team)
+    existing_report_centroids = await _fetch_existing_report_centroids(team)
 
-    if not existing_task_centroids:
-        # No existing tasks, all clusters are new
+    if not existing_report_centroids:
+        # No existing reports, all clusters are new
         return MatchingResult(
             new_clusters=inputs.clusters,
             matched_clusters=[],
         )
 
     new_clusters: list[Cluster] = []
-    matched_clusters: list[TaskMatch] = []
+    matched_clusters: list[ReportMatch] = []
 
-    # Convert task centroids to arrays for efficient comparison
-    task_ids = list(existing_task_centroids.keys())
-    task_centroids = np.array(list(existing_task_centroids.values()))
+    # Convert report centroids to arrays for efficient comparison
+    report_ids = list(existing_report_centroids.keys())
+    report_centroids = np.array(list(existing_report_centroids.values()))
 
     for cluster in inputs.clusters:
         cluster_centroid = np.array(cluster.centroid).reshape(1, -1)
-        # Calculate cosine distances to all task centroids
-        distances = cosine_distances(cluster_centroid, task_centroids)[0]
+        # Calculate cosine distances to all report centroids
+        distances = cosine_distances(cluster_centroid, report_centroids)[0]
         # Find best match
         min_idx = np.argmin(distances)
         min_distance = distances[min_idx]
@@ -56,9 +56,9 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
             # comparing the descriptions in a semantic way per se. For a semantic comparison, an LLM could be
             # a robust verifier, but the cost would increase significantly.
             matched_clusters.append(
-                TaskMatch(
+                ReportMatch(
                     cluster_id=cluster.cluster_id,
-                    task_id=task_ids[min_idx],
+                    report_id=report_ids[min_idx],
                     distance=float(min_distance),
                 )
             )
@@ -72,23 +72,22 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
     )
 
 
-async def _fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
-    """Fetch cluster centroids from existing Tasks for deduplication.
+async def _fetch_existing_report_centroids(team: Team) -> dict[str, list[float]]:
+    """Fetch cluster centroids from existing SignalReports for deduplication.
 
     Args:
         team: Team object
 
     Returns:
-        Dictionary mapping task_id -> centroid embedding
+        Dictionary mapping report_id -> centroid embedding
     """
     result: dict[str, list[float]] = {}
-    async for task in Task.objects.filter(
+    async for report in SignalReport.objects.filter(
         team=team,
-        origin_product=Task.OriginProduct.SESSION_SUMMARIES,
-        deleted=False,
+        status=SignalReport.Status.READY,
         cluster_centroid__isnull=False,
     ).values("id", "cluster_centroid"):
-        centroid = task["cluster_centroid"]
+        centroid = report["cluster_centroid"]
         assert centroid is not None  # Filtered by cluster_centroid__isnull=False
-        result[str(task["id"])] = centroid
+        result[str(report["id"])] = centroid
     return result

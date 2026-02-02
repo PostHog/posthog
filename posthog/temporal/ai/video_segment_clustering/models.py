@@ -12,6 +12,7 @@ class ClusteringWorkflowInputs:
     team_id: int
     lookback_hours: int = int(DEFAULT_LOOKBACK_WINDOW.total_seconds() / 3600)
     min_segments: int = MIN_SEGMENTS_FOR_CLUSTERING
+    skip_priming: bool = False
 
 
 @dataclass
@@ -79,20 +80,20 @@ class ClusteringResult:
 
 
 @dataclass
-class TaskMatch:
-    """A match between a cluster and an existing Task."""
+class ReportMatch:
+    """A match between a cluster and an existing SignalReport."""
 
     cluster_id: int
-    task_id: str
+    report_id: str
     distance: float
 
 
 @dataclass
 class MatchingResult:
-    """Result from matching clusters to existing Tasks."""
+    """Result from matching clusters to existing SignalReports."""
 
-    new_clusters: list[Cluster]  # Clusters that need new Tasks
-    matched_clusters: list[TaskMatch]  # Clusters matched to existing Tasks
+    new_clusters: list[Cluster]  # Clusters that need new reports
+    matched_clusters: list[ReportMatch]  # Clusters matched to existing reports
 
 
 class ClusterLabel(BaseModel):
@@ -111,10 +112,10 @@ class LabelingResult:
 
 
 @dataclass
-class TaskCreationResult:
-    tasks_created: int
-    tasks_updated: int
-    task_ids: list[str]
+class ReportCreationResult:
+    reports_created: int
+    reports_updated: int
+    report_ids: list[str]
 
 
 @dataclass
@@ -127,9 +128,9 @@ class WorkflowResult:
     team_id: int
     segments_processed: int
     clusters_found: int
-    tasks_created: int
-    tasks_updated: int
-    links_created: int
+    reports_created: int
+    reports_updated: int
+    artefacts_created: int
     success: bool
     error: str | None = None
 
@@ -178,10 +179,10 @@ class LabelClustersActivityInputs:
 
 
 @dataclass
-class CreateUpdateTasksActivityInputs:
+class CreateUpdateReportsActivityInputs:
     team_id: int
     new_clusters: list[Cluster]
-    matched_clusters: list[TaskMatch]
+    matched_clusters: list[ReportMatch]
     labels: dict[int, ClusterLabel]
     segments: list[VideoSegmentMetadata]
 
@@ -233,18 +234,18 @@ class PrimeSessionEmbeddingsResult:
 
 
 @dataclass
-class PersistTasksActivityInputs:
+class PersistReportsActivityInputs:
     team_id: int
     new_clusters: list[Cluster]
-    matched_clusters: list[TaskMatch]
+    matched_clusters: list[ReportMatch]
     labels: dict[int, ClusterLabel]
     segments: list[VideoSegmentMetadata]
     segment_to_cluster: dict[str, int]
 
 
 @dataclass
-class PersistTasksResult:
-    tasks_created: int
-    tasks_updated: int
-    task_ids: list[str]
-    links_created: int
+class PersistReportsResult:
+    reports_created: int
+    reports_updated: int
+    report_ids: list[str]
+    artefacts_created: int

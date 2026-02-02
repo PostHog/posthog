@@ -162,7 +162,9 @@ def execute_task_processing_workflow(
         logger.exception(f"Failed to start task processing workflow: {e}")
 
 
-def execute_video_segment_clustering_workflow(team_id: int, lookback_hours: int | None = None) -> dict[str, Any]:
+def execute_video_segment_clustering_workflow(
+    team_id: int, lookback_hours: int | None = None, skip_priming: bool = False
+) -> dict[str, Any]:
     """
     Execute the video segment clustering workflow for a single team synchronously.
     Waits for the workflow to complete and returns the result.
@@ -170,6 +172,7 @@ def execute_video_segment_clustering_workflow(team_id: int, lookback_hours: int 
     Args:
         team_id: Team ID to run clustering for
         lookback_hours: How far back to look for segments. If None, uses default from constants.
+        skip_priming: If True, skip the session summarization priming step.
     """
     from datetime import datetime
 
@@ -184,6 +187,7 @@ def execute_video_segment_clustering_workflow(team_id: int, lookback_hours: int 
             team_id=team_id,
             lookback_hours=effective_lookback,
             min_segments=constants.MIN_SEGMENTS_FOR_CLUSTERING,
+            skip_priming=skip_priming,
         )
 
         logger.info(f"Starting video-segment-clustering workflow ({workflow_id}) for team {team_id}")

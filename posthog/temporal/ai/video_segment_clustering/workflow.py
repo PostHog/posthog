@@ -14,7 +14,7 @@ with workflow.unsafe.imports_passed_through():
         fetch_segments_activity,
         label_clusters_activity,
         match_clusters_activity,
-        persist_tasks_activity,
+        persist_reports_activity,
         prime_session_embeddings_activity,
     )
     from posthog.temporal.ai.video_segment_clustering.models import (
@@ -24,7 +24,7 @@ with workflow.unsafe.imports_passed_through():
         FetchSegmentsActivityInputs,
         LabelClustersActivityInputs,
         MatchClustersActivityInputs,
-        PersistTasksActivityInputs,
+        PersistReportsActivityInputs,
         PrimeSessionEmbeddingsActivityInputs,
         WorkflowResult,
     )
@@ -32,15 +32,15 @@ with workflow.unsafe.imports_passed_through():
 
 @workflow.defn(name="video-segment-clustering")
 class VideoSegmentClusteringWorkflow(PostHogWorkflow):
-    """Per-team workflow to cluster video segments and create Tasks.
+    """Per-team workflow to cluster video segments and create SignalReports.
 
     This workflow orchestrates 6 activities:
     0. Prime: Run session summarization on recently-ended sessions to populate embeddings
     1. Fetch: Query recent video segments from ClickHouse
-    2. Cluster: Clustering segments into groups, i.e. potential tasks
-    3. Match: Match clusters to existing Tasks (deduplication)
+    2. Cluster: Clustering segments into groups, i.e. potential reports
+    3. Match: Match clusters to existing SignalReports (deduplication)
     4. Label: Generate LLM-based labels for new clusters
-    5. Persist: Create/update Tasks and TaskReferences
+    5. Persist: Create/update SignalReports and SignalReportArtefacts
     """
 
     @staticmethod
@@ -53,29 +53,32 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
         """Execute the video segment clustering workflow for a single team."""
         try:
-            # Activity 1: Prime the document_embeddings table
-            workflow.logger.info(f"Priming session embeddings (team {inputs.team_id})")
+            # Activity 1: Prime the document_embeddings table (optional)
+            if inputs.skip_priming:
+                workflow.logger.info(f"Skipping priming (team {inputs.team_id})")
+            else:
+                workflow.logger.info(f"Priming session embeddings (team {inputs.team_id})")
 
-            priming_result = await workflow.execute_activity(
-                prime_session_embeddings_activity,
-                args=[
-                    PrimeSessionEmbeddingsActivityInputs(
-                        team_id=inputs.team_id,
-                        lookback_hours=inputs.lookback_hours,
-                    )
-                ],
-                start_to_close_timeout=timedelta(hours=2),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=5),
-                    maximum_interval=timedelta(seconds=30),
-                    backoff_coefficient=2.0,
-                ),
-            )
+                priming_result = await workflow.execute_activity(
+                    prime_session_embeddings_activity,
+                    args=[
+                        PrimeSessionEmbeddingsActivityInputs(
+                            team_id=inputs.team_id,
+                            lookback_hours=inputs.lookback_hours,
+                        )
+                    ],
+                    start_to_close_timeout=timedelta(hours=2),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(seconds=5),
+                        maximum_interval=timedelta(seconds=30),
+                        backoff_coefficient=2.0,
+                    ),
+                )
 
-            workflow.logger.info(
-                f"Priming complete: {priming_result.sessions_summarized} summarized, {priming_result.sessions_failed} failed"
-            )
+                workflow.logger.info(
+                    f"Priming complete: {priming_result.sessions_summarized} summarized, {priming_result.sessions_failed} failed"
+                )
 
             # Activity 2: Fetch segments within lookback window
             fetch_result = await workflow.execute_activity(
@@ -105,9 +108,9 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     segments_processed=0,
                     clusters_found=0,
-                    tasks_created=0,
-                    tasks_updated=0,
-                    links_created=0,
+                    reports_created=0,
+                    reports_updated=0,
+                    artefacts_created=0,
                     success=True,
                     error=None,
                 )
@@ -140,14 +143,14 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     team_id=inputs.team_id,
                     segments_processed=len(segments),
                     clusters_found=0,
-                    tasks_created=0,
-                    tasks_updated=0,
-                    links_created=0,
+                    reports_created=0,
+                    reports_updated=0,
+                    artefacts_created=0,
                     success=True,
                     error=None,
                 )
 
-            # Activity 4: Match clusters to existing Tasks
+            # Activity 4: Match clusters to existing SignalReports
             matching_result = await workflow.execute_activity(
                 match_clusters_activity,
                 args=[
@@ -199,11 +202,11 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                     if label and label.actionable:
                         actionable_new_clusters.append(cluster)
 
-            # Activity 6: Persist tasks and references
+            # Activity 6: Persist reports and artefacts
             persist_result = await workflow.execute_activity(
-                persist_tasks_activity,
+                persist_reports_activity,
                 args=[
-                    PersistTasksActivityInputs(
+                    PersistReportsActivityInputs(
                         team_id=inputs.team_id,
                         new_clusters=actionable_new_clusters,
                         matched_clusters=matching_result.matched_clusters,
@@ -225,9 +228,9 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 segments_processed=len(segments),
                 clusters_found=len(all_clusters),
-                tasks_created=persist_result.tasks_created,
-                tasks_updated=persist_result.tasks_updated,
-                links_created=persist_result.links_created,
+                reports_created=persist_result.reports_created,
+                reports_updated=persist_result.reports_updated,
+                artefacts_created=persist_result.artefacts_created,
                 success=True,
                 error=None,
             )
@@ -238,9 +241,9 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 segments_processed=0,
                 clusters_found=0,
-                tasks_created=0,
-                tasks_updated=0,
-                links_created=0,
+                reports_created=0,
+                reports_updated=0,
+                artefacts_created=0,
                 success=False,
                 error=str(e),
             )
