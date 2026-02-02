@@ -442,6 +442,13 @@ export class SessionRecordingIngester {
 
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
+        // Clean up resources owned by this ingester
+        await this.kafkaMessageProducer.disconnect()
+        await this.redisPool.drain()
+        await this.redisPool.clear()
+        await this.restrictionRedisPool.drain()
+        await this.restrictionRedisPool.clear()
+
         logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
 
         return promiseResults
