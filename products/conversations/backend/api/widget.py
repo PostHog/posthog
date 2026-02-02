@@ -514,6 +514,12 @@ class WidgetUploadView(APIView):
                 )
 
             # Verify the image is actually valid (prevents XSS via fake magic bytes)
+            if not uploaded_media.media_location:
+                uploaded_media.delete()
+                return Response(
+                    {"error": "Could not save media"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
             if not validate_image_file(bytes_to_verify, user=0):  # Use 0 for widget uploads (no user)
                 statsd.incr(
