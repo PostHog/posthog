@@ -41,7 +41,7 @@ from posthog.temporal.ducklake.metrics import (
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
-DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
+DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "posthog_data_imports"
 
 _IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
 
@@ -191,7 +191,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=_sanitize_ducklake_identifier(
-                    f"{DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
+                    f"{DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX}",
                     default_prefix=DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX,
                 ),
                 ducklake_table_name=_sanitize_ducklake_identifier(
