@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW, MIN_SEGMENTS_FOR_CLUSTERING
 
@@ -100,8 +100,8 @@ class ClusterLabel(BaseModel):
     """LLM-generated label for a cluster."""
 
     actionable: bool
-    title: str = ""
-    description: str = ""
+    title: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
 
 
 @dataclass
@@ -126,7 +126,7 @@ class LinkingResult:
 @dataclass
 class WorkflowResult:
     team_id: int
-    segments_processed: int
+    segments_processed: int | None  # None if there weren't enough segments to process
     clusters_found: int
     reports_created: int
     reports_updated: int

@@ -106,7 +106,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 )
                 return WorkflowResult(
                     team_id=inputs.team_id,
-                    segments_processed=0,
+                    segments_processed=None,
                     clusters_found=0,
                     reports_created=0,
                     reports_updated=0,

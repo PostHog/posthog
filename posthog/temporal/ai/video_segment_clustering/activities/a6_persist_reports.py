@@ -187,7 +187,6 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                 "end_time": segment_end_time.isoformat(),
                 "distinct_id": segment.distinct_id,
                 "content": segment.content,
-                "distance_to_centroid": None,
             }
         ).encode("utf-8")
 
