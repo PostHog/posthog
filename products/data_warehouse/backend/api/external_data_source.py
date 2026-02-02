@@ -593,6 +593,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         for schema in schemas:
             try:
                 delete_external_data_schedule(str(schema.id))
+            except Exception as e:
+                capture_exception(e)
+
+            try:
                 schema.delete_table()
             except Exception as e:
                 capture_exception(e)
