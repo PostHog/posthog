@@ -4,7 +4,9 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -46,6 +48,8 @@ export const settingsLogic = kea<settingsLogicType>([
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect(() => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
