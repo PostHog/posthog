@@ -13,8 +13,6 @@ This document defines the future architectural direction for our Django monolith
 
 This is a forward-looking design document, not a migration guide.
 
----
-
 # 1. Why Modularization?
 
 As the codebase grows, running all tests for every change becomes expensive. Our goal:
@@ -30,8 +28,6 @@ Bazel will eventually provide correctness guarantees that:
 - Dependencies must be explicitly declared
 
 To prepare for Bazel, we must introduce architectural boundaries inside the Django monolith.
-
----
 
 # 2. Bazel (Initial Scope: Single App)
 
@@ -54,8 +50,6 @@ Eventually this grows into:
 - True selective test execution
 
 But this document is about foundational structure, not full rollout.
-
----
 
 # 3. Folder Structure (Django-Friendly, Modular-Monolith Ready)
 
@@ -104,56 +98,7 @@ myapp/
 - Provides an explicit, enforced boundary (`api/`)
 - Scales with Bazel’s dependency graph
 
-## Repo layout
-
-```text
-posthog/               # Legacy monolith code
-platform/              # Shared platform code
-  integregrations/     # Webhook etc. for non-product things
-    vercel/
-  schemas/             # Shared Pydantic schemas
-  auth/                # E.g. token utils
-  http/                # Shared HTTP clients
-  storage/             # Shared S3/GCS clients
-  queue/               # Shared message queue helpers
-  db/                  # Shared DB utilities
-  observability/       # Logging, tracing, metrics
-products/              # Product-specific apps
-services/              # Independent backend services
-tools/                 # Developer tooling, CLIs, scripts
-```
-
-### Services
-
-- are their own deployment
-- have their own domain possibly
-- have logic that doesn’t belong to any specific product
-- aren’t shared infrastructure
-- aren’t cross-cutting glue
-- aren’t frontend-facing “products”
-
-These are not glue, because glue adapts other systems.  
-They are not products, because no one interacts with them as a user-facing feature.  
-They are not platform, because they own domain logic, not shared tooling.
-
-### Platform
-
-Cross-cutting glue and infrastructure: external adapters (Vercel), clients, shared libs. Must not import products/services.
-
-Why platform must not call product facades:
-
-- If platform imports and calls product facades, platform becomes a hidden orchestrator
-- it must know which products exist
-- it must route events to product logic
-- it accumulates product-specific conditionals
-- dependency direction flips (platform → products)
-- cycles become likely over time
-
-That destroys the "platform is foundational" property and makes boundaries brittle.
-
-### Tools
-
-Developer tooling: CLIs, linters, formatters, code generators, scaffolding scripts. Not imported by runtime code. Can be standalone packages or internal utilities.
+For the broader monorepo structure (products, services, platform), see [monorepo-layout.md](/docs/internal/monorepo-layout.md).
 
 # 4. DTOs as Dataclasses
 
@@ -189,8 +134,6 @@ DTOs **should not depend on**:
 - Request objects
 
 If a DTO’s input and output shapes are identical → reuse the same dataclass.
-
----
 
 # 5. Facades: The Public API Surface
 
@@ -247,8 +190,6 @@ The value isn't the copying—it's having **one place** where "internal" becomes
 
 The alternative—returning ORM objects—works until it doesn't, then you're retrofitting isolation under pressure.
 
----
-
 # 6. Domain Logic (backend/logic.py)
 
 Business logic lives here.
@@ -268,8 +209,6 @@ Examples:
 - Bazel recognizes logic as internal implementation
 
 This is the **heart** of the module.
-
----
 
 # 7. Presentation Layer (DRF)
 
@@ -303,8 +242,6 @@ No, because:
 - Facades return DTOs, not models
 
 So it's the responsibility of the API developer to keep logic and implementation separate and only use facades. This way, the presentation layer remains decoupled from internal details. We can still run isolated tests on the domain logic while being sure that when our facade has not changed, anything outside the module is unaffected.
-
----
 
 # 8. Isolation, No-Leak Rules & Django Foreign Key Considerations (for Developers)
 
@@ -361,16 +298,12 @@ If you need reverse access, use:
 
 This preserves clean boundaries.
 
----
-
 This prevents:
 
 - Hidden dependencies
 - Coupling across apps
 - Test explosion
 - Data-layer leaks
-
----
 
 # 9. Bazel Targets & Test Structure
 
@@ -402,29 +335,23 @@ Four targets with visibility enforcement:
 
 ## backend/tests/BUILD.bazel
 
-Two test targets:
+Single test target combining all tests:
 
 ```python
-:tests_unit         # test_models.py, test_logic.py, test_api.py
-:tests_integration  # test_presentation.py, test_tasks.py
+:tests  # All test_*.py files
 ```
 
-**Test file naming (hardcoded in BUILD):**
+**Note:** Django apps can't easily split unit/integration tests by Bazel deps because:
 
-| File                   | Target               | When it runs                                 |
-| ---------------------- | -------------------- | -------------------------------------------- |
-| `test_models.py`       | `:tests_unit`        | Own `:impl` changes                          |
-| `test_logic.py`        | `:tests_unit`        | Own `:impl` changes                          |
-| `test_api.py`          | `:tests_unit`        | Own `:impl` changes                          |
-| `test_presentation.py` | `:tests_integration` | Own `:presentation` or other `:impl` changes |
-| `test_tasks.py`        | `:tests_integration` | Own `:tasks` or other `:impl` changes        |
+- Django setup loads all apps (needs `:presentation`)
+- `logic.py` often imports tasks (needs `:tasks`)
 
-**Adding new test files:** Edit `backend/tests/BUILD.bazel` and add to appropriate `srcs` list.
+For pure Python functions without Django, consider a separate `:tests_pure` target.
 
 ## How selective testing works
 
 ```text
-other_product:tests_unit
+other_product:tests
        ↓ depends on
 visual_review:contract  (dtos.py, domain_types.py)
        ↓ does NOT depend on
@@ -433,25 +360,18 @@ visual_review:impl      (logic.py, models.py)
 
 **Scenario: Change `visual_review/logic.py`**
 
-- `visual_review:tests_unit` → reruns ✓
-- `visual_review:tests_integration` → reruns ✓
-- `other_product:tests_unit` → does NOT rerun (only depends on `:contract`)
-- `other_product:tests_integration` → reruns (depends on `visual_review:impl`)
+- `visual_review:tests` → reruns ✓
+- `other_product:tests` → does NOT rerun (only depends on `:contract`)
 
 ## CI commands
 
 ```bash
-# Run unit tests only (fast, for PRs)
-bazel test //products/...:tests_unit
-
-# Run all tests
-bazel test //products/...
+# Run all product tests
+bazelisk test //products/...:tests
 
 # Run specific product
-bazel test //products/visual_review/...
+bazelisk test //products/visual_review/...
 ```
-
----
 
 # 10. Summary
 
