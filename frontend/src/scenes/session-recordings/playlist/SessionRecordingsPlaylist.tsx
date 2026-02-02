@@ -34,7 +34,7 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="w-full h-full flex flex-col xl:flex-row xl:gap-2">
+            <div className="w-full h-full flex flex-col xl:flex-row xl:gap-2 overflow-hidden">
                 {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
             </div>
         </BindLogic>
@@ -74,14 +74,14 @@ function HorizontalLayout({
                     'w-3': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
+                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 240, maxWidth: '50%' }}
             >
                 <Playlist {...props} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset={-4} handleClassName="rounded my-1" />
                 )}
             </div>
-            <PlayerWrapper {...props} className="h-full flex-1 shrink" />
+            <PlayerWrapper {...props} className="h-full flex-1 shrink min-w-96" />
         </>
     )
 }

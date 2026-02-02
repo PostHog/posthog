@@ -65,7 +65,7 @@ test.describe('Auth', () => {
     })
 
     test('Redirect to appropriate place after login', async ({ page }) => {
-        await page.goto('/logout')
+        await page.goto('/logout', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await page.goto('/activity/explore')

@@ -137,7 +137,7 @@ class TestEventsDDL:
         conn.execute(ddl)
 
         # Verify table was created with expected columns
-        result = conn.execute("DESCRIBE memory.main.events").fetchall()
+        result = conn.execute("DESCRIBE memory.posthog.events").fetchall()
         column_names = {row[0] for row in result}
 
         assert column_names == EXPECTED_DUCKLAKE_COLUMNS
@@ -159,7 +159,7 @@ class TestPersonsDDL:
         conn.execute(ddl)
 
         # Verify table was created with expected columns
-        result = conn.execute("DESCRIBE memory.main.persons").fetchall()
+        result = conn.execute("DESCRIBE memory.posthog.persons").fetchall()
         column_names = {row[0] for row in result}
 
         assert column_names == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
