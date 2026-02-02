@@ -54,3 +54,16 @@ export interface AlertType extends AlertTypeBase {
     snoozed_until?: string
     last_value?: number
 }
+
+export interface BackfillResult {
+    triggered_indices: number[]
+    scores: (number | null)[]
+    total_points: number
+    anomaly_count: number
+    data?: number[]
+    labels?: string[]
+    dates?: string[]
+    series_label?: string
+    saved_check_id?: string
+    check_state?: string
+}
