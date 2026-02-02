@@ -44,6 +44,7 @@ describe('clickup template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://api.clickup.com/api/v2/list/test-list-id/task",
             }

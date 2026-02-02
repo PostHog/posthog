@@ -261,9 +261,14 @@ describe('Hog Inputs', () => {
                 enabled: true,
                 type: 'destination',
                 inputs: {
+                    firebase_account: { value: 999 },
                     push_subscription: { value: 'user-123' },
                 },
                 inputs_schema: [
+                    {
+                        key: 'firebase_account',
+                        type: 'integration',
+                    },
                     {
                         key: 'push_subscription',
                         type: 'push_subscription',

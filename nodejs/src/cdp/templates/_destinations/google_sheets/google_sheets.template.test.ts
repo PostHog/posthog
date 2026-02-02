@@ -44,6 +44,7 @@ describe('google sheets template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-id/values:batchUpdate",
             }
@@ -65,6 +66,7 @@ describe('google sheets template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-id/values/Sheet1:append?valueInputOption=RAW",
             }

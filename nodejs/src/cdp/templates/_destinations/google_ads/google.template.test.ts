@@ -66,6 +66,7 @@ describe('google template', () => {
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
             }
@@ -104,6 +105,7 @@ describe('google template', () => {
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
             }
@@ -143,6 +145,7 @@ describe('google template', () => {
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
+              "timeoutMs": undefined,
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
             }
