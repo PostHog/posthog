@@ -58,7 +58,7 @@ export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNud
         }).length
         const shouldShow = dataLoading || uuidCount / persons.length > UUID_THRESHOLD
         setShowDisplayNameNudge(shouldShow)
-    }, [response, dataLoading, isRefresh, setIsBannerLoading, setShowDisplayNameNudge])
+    }, [response, dataLoading, isRefresh])
 
     if (isBannerLoading) {
         return <LemonSkeleton className="h-14 my-2" />
