@@ -541,6 +541,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     inactivity_periods = upload_result["inactivity_periods"]
 
     # Calculate segment specs based on video duration and activity periods
+    # TODO: Use real (video) to-from timings instead of session timings to not get 500 errors (checking parts of the video that don't exist)
     segment_specs = calculate_video_segment_specs(
         video_duration=uploaded_video.duration,
         chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
