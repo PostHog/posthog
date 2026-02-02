@@ -294,7 +294,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         tooltipPlacement="right"
                                         data-attr="top-menu-account-owner"
                                     >
-                                        xxxx
                                         <ProfilePicture
                                             user={{
                                                 first_name: billing.account_owner.name,

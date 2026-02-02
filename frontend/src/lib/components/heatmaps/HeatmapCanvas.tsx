@@ -115,7 +115,7 @@ export function HeatmapCanvas({
 
             updateHeatmapData()
         },
-        [updateHeatmapData, heatmapJSColorGradient, heatmapConfig]
+        [updateHeatmapData, heatmapJSColorGradient]
     )
 
     useEffect(() => {
