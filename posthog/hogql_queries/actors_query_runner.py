@@ -17,9 +17,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import has_aggregation
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -29,6 +30,8 @@ from posthog.hogql_queries.insights.insight_actors_query_runner import InsightAc
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
 from posthog.models import User
+
+LAST_SEEN_LOOKBACK_DAYS = 30
 
 
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
@@ -126,6 +129,81 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return enriched
 
+    def _enrich_with_last_seen(self, results, columns, actor_column_index) -> list:
+        last_seen_column_index = self.input_columns().index("last_seen")
+        distinct_ids: list[str] = []
+        if actor_column_index is not None:
+            for row in results:
+                actor = row[actor_column_index]
+                if actor and actor.get("distinct_ids"):
+                    distinct_ids.extend(actor["distinct_ids"])
+
+        if distinct_ids:
+            last_seen_response = execute_hogql_query(
+                query_type="ActorsQueryLastSeen",
+                query=parse_select(
+                    """
+                    SELECT max(timestamp) as last_seen, person_id
+                    FROM events
+                    WHERE distinct_id IN {distinct_ids} AND team_id = {team_id}
+                    GROUP BY person_id
+                    """,
+                    placeholders={
+                        "distinct_ids": ast.Tuple(exprs=[ast.Constant(value=pdi) for pdi in distinct_ids]),
+                        "team_id": ast.Constant(value=self.team.id),
+                    },
+                ),
+                team=self.team,
+            )
+        elif "id" in columns:
+            # TODO: Figure out how to get the actual index of the id column
+            person_ids = [str(row[columns.index("id")]) for row in results]
+            last_seen_response = execute_hogql_query(
+                query_type="ActorsQueryLastSeen",
+                query=parse_select(
+                    """
+                    SELECT max(timestamp) as last_seen, person_id
+                    FROM events
+                    WHERE distinct_id IN (SELECT distinct_id
+                                          FROM person_distinct_ids
+                                          WHERE team_id =
+                        {team_id}
+                      AND person_id in {person_ids}
+                        )
+                      AND team_id = {team_id}
+                      AND {lookback}
+                    GROUP BY person_id
+                    """,
+                    placeholders={
+                        "person_ids": ast.Tuple(exprs=[ast.Constant(value=person_id) for person_id in person_ids]),
+                        "team_id": ast.Constant(value=self.team.id),
+                        "lookback": parse_expr(
+                            "timestamp >= today() - {lookback_days}",
+                            placeholders={"lookback_days": ast.Constant(value=LAST_SEEN_LOOKBACK_DAYS)},
+                        ),
+                    },
+                ),
+                team=self.team,
+            )
+        else:
+            last_seen_response = {"results": []}
+
+        last_seen_lookup = {str(row[1]): row[0] for row in last_seen_response.results or []}
+        enriched_results = []
+        for row in results:
+            new_row = list(row)
+
+            if "id" in columns:
+                person_id = str(row[columns.index("id")])
+            else:
+                actor = row[actor_column_index]
+                person_id = str(actor.get("id")) if actor else None
+
+            new_row[last_seen_column_index] = last_seen_lookup.get(person_id)
+            enriched_results.append(new_row)
+
+        return enriched_results
+
     def prepare_recordings(
         self, column_name: str, input_columns: list[str]
     ) -> tuple[int | None, dict[str, list[dict]] | None]:
@@ -157,9 +235,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         missing_actors_count = None
         results: Sequence[list] | Iterator[list] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
-        for column_name in enrich_columns:
-            actor_column_index = input_columns.index(column_name)
+        # enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        actor_columns = [col for col in input_columns if col in ("person", "group", "actor")]
+        actor_column_index = input_columns.index(actor_columns[0]) if actor_columns else None
+        for column_name in actor_columns:
+            # actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
             person_uuid_to_event_distinct_ids = None
@@ -182,16 +262,22 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 person_uuid_to_event_distinct_ids,
             )
 
+        # Let's implement this only for persons list
+        if "last_seen" in input_columns and self._is_persons_list_query():
+            results = self._enrich_with_last_seen(
+                results=results, columns=response.columns, actor_column_index=actor_column_index
+            )
+
         for column_index, col in enumerate(input_columns):
             # convert tuple that gets returned into a dict
-            if col.split("--")[0].strip() == "person_display_name":
-                for index, result in enumerate(self.paginator.results):
-                    row = list(self.paginator.results[index])
+            if self._is_person_display_name_column(col):
+                for index, result in enumerate(results):
+                    row = list(results[index])
                     row[column_index] = {
                         "display_name": result[column_index][0],
                         "id": str(result[column_index][1]),
                     }
-                    self.paginator.results[index] = row
+                    results[index] = row
 
         return ActorsQueryResponse(
             results=results,
@@ -301,10 +387,10 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
-                elif expr == "last_seen" and isinstance(self.strategy, PersonStrategy) and not self.query.source:
-                    # For direct person queries (no source), we'll handle this by adding a LEFT JOIN in the query
-                    # The column will be resolved later when we modify the FROM clause
-                    column = ast.Field(chain=["last_seen_data", "max_timestamp"])
+                elif expr == "last_seen" and self._is_persons_list_query():
+                    column = ast.Constant(value=None)
+                    if "id" not in self.input_columns():
+                        columns.append(ast.Field(chain=["id"]))
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -331,6 +417,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             else:
                 having = ast.And(exprs=having_list)
 
+        # TODO: Let's not support order by `last_seen` for now
         order_by: list[ast.OrderExpr]
         with self.timings.measure("order"):
             if self.query.orderBy is not None:
@@ -385,39 +472,6 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             )
             if not self.query.source:
                 base_join = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-
-                # Add LEFT JOIN for last_seen if selected
-                if "last_seen" in self.input_columns() and isinstance(self.strategy, PersonStrategy):
-                    # Create subquery for last_seen data
-                    last_seen_subquery = ast.SelectQuery(
-                        select=[
-                            ast.Field(chain=["person_id"]),
-                            ast.Alias(alias="max_timestamp", expr=parse_expr("max(timestamp)")),
-                        ],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                        where=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["team_id"]),
-                            right=ast.Constant(value=self.team.id),
-                        ),
-                        group_by=[ast.Field(chain=["person_id"])],
-                    )
-
-                    # Add LEFT JOIN with the subquery
-                    base_join.next_join = ast.JoinExpr(
-                        table=last_seen_subquery,
-                        alias="last_seen_data",
-                        join_type="LEFT JOIN",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[self.strategy.origin, "id"]),
-                                right=ast.Field(chain=["last_seen_data", "person_id"]),
-                            ),
-                            constraint_type="ON",
-                        ),
-                    )
-
                 select_query.select_from = base_join
             else:
                 assert self.source_query_runner is not None  # For type checking
@@ -540,3 +594,6 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     @staticmethod
     def _is_person_display_name_column(expr: str) -> bool:
         return expr.split("--")[0].strip() == "person_display_name"
+
+    def _is_persons_list_query(self):
+        return isinstance(self.strategy, PersonStrategy) and self.query.source is None

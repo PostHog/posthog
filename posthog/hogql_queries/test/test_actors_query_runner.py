@@ -1,12 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from posthog.schema import (
     ActorsQuery,
@@ -184,6 +185,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(results, "The query should execute without errors")
 
     def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
+        # FIXME: I think this is ordering the already paginated results
         _create_person(
             properties={
                 "email": f"first@posthog.com",
@@ -838,39 +840,28 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for uuid in person_uuids:
             self.assertIn(uuid, result)
 
-    @freeze_time("2023-05-10T15:00:00Z")
-    def test_last_seen_for_persons(self):
-        # Create person with events at different times
-        _create_person(
-            properties={"email": "test@example.com"},
-            team=self.team,
-            distinct_ids=["user123"],
-            is_identified=True,
-        )
+    def test_last_seen_in_people_list(self):
+        # Not using freeze_time as last_seen subquery uses clickhouse's `today()` function, which is not affected by it
+        last_event_timestamp = timezone.now()
+        with freeze_time(last_event_timestamp - timedelta(days=2)):
+            self.random_uuid = self._create_random_persons()
+        distinct_id = f"id-{self.random_uuid}-{1}"
 
-        # Create events at different times
-        with freeze_time("2023-05-08T10:00:00Z"):
-            _create_event(event="early_event", distinct_id="user123", team=self.team)
-
-        with freeze_time("2023-05-09T14:30:00Z"):
-            _create_event(event="late_event", distinct_id="user123", team=self.team)
+        with freeze_time(last_event_timestamp):
+            _create_event(event="last_event", distinct_id=distinct_id, team=self.team)
 
         flush_persons_and_events()
 
-        # Query with last_seen included
-        query = ActorsQuery(select=["person", "id", "last_seen"])
-        runner = ActorsQueryRunner(query=query, team=self.team)
+        response = ActorsQueryRunner(
+            query=ActorsQuery(select=["person_display_name -- Person", "id", "created_at", "last_seen"]),
+            team=self.team,
+        ).calculate()
 
-        response = runner.calculate()
-
-        self.assertEqual(len(response.results), 2, "One for each event")
-        result = response.results[0]
-
-        # Check that last_seen is the timestamp of the latest event
-        last_seen_idx = response.columns.index("last_seen")
-        last_seen_value = result[last_seen_idx]
-
-        self.assertEqual(str(last_seen_value), "2023-05-09 14:30:00+00:00")
+        our_guy = next(person for person in response.results if person[0]["display_name"].startswith("jacob1"))
+        self.assertEqual(our_guy[0], {"display_name": ANY, "id": ANY}, "Display name should be formatted correctly")
+        self.assertEqual(
+            str(our_guy[-1]), str(last_event_timestamp), "Last seen should match the timestamp of the last event"
+        )
 
     def test_last_seen_not_calculated_when_not_requested(self):
         _create_person(
