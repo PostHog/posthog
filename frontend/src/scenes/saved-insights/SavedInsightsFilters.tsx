@@ -1,17 +1,14 @@
-import { IconCalendar, IconFlag } from '@posthog/icons'
+import { useValues } from 'kea'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { IconFlag, IconStar } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
-
-import { SavedInsightsTabs } from '~/types'
+import { userLogic } from 'scenes/userLogic'
 
 export function SavedInsightsFilters({
     filters,
@@ -20,7 +17,8 @@ export function SavedInsightsFilters({
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
-    const { tab, createdBy, insightType, dateFrom, dateTo, search, hideFeatureFlagInsights } = filters
+    const { user } = useValues(userLogic)
+    const { search, hideFeatureFlagInsights, createdBy, favorited } = filters
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -32,41 +30,35 @@ export function SavedInsightsFilters({
                 autoFocus
             />
             <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span>Type:</span>
-                    <LemonSelect
-                        size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
-                        value={insightType}
-                        onChange={(v?: string): void => setFilters({ insightType: v })}
-                        dropdownMatchSelectWidth={false}
-                        data-attr="insight-type"
-                    />
-                </div>
-                <div className="flex items-center gap-2">
-                    <span>Last modified:</span>
-                    <DateFilter
-                        disabled={false}
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(fromDate, toDate) => setFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
-                </div>
-                {tab !== SavedInsightsTabs.Yours ? (
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={createdBy === 'All users' ? null : createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.id || 'All users' })}
-                        />
-                    </div>
-                ) : null}
+                <LemonButton
+                    type="secondary"
+                    active={!!(user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id))}
+                    onClick={() => {
+                        if (user) {
+                            const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
+                            const selected = new Set(currentUsers)
+                            if (selected.has(user.id)) {
+                                selected.delete(user.id)
+                            } else {
+                                selected.add(user.id)
+                            }
+                            const newValue = Array.from(selected)
+                            setFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
+                        }
+                    }}
+                    size="small"
+                >
+                    Created by me
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    active={favorited || false}
+                    onClick={() => setFilters({ favorited: !favorited })}
+                    size="small"
+                    icon={<IconStar />}
+                >
+                    Favorites
+                </LemonButton>
                 <FeatureFlagInsightsToggle
                     hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                     onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}

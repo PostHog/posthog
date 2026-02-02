@@ -291,6 +291,7 @@ export enum AccessControlResourceType {
     ExternalDataSource = 'external_data_source',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
+    ErrorTracking = 'error_tracking',
 }
 
 interface UserBaseType {
@@ -699,6 +700,7 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
     default_experiment_confidence_level?: number | null
+    default_experiment_stats_method?: ExperimentStatsMethod | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -852,8 +854,6 @@ export enum PropertyOperator {
 
 export enum SavedInsightsTabs {
     All = 'all',
-    Yours = 'yours',
-    Favorites = 'favorites',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -2234,16 +2234,6 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface EndpointVersionType {
-    id: string
-    version: number
-    query: HogQLQuery | InsightQueryNode
-    is_active: boolean
-    created_at: string
-    created_by: UserBasicType | null
-    change_summary: string
-}
-
 export interface EndpointType extends WithAccessControl {
     id: string
     name: string
@@ -2255,7 +2245,7 @@ export interface EndpointType extends WithAccessControl {
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
-    cache_age_seconds: number
+    cache_age_seconds: number | null
     is_materialized: boolean
     current_version: number
     versions_count: number
@@ -2263,10 +2253,19 @@ export interface EndpointType extends WithAccessControl {
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
-    materialization?: EndpointMaterializationType
+    materialization?: EndpointVersionMaterializationType
 }
 
-export interface EndpointMaterializationType {
+/** Extends EndpointType with version-specific fields when fetching a specific version */
+export interface EndpointVersionType extends EndpointType {
+    version: number
+    version_id: string
+    endpoint_is_active: boolean
+    version_created_at: string
+    version_created_by: UserBasicType | null
+}
+
+export interface EndpointVersionMaterializationType {
     can_materialize: boolean
     reason?: string
     status?: string
@@ -3052,7 +3051,7 @@ export interface FunnelTimeConversionMetrics {
 
 export interface FunnelConversionWindow {
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
-    funnelWindowInterval: number
+    funnelWindowInterval?: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -3354,7 +3353,13 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
 export interface ProductTourBannerConfig {
-    behavior: 'sticky' | 'static'
+    /**
+     * sticky: injected at top of body, fixed pos, stays visible on scroll
+     * static: injected at top of body, fixed pos, scrolls away with page
+     * custom: injected into a container from user-supplied css selector
+     */
+    behavior: 'sticky' | 'static' | 'custom'
+    selector?: string
     action?: {
         type: 'none' | 'link' | 'trigger_tour'
         link?: string
@@ -5079,6 +5084,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
+    ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
@@ -6681,6 +6687,7 @@ export interface ApprovalPolicy {
     conditions: Record<string, any>
     approver_config: Record<string, any>
     allow_self_approve: boolean
+    bypass_org_membership_levels: string[]
     bypass_roles: string[]
     expires_after: string
     enabled: boolean

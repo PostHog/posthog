@@ -32,6 +32,12 @@ from posthog.temporal.ai.chat_agent import (
     ChatAgentWorkflow,
     ChatAgentWorkflowInputs,
 )
+from posthog.temporal.ai.research_agent import (
+    RESEARCH_AGENT_STREAM_MAX_LENGTH,
+    RESEARCH_AGENT_WORKFLOW_TIMEOUT,
+    ResearchAgentWorkflow,
+    ResearchAgentWorkflowInputs,
+)
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
@@ -72,7 +78,6 @@ class MessageSerializer(MessageMinimalSerializer):
     billing_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
-    deep_research_mode = serializers.BooleanField(required=False, default=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
@@ -179,9 +184,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = serializer.validated_data["conversation"]
 
         has_message = serializer.validated_data.get("content") is not None
-        is_deep_research = serializer.validated_data.get("deep_research_mode", False)
-        if is_deep_research:
-            raise NotImplementedError("Deep research is not supported yet")
+        is_deep_research = serializer.validated_data.get("agent_mode") == AgentMode.RESEARCH
 
         is_new_conversation = False
         # Safely set the lookup kwarg for potential error handling
@@ -215,6 +218,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
+        if conversation.type == Conversation.Type.DEEP_RESEARCH:
+            is_deep_research = True
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
@@ -222,34 +227,53 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        # Skip billing for impersonated sessions (support agents) and mark conversations as internal
-        is_impersonated = is_impersonated_session(request)
-        is_agent_billable = not is_impersonated
-        workflow_inputs = ChatAgentWorkflowInputs(
-            team_id=self.team_id,
-            user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
-            conversation_id=conversation.id,
-            stream_key=get_conversation_stream_key(conversation.id),
-            message=serializer.validated_data["message"].model_dump() if has_message else None,
-            contextual_tools=serializer.validated_data.get("contextual_tools"),
-            is_new_conversation=is_new_conversation,
-            trace_id=serializer.validated_data["trace_id"],
-            session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
-            billing_context=serializer.validated_data.get("billing_context"),
-            agent_mode=serializer.validated_data.get("agent_mode"),
-            use_checkpointer=True,
-            is_agent_billable=is_agent_billable,
-            resume_payload=serializer.validated_data.get("resume_payload"),
-        )
-        workflow_class = ChatAgentWorkflow
+        workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
+        workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
+        if is_deep_research:
+            workflow_inputs = ResearchAgentWorkflowInputs(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
+                conversation_id=conversation.id,
+                stream_key=get_conversation_stream_key(conversation.id),
+                message=serializer.validated_data["message"].model_dump() if has_message else None,
+                is_new_conversation=is_new_conversation,
+                trace_id=serializer.validated_data["trace_id"],
+                session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
+                billing_context=serializer.validated_data.get("billing_context"),
+                is_agent_billable=False,
+                resume_payload=serializer.validated_data.get("resume_payload"),
+            )
+            workflow_class = ResearchAgentWorkflow
+            timeout = RESEARCH_AGENT_WORKFLOW_TIMEOUT
+            max_length = RESEARCH_AGENT_STREAM_MAX_LENGTH
+        else:
+            is_impersonated = is_impersonated_session(request)
+            is_agent_billable = not is_impersonated
+            workflow_inputs = ChatAgentWorkflowInputs(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
+                conversation_id=conversation.id,
+                stream_key=get_conversation_stream_key(conversation.id),
+                message=serializer.validated_data["message"].model_dump() if has_message else None,
+                contextual_tools=serializer.validated_data.get("contextual_tools"),
+                is_new_conversation=is_new_conversation,
+                trace_id=serializer.validated_data["trace_id"],
+                session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
+                billing_context=serializer.validated_data.get("billing_context"),
+                agent_mode=serializer.validated_data.get("agent_mode"),
+                use_checkpointer=True,
+                is_agent_billable=is_agent_billable,
+                resume_payload=serializer.validated_data.get("resume_payload"),
+            )
+            workflow_class = ChatAgentWorkflow
+            timeout = CHAT_AGENT_WORKFLOW_TIMEOUT
+            max_length = CHAT_AGENT_STREAM_MAX_LENGTH
 
         async def async_stream(
-            workflow_inputs: ChatAgentWorkflowInputs,
+            workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
-            stream_manager = AgentExecutor(
-                conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
-            )
+            stream_manager = AgentExecutor(conversation, timeout=timeout, max_length=max_length)
             last_iteration_time = time.time()
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
                 chunk_received_time = time.time()

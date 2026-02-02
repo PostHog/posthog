@@ -14,7 +14,7 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("bucket_region",)
-    search_fields = ("team__id", "db_host", "bucket", "cross_account_role_arn")
+    search_fields = ("=team__id", "db_host", "bucket", "cross_account_role_arn")
     readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team",)
 

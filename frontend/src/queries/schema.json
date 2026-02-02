@@ -353,7 +353,16 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
+            "enum": [
+                "product_analytics",
+                "sql",
+                "session_replay",
+                "error_tracking",
+                "plan",
+                "execution",
+                "survey",
+                "research"
+            ],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -11906,6 +11915,10 @@
                 "sync_frequency": {
                     "$ref": "#/definitions/DataWarehouseSyncInterval",
                     "description": "How frequently should the underlying materialized view be updated"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Target a specific version for updates (optional, defaults to current version)"
                 }
             },
             "type": "object"
@@ -15380,6 +15393,7 @@
                 "Vitally",
                 "BigQuery",
                 "Chargebee",
+                "Clerk",
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
@@ -27847,6 +27861,22 @@
                 "lazy_async"
             ],
             "type": "string"
+        },
+        "ReplayInactivityPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "ts_from_s": {
+                    "$ref": "#/definitions/integer"
+                },
+                "ts_to_s": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["ts_from_s", "active"],
+            "type": "object"
         },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
