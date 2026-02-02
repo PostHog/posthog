@@ -9,7 +9,7 @@
     "dependencies": {
         "@ai-sdk/openai": "^2.0.28",
         "@posthog/agent-toolkit": "^0.2.1",
-        "ai": "^5.0.40",
+        "ai": "^5.0.52",
         "dotenv": "^16.4.7",
         "zod": "^3.24.4"
     },
