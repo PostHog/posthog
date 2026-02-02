@@ -20491,7 +20491,7 @@
                     "type": ["string", "null"]
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "name": {
                     "type": "string"
@@ -20770,7 +20770,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "insights": {
                     "items": {
