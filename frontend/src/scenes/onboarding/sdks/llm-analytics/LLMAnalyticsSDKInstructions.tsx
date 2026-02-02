@@ -15,6 +15,7 @@ import { DSPyInstallation } from '@posthog/shared-onboarding/llm-analytics/dspy'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/llm-analytics/fireworks-ai'
 import { GoogleInstallation } from '@posthog/shared-onboarding/llm-analytics/google'
 import { GroqInstallation } from '@posthog/shared-onboarding/llm-analytics/groq'
+import { HeliconeInstallation } from '@posthog/shared-onboarding/llm-analytics/helicone'
 import { HuggingFaceInstallation } from '@posthog/shared-onboarding/llm-analytics/hugging-face'
 import { InstructorInstallation } from '@posthog/shared-onboarding/llm-analytics/instructor'
 import { LangChainInstallation } from '@posthog/shared-onboarding/llm-analytics/langchain'
@@ -136,6 +137,10 @@ const LLMGroqInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GroqInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMHeliconeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HeliconeInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMMistralInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: MistralInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -209,6 +214,7 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.MASTRA]: LLMMastraInstructionsWrapper,
     [SDKKey.MIRASCOPE]: LLMMirascopeInstructionsWrapper,
     [SDKKey.GROQ]: LLMGroqInstructionsWrapper,
+    [SDKKey.HELICONE]: LLMHeliconeInstructionsWrapper,
     [SDKKey.MISTRAL]: LLMMistralInstructionsWrapper,
     [SDKKey.OLLAMA]: LLMOllamaInstructionsWrapper,
     [SDKKey.DEEPSEEK]: LLMDeepSeekInstructionsWrapper,

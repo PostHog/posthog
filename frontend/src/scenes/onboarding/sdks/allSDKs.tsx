@@ -209,13 +209,6 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/go',
     },
     {
-        name: 'Helicone',
-        key: SDKKey.HELICONE,
-        tags: [SDKTag.LLM],
-        image: heliconeImage,
-        docsLink: 'https://posthog.com/docs/llm-analytics/integrations/helicone-posthog',
-    },
-    {
         name: 'OpenAI',
         key: SDKKey.OPENAI,
         tags: [SDKTag.LLM],
@@ -417,6 +410,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.LLM],
         image: <PortkeyLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/portkey',
+    },
+    {
+        name: 'Helicone',
+        key: SDKKey.HELICONE,
+        tags: [SDKTag.LLM],
+        image: heliconeImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/helicone',
     },
     {
         name: 'Cohere',
