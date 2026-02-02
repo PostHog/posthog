@@ -619,7 +619,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "type": "AND",
                         "values": [
                             {
-                                "type": "resource_attribute",
+                                "type": "log_resource_attribute",
                                 "key": "k8s.container.name",
                                 "operator": "exact",
                                 "value": ["argo-rollouts-dashboard"],
