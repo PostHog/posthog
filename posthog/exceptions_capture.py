@@ -15,13 +15,13 @@ def celery_properties() -> dict:
 
 def capture_exception(error=None, additional_properties=None):
     pass
-    # import structlog
+    import structlog
     # from posthoganalytics import (
     #     api_key,
     #     capture_exception as posthog_capture_exception,
     # )
 
-    # logger = structlog.get_logger(__name__)
+    logger = structlog.get_logger(__name__)
 
     # from posthog.clickhouse.query_tagging import get_query_tags
 
@@ -39,4 +39,4 @@ def capture_exception(error=None, additional_properties=None):
     #     if uuid is not None:
     #         logger.exception(error, event_id=uuid)
     # else:
-    #     logger.exception(error)
+    logger.exception(error)
