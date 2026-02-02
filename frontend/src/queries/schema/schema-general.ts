@@ -3790,6 +3790,92 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+// Detector types for anomaly detection alerts
+export enum DetectorType {
+    ZSCORE = 'zscore',
+    MAD = 'mad',
+    IQR = 'iqr',
+    ISOLATION_FOREST = 'isolation_forest',
+    ECOD = 'ecod',
+    COPOD = 'copod',
+    KNN = 'knn',
+    THRESHOLD = 'threshold',
+    ENSEMBLE = 'ensemble',
+}
+
+export interface ZScoreDetectorConfig {
+    type: 'zscore'
+    /** Z-score threshold for anomaly detection (default: 3.0) */
+    threshold?: number
+    /** Rolling window size for calculating mean/std (default: 30) */
+    window?: integer
+}
+
+export interface MADDetectorConfig {
+    type: 'mad'
+    /** MAD threshold multiplier for anomaly detection (default: 3.0) */
+    threshold?: number
+    /** Rolling window size for calculating median/MAD (default: 30) */
+    window?: integer
+}
+
+export interface IQRDetectorConfig {
+    type: 'iqr'
+    /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
+    multiplier?: number
+    /** Rolling window size for calculating quartiles (default: 30) */
+    window?: integer
+}
+
+export interface ThresholdDetectorConfig {
+    type: 'threshold'
+    /** Upper bound - values above this are anomalies */
+    upper_bound?: number
+    /** Lower bound - values below this are anomalies */
+    lower_bound?: number
+}
+
+export interface ECODDetectorConfig {
+    type: 'ecod'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+}
+
+export interface COPODDetectorConfig {
+    type: 'copod'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+}
+
+export interface IsolationForestDetectorConfig {
+    type: 'isolation_forest'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+    /** Number of trees in the forest (default: 100) */
+    n_estimators?: integer
+}
+
+export interface KNNDetectorConfig {
+    type: 'knn'
+    /** Expected proportion of outliers (default: 0.1) */
+    contamination?: number
+    /** Number of neighbors to consider (default: 5) */
+    n_neighbors?: integer
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: 'largest' | 'mean' | 'median'
+}
+
+/** Detector configuration types */
+export type DetectorConfig =
+    | ZScoreDetectorConfig
+    | MADDetectorConfig
+    | IQRDetectorConfig
+    | ThresholdDetectorConfig
+    | ECODDetectorConfig
+    | COPODDetectorConfig
+    | IsolationForestDetectorConfig
+    | KNNDetectorConfig
+
 export interface HogCompileResponse {
     bytecode: any[]
     locals: any[]
