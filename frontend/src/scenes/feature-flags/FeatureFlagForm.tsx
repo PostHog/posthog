@@ -3,6 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
+import { useRef, useState } from 'react'
 
 import {
     IconBalance,
@@ -48,7 +49,7 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
-import { FeatureFlagTemplates } from './FeatureFlagTemplates'
+import { FeatureFlagTemplates, type ModifiedField } from './FeatureFlagTemplates'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
@@ -79,6 +80,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const [highlightedFields, setHighlightedFields] = useState<ModifiedField[]>([])
+    const implementationRef = useRef<HTMLDivElement>(null)
+
+    const handleTemplateApplied = (fields: ModifiedField[]): void => {
+        setHighlightedFields(fields)
+        setTimeout(() => setHighlightedFields([]), 2000)
+    }
+
+    const handleShowImplementation = (): void => {
+        setShowImplementation(true)
+        // Scroll into view after state update
+        setTimeout(() => {
+            implementationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 100)
+    }
 
     const updateVariant = (
         index: number,
@@ -187,7 +203,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                 <SceneContent>
                     {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={() => {}} />}
+                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={handleTemplateApplied} />}
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
@@ -195,21 +211,23 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
-                                <LemonField
-                                    name="key"
-                                    label="Flag key"
-                                    info="The key is used to identify the feature flag in the code. Must be unique."
-                                >
-                                    <LemonInput
-                                        data-attr="feature-flag-key"
-                                        className="ph-ignore-input"
-                                        autoComplete="off"
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                        placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
-                                    />
-                                </LemonField>
+                                <div className={highlightedFields.includes('key') ? 'template-highlight-pulse' : ''}>
+                                    <LemonField
+                                        name="key"
+                                        label="Flag key"
+                                        info="The key is used to identify the feature flag in the code. Must be unique."
+                                    >
+                                        <LemonInput
+                                            data-attr="feature-flag-key"
+                                            className="ph-ignore-input"
+                                            autoComplete="off"
+                                            autoCapitalize="off"
+                                            autoCorrect="off"
+                                            spellCheck={false}
+                                            placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
+                                        />
+                                    </LemonField>
+                                </div>
 
                                 <LemonField name="name" label="Description">
                                     <LemonTextArea
@@ -400,7 +418,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         {/* Right column */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
                             {/* Flag type card */}
-                            <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
+                            <div
+                                className={`rounded border p-3 bg-bg-light gap-4 flex flex-col ${
+                                    highlightedFields.includes('flagType') ? 'template-highlight-pulse' : ''
+                                }`}
+                            >
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel info="Changing flag type may clear existing configuration. Switching from Multivariate will remove all variants and their payloads. Switching from Remote config or Boolean will remove the payload.">
                                         Flag type
@@ -559,7 +581,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             data-attr={`feature-flag-variant-description-${index}`}
                                                         />
 
-                                                        <LemonLabel>Payload</LemonLabel>
+                                                        <LemonLabel info="Optionally specify a JSON payload to be returned when this variant is selected.">
+                                                            Payload
+                                                        </LemonLabel>
                                                         <JSONEditorInput
                                                             onChange={(value) => updateVariantPayload(index, value)}
                                                             value={featureFlag.filters?.payloads?.[variant.key]}
@@ -657,13 +681,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
+                                        highlightedFields={highlightedFields}
                                     />
                                 </div>
                             )}
 
                             {/* Implementation section */}
                             {showImplementation ? (
-                                <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
+                                <div
+                                    ref={implementationRef}
+                                    className="rounded border p-3 bg-bg-light gap-2 flex flex-col mb-4"
+                                >
                                     <LemonButton
                                         className="-m-2"
                                         icon={<IconCode />}
@@ -675,11 +703,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <FeatureFlagCodeExample featureFlag={featureFlag} />
                                 </div>
                             ) : (
-                                <div className="rounded border bg-bg-light gap-2 flex flex-col p-3">
+                                <div className="rounded border bg-bg-light gap-2 flex flex-col p-3 mb-4">
                                     <LemonButton
                                         className="-m-2"
                                         icon={<IconCode />}
-                                        onClick={() => setShowImplementation(true)}
+                                        onClick={handleShowImplementation}
                                     >
                                         Show implementation
                                     </LemonButton>

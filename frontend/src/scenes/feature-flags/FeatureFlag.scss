@@ -51,3 +51,26 @@
         white-space: pre-wrap;
     }
 }
+
+// Template highlight animation - 2 pulses instead of 3
+.template-highlight-pulse {
+    position: relative !important;
+    z-index: 100 !important;
+    border-radius: var(--radius);
+    animation: FeatureFlag__HighlightPulse 1s ease-in-out 2 !important;
+}
+
+@keyframes FeatureFlag__HighlightPulse {
+    0%,
+    100% {
+        outline: 3px solid transparent;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+        outline: 3px solid var(--color-accent);
+        outline-offset: 2px;
+        box-shadow: 0 0 24px var(--color-accent);
+    }
+}
