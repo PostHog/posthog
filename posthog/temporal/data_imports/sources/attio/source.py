@@ -27,6 +27,12 @@ class AttioSource(SimpleSource[AttioSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ATTIO
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.attio.com": "Your Attio API key is invalid or expired. Please generate a new key and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.attio.com": "Your Attio API key does not have the required scopes. Please check the API key permissions and try again.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
