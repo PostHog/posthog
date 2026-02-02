@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ClusterCard } from './ClusterCard'
+import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
@@ -255,8 +256,8 @@ export function ClustersView(): JSX.Element {
                         className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
                         onClick={toggleScatterPlotExpanded}
                     >
-                        <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-base">Cluster visualization</h3>
+                        <div className="flex items-center gap-4">
+                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
                             <LemonButton
                                 size="small"
                                 noPadding

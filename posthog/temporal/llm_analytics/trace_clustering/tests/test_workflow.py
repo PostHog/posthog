@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 
 from posthog.temporal.llm_analytics.trace_clustering.clustering import perform_kmeans_with_optimal_k
+from posthog.temporal.llm_analytics.trace_clustering.constants import DEFAULT_MAX_SAMPLES
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringActivityInputs,
     ClusteringComputeResult,
@@ -118,7 +119,7 @@ class TestWorkflowInputs:
 
         assert inputs.team_id == 1
         assert inputs.lookback_days == 7
-        assert inputs.max_samples == 1000
+        assert inputs.max_samples == DEFAULT_MAX_SAMPLES
         assert inputs.min_k == 2
         assert inputs.max_k == 10
 
@@ -149,7 +150,7 @@ class TestWorkflowInputs:
         assert inputs.team_id == 1
         assert inputs.window_start == "2025-01-01T00:00:00Z"
         assert inputs.window_end == "2025-01-08T00:00:00Z"
-        assert inputs.max_samples == 1000
+        assert inputs.max_samples == DEFAULT_MAX_SAMPLES
         assert inputs.min_k == 2
         assert inputs.max_k == 10
 

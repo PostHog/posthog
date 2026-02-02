@@ -273,6 +273,10 @@
 
     .LemonTable__header-content {
         color: var(--color-text-secondary);
+
+        .reduce-visual-noise & {
+            color: var(--color-text-tertiary) !important;
+        }
     }
 
     &.LemonTable__header--actionable {
@@ -289,6 +293,21 @@
         &:active {
             .LemonTable__header-content {
                 color: var(--color-text-primary);
+            }
+        }
+    }
+
+    .sorting-indicator {
+        .reduce-visual-noise & {
+            color: var(--color-text-tertiary) !important;
+            opacity: 0.5;
+        }
+    }
+
+    &:hover {
+        .sorting-indicator {
+            .reduce-visual-noise & {
+                opacity: 1;
             }
         }
     }

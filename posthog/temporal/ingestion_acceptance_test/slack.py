@@ -1,14 +1,14 @@
 """Slack notifications for test results using incoming webhooks."""
 
-import logging
 from typing import Any
 
 import requests
+import structlog
 
 from .config import Config
 from .results import TestSuiteResult
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
@@ -39,7 +39,7 @@ def send_slack_notification(config: Config, result: TestSuiteResult) -> bool:
         logger.info("Slack notification sent successfully")
         return True
     except requests.RequestException as e:
-        logger.warning("Failed to send Slack notification: %s", e)
+        logger.warning("Failed to send Slack notification", error=str(e))
         return False
 
 
