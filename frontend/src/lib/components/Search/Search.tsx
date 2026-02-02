@@ -601,7 +601,7 @@ function SearchResults({
                                 }
                             />
                             {group.isLoading && !isSearching ? (
-                                <div>
+                                <>
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
@@ -613,7 +613,7 @@ function SearchResults({
                                             </WrappingLoadingSkeleton>
                                         </div>
                                     ))}
-                                </div>
+                                </>
                             ) : (
                                 <Autocomplete.Collection>
                                     {(item: SearchItem) => {
