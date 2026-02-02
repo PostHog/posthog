@@ -35,7 +35,7 @@ from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 logger = structlog.get_logger(__name__)
 
 # We can speed things up a bit right now - but not too much, as CSS animations are the same speed
-VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 1
 
 
 @temporalio.activity.defn
