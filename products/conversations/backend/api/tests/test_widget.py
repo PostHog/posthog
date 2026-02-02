@@ -558,6 +558,15 @@ class TestWidgetUploadAPI(BaseTest):
     def _get_headers(self):
         return {"HTTP_X_CONVERSATIONS_TOKEN": self.widget_token}
 
+    def _create_ticket(self):
+        """Create a ticket for the current widget_session_id (required for uploads)."""
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="test-user",
+            channel_source="widget",
+        )
+
     # === Authentication Tests ===
 
     def test_upload_requires_authentication(self):
@@ -615,6 +624,33 @@ class TestWidgetUploadAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_upload_requires_existing_ticket(self):
+        # No ticket created - should fail
+        fake_image = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
+        response = self.client.post(
+            "/api/conversations/v1/widget/upload",
+            {"image": fake_image, "widget_session_id": self.widget_session_id},
+            format="multipart",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "no_ticket")
+        self.assertEqual(response.json()["error"], "Must have an active conversation to upload images")
+
+    def test_upload_succeeds_with_existing_ticket(self):
+        # Create a ticket first
+        self._create_ticket()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            fake_image = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
+            response = self.client.post(
+                "/api/conversations/v1/widget/upload",
+                {"image": fake_image, "widget_session_id": self.widget_session_id},
+                format="multipart",
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     # === Origin Validation Tests ===
 
     def test_upload_blocked_from_disallowed_origin(self):
@@ -636,6 +672,7 @@ class TestWidgetUploadAPI(BaseTest):
         self.assertEqual(response.json()["error"], "Origin not allowed")
 
     def test_upload_allowed_from_permitted_origin(self):
+        self._create_ticket()
         self.team.conversations_settings = {
             "widget_public_token": self.widget_token,
             "widget_domains": ["https://allowed.com"],
@@ -654,6 +691,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_upload_allowed_when_no_domains_configured(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             fake_image = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
             response = self.client.post(
@@ -668,6 +706,7 @@ class TestWidgetUploadAPI(BaseTest):
     # === File Validation Tests ===
 
     def test_upload_requires_image_file(self):
+        self._create_ticket()
         response = self.client.post(
             "/api/conversations/v1/widget/upload",
             {"widget_session_id": self.widget_session_id},
@@ -678,6 +717,7 @@ class TestWidgetUploadAPI(BaseTest):
         self.assertEqual(response.json()["code"], "no-image-provided")
 
     def test_upload_rejects_non_image_content_type_html(self):
+        self._create_ticket()
         fake_file = SimpleUploadedFile("test.html", b"<html>test</html>", content_type="text/html")
         response = self.client.post(
             "/api/conversations/v1/widget/upload",
@@ -688,6 +728,7 @@ class TestWidgetUploadAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
     def test_upload_rejects_non_image_content_type_pdf(self):
+        self._create_ticket()
         fake_file = SimpleUploadedFile("test.pdf", b"%PDF-1.4", content_type="application/pdf")
         response = self.client.post(
             "/api/conversations/v1/widget/upload",
@@ -698,6 +739,7 @@ class TestWidgetUploadAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
     def test_upload_rejects_file_exceeding_size_limit(self):
+        self._create_ticket()
         # Create a file just over 4MB
         large_content = b"x" * (4 * 1024 * 1024 + 1)
         large_file = SimpleUploadedFile("large.png", large_content, content_type="image/png")
@@ -711,6 +753,7 @@ class TestWidgetUploadAPI(BaseTest):
         self.assertEqual(response.json()["code"], "file_too_large")
 
     def test_upload_rejects_fake_image_magic_bytes(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             # File with PNG magic bytes but actually contains HTML/script
             fake_image = SimpleUploadedFile("fake.png", FAKE_PNG_HTML, content_type="image/png")
@@ -728,6 +771,7 @@ class TestWidgetUploadAPI(BaseTest):
     # === XSS Prevention Tests ===
 
     def test_upload_rejects_svg_with_script(self):
+        self._create_ticket()
         svg_file = SimpleUploadedFile("test.svg", SVG_WITH_SCRIPT, content_type="image/svg+xml")
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             response = self.client.post(
@@ -740,6 +784,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_upload_rejects_html_disguised_as_image(self):
+        self._create_ticket()
         html_content = b"<!DOCTYPE html><html><body><script>alert('xss')</script></body></html>"
         disguised_html = SimpleUploadedFile("malicious.png", html_content, content_type="image/png")
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
@@ -753,6 +798,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.json()["code"], "invalid_image")
 
     def test_upload_rejects_fake_gif_magic_bytes(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             # File with GIF magic bytes but actually contains HTML/script
             fake_gif = SimpleUploadedFile("fake.gif", FAKE_GIF_HTML, content_type="image/gif")
@@ -766,6 +812,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.json()["code"], "invalid_image")
 
     def test_upload_rejects_javascript_with_image_content_type(self):
+        self._create_ticket()
         js_file = SimpleUploadedFile("script.png", JAVASCRIPT_CONTENT, content_type="image/png")
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             response = self.client.post(
@@ -778,6 +825,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.json()["code"], "invalid_image")
 
     def test_upload_rejects_empty_file(self):
+        self._create_ticket()
         empty_file = SimpleUploadedFile("empty.png", b"", content_type="image/png")
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             response = self.client.post(
@@ -792,6 +840,7 @@ class TestWidgetUploadAPI(BaseTest):
     # === Success Cases ===
 
     def test_upload_valid_png(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             image_file = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
             response = self.client.post(
@@ -807,6 +856,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.json()["name"], "test.png")
 
     def test_upload_valid_gif(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             image_file = SimpleUploadedFile("test.gif", VALID_GIF, content_type="image/gif")
             response = self.client.post(
@@ -818,6 +868,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_upload_with_fixture_file(self):
+        self._create_ticket()
         fixture_path = get_fixture_path("a-small-but-valid.gif")
         if os.path.exists(fixture_path):
             with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
@@ -831,6 +882,7 @@ class TestWidgetUploadAPI(BaseTest):
                     self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_upload_returns_correct_response_format(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             image_file = SimpleUploadedFile("my-image.png", VALID_PNG, content_type="image/png")
             response = self.client.post(
@@ -857,6 +909,7 @@ class TestWidgetUploadAPI(BaseTest):
             self.assertEqual(data["name"], "my-image.png")
 
     def test_upload_creates_media_record_without_user(self):
+        self._create_ticket()
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             image_file = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
             response = self.client.post(
@@ -875,6 +928,7 @@ class TestWidgetUploadAPI(BaseTest):
     # === Object Storage Unavailable ===
 
     def test_upload_fails_when_object_storage_unavailable(self):
+        self._create_ticket()
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             image_file = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
             response = self.client.post(
