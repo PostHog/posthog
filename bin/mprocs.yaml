@@ -128,6 +128,13 @@ procs:
             bin/start-rust-service batch-import-worker
         capability: batch_imports
 
+    agent-sync:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service agent-sync
+        capability: agent_sync
+
     llm-gateway:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: true
