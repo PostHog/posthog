@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
+import { CreateMemoryInputSchema, QueryMemoryInputSchema, UpdateMemoryInputSchema } from './memories'
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -460,3 +461,19 @@ export const EntitySearchSchema = z.object({
 export const DemoMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the demo data'),
 })
+
+// Memories
+export const MemoryCreateSchema = CreateMemoryInputSchema
+
+export const MemoryQuerySchema = QueryMemoryInputSchema
+
+export const MemoryUpdateSchema = z.object({
+    memoryId: z.string().uuid().describe('The ID of the memory to update'),
+    data: UpdateMemoryInputSchema,
+})
+
+export const MemoryDeleteSchema = z.object({
+    memoryId: z.string().uuid().describe('The ID of the memory to delete'),
+})
+
+export const MemoryListMetadataKeysSchema = z.object({})

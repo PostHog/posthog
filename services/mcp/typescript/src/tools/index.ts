@@ -50,6 +50,12 @@ import updateInsight from './insights/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
+// Memories
+import createMemory from './memories/create'
+import deleteMemory from './memories/delete'
+import listMemoryMetadataKeys from './memories/listMetadataKeys'
+import queryMemory from './memories/query'
+import updateMemory from './memories/update'
 // Logs
 import logsQuery from './logs/query'
 // Organizations
@@ -162,6 +168,13 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Search
     'entity-search': entitySearch,
+
+    // Memories
+    'memory-create': createMemory,
+    'memory-query': queryMemory,
+    'memory-update': updateMemory,
+    'memory-delete': deleteMemory,
+    'memory-list-metadata-keys': listMemoryMetadataKeys,
 
     // Demo
     'demo-mcp-ui-apps': demoMcpUiApps,

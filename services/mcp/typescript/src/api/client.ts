@@ -59,6 +59,20 @@ import { isShortId } from '@/tools/insights/utils'
 import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
 import { ActionResponseSchema } from '../schema/actions.js'
 import type {
+    AgentMemory,
+    CreateMemoryInput,
+    MemoryQueryResponse,
+    MemoryQueryResult,
+    MetadataKeysResponse,
+    QueryMemoryInput,
+    UpdateMemoryInput,
+} from '../schema/memories.js'
+import {
+    AgentMemorySchema,
+    MemoryQueryResponseSchema,
+    MetadataKeysResponseSchema,
+} from '../schema/memories.js'
+import type {
     LogAttribute,
     LogAttributeValue,
     LogsListAttributeValuesInput,
@@ -1726,6 +1740,144 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/search/${searchParams.toString() ? `?${searchParams}` : ''}`
 
                 return this.fetchWithSchema(url, SearchResponseSchema)
+            },
+        }
+    }
+
+    /**
+     * Agent memories for storing and querying facts about users' products and preferences
+     */
+    memories({ projectId }: { projectId: string }): Endpoint {
+        return {
+            /**
+             * List all memories in the team
+             */
+            list: async ({
+                params,
+            }: { params?: { limit?: number; offset?: number } } = {}): Promise<Result<AgentMemory[]>> => {
+                const searchParams = new URLSearchParams()
+
+                if (params?.limit) {
+                    searchParams.append('limit', String(params.limit))
+                }
+                if (params?.offset) {
+                    searchParams.append('offset', String(params.offset))
+                }
+
+                const url = `${this.baseUrl}/api/environments/${projectId}/memories/${searchParams.toString() ? `?${searchParams}` : ''}`
+
+                const responseSchema = z.object({
+                    results: z.array(AgentMemorySchema),
+                })
+
+                const result = await this.fetchWithSchema(url, responseSchema)
+
+                if (result.success) {
+                    return { success: true, data: result.data.results }
+                }
+
+                return result
+            },
+
+            /**
+             * Get a single memory by ID
+             */
+            get: async ({ memoryId }: { memoryId: string }): Promise<Result<AgentMemory>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/environments/${projectId}/memories/${memoryId}/`,
+                    AgentMemorySchema
+                )
+            },
+
+            /**
+             * Create a new memory
+             */
+            create: async ({ data }: { data: CreateMemoryInput }): Promise<Result<AgentMemory>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/environments/${projectId}/memories/`,
+                    AgentMemorySchema,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(data),
+                    }
+                )
+            },
+
+            /**
+             * Update an existing memory
+             */
+            update: async ({
+                memoryId,
+                data,
+            }: {
+                memoryId: string
+                data: UpdateMemoryInput
+            }): Promise<Result<AgentMemory>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/environments/${projectId}/memories/${memoryId}/`,
+                    AgentMemorySchema,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(data),
+                    }
+                )
+            },
+
+            /**
+             * Delete a memory
+             */
+            delete: async ({
+                memoryId,
+            }: {
+                memoryId: string
+            }): Promise<Result<{ success: boolean; message: string }>> => {
+                try {
+                    const response = await fetch(
+                        `${this.baseUrl}/api/environments/${projectId}/memories/${memoryId}/`,
+                        {
+                            method: 'DELETE',
+                            headers: this.buildHeaders(),
+                        }
+                    )
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to delete memory: ${response.statusText}`)
+                    }
+
+                    return {
+                        success: true,
+                        data: {
+                            success: true,
+                            message: 'Memory deleted successfully',
+                        },
+                    }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            /**
+             * Semantic search of memories using embeddings
+             */
+            query: async ({ data }: { data: QueryMemoryInput }): Promise<Result<MemoryQueryResponse>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/environments/${projectId}/memories/query/`,
+                    MemoryQueryResponseSchema,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(data),
+                    }
+                )
+            },
+
+            /**
+             * List all unique metadata keys used across memories
+             */
+            listMetadataKeys: async (): Promise<Result<MetadataKeysResponse>> => {
+                return this.fetchWithSchema(
+                    `${this.baseUrl}/api/environments/${projectId}/memories/metadata_keys/`,
+                    MetadataKeysResponseSchema
+                )
             },
         }
     }

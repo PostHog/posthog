@@ -45,6 +45,7 @@ def extend_api_router() -> None:
     )
 
     from ee.api import max_tools, session_summaries
+    from products.posthog_ai.backend import api as posthog_ai_api
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -93,6 +94,8 @@ def extend_api_router() -> None:
     environments_router.register(
         r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
     )
+
+    environments_router.register(r"memories", posthog_ai_api.AgentMemoryViewSet, "environment_memories", ["team_id"])
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
