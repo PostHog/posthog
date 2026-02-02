@@ -357,6 +357,9 @@ def ensure_events_table_exists(
             context.log.info("Events table already exists in duckling catalog")
             return False
 
+        context.log.info("Creating posthog schema if it doesn't exist...")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
+
         context.log.info("Creating events table in duckling catalog...")
         ddl = EVENTS_TABLE_DDL.format(catalog=alias)
         try:
@@ -405,6 +408,9 @@ def ensure_persons_table_exists(
         if table_exists(conn, alias, "posthog", "persons"):
             context.log.info("Persons table already exists in duckling catalog")
             return False
+
+        context.log.info("Creating posthog schema if it doesn't exist...")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
         context.log.info("Creating persons table in duckling catalog...")
         ddl = PERSONS_TABLE_DDL.format(catalog=alias)
