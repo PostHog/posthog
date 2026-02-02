@@ -242,6 +242,10 @@ export interface SearchRootProps {
     onAskAiClick?: () => void
     /** Custom class for the container */
     className?: string
+    /** Initial search value (e.g., from URL params) */
+    initialSearchValue?: string
+    /** Callback when search value changes (e.g., for URL sync) */
+    onSearchValueChange?: (value: string) => void
 }
 
 function SearchRoot({
@@ -252,11 +256,13 @@ function SearchRoot({
     showAskAiLink = true,
     onAskAiClick,
     className = '',
+    initialSearchValue = '',
+    onSearchValueChange,
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
 
-    const [searchValue, setSearchValue] = useState('')
+    const [searchValue, setSearchValue] = useState(initialSearchValue)
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
@@ -292,7 +298,8 @@ function SearchRoot({
             return
         }
         setSearch(searchValue)
-    }, [searchValue, setSearch, isActive])
+        onSearchValueChange?.(searchValue)
+    }, [searchValue, setSearch, isActive, onSearchValueChange])
 
     useEffect(() => {
         if (isActive && inputRef.current) {
