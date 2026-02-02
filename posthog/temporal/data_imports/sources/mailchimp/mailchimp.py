@@ -155,8 +155,12 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     }
 
     while True:
-        url = f"https://{dc}.api.mailchimp.com/3.0/lists?count={page_size}&offset={offset}"
-        response = requests.get(url, headers=headers, timeout=120)
+        response = requests.get(
+            f"https://{dc}.api.mailchimp.com/3.0/lists",
+            headers=headers,
+            params={"count": page_size, "offset": offset},
+            timeout=120,
+        )
         response.raise_for_status()
 
         data = response.json()
@@ -187,11 +191,16 @@ def _fetch_contacts_for_list(
     }
 
     while True:
-        url = f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members?count={page_size}&offset={offset}"
-        if since_last_changed:
-            url += f"&since_last_changed={since_last_changed}"
-
-        response = requests.get(url, headers=headers, timeout=120)
+        response = requests.get(
+            f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
+            headers=headers,
+            params={
+                "count": page_size,
+                "offset": offset,
+                **({"since_last_changed": since_last_changed} if since_last_changed else {}),
+            },
+            timeout=120,
+        )
         response.raise_for_status()
 
         data = response.json()
