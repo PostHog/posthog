@@ -165,40 +165,43 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
 
+        @parameterized.expand(
+            [
+                ("no_geoip", {}, None),
+                ("US", {"$geoip_country_code": "US"}, 0),
+                ("PL", {"$geoip_country_code": "PL"}, 1),
+                ("IR", {"$geoip_country_code": "IR"}, 0),
+            ]
+        )
+        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")
         @patch("posthog.api.project.get_geoip_properties")
         @patch("posthog.api.team.get_geoip_properties")
         def test_ip_location_is_used_for_new_team_week_day_start(
-            self, get_geoip_properties_mock: MagicMock, get_geoip_properties_legacy_endpoint: MagicMock
+            self,
+            _name: str,
+            geoip_return: dict,
+            expected_week_start_day: int | None,
+            get_geoip_properties_mock: MagicMock,
+            get_geoip_properties_legacy_endpoint: MagicMock,
+            mock_matrix_manager: MagicMock,
         ):
             if self.client_class is EnvironmentToProjectRewriteClient:
                 get_geoip_properties_mock = get_geoip_properties_legacy_endpoint
 
             self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS},
+                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
             ]
             self.organization.save()
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            get_geoip_properties_mock.return_value = {}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
+            # Use demo teams for testing since they have special handling allowing creation
+            get_geoip_properties_mock.return_value = geoip_return
+            response = self.client.post(
+                "/api/projects/@current/environments/", {"name": f"Test {_name}", "is_demo": True}
+            )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
+            self.assertEqual(response.json()["week_start_day"], expected_week_start_day)
 
         def test_cant_create_team_without_license_on_selfhosted(self):
             with self.is_cloud(False):
@@ -1834,8 +1837,14 @@ def team_api_test_factory():
             ]
             self.organization.save()
 
+            # Create a new project so we can create a team under it
+            project_id = Team.objects.increment_id_sequence()
+            new_project = Project.objects.create(
+                id=project_id, organization=self.organization, name="Test Project for Access Control"
+            )
+
             response = self.client.post(
-                "/api/projects/@current/environments/",
+                f"/api/projects/{new_project.id}/environments/",
                 {"name": "Test Environment", "access_control": True},
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
