@@ -88,6 +88,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    cyclotron_shadow:
+        description: 'Shadow Cyclotron worker and janitor for testing Postgres-backed job queue'
+        requires: [core_infra]
+        docker_profiles: []
+
     # Node.js capability groups - control which consumers run to reduce event loop contention
     nodejs_cdp:
         description: 'Node.js CDP - destinations, webhooks, and realtime alerts'
@@ -183,7 +188,16 @@ intents:
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                celery_workers,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+                cyclotron_shadow,
+            ]
 
     ai_features:
         description: 'AI features'
@@ -195,7 +209,15 @@ intents:
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+                cyclotron_shadow,
+            ]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'
