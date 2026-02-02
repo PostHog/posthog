@@ -15,16 +15,21 @@ import logging
 from django.db.models import F, Q
 
 from rest_framework import serializers, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import UnsupportedMediaType, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from statshog.defaults.django import statsd
 
+from posthog.api.uploaded_media import validate_image_file
 from posthog.auth import WidgetAuthentication
-from posthog.models import Team
+from posthog.models import Team, UploadedMedia
 from posthog.models.comment import Comment
-from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
+from posthog.models.uploaded_media import ObjectStorageUnavailable
+from posthog.rate_limit import WidgetTeamThrottle, WidgetUploadThrottle, WidgetUserBurstThrottle
+from posthog.storage import object_storage
 from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
@@ -32,6 +37,7 @@ from products.conversations.backend.api.serializers import (
     WidgetMessageSerializer,
     WidgetMessagesQuerySerializer,
     WidgetTicketsQuerySerializer,
+    WidgetUploadSerializer,
     validate_origin,
 )
 from products.conversations.backend.cache import (
@@ -428,3 +434,116 @@ class WidgetMarkReadView(APIView):
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
 
         return Response({"success": True, "unread_count": 0})
+
+
+FOUR_MEGABYTES = 4 * 1024 * 1024
+
+
+class WidgetUploadView(APIView):
+    """
+    POST /api/conversations/v1/widget/upload
+    Upload an image for use in widget messages.
+
+    Security:
+    - Authenticated via X-Conversations-Token (team-level)
+    - Origin validation against widget_domains
+    - widget_session_id required for access control
+    - Stricter rate limiting than other widget endpoints
+    - Image validation (content-type, size, PIL verification)
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [WidgetUploadThrottle, WidgetTeamThrottle]
+
+    def post(self, request: Request) -> Response:
+        """Handle image upload from widget."""
+
+        team: Team | None = request.auth  # type: ignore[assignment]
+        if not team:
+            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Validate origin
+        if not validate_origin(request, team):
+            return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Validate widget_session_id
+        serializer = WidgetUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            logger.warning("Validation error in WidgetUploadView", extra={"errors": serializer.errors})
+            return Response(
+                {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get the uploaded file
+        try:
+            file = request.data["image"]
+        except KeyError:
+            return Response(
+                {"error": "An image file must be provided", "code": "no-image-provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate file size
+        if file.size > FOUR_MEGABYTES:
+            return Response(
+                {"error": "Uploaded media must be less than 4MB", "code": "file_too_large"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate content type
+        if not file.content_type.startswith("image/"):
+            raise UnsupportedMediaType(file.content_type)
+
+        # Save to object storage
+        try:
+            uploaded_media = UploadedMedia.save_content(
+                team=team,
+                created_by=None,  # Widget uploads don't have a user
+                file_name=file.name,
+                content_type=file.content_type,
+                content=file.file,
+            )
+            if uploaded_media is None:
+                return Response(
+                    {"error": "Could not save media"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # Verify the image is actually valid (prevents XSS via fake magic bytes)
+            bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
+            if not validate_image_file(bytes_to_verify, user=0):  # Use 0 for widget uploads (no user)
+                statsd.incr(
+                    "widget_upload.image_failed_validation",
+                    tags={"file_name": file.name, "team": team.pk},
+                )
+                # Delete the invalid upload
+                uploaded_media.delete()
+                return Response(
+                    {"error": "Uploaded media must be a valid image", "code": "invalid_image"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            statsd.incr(
+                "widget_upload.uploaded",
+                tags={"team_id": team.pk, "content_type": file.content_type},
+            )
+
+            return Response(
+                {
+                    "id": str(uploaded_media.id),
+                    "image_location": uploaded_media.get_absolute_url(),
+                    "name": uploaded_media.file_name,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except ObjectStorageUnavailable:
+            return Response(
+                {
+                    "error": "Object storage must be available to allow media uploads.",
+                    "code": "object_storage_required",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )

@@ -617,6 +617,22 @@ class WidgetTeamThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class WidgetUploadThrottle(SimpleRateThrottle):
+    """Stricter rate limit for widget image uploads."""
+
+    scope = "widget_upload"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        # Throttle by widget_session_id if available, otherwise by IP
+        widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
+        if widget_session_id:
+            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "symbol_set_upload_sustained"
     rate = "12000/hour"

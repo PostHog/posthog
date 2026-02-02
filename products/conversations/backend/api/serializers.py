@@ -128,6 +128,12 @@ class WidgetMarkReadSerializer(serializers.Serializer):
     widget_session_id = serializers.UUIDField(required=True)
 
 
+class WidgetUploadSerializer(serializers.Serializer):
+    """Serializer for widget image uploads."""
+
+    widget_session_id = serializers.UUIDField(required=True, help_text="Random UUID for access control")
+
+
 def validate_origin(request, team: Team) -> bool:
     """
     Validate request origin to prevent token reuse on unauthorized domains.
