@@ -210,11 +210,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
         const currentSortKeys = filterGroups.map((g) => g.sort_key ?? '')
         const prevSortKeys = prevSortKeysRef.current
 
-        // Check if sort_keys changed (e.g., due to aggregation type change resetting groups)
-        const keysChanged =
-            currentSortKeys.length !== prevSortKeys.length || currentSortKeys.some((key, i) => key !== prevSortKeys[i])
+        // Only remap on reset (e.g., aggregation type change), not when adding new conditions
+        const isReset =
+            currentSortKeys.length <= prevSortKeys.length && currentSortKeys.some((key, i) => key !== prevSortKeys[i])
 
-        if (keysChanged && currentSortKeys.length > 0) {
+        if (isReset && currentSortKeys.length > 0) {
             // Map open state from old keys to new keys by index
             const openIndices = prevSortKeys
                 .map((key, i) => (openConditions.includes(`condition-${key}`) ? i : -1))
