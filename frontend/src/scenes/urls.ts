@@ -222,7 +222,7 @@ export const urls = {
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
-    sdkDoctor: (): string => '/sdk-doctor',
+    sdkDoctor: (): string => '/health/sdk-doctor',
 }
 
 export interface UrlMatcher {
