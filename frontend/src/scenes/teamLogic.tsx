@@ -6,6 +6,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
@@ -59,7 +60,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProject']],
+        values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
         actions: [
             userLogic,
             ['loadUser', 'switchTeam'],
