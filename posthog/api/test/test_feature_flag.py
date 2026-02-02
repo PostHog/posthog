@@ -345,6 +345,80 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
 
+    def test_unsupported_operators_are_aliased(self):
+        """
+        Test that operators not supported by the feature flag evaluation services
+        (like min/max) are aliased to supported equivalents (gte/lte).
+        """
+        # Test min -> gte aliasing
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Min test",
+                "key": "min-test",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {"key": "age", "type": "person", "value": "21", "operator": "min"},
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.json()["filters"]["groups"][0]["properties"][0]["operator"],
+            "gte",
+        )
+
+        # Test max -> lte aliasing
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Max test",
+                "key": "max-test",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {"key": "age", "type": "person", "value": "99", "operator": "max"},
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.json()["filters"]["groups"][0]["properties"][0]["operator"],
+            "lte",
+        )
+
+    def test_cant_create_flag_with_invalid_operator(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Invalid operator test",
+                "key": "invalid-op-test",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {"key": "age", "type": "person", "value": "21", "operator": "foobar"},
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unsupported operators", response.json()["detail"].lower())
+
     def test_cant_update_flag_with_duplicate_key(self):
         existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_feature_flag = FeatureFlag.objects.create(

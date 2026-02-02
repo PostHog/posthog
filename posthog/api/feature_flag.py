@@ -490,6 +490,42 @@ class FeatureFlagSerializer(
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
 
+    # Validate all operators are supported by remote feature flag evaluation
+    # Keep in sync with `OperatorType` enum in rust/feature-flags/src/properties/property_models.rs
+    SUPPORTED_OPERATORS = {
+        PropertyOperator.EXACT,
+        PropertyOperator.IS_NOT,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.REGEX,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.GT,
+        PropertyOperator.LT,
+        PropertyOperator.GTE,
+        PropertyOperator.LTE,
+        PropertyOperator.SEMVER_GT,
+        PropertyOperator.SEMVER_GTE,
+        PropertyOperator.SEMVER_LT,
+        PropertyOperator.SEMVER_LTE,
+        PropertyOperator.SEMVER_EQ,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.SEMVER_TILDE,
+        PropertyOperator.SEMVER_CARET,
+        PropertyOperator.SEMVER_WILDCARD,
+        PropertyOperator.IS_SET,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.IS_DATE_EXACT,
+        PropertyOperator.IS_DATE_AFTER,
+        PropertyOperator.IS_DATE_BEFORE,
+        PropertyOperator.IN_,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.FLAG_EVALUATES_TO,
+        None,  # operator can be omitted (defaults to "exact")
+    }
+
+    # Alias unsupported operators to their supported equivalents
+    OPERATOR_ALIASES = {"min": "gte", "max": "lte"}
+
     class Meta:
         model = FeatureFlag
         fields = [
@@ -664,6 +700,11 @@ class FeatureFlagSerializer(
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
+        for condition in filters.get("groups", []):
+            for prop in condition.get("properties", []):
+                if prop.get("operator") in self.OPERATOR_ALIASES:
+                    prop["operator"] = self.OPERATOR_ALIASES[prop["operator"]]
+
         def properties_all_match(predicate):
             return all(
                 predicate(Property(**property))
@@ -698,6 +739,10 @@ class FeatureFlagSerializer(
             )
             if not is_valid:
                 raise serializers.ValidationError("Filters are not valid (can only use group properties)")
+
+        operators_valid = properties_all_match(lambda prop: prop.operator in self.SUPPORTED_OPERATORS)
+        if not operators_valid:
+            raise serializers.ValidationError("Filters contain unsupported operators.")
 
         variant_list = (filters.get("multivariate") or {}).get("variants", [])
         variants = {variant["key"] for variant in variant_list}
