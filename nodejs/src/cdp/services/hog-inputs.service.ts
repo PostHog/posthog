@@ -42,23 +42,14 @@ export class HogInputsService {
             ...globals,
             inputs: {},
         }
-        const integrationInputs = await this.loadIntegrationInputs(hogFunction)
-        const pushSubscriptionInputs = await this.resolvePushSubscriptionInputs(
-            hogFunction,
-            integrationInputs,
-            newGlobals
-        )
-
         const inputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
             ...hogFunction.inputs,
             ...hogFunction.encrypted_inputs,
             // Plus any additional inputs
             ...additionalInputs,
-            // and decode any integration inputs
-            ...integrationInputs,
-            // and resolve push subscriptions from inputs
-            ...pushSubscriptionInputs,
+            // and decode any integration inputs (and push subscription inputs when newGlobals provided)
+            ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
         }
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
@@ -176,13 +167,12 @@ export class HogInputsService {
             }
         }
 
-        return Object.keys(pushSubscriptionPairs).length > 0
-            ? await this.pushSubscriptionsManager.loadPushSubscriptions(hogFunction, pushSubscriptionPairs)
-            : {}
+        return await this.pushSubscriptionsManager.loadPushSubscriptions(hogFunction, pushSubscriptionPairs)
     }
 
     public async loadIntegrationInputs(
-        hogFunction: HogFunctionType
+        hogFunction: HogFunctionType,
+        newGlobals?: HogFunctionInvocationGlobalsWithInputs
     ): Promise<Record<string, { value: Record<string, any> | null }>> {
         const inputsToLoad: Record<string, number> = {}
 
@@ -204,10 +194,7 @@ export class HogInputsService {
         const returnInputs: Record<string, { value: Record<string, any> | null }> = {}
 
         Object.entries(inputsToLoad).forEach(([key, value]) => {
-            returnInputs[key] = {
-                value: null,
-            }
-
+            returnInputs[key] = { value: null }
             const integration = integrations[value]
             // IMPORTANT: Check the team ID is correct
             if (integration && integration.team_id === hogFunction.team_id) {
@@ -226,6 +213,15 @@ export class HogInputsService {
                 }
             }
         })
+
+        if (newGlobals) {
+            const pushSubscriptionInputs = await this.resolvePushSubscriptionInputs(
+                hogFunction,
+                returnInputs,
+                newGlobals
+            )
+            Object.assign(returnInputs, pushSubscriptionInputs)
+        }
 
         return returnInputs
     }

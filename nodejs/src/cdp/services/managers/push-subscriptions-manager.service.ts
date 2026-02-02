@@ -532,6 +532,10 @@ export class PushSubscriptionsManagerService {
         hogFunction: HogFunctionType,
         inputsToLoad: Record<string, PushSubscriptionInputToLoad>
     ): Promise<Record<string, { value: string | null }>> {
+        if (Object.keys(inputsToLoad).length === 0) {
+            return {}
+        }
+
         const returnInputs: Record<string, { value: string | null }> = {}
         const provider = 'fcm' as const
 
