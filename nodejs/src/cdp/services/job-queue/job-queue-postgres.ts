@@ -25,6 +25,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 export class CyclotronJobQueuePostgres {
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
+    private dbHost: string = 'not-connected'
 
     constructor(
         private config: PluginsServerConfig,
@@ -39,6 +40,14 @@ export class CyclotronJobQueuePostgres {
         if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
+
+        // Capture host for debugging which database this instance connects to
+        try {
+            this.dbHost = new URL(this.config.CYCLOTRON_DATABASE_URL).host
+        } catch {
+            this.dbHost = 'invalid-url'
+        }
+
         this.cyclotronManager = new CyclotronManager({
             shards: [
                 {
@@ -103,6 +112,12 @@ export class CyclotronJobQueuePostgres {
         if (invocations.length === 0) {
             return
         }
+
+        logger.info('CyclotronJobQueuePostgres.queueInvocations', {
+            dbHost: this.dbHost,
+            count: invocations.length,
+            queue: this.queue,
+        })
 
         const cyclotronManager = this.getCyclotronManager()
 
