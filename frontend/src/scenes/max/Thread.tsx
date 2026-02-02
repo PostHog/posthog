@@ -81,7 +81,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { RecordingsWidget, UIPayloadAnswer, shouldRenderUIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
@@ -876,7 +876,6 @@ function AssistantActionComponent({
     animate = true,
     showCompletionIcon = true,
     widget = null,
-    showExpandChevron = false,
     isResultExpanded = false,
     onExpandClick,
 }: {
@@ -888,7 +887,6 @@ function AssistantActionComponent({
     animate?: boolean
     showCompletionIcon?: boolean
     widget?: JSX.Element | null
-    showExpandChevron?: boolean
     isResultExpanded?: boolean
     onExpandClick?: () => void
 }): JSX.Element {
@@ -971,13 +969,6 @@ function AssistantActionComponent({
                     )}
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
                     {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
-                    {showExpandChevron && (
-                        <div className="relative flex-shrink-0 flex items-center justify-center h-full">
-                            <span className={clsx('transform transition-transform', isResultExpanded && 'rotate-90')}>
-                                <IconChevronRight />
-                            </span>
-                        </div>
-                    )}
                 </div>
             </div>
             {isSubstepsExpanded && substeps && substeps.length > 0 && (
@@ -1104,11 +1095,7 @@ function ToolCallWithResult({ toolCall, description, updates, icon, widget }: To
     const [showResultJson, setShowResultJson] = useState(false)
     const [isExpanded, setIsExpanded] = useState(false)
     const result = toolCall.result
-
-    // Check if result has ui_payload with content to render
-    const hasUiPayload = result?.ui_payload && Object.keys(result.ui_payload).length > 0
-    // Show chevron if there's a result to expand
-    const hasResult = !!result
+    const uiPayload = result?.ui_payload
 
     return (
         <div className="flex flex-col gap-1.5">
@@ -1120,24 +1107,24 @@ function ToolCallWithResult({ toolCall, description, updates, icon, widget }: To
                 icon={icon}
                 showCompletionIcon={true}
                 widget={widget}
-                showExpandChevron={hasResult}
                 isResultExpanded={isExpanded}
-                onExpandClick={hasResult ? () => setIsExpanded(!isExpanded) : undefined}
+                onExpandClick={result ? () => setIsExpanded(!isExpanded) : undefined}
             />
 
-            {/* Render tool call result inline - only when expanded */}
-            {isExpanded && result && hasUiPayload && (
-                <div className="ml-5 border-l-2 border-border-secondary pl-3.5">
-                    {Object.entries(result.ui_payload!).map(([toolName, toolPayload]) => (
+            {/* Render tool call UI payload inline */}
+            {isExpanded &&
+                !!uiPayload &&
+                shouldRenderUIPayloadAnswer(toolCall.name, uiPayload) &&
+                Object.entries(uiPayload).map(([toolName, toolPayload]) => (
+                    <div className="ml-5 border-l-2 border-border-secondary pl-3.5">
                         <UIPayloadAnswer
                             key={`${result.tool_call_id}-${toolName}`}
                             toolCallId={result.tool_call_id}
                             toolName={toolName}
                             toolPayload={toolPayload}
                         />
-                    ))}
-                </div>
-            )}
+                    </div>
+                ))}
 
             {isExpanded && (
                 <div className="ml-5 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
