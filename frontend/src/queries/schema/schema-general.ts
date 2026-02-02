@@ -4808,6 +4808,7 @@ export const externalDataSources = [
     'TikTokAds',
     'BingAds',
     'Shopify',
+    'Attio',
     'SnapchatAds',
 ] as const
 
@@ -4830,7 +4831,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         nameField: 'campaign_name',
         idField: 'campaign_id',
         campaignTableName: 'campaign',
-        statsTableName: 'campaign_stats',
+        statsTableName: 'campaign_overview_stats',
         tableKeywords: ['campaign'] as const,
         tableExclusions: ['stats'] as const,
         defaultSources: [
@@ -5381,3 +5382,9 @@ export type WebsiteBrowsingHistoryProdInterest =
     | 'workflows'
     | 'logs'
     | 'endpoints'
+
+export interface ReplayInactivityPeriod {
+    ts_from_s: integer
+    ts_to_s?: integer
+    active: boolean
+}

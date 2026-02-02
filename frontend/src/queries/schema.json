@@ -15412,6 +15412,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
@@ -19934,7 +19935,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_overview_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20491,7 +20492,7 @@
                     "type": ["string", "null"]
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "name": {
                     "type": "string"
@@ -20770,7 +20771,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "insights": {
                     "items": {
@@ -27861,6 +27862,22 @@
                 "lazy_async"
             ],
             "type": "string"
+        },
+        "ReplayInactivityPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "ts_from_s": {
+                    "$ref": "#/definitions/integer"
+                },
+                "ts_to_s": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["ts_from_s", "active"],
+            "type": "object"
         },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,

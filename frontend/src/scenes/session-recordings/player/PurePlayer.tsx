@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -38,7 +38,6 @@ import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecording
 export interface PurePlayerProps {
     noMeta?: boolean
     noBorder?: boolean
-    playerRef: React.RefObject<HTMLDivElement>
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -48,7 +47,8 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
     )
 }
 
-export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: PurePlayerProps): JSX.Element {
+export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
+    const playerRef = useRef<HTMLDivElement>(null)
     const {
         incrementClickCount,
         setIsFullScreen,

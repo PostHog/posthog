@@ -94,7 +94,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     })),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
-        activateDate: (date: Dayjs, badgeElement: HTMLButtonElement) => ({ date, badgeElement }),
+        activateDate: (date: Dayjs) => ({ date }),
         deactivateDate: true,
         lockDate: true,
         unlockDate: true,
@@ -113,12 +113,6 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             null as Dayjs | null,
             {
                 activateDate: (_, { date }) => date,
-            },
-        ],
-        activeBadgeElement: [
-            null as HTMLButtonElement | null,
-            {
-                activateDate: (_, { badgeElement }) => badgeElement,
                 deactivateDate: () => null,
                 closePopover: () => null,
             },

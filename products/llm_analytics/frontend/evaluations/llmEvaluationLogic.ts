@@ -11,6 +11,7 @@ import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { queryEvaluationRuns } from '../utils'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -566,7 +567,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 } else if (filter === 'na') {
                     filteredRuns = filteredRuns.filter((r) => r.result === null)
                 }
-                return Math.min(filteredRuns.length, 100)
+                return Math.min(filteredRuns.length, EVALUATION_SUMMARY_MAX_RUNS)
             },
         ],
 

@@ -1624,6 +1624,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
@@ -2263,7 +2264,7 @@ class MarketingIntegrationConfig1(BaseModel):
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2381,16 +2382,6 @@ class MatchingEventsResponse(BaseModel):
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
 
 
 class MaxAddonInfo(BaseModel):
@@ -5416,6 +5407,16 @@ class MatchedRecording(BaseModel):
     session_id: str | None = None
 
 
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
+
+
 class MaxBillingContextBillingPeriod(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5679,6 +5680,15 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    ts_from_s: int
+    ts_to_s: int | None = None
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
@@ -18640,7 +18650,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"

@@ -6,6 +6,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -297,6 +298,10 @@ def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
 
 def get_generated_mprocs_path() -> Path:
     """Get the default path for generated mprocs config."""
+    # check global shell env override first
+    override_path = os.getenv("HOGLI_MPROCS_PATH")
+    if override_path:
+        return Path(override_path)
     # Walk up from cwd to find repo root
     current = Path.cwd().resolve()
     for parent in [current, *current.parents]:
