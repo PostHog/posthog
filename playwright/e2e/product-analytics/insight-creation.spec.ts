@@ -1,6 +1,3 @@
-import fs from 'fs'
-import path from 'path'
-
 import { InsightType } from '~/types'
 
 import { DashboardPage } from '../../page-models/dashboardPage'
@@ -15,14 +12,6 @@ test.describe('Insight creation', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        await page.route('**/api/billing/', async (route) => {
-            const filePath = path.join(__dirname, '../../mocks/billing/billing.json')
-            const billingContent = fs.readFileSync(filePath, 'utf-8')
-            await route.fulfill({
-                status: 200,
-                body: billingContent,
-            })
-        })
         await playwrightSetup.login(page, workspace!)
     })
 
