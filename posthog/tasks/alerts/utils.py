@@ -21,6 +21,10 @@ logger = structlog.get_logger(__name__)
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
+    anomaly_scores: list[float | None] | None = None
+    triggered_points: list[int] | None = None
+    triggered_dates: list[str] | None = None
+    interval: str | None = None
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]

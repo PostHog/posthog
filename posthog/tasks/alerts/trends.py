@@ -1,8 +1,11 @@
-from typing import NotRequired, Optional, TypedDict, cast
+from typing import Any, NotRequired, Optional, TypedDict, cast
+
+import numpy as np
 
 from posthog.schema import (
     AlertCondition,
     AlertConditionType,
+    DetectorType,
     InsightsThresholdBounds,
     InsightThreshold,
     InsightThresholdType,
@@ -429,3 +432,125 @@ def _breach_messages(
         ]
 
     return []
+
+
+# Minimum samples required for each detector type
+DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
+    DetectorType.ZSCORE: 31,  # window + 1
+}
+
+
+def check_trends_alert_with_detector(
+    alert: AlertConfiguration, insight: Insight, query: TrendsQuery, detector_config: dict[str, Any]
+) -> AlertEvaluationResult:
+    """
+    Check a trends alert using detector-based anomaly detection.
+
+    Args:
+        alert: The alert configuration
+        insight: The insight to check
+        query: The trends query
+        detector_config: Detector configuration dict
+
+    Returns:
+        AlertEvaluationResult with anomaly detection results
+    """
+    from posthog.tasks.alerts.detectors import get_detector
+
+    config = (
+        TrendsAlertConfig.model_validate(alert.config)
+        if alert.config
+        else TrendsAlertConfig(type="TrendsAlertConfig", series_index=0)
+    )
+    detector_type = DetectorType(detector_config.get("type", "zscore"))
+
+    # Calculate minimum samples needed for this detector
+    min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
+
+    # For statistical detectors, check if they have a window config
+    window = detector_config.get("window", 30)
+    if detector_type == DetectorType.ZSCORE:
+        min_samples = window + 1
+
+    # Calculate date range to fetch enough data
+    filters_override = _date_range_override_for_detector(query, min_samples)
+
+    is_non_time_series = _is_non_time_series_trend(query)
+    if is_non_time_series:
+        filters_override = None  # full insight for aggregated values
+
+    # Use cache for daily+, but not for hourly
+    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+    if query.interval == IntervalType.HOUR:
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=alert.team,
+        execution_mode=execution_mode,
+        user=None,
+        filters_override=filters_override,
+    )
+
+    if not calculation_result.result:
+        raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
+
+    # Pick the series to analyze
+    selected_series_result = _pick_series_result(config, calculation_result)
+
+    # Extract time series data
+    if is_non_time_series:
+        data = np.array([selected_series_result.get("aggregated_value", 0)])
+    else:
+        data = np.array(selected_series_result.get("data", []))
+
+    if len(data) == 0:
+        return AlertEvaluationResult(value=None, breaches=[], interval=query.interval.value if query.interval else None)
+
+    # Extract dates for chart alignment
+    dates: list[str] = selected_series_result.get("days") or selected_series_result.get("labels") or []
+
+    # Create and run detector
+    detector = get_detector(detector_config)
+    result = detector.detect(data)
+
+    # Map triggered indices to their corresponding dates
+    triggered_dates: list[str] | None = None
+    if result.triggered_indices and dates:
+        triggered_dates = [dates[i] for i in result.triggered_indices if i < len(dates)]
+
+    # Build breaches message if anomaly detected
+    breaches = []
+    if result.is_anomaly:
+        label = selected_series_result.get("label", "Series")
+        current_value = float(data[-1])
+        score_str = f" (score: {result.score:.2f})" if result.score is not None else ""
+        breaches.append(
+            f"Anomaly detected in {label}: value {current_value:.2f}{score_str} using {detector_type.value} detector"
+        )
+
+    return AlertEvaluationResult(
+        value=float(data[-1]) if len(data) > 0 else None,
+        breaches=breaches if breaches else [],
+        anomaly_scores=result.all_scores if result.all_scores else None,
+        triggered_points=result.triggered_indices if result.triggered_indices else None,
+        triggered_dates=triggered_dates,
+        interval=query.interval.value if query.interval else None,
+    )
+
+
+def _date_range_override_for_detector(query: TrendsQuery, min_samples: int) -> dict | None:
+    """
+    Calculate date range needed to get at least min_samples data points.
+    """
+    match query.interval:
+        case IntervalType.DAY:
+            date_from = f"-{min_samples}d"
+        case IntervalType.WEEK:
+            date_from = f"-{min_samples}w"
+        case IntervalType.MONTH:
+            date_from = f"-{min_samples}m"
+        case _:
+            date_from = f"-{min_samples}h"
+
+    return {"date_from": date_from}
