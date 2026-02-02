@@ -25,7 +25,6 @@ from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities import (
-    SESSION_VIDEO_CHUNK_DURATION_S,
     CaptureTimingInputs,
     analyze_video_segment_activity,
     capture_timing_activity,
