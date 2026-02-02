@@ -7,6 +7,7 @@ from django.conf import settings
 
 import psycopg
 import temporalio.activity
+from psycopg import sql
 from structlog import get_logger
 
 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -14,6 +15,20 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
+
+
+def build_in_clause(values: list) -> tuple[sql.Composed, list]:
+    """Build an IN clause with proper parameterization for psycopg3.
+
+    Returns a tuple of (sql fragment, params list) to be used in a query.
+
+    Example:
+        clause, params = build_in_clause(["a", "b", "c"])
+        query = sql.SQL("SELECT * FROM t WHERE x IN ({})").format(clause)
+        cursor.execute(query, params)
+    """
+    placeholders = sql.SQL(", ").join(sql.Placeholder() for _ in values)
+    return placeholders, list(values)
 
 
 def get_persons_database_url() -> str:
@@ -151,6 +166,7 @@ class LookupPgDistinctIdsInputs:
     team_id: int
     person_uuids: list[str]
     categorize_not_found: bool = False  # If True, run extra query to distinguish truly orphaned vs CH-only
+    pg_statement_timeout_seconds: int = 5
 
 
 @dataclasses.dataclass
@@ -172,26 +188,30 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
 
         heartbeater.details = (f"Looking up {len(inputs.person_uuids)} persons in PostgreSQL",)
 
-        query = """
+        uuid_placeholders, uuid_params = build_in_clause(inputs.person_uuids)
+        query = sql.SQL("""
             SELECT
                 p.uuid::text as person_uuid,
                 pdi.distinct_id,
                 COALESCE(pdi.version, 0) as version
             FROM posthog_person p
             JOIN posthog_persondistinctid pdi ON pdi.person_id = p.id
-            WHERE p.team_id = %(team_id)s
-              AND p.uuid = ANY(%(person_uuids)s::uuid[])
+            WHERE p.team_id = %s
+              AND p.uuid IN ({uuids})
             ORDER BY p.uuid, pdi.id
-        """
+        """).format(uuids=uuid_placeholders)
+        params = [inputs.team_id, *uuid_params]
 
         persons_db_url = get_persons_database_url()
         conn = await psycopg.AsyncConnection.connect(persons_db_url)
         async with conn:
+            # Set statement timeout to avoid long-running queries
+            timeout_stmt = sql.SQL("SET statement_timeout = {}").format(
+                sql.Literal(f"{inputs.pg_statement_timeout_seconds}s")
+            )
+            await conn.execute(timeout_stmt)
             async with conn.cursor() as cursor:
-                await cursor.execute(
-                    query,
-                    {"team_id": inputs.team_id, "person_uuids": inputs.person_uuids},
-                )
+                await cursor.execute(query, params)
                 rows = await cursor.fetchall()
 
         person_to_distinct_ids: dict[str, dict[str, int]] = {}
@@ -223,19 +243,23 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
             heartbeater.details = (f"Categorizing {len(persons_not_found)} persons not found",)
 
             # Find which of the not-found persons exist in PG (without DIDs)
-            categorize_query = """
+            uuid_placeholders, uuid_params = build_in_clause(persons_not_found)
+            categorize_query = sql.SQL("""
                 SELECT uuid::text
                 FROM posthog_person
-                WHERE team_id = %(team_id)s
-                  AND uuid = ANY(%(person_uuids)s::uuid[])
-            """
+                WHERE team_id = %s
+                  AND uuid IN ({uuids})
+            """).format(uuids=uuid_placeholders)
+            params = [inputs.team_id, *uuid_params]
+
             conn = await psycopg.AsyncConnection.connect(persons_db_url)
             async with conn:
+                timeout_stmt = sql.SQL("SET statement_timeout = {}").format(
+                    sql.Literal(f"{inputs.pg_statement_timeout_seconds}s")
+                )
+                await conn.execute(timeout_stmt)
                 async with conn.cursor() as cursor:
-                    await cursor.execute(
-                        categorize_query,
-                        {"team_id": inputs.team_id, "person_uuids": persons_not_found},
-                    )
+                    await cursor.execute(categorize_query, params)
                     rows = await cursor.fetchall()
 
             persons_in_pg = {row[0] for row in rows}
