@@ -267,14 +267,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
         },
         duplicateConditionSet: async ({ index }, breakpoint) => {
+            // Open the new condition immediately for UI responsiveness
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
-            if (newGroup.sort_key) {
+            if (newGroup?.sort_key) {
                 actions.openCondition(newGroup.sort_key)
             }
             await breakpoint(1000) // in ms
-            const sourceSortKey = values.filters.groups[index].sort_key
-            const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
-            actions.setAffectedUsers(newGroup.sort_key, valueForSourceCondition)
+            // Re-read state after breakpoint to get fresh values for affected users
+            const currentNewGroup = values.filters.groups[values.filters.groups.length - 1]
+            if (currentNewGroup?.sort_key) {
+                const sourceSortKey = values.filters.groups[index]?.sort_key
+                const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
+                actions.setAffectedUsers(currentNewGroup.sort_key, valueForSourceCondition)
+            }
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
             const group: FeatureFlagGroupTypeWithSortKey | undefined = values.filters.groups[index]
