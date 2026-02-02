@@ -38,21 +38,16 @@ export class HogInputsService {
         additionalInputs?: Record<string, any>
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
-
-        const hasPushSubscriptionInputs = hogFunction.inputs_schema?.some(
-            (schema) => schema.type === 'push_subscription'
-        )
-
-        const integrationInputs = await this.loadIntegrationInputs(hogFunction)
-
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
             ...globals,
             inputs: {},
         }
-
-        const pushSubscriptionInputs = hasPushSubscriptionInputs
-            ? await this.resolvePushSubscriptionInputs(hogFunction, integrationInputs, newGlobals)
-            : {}
+        const integrationInputs = await this.loadIntegrationInputs(hogFunction)
+        const pushSubscriptionInputs = await this.resolvePushSubscriptionInputs(
+            hogFunction,
+            integrationInputs,
+            newGlobals
+        )
 
         const inputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
@@ -127,6 +122,13 @@ export class HogInputsService {
         integrationInputs: Record<string, { value: Record<string, any> | null }>,
         newGlobals: HogFunctionInvocationGlobalsWithInputs
     ): Promise<Record<string, { value: string | null }>> {
+        const hasPushSubscriptionInputs = hogFunction.inputs_schema?.some(
+            (schema) => schema.type === 'push_subscription'
+        )
+        if (!hasPushSubscriptionInputs) {
+            return {}
+        }
+
         const inputsToLoad: Record<string, { rawValue: string; schema: HogFunctionInputSchemaType }> = {}
         hogFunction.inputs_schema?.forEach((schema) => {
             if (schema.type === 'push_subscription') {
