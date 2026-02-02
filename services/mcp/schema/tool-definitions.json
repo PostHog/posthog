@@ -489,6 +489,20 @@
             "readOnlyHint": true
         }
     },
+    "event-definition-update": {
+        "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Update an event definition's metadata.",
+        "title": "Update event definition",
+        "required_scopes": ["event_definition:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "properties-list": {
         "description": "List properties for events or persons. If fetching event properties, you must provide an event name.",
         "category": "Events & properties",
@@ -752,6 +766,20 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "demo-mcp-ui-apps": {
+        "description": "Demo tool for testing MCP Apps SDK integration. Returns sample data that is displayed in an interactive UI app. Use this to verify that MCP Apps are working correctly.",
+        "category": "Demo",
+        "feature": "demo",
+        "summary": "Demo tool for testing MCP Apps SDK.",
+        "title": "Demo MCP UI Apps",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
             "readOnlyHint": true
         }
     }

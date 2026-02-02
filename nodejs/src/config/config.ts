@@ -235,6 +235,10 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
+        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
+        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',

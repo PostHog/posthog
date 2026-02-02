@@ -1,12 +1,9 @@
 import { RequestLogger, withLogging } from '@/integrations/mcp/utils/logging'
-import {
-    getAuthorizationServerUrl,
-    MCP_DOCS_URL,
-    OAUTH_SCOPES_SUPPORTED,
-} from '@/lib/constants'
+import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { hash } from '@/lib/utils/helper-functions'
 import type { CloudRegion } from '@/tools/types'
+
 import { MCP, RequestProperties } from './mcp'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
@@ -121,7 +118,7 @@ const handleRequest = async (
         resourceUrl.search = ''
 
         // Determine authorization server based on hostname or region param.
-        // CUSTOM_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
+        // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
         const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
 
         return new Response(
