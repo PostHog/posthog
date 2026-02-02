@@ -72,6 +72,7 @@ import {
     CommentCreationParams,
     CommentType,
     ConversationDetail,
+    ConversationQueueResponse,
     CoreMemory,
     CreateGroupParams,
     CustomerProfileConfigType,
@@ -1780,6 +1781,10 @@ export class ApiRequest {
 
     public llmPrompt(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
+    }
+
+    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -5139,6 +5144,40 @@ const api = {
                 .withAction('append_message')
                 .create({ data: { content } })
         },
+
+        queue: {
+            list(conversationId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue').get()
+            },
+
+            enqueue(
+                conversationId: string,
+                data: {
+                    content: string
+                    contextual_tools?: Record<string, any>
+                    ui_context?: MaxUIContext
+                    billing_context?: MaxBillingContext | null
+                    agent_mode?: AgentMode | null
+                }
+            ): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue').create({ data })
+            },
+
+            update(conversationId: string, queueId: string, content: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest()
+                    .conversation(conversationId)
+                    .withAction(`queue/${queueId}`)
+                    .update({ data: { content } })
+            },
+
+            delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction(`queue/${queueId}`).delete()
+            },
+
+            clear(conversationId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue/clear').create({ data: {} })
+            },
+        },
     },
 
     datasets: {
@@ -5265,6 +5304,10 @@ const api = {
 
         get(promptId: string): Promise<LLMPrompt> {
             return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        getByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPromptByName(promptName).get()
         },
 
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {

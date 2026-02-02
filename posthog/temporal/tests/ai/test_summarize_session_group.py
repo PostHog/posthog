@@ -25,6 +25,7 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai import WORKFLOWS
+from posthog.temporal.ai.session_summary.activities.capture_timing import capture_timing_activity
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -977,7 +978,7 @@ class TestSummarizeSessionGroupWorkflow:
                 new=AsyncMock(side_effect=call_llm_side_effects),
             ),
             # Mock DB calls
-            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=team),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=team)),
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session_group.SessionReplayEvents.get_group_metadata",
                 return_value=MockMetadataDict(),
@@ -1035,6 +1036,7 @@ class TestSummarizeSessionGroupWorkflow:
                         combine_patterns_from_chunks_activity,
                         split_session_summaries_into_chunks_for_patterns_extraction_activity,
                         validate_llm_single_session_summary_with_videos_activity,
+                        capture_timing_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:
@@ -2147,7 +2149,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
@@ -2191,7 +2193,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
@@ -2237,7 +2239,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,
@@ -2279,7 +2281,7 @@ class TestSessionBatchFetchExpectedSkips:
             patch.object(
                 SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
             ),
-            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch.object(Team.objects, "aget", new=AsyncMock(return_value=ateam)),
             patch(
                 "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
                 return_value=mock_metadata,

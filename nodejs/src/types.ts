@@ -59,6 +59,7 @@ export enum PluginServerMode {
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -188,6 +189,8 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -544,6 +547,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    cdpCyclotronShadowWorker?: boolean
 }
 
 export type TeamId = Team['id']

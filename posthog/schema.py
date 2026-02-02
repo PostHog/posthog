@@ -1624,6 +1624,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
@@ -2263,7 +2264,7 @@ class MarketingIntegrationConfig1(BaseModel):
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 

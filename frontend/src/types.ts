@@ -854,8 +854,6 @@ export enum PropertyOperator {
 
 export enum SavedInsightsTabs {
     All = 'all',
-    Yours = 'yours',
-    Favorites = 'favorites',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -6229,6 +6227,22 @@ export interface PendingApproval {
     payload: Record<string, unknown>
     original_tool_call_id?: string
     message_id?: string
+}
+
+export interface ConversationQueueMessage {
+    id: string
+    content: string
+    created_at: string
+    contextual_tools?: Record<string, any> | null
+    ui_context?: Record<string, any> | null
+    billing_context?: Record<string, any> | null
+    agent_mode?: string | null
+    session_id?: string | null
+}
+
+export interface ConversationQueueResponse {
+    messages: ConversationQueueMessage[]
+    max_queue_messages: number
 }
 
 export interface Conversation {

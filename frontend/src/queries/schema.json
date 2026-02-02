@@ -15412,6 +15412,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
@@ -19934,7 +19935,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_overview_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
