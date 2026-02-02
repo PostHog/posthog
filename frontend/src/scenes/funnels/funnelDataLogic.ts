@@ -100,7 +100,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hideSkewWarning: true,
         setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
         toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
-        setBreakdownSortOrder: (breakdownSortOrder: (string | number)[]) => ({ breakdownSortOrder }),
+        setBreakdownSorting: (breakdownSorting: string | undefined) => ({ breakdownSorting }),
         setConversionWindowInterval: (funnelWindowInterval: number) => ({ funnelWindowInterval }),
         setConversionWindowUnit: (funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit) => ({
             funnelWindowIntervalUnit,
@@ -113,12 +113,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             false,
             {
                 hideSkewWarning: () => true,
-            },
-        ],
-        breakdownSortOrder: [
-            [] as (string | number)[],
-            {
-                setBreakdownSortOrder: (_, { breakdownSortOrder }) => breakdownSortOrder,
             },
         ],
         conversionWindowInterval: [
@@ -629,6 +623,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     funnelWindowIntervalUnit: unit,
                 })
             }
+        },
+        setBreakdownSorting: ({ breakdownSorting }) => {
+            actions.updateInsightFilter({ breakdownSorting })
         },
     })),
 
