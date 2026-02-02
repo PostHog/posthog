@@ -30,6 +30,8 @@ async def embed_and_store_segments_activity(
     Each segment description is embedded with metadata including session_id, team_id,
     distinct_id, and timestamps.
     """
+    if not segments:
+        return
     team = await Team.objects.aget(id=inputs.team_id)
     session_metadata = await database_sync_to_async(
         SessionReplayEvents().get_metadata
