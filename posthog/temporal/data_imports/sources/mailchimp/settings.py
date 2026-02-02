@@ -59,8 +59,8 @@ MAILCHIMP_ENDPOINTS: dict[str, MailchimpEndpointConfig] = {
             },
         ],
     ),
-    "members": MailchimpEndpointConfig(
-        name="members",
+    "contacts": MailchimpEndpointConfig(
+        name="contacts",
         path="/lists/{list_id}/members",  # Special: iterates over all lists
         data_selector="members",
         partition_key=None,  # No stable timestamp field available

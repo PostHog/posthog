@@ -171,13 +171,13 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     return lists
 
 
-def _fetch_members_for_list(
+def _fetch_contacts_for_list(
     api_key: str,
     dc: str,
     list_id: str,
     since_last_changed: str | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Fetch all members for a specific list with pagination."""
+    """Fetch all contacts for a specific list with pagination."""
     offset = 0
     page_size = 1000
 
@@ -195,26 +195,26 @@ def _fetch_members_for_list(
         response.raise_for_status()
 
         data = response.json()
-        members = data.get("members", [])
+        contacts = data.get("members", [])
 
-        for member in members:
-            member["list_id"] = list_id
-            yield member
+        for contact in contacts:
+            contact["list_id"] = list_id
+            yield contact
 
         total_items = data.get("total_items", 0)
         offset += page_size
 
-        if offset >= total_items or not members:
+        if offset >= total_items or not contacts:
             break
 
 
-def _create_members_resource(
+def _create_contacts_resource(
     api_key: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> dlt.sources.DltResource:
-    """Create a dlt resource that fetches members from all lists."""
+    """Create a dlt resource that fetches contacts from all lists."""
     try:
         dc = extract_data_center(api_key)
     except ValueError:
@@ -225,19 +225,19 @@ def _create_members_resource(
         since_last_changed = _format_incremental_value(db_incremental_field_last_value)
 
     @dlt.resource(
-        name="members",
+        name="contacts",
         primary_key="id",
         write_disposition={"disposition": "merge", "strategy": "upsert"} if should_use_incremental_field else "replace",
         table_format="delta",
     )
-    def members_resource() -> Iterator[dict[str, Any]]:
+    def contacts_resource() -> Iterator[dict[str, Any]]:
         lists = _fetch_all_lists(api_key, dc)
 
         for lst in lists:
             list_id = lst["id"]
-            yield from _fetch_members_for_list(api_key, dc, list_id, since_last_changed)
+            yield from _fetch_contacts_for_list(api_key, dc, list_id, since_last_changed)
 
-    return members_resource()
+    return contacts_resource()
 
 
 def mailchimp_source(
@@ -252,9 +252,9 @@ def mailchimp_source(
     """Create a Mailchimp data source for the specified endpoint."""
     endpoint_config = MAILCHIMP_ENDPOINTS[endpoint]
 
-    # Members endpoint is special - fetches from all lists
-    if endpoint == "members":
-        resource = _create_members_resource(
+    # Contacts endpoint is special - fetches from all lists
+    if endpoint == "contacts":
+        resource = _create_contacts_resource(
             api_key,
             should_use_incremental_field,
             db_incremental_field_last_value,
