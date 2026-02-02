@@ -65,8 +65,8 @@ describe('addSavedInsightsModalLogic', () => {
         logic = addSavedInsightsModalLogic()
         logic.mount()
 
-        // afterMount dispatches loadInsights(true) which is immediate
-        // Before it completes, set a search filter which dispatches loadInsights() (debounced)
+        // afterMount dispatches loadInsights which debounces.
+        // Setting a filter dispatches another loadInsights, cancelling the first via breakpoint.
         logic.actions.setModalFilters({ search: 'my query' })
 
         await expectLogic(logic)
@@ -102,14 +102,5 @@ describe('addSavedInsightsModalLogic', () => {
             })
 
         expect(apiCallCount).toBe(1)
-    })
-
-    it('page changes load immediately without debounce', async () => {
-        logic.actions.setModalPage(2)
-        await expectLogic(logic)
-            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
-            .toMatchValues({
-                filters: partial({ page: 2 }),
-            })
     })
 })

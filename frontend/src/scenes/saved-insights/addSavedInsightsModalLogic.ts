@@ -29,7 +29,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             filters,
             merge,
         }),
-        loadInsights: (immediate?: boolean) => ({ immediate: immediate ?? false }),
+        loadInsights: true,
         setModalPage: (page: number) => ({ page }),
 
         setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
@@ -44,10 +44,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     loaders(({ values }) => ({
         insights: {
             __default: { results: [] as QueryBasedInsightModel[], count: 0 },
-            loadInsights: async ({ immediate }, breakpoint) => {
-                if (!immediate) {
-                    await breakpoint(300)
-                }
+            loadInsights: async (_, breakpoint) => {
+                await breakpoint(300)
 
                 const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo } = values.filters
 
@@ -138,7 +136,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     listeners(({ actions, values, selectors }) => ({
         setModalPage: async ({ page }) => {
             actions.setModalFilters({ page }, true)
-            actions.loadInsights(true)
         },
         setModalFilters: async (_, _breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
