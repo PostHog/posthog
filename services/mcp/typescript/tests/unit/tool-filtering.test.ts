@@ -98,7 +98,12 @@ describe('Tool Filtering - Features', () => {
 const createMockContext = (scopes: string[]): Context => ({
     api: {} as any,
     cache: {} as any,
-    env: { INKEEP_API_KEY: undefined },
+    env: {
+        INKEEP_API_KEY: undefined,
+        POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+        POSTHOG_UI_APPS_TOKEN: undefined,
+    },
     stateManager: {
         getApiKey: async () => ({ scopes }),
     } as any,
@@ -169,17 +174,23 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).not.toContain('insight-create-from-query')
     })
 
-    it('should return empty array when user has no matching scopes', async () => {
+    it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
         const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
 
-        expect(tools).toHaveLength(0)
+        // Only demo tool should be available since it has no required scopes
+        expect(toolNames).toContain('demo-mcp-ui-apps')
+        expect(tools).toHaveLength(1)
     })
 
-    it('should return empty array when user has empty scopes', async () => {
+    it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
         const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
 
-        expect(tools).toHaveLength(0)
+        // Only demo tool should be available since it has no required scopes
+        expect(toolNames).toContain('demo-mcp-ui-apps')
+        expect(tools).toHaveLength(1)
     })
 })

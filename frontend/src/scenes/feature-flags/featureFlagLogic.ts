@@ -100,7 +100,7 @@ export const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
+        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
         multivariate: null,
         payloads: {},
     },
@@ -381,9 +381,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
-        // Track which fields have been manually edited by the user (not by templates)
-        markFieldAsEdited: (field: string) => ({ field }),
-        resetEditedFields: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -707,16 +704,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             [] as string[],
             {
                 setOpenVariants: (_, { openVariants }) => openVariants,
-            },
-        ],
-        // Track which fields have been manually edited by the user
-        userEditedFields: [
-            new Set<string>() as Set<string>,
-            {
-                markFieldAsEdited: (state, { field }) => new Set([...state, field]),
-                resetEditedFields: () => new Set<string>(),
-                // Reset when loading a new flag
-                loadFeatureFlagSuccess: () => new Set<string>(),
             },
         ],
     }),

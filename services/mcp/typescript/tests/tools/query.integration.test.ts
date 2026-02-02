@@ -15,10 +15,64 @@ import {
     cleanupResources,
     createTestClient,
     createTestContext,
-    parseToolResponse,
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '../shared/test-utils'
+
+/**
+ * Helper to execute a query and log detailed debug info on failure
+ */
+async function executeQuery(context: Context, query: InsightQuery, queryName: string): Promise<any> {
+    const tool = queryRunTool()
+    try {
+        const result = await tool.handler(context, { query })
+        return result
+    } catch (error: any) {
+        console.error(`[TEST] ${queryName} query FAILED:`)
+        console.error(`[TEST]   Error: ${error.message}`)
+        console.error(`[TEST]   Query: ${JSON.stringify(query, null, 2)}`)
+        throw error
+    }
+}
+
+/**
+ * Asserts the common structure of a query response and returns typed results
+ */
+function assertQueryResponse(response: any, expectedQueryKind?: string): { results: any; query: any; url: string } {
+    expect(response).toHaveProperty('query')
+    expect(response).toHaveProperty('results')
+    expect(response).toHaveProperty('_posthogUrl')
+    expect(typeof response._posthogUrl).toBe('string')
+    expect(response._posthogUrl).toMatch(/\/insights\/new\?q=/)
+
+    if (expectedQueryKind) {
+        expect(response.query.kind).toBe(expectedQueryKind)
+    }
+
+    return { results: response.results, query: response.query, url: response._posthogUrl }
+}
+
+/**
+ * Asserts HogQL query response structure (has columns and nested results)
+ */
+function assertHogQLResults(results: any): { columns: string[]; rows: any[][] } {
+    expect(results).toHaveProperty('columns')
+    expect(results).toHaveProperty('results')
+    expect(Array.isArray(results.columns)).toBe(true)
+    expect(Array.isArray(results.results)).toBe(true)
+
+    // Columns should be strings
+    results.columns.forEach((col: any) => expect(typeof col).toBe('string'))
+    return { columns: results.columns, rows: results.results }
+}
+
+/**
+ * Asserts Trends/Funnel query response structure (results is direct array)
+ */
+function assertSeriesResults(results: any): any[] {
+    expect(Array.isArray(results)).toBe(true)
+    return results
+}
 
 describe('Query Integration Tests', () => {
     let client: ApiClient
@@ -41,7 +95,7 @@ describe('Query Integration Tests', () => {
             insights: [],
             dashboards: [],
             surveys: [],
-        actions: [],
+            actions: [],
         }
     })
 
@@ -51,28 +105,23 @@ describe('Query Integration Tests', () => {
 
     describe('HogQL Query Execution', () => {
         it('should execute pageviews HogQL query successfully', async () => {
-            const tool = queryRunTool()
-            const query = SAMPLE_HOGQL_QUERIES.pageviews
-            const result = await tool.handler(context, {
-                query,
-            })
+            const result = await executeQuery(context, SAMPLE_HOGQL_QUERIES.pageviews, 'pageviews HogQL')
+            const { results } = assertQueryResponse(result)
+            const { columns } = assertHogQLResults(results)
 
-            const response = parseToolResponse(result)
-
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have event and count columns based on the query
+            expect(columns).toContain('event')
+            expect(columns).toContain('event_count')
         })
 
         it('should execute topEvents HogQL query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_HOGQL_QUERIES.topEvents,
-            })
+            const result = await executeQuery(context, SAMPLE_HOGQL_QUERIES.topEvents, 'topEvents HogQL')
+            const { results } = assertQueryResponse(result)
+            const { columns } = assertHogQLResults(results)
 
-            const response = parseToolResponse(result)
-
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have event and count columns based on the query
+            expect(columns).toContain('event')
+            expect(columns).toContain('event_count')
         })
 
         it('should handle invalid HogQL query with invalid node', async () => {
@@ -105,125 +154,130 @@ describe('Query Integration Tests', () => {
 
     describe('Trends Query Execution', () => {
         it('should execute basic pageviews trends query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_TREND_QUERIES.basicPageviews,
-            })
+            const result = await executeQuery(context, SAMPLE_TREND_QUERIES.basicPageviews, 'basicPageviews Trends')
+            const { results, query } = assertQueryResponse(result, 'TrendsQuery')
+            const series = assertSeriesResults(results)
 
-            const response = parseToolResponse(result)
+            // Trends results should have series data with labels and counts
+            if (series.length > 0) {
+                expect(series[0]).toHaveProperty('label')
+                expect(series[0]).toHaveProperty('count')
+                expect(series[0]).toHaveProperty('data')
+            }
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Query should preserve the series configuration
+            expect(query.series).not.toBeUndefined()
+            expect(query.series[0].event).toBe('$pageview')
         })
 
         it('should execute unique users trends query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_TREND_QUERIES.uniqueUsers,
-            })
+            const query = SAMPLE_TREND_QUERIES.uniqueUsers
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'uniqueUsers Trends')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'TrendsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should use DAU math
+            expect(queryResponse.series[0].math).toBe(query.source.series[0].math)
         })
 
         it('should execute multiple events trends query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_TREND_QUERIES.multipleEvents,
-            })
+            const query = SAMPLE_TREND_QUERIES.multipleEvents
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'multipleEvents Trends')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'TrendsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have multiple series in the query
+            expect(queryResponse.series.length).toBe(query.source.series.length)
         })
 
         it('should execute trends query with breakdown successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_TREND_QUERIES.withBreakdown,
-            })
+            const query = SAMPLE_TREND_QUERIES.withBreakdown
+            const result = await executeQuery(context, query, 'withBreakdown Trends')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'TrendsQuery')
+            assertSeriesResults(results)
 
-            const response = parseToolResponse(result)
-
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have breakdown configuration
+            expect(queryResponse.breakdownFilter).not.toBeUndefined()
+            expect(queryResponse.breakdownFilter.breakdown).toBe(query.source.breakdownFilter.breakdown)
         })
 
         it('should execute trends query with property filter successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_TREND_QUERIES.withPropertyFilter,
-            })
+            const query = SAMPLE_TREND_QUERIES.withPropertyFilter
+            const result = await executeQuery(context, query, 'withPropertyFilter Trends')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'TrendsQuery')
+            assertSeriesResults(results)
 
-            const response = parseToolResponse(result)
-
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have property filters on the series
+            expect(queryResponse.series[0].properties).not.toBeUndefined()
+            expect(queryResponse.series[0].properties.length).toBeGreaterThan(0)
         })
     })
 
     describe('Funnel Query Execution', () => {
         it('should execute basic funnel query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_FUNNEL_QUERIES.basicFunnel,
-            })
+            const query = SAMPLE_FUNNEL_QUERIES.basicFunnel
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'basicFunnel')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'FunnelsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Query should have the funnel steps
+            expect(queryResponse.series).not.toBeUndefined()
+            expect(queryResponse.series.length).toBe(query.source.series.length)
         })
 
         it('should execute strict order funnel query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_FUNNEL_QUERIES.strictOrderFunnel,
-            })
+            const query = SAMPLE_FUNNEL_QUERIES.strictOrderFunnel
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'strictOrderFunnel')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'FunnelsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have strict order configuration
+            expect(queryResponse.funnelsFilter).not.toBeUndefined()
+            expect(queryResponse.funnelsFilter.funnelOrderType).toBe(query.source.funnelsFilter.funnelOrderType)
         })
 
         it('should execute funnel with breakdown query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_FUNNEL_QUERIES.funnelWithBreakdown,
-            })
+            const query = SAMPLE_FUNNEL_QUERIES.funnelWithBreakdown
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'funnelWithBreakdown')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'FunnelsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have breakdown configuration
+            expect(queryResponse.breakdownFilter).not.toBeUndefined()
+            expect(queryResponse.breakdownFilter.breakdown).toBe(query.source.breakdownFilter.breakdown)
         })
 
         it('should execute funnel with conversion window query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_FUNNEL_QUERIES.conversionWindow,
-            })
+            const query = SAMPLE_FUNNEL_QUERIES.conversionWindow
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'conversionWindow')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'FunnelsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have custom conversion window (1 hour)
+            expect(queryResponse.funnelsFilter).not.toBeUndefined()
+            expect(queryResponse.funnelsFilter.funnelWindowInterval).toBe(
+                query.source.funnelsFilter.funnelWindowInterval
+            )
+            expect(queryResponse.funnelsFilter.funnelWindowIntervalUnit).toBe(
+                query.source.funnelsFilter.funnelWindowIntervalUnit
+            )
         })
 
         it('should execute onboarding funnel query successfully', async () => {
-            const tool = queryRunTool()
-            const result = await tool.handler(context, {
-                query: SAMPLE_FUNNEL_QUERIES.onboardingFunnel,
-            })
+            const query = SAMPLE_FUNNEL_QUERIES.onboardingFunnel
 
-            const response = parseToolResponse(result)
+            const result = await executeQuery(context, query, 'onboardingFunnel')
+            const { results, query: queryResponse } = assertQueryResponse(result, 'FunnelsQuery')
+            assertSeriesResults(results)
 
-            expect(response).toBeTruthy()
-            expect(Array.isArray(response)).toBe(true)
+            // Should have 4 steps in the onboarding funnel
+            expect(queryResponse.series.length).toBe(query.source.series.length)
         })
 
         it('should handle malformed funnel query with invalid node', async () => {

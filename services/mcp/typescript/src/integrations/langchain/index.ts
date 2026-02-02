@@ -46,6 +46,9 @@ export class PostHogAgentToolkit {
             cache,
             env: {
                 INKEEP_API_KEY: undefined,
+                POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                POSTHOG_UI_APPS_TOKEN: undefined,
             },
             stateManager: new StateManager(cache, api),
             sessionManager: new SessionManager(cache),
