@@ -27,7 +27,6 @@ export class CdpCyclotronShadowWorker extends CdpCyclotronWorker {
             CYCLOTRON_DATABASE_URL: hub.CYCLOTRON_SHADOW_DATABASE_URL,
             CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
             CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
-            CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         }
         super(shadowHub)
     }
