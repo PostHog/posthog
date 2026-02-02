@@ -62,7 +62,7 @@ class TestAITemporalModuleIntegrity:
             "cluster_segments_activity",
             "match_clusters_activity",
             "label_clusters_activity",
-            "persist_tasks_activity",
+            "persist_reports_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
