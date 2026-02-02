@@ -137,7 +137,7 @@ export function HelpMenu(): JSX.Element {
                             targetBlankIcon
                             target="_blank"
                             buttonProps={{ menuItem: true }}
-                            to="https://status.posthog.com"
+                            to="https://posthogstatus.com"
                         >
                             <SidePanelStatusIcon className="flex" size="xsmall" />
                             PostHog status
