@@ -232,7 +232,7 @@ def _create_contacts_resource(
 
     @dlt.resource(
         name="contacts",
-        primary_key="id",
+        primary_key=["list_id", "id"],
         write_disposition={"disposition": "merge", "strategy": "upsert"} if should_use_incremental_field else "replace",
         table_format="delta",
     )
@@ -270,7 +270,7 @@ def mailchimp_source(
         return SourceResponse(
             name=endpoint,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=["list_id", "id"],
             partition_count=1,
             partition_size=1,
             partition_mode="datetime" if endpoint_config.partition_key else None,
