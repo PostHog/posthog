@@ -13,7 +13,6 @@ from posthog.temporal.ingestion_acceptance_test.results import TestSuiteResult
 from posthog.temporal.ingestion_acceptance_test.runner import run_tests
 from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification
 from posthog.temporal.ingestion_acceptance_test.test_cases_discovery import discover_tests
-from posthog.temporal.ingestion_acceptance_test.utils import mask_key_value
 
 logger = structlog.get_logger(__name__)
 
@@ -43,8 +42,6 @@ async def run_ingestion_acceptance_tests() -> dict:
         "Loaded config",
         api_host=config.api_host,
         project_id=config.project_id,
-        project_api_key=mask_key_value(config.project_api_key),
-        personal_api_key=mask_key_value(config.personal_api_key),
     )
 
     posthog_sdk = posthoganalytics.Posthog(
@@ -52,11 +49,6 @@ async def run_ingestion_acceptance_tests() -> dict:
         host=config.api_host,
         debug=True,
         sync_mode=True,
-    )
-    logger.info(
-        "PostHog SDK configured",
-        sdk_host=config.api_host,
-        sdk_api_key=mask_key_value(config.project_api_key),
     )
 
     tests = discover_tests()
