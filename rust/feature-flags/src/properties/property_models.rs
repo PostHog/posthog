@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+// Keep in sync with `SUPPORTED_OPERATORS` constant in posthog/api/feature_flag.py
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
