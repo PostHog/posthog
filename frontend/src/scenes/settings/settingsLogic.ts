@@ -369,14 +369,19 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
 
         filteredLevels: [
-            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse],
+            (s) => [s.levels, s.sections, s.searchTerm, s.sectionsFuse, s.settingsFuse, s.featureFlags],
             (
                 levels: SettingLevelId[],
                 sections: SettingSection[],
                 searchTerm: string,
-                sectionsFuse: SectionsFuse
+                sectionsFuse: SectionsFuse,
+                _settingsFuse: SettingsFuse,
+                featureFlags: Record<string, boolean | string | undefined>
             ): SettingLevelId[] => {
-                if (!searchTerm.trim()) {
+                const betterSettingsPage = featureFlags[FEATURE_FLAGS.BETTER_SETTINGS_PAGE]
+
+                // When better settings page is enabled, always show all levels for the toggle
+                if (betterSettingsPage || !searchTerm.trim()) {
                     return levels
                 }
 
@@ -398,16 +403,29 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
 
         filteredSections: [
-            (s) => [s.sections, s.searchTerm, s.sectionsFuse],
-            (sections: SettingSection[], searchTerm: string, sectionsFuse: SectionsFuse): SettingSection[] => {
+            (s) => [s.sections, s.searchTerm, s.sectionsFuse, s.selectedLevel, s.featureFlags],
+            (
+                sections: SettingSection[],
+                searchTerm: string,
+                sectionsFuse: SectionsFuse,
+                selectedLevel: SettingLevelId,
+                featureFlags: Record<string, boolean | string | undefined>
+            ): SettingSection[] => {
+                const betterSettingsPage = featureFlags[FEATURE_FLAGS.BETTER_SETTINGS_PAGE]
+
+                // When better settings page is enabled, filter by selected level first
+                const baseSections = betterSettingsPage
+                    ? sections.filter((section) => section.level === selectedLevel)
+                    : sections
+
                 if (!searchTerm.trim()) {
-                    return sections
+                    return baseSections
                 }
 
                 const matchingResults = sectionsFuse.search(searchTerm)
                 const matchingIds = new Set(matchingResults.map((result) => result.item.id))
 
-                return sections.filter((section) => matchingIds.has(section.id))
+                return baseSections.filter((section) => matchingIds.has(section.id))
             },
         ],
     }),

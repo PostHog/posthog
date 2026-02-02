@@ -6,8 +6,9 @@ import { router } from 'kea-router'
 import React from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -16,6 +17,8 @@ import { inStorybookTestRunner } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
@@ -55,6 +58,9 @@ export function Settings({
         toggleGroupCollapse,
     } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const betterSettingsPage = featureFlags[FEATURE_FLAGS.BETTER_SETTINGS_PAGE]
 
     const { ref, size } = useResizeBreakpoints(
         {
@@ -79,6 +85,98 @@ export function Settings({
             ? TimeSensitiveAuthenticationArea
             : React.Fragment
 
+    // Helper to build section options
+    const buildSectionOption = (
+        section: (typeof filteredSections)[0],
+        level: SettingLevelId
+    ): SettingOption => {
+        const { id, to, accessControl } = section
+        const isDangerZone = id.endsWith('-danger-zone')
+
+        return {
+            key: section.id,
+            content: (
+                <OptionButton
+                    key={id}
+                    to={to ?? urls.settings(id)}
+                    handleLocally={handleLocally}
+                    active={selectedSectionId === id}
+                    isLink={!!to}
+                    isDanger={isDangerZone}
+                    onClick={() => {
+                        if (to) {
+                            router.actions.push(to)
+                        } else {
+                            selectSection(id, level)
+                        }
+                    }}
+                    disabledReason={
+                        accessControl
+                            ? getAccessControlDisabledReason(
+                                  accessControl.resourceType,
+                                  accessControl.minimumAccessLevel
+                              )
+                            : undefined
+                    }
+                    data-attr={`settings-menu-item-${id}`}
+                >
+                    {section.title}
+                </OptionButton>
+            ),
+        }
+    }
+
+    // Helper to build sections with groups for a given level
+    const buildSectionsWithGroups = (levelSections: typeof filteredSections, level: SettingLevelId): SettingOption[] => {
+        const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
+        const nonDangerSections = levelSections.filter((s) => !s.id.endsWith('-danger-zone'))
+        const renderedGroups = new Set<string>()
+
+        return [
+            ...nonDangerSections.flatMap((section) => {
+                if (!section.group) {
+                    return [buildSectionOption(section, level)]
+                }
+
+                if (renderedGroups.has(section.group)) {
+                    return []
+                }
+
+                renderedGroups.add(section.group)
+                const groupKey = `${level}-${section.group}`
+                const isGroupCollapsed = collapsedGroups[groupKey]
+                const sectionsInGroup = nonDangerSections.filter((s) => s.group === section.group)
+
+                return [
+                    {
+                        key: groupKey,
+                        content: (
+                            <OptionButton
+                                handleLocally={handleLocally}
+                                active={false}
+                                onClick={() => toggleGroupCollapse(groupKey)}
+                                sideIcon={
+                                    <IconChevronDown
+                                        className={clsx(
+                                            'w-4 h-4 transition-transform',
+                                            isGroupCollapsed && '-rotate-90'
+                                        )}
+                                    />
+                                }
+                            >
+                                {section.group}
+                            </OptionButton>
+                        ),
+                        items: !isGroupCollapsed
+                            ? sectionsInGroup.map((s) => buildSectionOption(s, level))
+                            : [],
+                    },
+                ]
+            }),
+            ...dangerZoneSections.map((s) => buildSectionOption(s, level)),
+        ]
+    }
+
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
               key: s.id,
@@ -93,129 +191,45 @@ export function Settings({
                   </OptionButton>
               ),
           }))
-        : filteredLevels.map((level) => {
-              const levelSections = filteredSections.filter((x) => x.level === level)
-              const isCollapsed = collapsedLevels[level]
-              const hasItems = levelSections.length > 0
+        : betterSettingsPage
+          ? // New mode: show sections for selected level only (no level headers)
+            buildSectionsWithGroups(filteredSections, selectedLevel)
+          : // Old mode: show all levels with collapsible headers
+            filteredLevels.map((level) => {
+                const levelSections = filteredSections.filter((x) => x.level === level)
+                const isCollapsed = collapsedLevels[level]
+                const hasItems = levelSections.length > 0
+                const levelItems: SettingOption[] = !isCollapsed
+                    ? buildSectionsWithGroups(levelSections, level)
+                    : []
 
-              // Separate danger zone sections (always rendered last)
-              const dangerZoneSections = levelSections.filter((s) => s.id.endsWith('-danger-zone'))
-              const nonDangerSections = levelSections.filter((s) => !s.id.endsWith('-danger-zone'))
-
-              // Build section option helper
-              const buildSectionOption = (section: (typeof levelSections)[0]): SettingOption => {
-                  const { id, to, accessControl } = section
-                  const isDangerZone = id.endsWith('-danger-zone')
-
-                  return {
-                      key: section.id,
-                      content: (
-                          <OptionButton
-                              key={id}
-                              to={to ?? urls.settings(id)}
-                              handleLocally={handleLocally}
-                              active={selectedSectionId === id}
-                              isLink={!!to}
-                              isDanger={isDangerZone}
-                              onClick={() => {
-                                  if (to) {
-                                      router.actions.push(to)
-                                  } else {
-                                      selectSection(id, level)
-                                  }
-                              }}
-                              disabledReason={
-                                  accessControl
-                                      ? getAccessControlDisabledReason(
-                                            accessControl.resourceType,
-                                            accessControl.minimumAccessLevel
-                                        )
-                                      : undefined
-                              }
-                              data-attr={`settings-menu-item-${id}`}
-                          >
-                              {section.title}
-                          </OptionButton>
-                      ),
-                  }
-              }
-
-              // Build items in SETTINGS_MAP order, rendering groups when we first encounter them
-              const renderedGroups = new Set<string>()
-              const levelItems: SettingOption[] = !isCollapsed
-                  ? [
-                        ...nonDangerSections.flatMap((section) => {
-                            // Ungrouped section - render directly
-                            if (!section.group) {
-                                return [buildSectionOption(section)]
+                return {
+                    key: level,
+                    content: (
+                        <OptionButton
+                            handleLocally={handleLocally}
+                            active={selectedLevel === level && !selectedSectionId}
+                            onClick={() => {
+                                if (hasItems) {
+                                    toggleLevelCollapse(level)
+                                } else {
+                                    selectLevel(level)
+                                }
+                            }}
+                            sideIcon={
+                                hasItems ? (
+                                    <IconChevronDown
+                                        className={clsx('w-4 h-4 transition-transform', isCollapsed && '-rotate-90')}
+                                    />
+                                ) : undefined
                             }
-
-                            // Grouped section - render entire group when we first see it
-                            if (renderedGroups.has(section.group)) {
-                                return [] // Already rendered this group
-                            }
-
-                            renderedGroups.add(section.group)
-                            const groupKey = `${level}-${section.group}`
-                            const isGroupCollapsed = collapsedGroups[groupKey]
-                            const sectionsInGroup = nonDangerSections.filter((s) => s.group === section.group)
-
-                            return [
-                                {
-                                    key: groupKey,
-                                    content: (
-                                        <OptionButton
-                                            handleLocally={handleLocally}
-                                            active={false}
-                                            onClick={() => toggleGroupCollapse(groupKey)}
-                                            sideIcon={
-                                                <IconChevronDown
-                                                    className={clsx(
-                                                        'w-4 h-4 transition-transform',
-                                                        isGroupCollapsed && '-rotate-90'
-                                                    )}
-                                                />
-                                            }
-                                        >
-                                            {section.group}
-                                        </OptionButton>
-                                    ),
-                                    items: !isGroupCollapsed ? sectionsInGroup.map(buildSectionOption) : [],
-                                },
-                            ]
-                        }),
-                        // Danger zone always at the bottom
-                        ...dangerZoneSections.map(buildSectionOption),
-                    ]
-                  : []
-
-              return {
-                  key: level,
-                  content: (
-                      <OptionButton
-                          handleLocally={handleLocally}
-                          active={selectedLevel === level && !selectedSectionId}
-                          onClick={() => {
-                              if (hasItems) {
-                                  toggleLevelCollapse(level)
-                              } else {
-                                  selectLevel(level)
-                              }
-                          }}
-                          sideIcon={
-                              hasItems ? (
-                                  <IconChevronDown
-                                      className={clsx('w-4 h-4 transition-transform', isCollapsed && '-rotate-90')}
-                                  />
-                              ) : undefined
-                          }
-                      >
-                          <span className="text-secondary">{SettingLevelNames[level]}</span>
-                      </OptionButton>
-                  ),
-                  items: levelItems,
-              }
-          })
+                        >
+                            <span className="text-secondary">{SettingLevelNames[level]}</span>
+                        </OptionButton>
+                    ),
+                    items: levelItems,
+                }
+            })
 
     const compactNavigationContent: JSX.Element = settingsInSidebar ? (
         <>{selectedSetting.title}</>
@@ -232,6 +246,19 @@ export function Settings({
                 <>
                     {showOptions ? (
                         <div className="Settings__sections">
+                            {!settingsInSidebar && betterSettingsPage && (
+                                <LemonSegmentedButton
+                                    value={selectedLevel}
+                                    onChange={(newLevel) => selectLevel(newLevel)}
+                                    options={filteredLevels.map((level) => ({
+                                        value: level,
+                                        label: SettingLevelNames[level],
+                                    }))}
+                                    fullWidth
+                                    size="small"
+                                    className="mb-2"
+                                />
+                            )}
                             {!settingsInSidebar && (
                                 <LemonInput
                                     type="search"
