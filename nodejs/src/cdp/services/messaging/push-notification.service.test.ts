@@ -12,12 +12,6 @@ import {
 
 const fcmUrl = 'https://fcm.googleapis.com/v1/projects/test-project/messages:send'
 
-const createHub = (): PushNotificationServiceHub => ({
-    CDP_FETCH_RETRIES: 3,
-    CDP_FETCH_BACKOFF_BASE_MS: 1000,
-    CDP_FETCH_BACKOFF_MAX_MS: 10000,
-})
-
 const createSendPushNotificationInvocation = (token: string | null | undefined): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction({
         name: 'Test FCM function',
@@ -60,7 +54,11 @@ describe('PushNotificationService', () => {
     const mockIsFetchResponseRetriable = jest.fn()
 
     beforeEach(() => {
-        hub = createHub()
+        hub = {
+            CDP_FETCH_RETRIES: 3,
+            CDP_FETCH_BACKOFF_BASE_MS: 1000,
+            CDP_FETCH_BACKOFF_MAX_MS: 10000,
+        }
         hogInputsService = {
             loadIntegrationInputs: jest.fn().mockResolvedValue({}),
         } as any
