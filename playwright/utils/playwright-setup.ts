@@ -39,7 +39,7 @@ export class PlaywrightSetup {
     constructor(request: APIRequestContext, baseURL?: string) {
         this.request = request
         // Use baseURL from Playwright config if provided, otherwise fall back to environment variable
-        this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8000'
+        this.baseURL = baseURL || process.env.BASE_URL || 'http://localhost:8080'
     }
 
     /**
@@ -125,11 +125,6 @@ export class PlaywrightSetup {
                 password: LOGIN_PASSWORD,
             },
         })
-    }
-
-    async loginAndNavigateToTeam(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        await this.login(page, workspace)
-        await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
 }
 

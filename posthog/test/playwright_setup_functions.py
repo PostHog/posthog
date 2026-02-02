@@ -3,6 +3,7 @@
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
+from time import sleep
 from typing import Protocol, runtime_checkable
 
 from django.utils import timezone
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
 
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 from posthog.models import PersonalAPIKey, User
@@ -62,10 +64,14 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     }
 
     # Call the handle method directly - this creates org, team, user, and demo data
+    # The command waits for persons in ClickHouse but not events.
     command.handle(**options)
 
     # Get the created user, organization, and team
     user = User.objects.get(email=user_email)
+
+    # Wait for events to land in ClickHouse (they go through Kafka separately from persons)
+    _wait_for_events_in_clickhouse(user.team.pk)
     organization = user.organization
     team = user.team
 
@@ -105,6 +111,25 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         user_email=user.email,
         personal_api_key=api_key._value,  # type: ignore
     )
+
+
+def _wait_for_events_in_clickhouse(team_id: int, min_events: int = 10, max_wait_seconds: int = 120) -> None:
+    """Wait for events to be available in ClickHouse.
+
+    The demo data generator waits for persons but not events. Events go through
+    Kafka and may take additional time to land in ClickHouse.
+    """
+    for i in range(max_wait_seconds * 2):  # Check every 0.5s
+        result = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": team_id},
+        )
+        event_count = result[0][0]
+        if event_count >= min_events:
+            print(f"Events ready in ClickHouse: {event_count} events after {i * 0.5:.1f}s")  # noqa: T201
+            return
+        sleep(0.5)
+    raise TimeoutError(f"Only {event_count} events in ClickHouse after {max_wait_seconds}s (expected >= {min_events})")
 
 
 @dataclass(frozen=True)

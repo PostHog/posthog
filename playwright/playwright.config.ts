@@ -1,14 +1,20 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
+ * Read environment variables from file.
+ * https://github.com/motdotla/dotenv
+ */
+// require('dotenv').config();
+
+/**
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
     // globalSetup: './setup/workspace.setup.ts',
     testDir: '.',
-    /*
-        Maximum time one test can run for.
-        Must be >= expect timeout so assertions can complete before the test times out.
+    /* 
+        Maximum time one test can run for. 
+        Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
     timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
     expect: {
@@ -32,7 +38,7 @@ export default defineConfig({
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: 3,
+    workers: process.env.CI ? 3 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         ['html', { open: 'never' }],
