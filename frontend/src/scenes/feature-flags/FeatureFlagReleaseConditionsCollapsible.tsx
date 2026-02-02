@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -203,6 +203,37 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const [openConditions, setOpenConditions] = useState<string[]>(
         filterGroups.length === 1 ? [`condition-${filterGroups[0]?.sort_key ?? 0}`] : []
     )
+
+    // Track previous sort_keys to preserve open/closed state when aggregation type changes
+    const prevSortKeysRef = useRef<string[]>(filterGroups.map((g) => g.sort_key ?? ''))
+    useEffect(() => {
+        const currentSortKeys = filterGroups.map((g) => g.sort_key ?? '')
+        const prevSortKeys = prevSortKeysRef.current
+
+        // Check if sort_keys changed (e.g., due to aggregation type change resetting groups)
+        const keysChanged =
+            currentSortKeys.length !== prevSortKeys.length || currentSortKeys.some((key, i) => key !== prevSortKeys[i])
+
+        if (keysChanged && currentSortKeys.length > 0) {
+            // Map open state from old keys to new keys by index
+            const openIndices = prevSortKeys
+                .map((key, i) => (openConditions.includes(`condition-${key}`) ? i : -1))
+                .filter((i) => i !== -1)
+
+            const newOpenConditions = openIndices
+                .filter((i) => i < currentSortKeys.length)
+                .map((i) => `condition-${currentSortKeys[i]}`)
+
+            // If we had conditions open and now have fewer groups, keep first one open
+            if (newOpenConditions.length === 0 && openConditions.length > 0 && currentSortKeys.length > 0) {
+                newOpenConditions.push(`condition-${currentSortKeys[0]}`)
+            }
+
+            setOpenConditions(newOpenConditions)
+        }
+
+        prevSortKeysRef.current = currentSortKeys
+    }, [filterGroups, openConditions])
 
     const handleAddConditionSet = (): void => {
         const newSortKey = uuidv4()
