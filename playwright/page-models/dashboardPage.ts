@@ -38,6 +38,7 @@ export class DashboardPage {
         await this.page.getByTestId('insight-add-to-dashboard-button').click()
         await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
+        await this.page.waitForURL(/\/dashboard\/\d+/)
         await expect(this.items).toBeVisible()
     }
 

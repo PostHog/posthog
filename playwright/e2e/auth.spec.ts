@@ -108,8 +108,9 @@ test.describe('Auth', () => {
         const secondPage = await context.newPage()
         await secondPage.goto('/logout')
 
-        // Reload the original page — the invalidated session should redirect to login
-        await page.reload({ waitUntil: 'commit' })
-        await expect(page).toHaveURL(/\/login/)
+        // Now interact with the original page
+        // forces a click so that the visibility of other elements doesn't interfere
+        await page.locator('[data-attr=menu-item-settings]').click({ force: true })
+        await expect(page).toHaveURL('/login') // Should be redirected
     })
 })
