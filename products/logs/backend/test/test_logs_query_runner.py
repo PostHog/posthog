@@ -604,3 +604,55 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_resource_fingerprint_integration(self):
+        """Integration test for resource fingerprint queries using actual test data"""
+        # First, get logs with a specific resource attribute to identify a resource fingerprint
+        query_params_initial = {
+            "dateRange": {"date_from": "2025-12-16 09:01:00Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "resource_attribute",
+                                "key": "k8s.container.name",
+                                "operator": "exact",
+                                "value": ["argo-rollouts-dashboard"],
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+        response_initial = self._make_logs_api_request(query_params_initial)
+        self.assertGreater(len(response_initial["results"]), 0)
+
+        # Get the resource fingerprint from the first result
+        resource_fingerprint = response_initial["results"][0]["resource_fingerprint"]
+        self.assertIsNotNone(resource_fingerprint)
+
+        # Now test filtering by that specific resource fingerprint
+        query_params_fingerprint = {
+            "dateRange": {"date_from": "2025-12-16 09:01:00Z", "date_to": None},
+            "limit": 50,
+            "resourceFingerprint": resource_fingerprint,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        with self.capture_select_queries():
+            response_fingerprint = self._make_logs_api_request(query_params_fingerprint)
+
+        # Verify that all results have the same resource fingerprint
+        for result in response_fingerprint["results"]:
+            self.assertEqual(result["resource_fingerprint"], resource_fingerprint)
+
+        # Verify all results have the expected resource attributes
+        for result in response_fingerprint["results"]:
+            self.assertEqual(result["resource_attributes"]["k8s.container.name"], "argo-rollouts-dashboard")
+            self.assertEqual(result["resource_attributes"]["service.name"], "argo-rollouts")
