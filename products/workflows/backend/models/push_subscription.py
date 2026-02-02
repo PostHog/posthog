@@ -33,8 +33,10 @@ class PushSubscription(UUIDModel):
     is_active = models.BooleanField(default=True)
     last_successfully_used_at = models.DateTimeField(blank=True, null=True)
     disabled_reason = models.CharField(blank=True, max_length=128, null=True)
-    firebase_app_id = models.CharField(blank=True, max_length=256, null=True)
+    fcm_project_id = models.CharField(blank=True, max_length=256, null=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    objects: models.Manager["PushSubscription"]
 
     class Meta:
         indexes = [
@@ -73,7 +75,7 @@ class PushSubscription(UUIDModel):
         token: str,
         platform: PushPlatform,
         provider: PushProvider,
-        firebase_app_id: str | None = None,
+        fcm_project_id: str | None = None,
     ) -> "PushSubscription":
         """
         Create or update a push subscription token.
@@ -91,7 +93,7 @@ class PushSubscription(UUIDModel):
                 "provider": provider,
                 "is_active": True,
                 "disabled_reason": None,
-                "firebase_app_id": firebase_app_id,
+                "fcm_project_id": fcm_project_id,
             },
         )
 
