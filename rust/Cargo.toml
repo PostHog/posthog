@@ -39,6 +39,7 @@ members = [
     "kafka-deduplicator",
     "personhog-proto",
     "personhog-replica",
+    "personhog-router",
 ]
 
 [workspace.lints.rust]
