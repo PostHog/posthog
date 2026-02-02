@@ -221,6 +221,7 @@ export const urls = {
     organizationDeactivated: (): string => '/organization-deactivated',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    health: (): string => '/health',
     sdkDoctor: (): string => '/sdk-doctor',
 }
 

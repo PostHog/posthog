@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconDatabase, IconStethoscope } from '@posthog/icons'
+import { IconCode, IconDatabase } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
@@ -12,6 +13,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { IconHealthPlus } from 'scenes/health/icons'
 import { urls } from 'scenes/urls'
 
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
@@ -56,7 +58,8 @@ export function HealthMenu(): JSX.Element {
                 >
                     <span className="flex text-secondary group-hover:text-primary">
                         <IconWithBadge size="xsmall" content={triggerBadgeContent} status={triggerBadgeStatus}>
-                            <IconStethoscope className="size-5" />
+                            {/* Heart Plus Icon TODO: add this to icons */}
+                            <IconHealthPlus className="size-4.5" />
                         </IconWithBadge>
                     </span>
                 </ButtonPrimitive>
@@ -72,8 +75,7 @@ export function HealthMenu(): JSX.Element {
                 <DropdownMenuGroup className="pt-2 px-2">
                     <DropdownMenuItem asChild>
                         <Link
-                            // TODO: link to the health page?
-                            to={urls.sdkDoctor()}
+                            to={urls.health()}
                             buttonProps={{
                                 menuItem: true,
                                 size: 'fit',
@@ -81,13 +83,14 @@ export function HealthMenu(): JSX.Element {
                                     'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center',
                             }}
                         >
-                            <span className="size-3 [&>svg]:size-4">
-                                <IconStethoscope />
-                            </span>
-                            <span className="text-sm font-medium">Heath</span>
+                            <IconHealthPlus className="size-4.5" />
+                            <span className="text-sm font-medium">View health overview</span>
                             <span className="text-xs text-tertiary text-center text-pretty">
-                                Check your SDK health and get the latest updates.
+                                See at-a-glance view of the health of your project.
                             </span>
+                            <LemonTag type="warning" className="my-1">
+                                Still under development
+                            </LemonTag>
                         </Link>
                     </DropdownMenuItem>
                 </DropdownMenuGroup>

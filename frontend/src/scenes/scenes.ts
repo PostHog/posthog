@@ -467,6 +467,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/product-analytics',
         iconType: 'product_analytics',
     },
+    [Scene.Health]: {
+        projectBased: true,
+        name: 'Health',
+        description: 'Monitor the health of your PostHog integrations.',
+    },
     [Scene.SdkDoctor]: {
         projectBased: true,
         name: 'SDK doctor',
@@ -824,6 +829,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
+    [urls.health()]: [Scene.Health, 'health'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
