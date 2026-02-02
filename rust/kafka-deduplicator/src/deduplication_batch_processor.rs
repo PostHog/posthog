@@ -33,7 +33,7 @@ use crate::{
     store::deduplication_store::{
         DeduplicationResult, DeduplicationResultReason, DeduplicationType, TimestampBatchEntry,
     },
-    store::keys::TimestampKey,
+    store::keys::DeduplicationKeyExtractor,
     store::metadata::TimestampMetadata,
     store::DeduplicationStoreConfig,
     store_manager::{StoreError, StoreManager},
@@ -405,8 +405,7 @@ impl BatchDeduplicationProcessor {
         let enriched_events: Vec<EnrichedEvent> = events
             .into_iter()
             .map(|raw_event| {
-                let timestamp_key = TimestampKey::from(raw_event);
-                let timestamp_key_bytes: Vec<u8> = (&timestamp_key).into();
+                let timestamp_key_bytes = raw_event.extract_dedup_key();
 
                 EnrichedEvent {
                     raw_event,

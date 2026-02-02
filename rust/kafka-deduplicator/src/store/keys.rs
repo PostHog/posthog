@@ -6,6 +6,20 @@ use crate::utils::timestamp::parse_timestamp;
 
 const UNKNOWN_STR: &str = "unknown";
 
+/// Trait for extracting deduplication keys from events.
+///
+/// This trait allows different event types to define how their
+/// deduplication key is computed, enabling the deduplicator to
+/// work with multiple event schemas.
+pub trait DeduplicationKeyExtractor {
+    /// Extract a deduplication key as bytes.
+    ///
+    /// The returned bytes are used as the key in RocksDB for
+    /// duplicate detection. Events with the same key are considered
+    /// potential duplicates.
+    fn extract_dedup_key(&self) -> Vec<u8>;
+}
+
 /// Timestamp-based deduplication key
 /// Uses bincode serialization to handle arbitrary characters in fields
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]

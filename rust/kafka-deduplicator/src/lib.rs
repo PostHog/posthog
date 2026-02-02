@@ -8,6 +8,7 @@ pub mod event;
 pub mod kafka;
 pub mod metrics;
 pub mod metrics_const;
+pub mod pipelines;
 pub mod processor_rebalance_handler;
 pub mod rebalance_tracker;
 pub mod rocksdb;
