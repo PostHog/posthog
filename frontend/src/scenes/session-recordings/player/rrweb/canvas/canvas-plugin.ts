@@ -270,6 +270,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                             }
 
                             finalizeUrl(data.id, url)
+                            controllerById.delete(data.id)
                         },
                         { signal: controller.signal }
                     )
@@ -277,6 +278,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                         'error',
                         () => {
                             finalizeUrl(data.id, url)
+                            controllerById.delete(data.id)
                         },
                         { signal: controller.signal }
                     )
