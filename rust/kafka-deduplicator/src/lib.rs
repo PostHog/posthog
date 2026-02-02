@@ -5,6 +5,7 @@ pub mod deduplication_batch_processor;
 pub mod duplicate_event;
 pub mod duplicate_metrics;
 pub mod event;
+pub mod event_parser;
 pub mod kafka;
 pub mod metrics;
 pub mod metrics_const;

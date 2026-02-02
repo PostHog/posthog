@@ -12,8 +12,10 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tracing::{debug, error, warn};
 
+use crate::event_parser::EventParser;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
+use crate::pipelines::ingestion_events::IngestionEventParser;
 use crate::{
     duplicate_event::DuplicateEvent,
     kafka::batch_consumer::BatchConsumerProcessor,
@@ -37,7 +39,6 @@ use crate::{
     store::metadata::TimestampMetadata,
     store::DeduplicationStoreConfig,
     store_manager::{StoreError, StoreManager},
-    utils::timestamp,
 };
 
 /// Configuration for the deduplication processor
@@ -210,7 +211,10 @@ impl BatchDeduplicationProcessor {
         // Use block_in_place to avoid blocking the async runtime thread pool
         let parsing_start = Instant::now();
         let parsed_events: Vec<Result<RawEvent>> = tokio::task::block_in_place(|| {
-            messages.par_iter().map(Self::parse_raw_event).collect()
+            messages
+                .par_iter()
+                .map(|msg| IngestionEventParser::parse(msg))
+                .collect()
         });
         let parsing_duration = parsing_start.elapsed();
         metrics::histogram!(EVENT_PARSING_DURATION_MS).record(parsing_duration.as_millis() as f64);
@@ -707,95 +711,6 @@ impl BatchDeduplicationProcessor {
                     .with_label("lib", &lib_info.name)
                     .with_label("dedup_type", "timestamp")
                     .increment(1);
-            }
-        }
-    }
-
-    fn parse_raw_event(message: &&KafkaMessage<CapturedEvent>) -> Result<RawEvent> {
-        // Parse the captured event and extract the raw event from it
-        let captured_event = match message.get_message() {
-            Some(captured_event) => captured_event,
-            None => {
-                // This should never fail since batch consumer catches errors
-                // of this sort upstream when unpacking the batch. As with stateful
-                // consumer, let's report but not fail on this if it does happen
-                error!(
-                    "Failed to extract CapturedEvent from KafkaMessage at {}:{} offset {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset()
-                );
-
-                return Err(anyhow::anyhow!(
-                    "Failed to extract CapturedEvent from KafkaMessage at {}:{} offset {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset(),
-                ));
-            }
-        };
-
-        // extract well-validated values from the CapturedEvent that
-        // may or may not be present in the wrapped RawEvent
-        let now = captured_event.now.clone();
-        let extracted_distinct_id = captured_event.distinct_id.clone();
-        let extracted_token = captured_event.token.clone();
-        let extracted_uuid = captured_event.uuid;
-
-        // The RawEvent is serialized in the data field
-        match serde_json::from_str::<RawEvent>(&captured_event.data) {
-            Ok(mut raw_event) => {
-                // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
-                // This ensures we always have a valid timestamp for deduplication
-                match raw_event.timestamp {
-                    None => {
-                        debug!("No timestamp in RawEvent, using CapturedEvent.now");
-                        raw_event.timestamp = Some(now);
-                    }
-                    Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
-                        // Don't log the invalid timestamp directly as it may contain
-                        // non-ASCII characters that could cause issues with logging
-                        debug!(
-                            "Invalid timestamp detected at {}:{} offset {}, replacing with CapturedEvent.now",
-                            message.get_topic_partition().topic(), message.get_topic_partition().partition_number(), message.get_offset()
-                        );
-                        raw_event.timestamp = Some(now);
-                    }
-                    _ => {
-                        // Timestamp exists and is valid, keep it
-                    }
-                }
-
-                // if RawEvent is missing any of the core values
-                // extracted by capture into the CapturedEvent
-                // wrapper, use those values for downstream analysis
-                if raw_event.uuid.is_none() {
-                    raw_event.uuid = Some(extracted_uuid);
-                }
-                if raw_event.distinct_id.is_none() && !extracted_distinct_id.is_empty() {
-                    raw_event.distinct_id = Some(serde_json::Value::String(extracted_distinct_id));
-                }
-                if raw_event.token.is_none() && !extracted_token.is_empty() {
-                    raw_event.token = Some(extracted_token);
-                }
-
-                Ok(raw_event)
-            }
-            Err(e) => {
-                error!(
-                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset(),
-                    e
-                );
-                Err(anyhow::anyhow!(
-                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset(),
-                    e
-                ))
             }
         }
     }

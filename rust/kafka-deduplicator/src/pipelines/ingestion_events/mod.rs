@@ -4,3 +4,6 @@
 //! ingestion events (CapturedEvent/RawEvent from the capture service).
 
 mod keys;
+mod parser;
+
+pub use parser::IngestionEventParser;
