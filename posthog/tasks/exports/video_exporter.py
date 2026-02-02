@@ -191,6 +191,7 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
                 measured_width=output.get("measured_width"),
                 inactivity_periods=inactivity_periods,
                 segment_start_timestamps=segment_start_timestamps,
+                custom_fps=output.get("custom_fps"),
             )
         except Exception as e:
             msg = f"Puppeteer recorder failed, when recording the session: {e}"
@@ -565,7 +566,7 @@ class ReplayVideoRenderer:
         recording_duration: int,
         playback_speed: int,
         measured_width: int | None = None,
-        custom_fps: int | None = None,
+        fps_to_render_at: int | None = None,
     ):
         self.temp_output_path = temp_output_path
         self.image_path = image_path
@@ -573,14 +574,14 @@ class ReplayVideoRenderer:
         self.recording_duration = recording_duration
         self.playback_speed = playback_speed
         self.measured_width = measured_width
-        self.custom_fps = custom_fps
+        self.fps_to_render_at = fps_to_render_at
 
     def _define_video_filter(self) -> str | None:
         vf_parts = []
         if self.playback_speed > 1.0:
             vf_parts.append(f"setpts={self.playback_speed}*PTS")
-        if self.custom_fps:
-            vf_parts.append(f"fps={self.custom_fps}")
+        if self.fps_to_render_at:
+            vf_parts.append(f"fps={self.fps_to_render_at}")
         video_filter = ",".join(vf_parts) if vf_parts else None
         return video_filter
 
@@ -719,6 +720,8 @@ def record_replay_to_file(
                 record_dir=record_dir,
                 opts=opts,
             ).record()
+            # We use 25 as multiplier when recording with Puppeteer, so it shold be slowed down to 25 FPS in the final video
+            fps_to_render_at = 25
         else:
             # ============ Python + Playwright recording ============
             logger.debug("Using Python + Playwright recorder.", options=asdict(opts), signals_type="video_export")
@@ -727,6 +730,8 @@ def record_replay_to_file(
                 record_dir=record_dir,
                 opts=opts,
             ).record()
+            # Use default rendering logic for Playwright, as we don't modify the FPS during recording
+            fps_to_render_at = None
         # ============ Common post-processing (ffmpeg) ============
         logger.debug(
             "Recording complete.",
@@ -744,7 +749,7 @@ def record_replay_to_file(
             recording_duration=opts.recording_duration,
             playback_speed=result.playback_speed,
             measured_width=result.measured_width,
-            custom_fps=result.custom_fps,
+            fps_to_render_at=fps_to_render_at,
         )
         if ext == ".mp4":
             video_renderer._convert_to_mp4()
