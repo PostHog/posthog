@@ -17,8 +17,8 @@ export type BatchPersonGetArgs = {
 const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
 
 const fromKey = (key: string): PersonGetArgs => {
-    const [teamId, distinctId] = key.split(':')
-    return { teamId: parseInt(teamId), distinctId }
+    const [teamId, ...distinctIdParts] = key.split(':')
+    return { teamId: parseInt(teamId), distinctId: distinctIdParts.join(':') }
 }
 
 export type PersonManagerPerson = {
