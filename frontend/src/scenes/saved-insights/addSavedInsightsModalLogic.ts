@@ -25,12 +25,11 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         logic: [eventUsageLogic],
     })),
     actions({
-        setModalFilters: (filters: Partial<SavedInsightFilters>, merge: boolean = true, debounce: boolean = true) => ({
+        setModalFilters: (filters: Partial<SavedInsightFilters>, merge: boolean = true) => ({
             filters,
             merge,
-            debounce,
         }),
-        loadInsights: true,
+        loadInsights: (immediate?: boolean) => ({ immediate: immediate ?? false }),
         setModalPage: (page: number) => ({ page }),
 
         setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
@@ -45,7 +44,11 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     loaders(({ values }) => ({
         insights: {
             __default: { results: [] as QueryBasedInsightModel[], count: 0 },
-            loadInsights: async () => {
+            loadInsights: async ({ immediate }, breakpoint) => {
+                if (!immediate) {
+                    await breakpoint(300)
+                }
+
                 const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo } = values.filters
 
                 const params: Record<string, any> = {
@@ -76,6 +79,8 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 const response = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                breakpoint()
 
                 return {
                     ...response,
@@ -133,15 +138,12 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     listeners(({ actions, values, selectors }) => ({
         setModalPage: async ({ page }) => {
             actions.setModalFilters({ page }, true)
-            actions.loadInsights()
+            actions.loadInsights(true)
         },
-        setModalFilters: async ({ debounce }, breakpoint, __, previousState) => {
+        setModalFilters: async (_, _breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const newFilters = values.filters
 
-            if (debounce) {
-                await breakpoint(300)
-            }
             if (!objectsEqual(oldFilters, newFilters)) {
                 actions.loadInsights()
             }
