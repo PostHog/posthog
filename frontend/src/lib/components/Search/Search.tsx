@@ -606,7 +606,7 @@ function SearchResults({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
                                         <div key={i} className="px-1">
-                                            <WrappingLoadingSkeleton fullWidth>
+                                            <WrappingLoadingSkeleton fullWidth inset>
                                                 <ButtonPrimitive fullWidth className="invisible">
                                                     &nbsp;
                                                 </ButtonPrimitive>
