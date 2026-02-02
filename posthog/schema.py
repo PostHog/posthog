@@ -1624,6 +1624,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
@@ -2381,16 +2382,6 @@ class MatchingEventsResponse(BaseModel):
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
 
 
 class MaxAddonInfo(BaseModel):
@@ -5414,6 +5405,16 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: str | None = None
+
+
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
 
 
 class MaxBillingContextBillingPeriod(BaseModel):
@@ -18649,7 +18650,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"
