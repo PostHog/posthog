@@ -63,9 +63,10 @@ class ClickHouseUser(StrEnum):
     COHORTS = "cohorts"
     CACHE_WARMUP = "cache_warmup"
     # Whenever the HogQL needs to query CH to get some metadata
-    HOGQL = "hogql"
+    HOGQL = "hogql"  # deprecated, use META
+    META = "meta"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
-    MAX_AI = "max_ai"
+    MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
 
     # Dev Operations - do not normally use
@@ -94,6 +95,25 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
 
 
 def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
+    """
+    Retrieve ClickHouse credentials for the specified user.
+
+    This function retrieves the credentials associated with a given ClickHouse
+    user. If the specified user is not found, it will fall back to the default
+    user credentials.
+
+    The user and password must be properly passed as ENVs:
+        CLICKHOUSE_<USER_NAME>_USER
+        CLICKHOUSE_<USER_NAME>_PASSWORD
+
+    Args:
+        user (ClickHouseUser): The user whose ClickHouse credentials need
+                               to be retrieved.
+
+    Returns:
+        tuple[str, str]: A tuple containing the username and password associated
+                         with the specified user.
+    """
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()

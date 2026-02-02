@@ -78,7 +78,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                     }
                     tooltipPlacement="right"
                     iconOnly={isLayoutNavCollapsed}
-                    className={cn('max-w-[175px]', {
+                    className={cn('flex-1', {
                         'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                     })}
                     variant="panel"

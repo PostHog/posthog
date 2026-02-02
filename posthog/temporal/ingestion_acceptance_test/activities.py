@@ -36,6 +36,16 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info("Starting ingestion acceptance tests")
 
     config = Config()
+    from posthog.models.utils import mask_key_value
+
+    logger.info(
+        "Loaded config",
+        api_host=config.api_host,
+        project_id=config.project_id,
+        project_api_key=mask_key_value(config.project_api_key),
+        personal_api_key=mask_key_value(config.personal_api_key),
+    )
+
     tests = discover_tests()
     client = PostHogClient(config)
     with ThreadPoolExecutor() as executor:
