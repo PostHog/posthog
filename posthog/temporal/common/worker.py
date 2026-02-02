@@ -13,7 +13,6 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
@@ -193,7 +192,6 @@ async def create_worker(
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=[
                 LivenessInterceptor(),
-                PostHogClientInterceptor(),
                 BatchExportsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
             ],
@@ -218,7 +216,6 @@ async def create_worker(
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=[
                 LivenessInterceptor(),
-                PostHogClientInterceptor(),
                 BatchExportsMetricsInterceptor(),
                 EvalsMetricsInterceptor(),
             ],

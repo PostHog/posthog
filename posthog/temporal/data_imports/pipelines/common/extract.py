@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, NoReturn
 from django.conf import settings
 
 import pyarrow as pa
-import posthoganalytics
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
@@ -120,24 +119,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
             )
 
-            posthoganalytics.capture(
-                "dwh_pod_heartbeat_timeout",
-                distinct_id=None,
-                properties={
-                    "team_id": inputs.team_id,
-                    "schema_id": str(inputs.schema_id),
-                    "source_id": str(inputs.source_id),
-                    "run_id": inputs.run_id,
-                    "host": last_heartbeat_host,
-                    "gap_between_beats": gap_between_beats,
-                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
-                    "task_queue": info.task_queue,
-                    "workflow_id": info.workflow_id,
-                    "workflow_run_id": info.workflow_run_id,
-                    "workflow_type": info.workflow_type,
-                    "attempt": info.attempt,
-                },
-            )
+            # posthoganalytics.capture(
+            #     "dwh_pod_heartbeat_timeout",
+            #     distinct_id=None,
+            #     properties={
+            #         "team_id": inputs.team_id,
+            #         "schema_id": str(inputs.schema_id),
+            #         "source_id": str(inputs.source_id),
+            #         "run_id": inputs.run_id,
+            #         "host": last_heartbeat_host,
+            #         "gap_between_beats": gap_between_beats,
+            #         "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
+            #         "task_queue": info.task_queue,
+            #         "workflow_id": info.workflow_id,
+            #         "workflow_run_id": info.workflow_run_id,
+            #         "workflow_type": info.workflow_type,
+            #         "attempt": info.attempt,
+            #     },
+            # )
         else:
             logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
     except Exception as e:

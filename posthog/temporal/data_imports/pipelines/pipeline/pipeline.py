@@ -5,7 +5,6 @@ from typing import Any, Generic, Literal
 
 import pyarrow as pa
 import deltalake as deltalake
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -408,11 +407,12 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
             # This will trigger a Campaign in PostHog and send an email
             for user in schema.team.all_users_with_access():
                 if user.distinct_id is not None:
-                    posthoganalytics.capture(
-                        distinct_id=user.distinct_id,
-                        event="revenue_analytics_ready",
-                        properties={"source_type": schema.source.source_type},
-                    )
+                    pass
+                    # posthoganalytics.capture(
+                    #     distinct_id=user.distinct_id,
+                    #     event="revenue_analytics_ready",
+                    #     properties={"source_type": schema.source.source_type},
+                    # )
 
             # Mark the team as notified, avoiding spamming emails
             schema.team.revenue_analytics_config.notified_first_sync = True
