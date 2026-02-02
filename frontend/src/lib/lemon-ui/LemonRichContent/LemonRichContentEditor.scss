@@ -12,46 +12,4 @@
             }
         }
     }
-
-    &__image {
-        display: block;
-        max-width: 100%;
-        max-height: 200px;
-        margin: 0.5em 0;
-        object-fit: contain;
-        border-radius: var(--radius);
-    }
-
-    // Inline code styling
-    code {
-        padding: 0.125em 0.375em;
-        font-family: var(--font-mono);
-        font-size: 0.875em;
-        background-color: var(--color-bg-fill-input);
-        border-radius: var(--radius);
-    }
-}
-
-.RichContentPreview {
-    p {
-        margin-bottom: 0;
-    }
-
-    .LemonRichContentEditor__image {
-        display: block;
-        max-width: 100%;
-        max-height: 300px;
-        margin: 0.5em 0;
-        object-fit: contain;
-        border-radius: var(--radius);
-    }
-
-    // Inline code styling for message display
-    code {
-        padding: 0.125em 0.375em;
-        font-family: var(--font-mono);
-        font-size: 0.875em;
-        background-color: var(--color-bg-fill-input);
-        border-radius: var(--radius);
-    }
 }

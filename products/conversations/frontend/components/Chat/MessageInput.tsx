@@ -6,7 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonRichContentEditor, serializeToMarkdown } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+
+import { SupportEditor, serializeToMarkdown } from '../Editor'
 
 export interface MessageInputProps {
     onSendMessage: (content: string, richContent: JSONContent | null, isPrivate: boolean, onSuccess: () => void) => void
@@ -43,7 +44,7 @@ export function MessageInput({
 
     return (
         <div>
-            <LemonRichContentEditor
+            <SupportEditor
                 placeholder={placeholder}
                 onCreate={(editor) => {
                     editorRef.current = editor

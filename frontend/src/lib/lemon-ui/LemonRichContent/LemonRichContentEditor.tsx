@@ -2,17 +2,16 @@ import './LemonRichContentEditor.scss'
 
 import { JSONContent, TextSerializer } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
-import { Image } from '@tiptap/extension-image'
-import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
 import { EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconCode, IconImage } from '@posthog/icons'
+import { IconEye, IconImage, IconPencil } from '@posthog/icons'
 
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
@@ -26,24 +25,8 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-// Underline icon (not in @posthog/icons)
-function IconUnderline(): JSX.Element {
-    return (
-        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-                d="M6 21h12M12 17a5 5 0 0 0 5-5V3M7 3v9a5 5 0 0 0 5 5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-        </svg>
-    )
-}
 
 export type LemonRichContentEditorProps = {
     logicKey?: string
@@ -52,8 +35,6 @@ export type LemonRichContentEditorProps = {
     onCreate?: (editor: RichContentEditorType) => void
     onUpdate?: (isEmpty: boolean) => void
     onPressCmdEnter?: () => void
-    /** Called when upload state changes (true = uploading, false = idle) */
-    onUploadingChange?: (uploading: boolean) => void
     disabled?: boolean
     minRows?: number
 }
@@ -68,13 +49,6 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
     ],
 }
 
-const ImageExtension = Image.configure({
-    HTMLAttributes: {
-        class: 'LemonRichContentEditor__image',
-    },
-    allowBase64: false,
-})
-
 export const DEFAULT_EXTENSIONS = [
     MentionsExtension,
     RichContentNodeMention,
@@ -84,96 +58,25 @@ export const DEFAULT_EXTENSIONS = [
         link: false,
         heading: false,
         blockquote: false,
-        // bold: enabled - Cmd+B
+        bold: false,
         bulletList: false,
-        // code: enabled - inline code (Cmd+E) - just visual styling, not executable
+        code: false,
         codeBlock: false,
-        // hardBreak: enabled - allows Shift+Enter for line breaks within paragraphs
-        // dropcursor: enabled - shows visual indicator when dragging content
-        // gapcursor: enabled - helps position cursor near images/blocks
+        hardBreak: false,
+        dropcursor: false,
+        gapcursor: false,
         horizontalRule: false,
-        // italic: enabled - Cmd+I
+        italic: false,
         listItem: false,
         listKeymap: false,
         orderedList: false,
         strike: false,
+        underline: false,
     }),
-    Underline, // Cmd+U
-    ImageExtension,
 ]
 
-// Plain text serialization options for generateText() - used by Comment.tsx
-// Extracts plain text with special handling for mentions and images
 export const serializationOptions: { textSerializers?: Record<string, TextSerializer> } = {
-    textSerializers: {
-        [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}`,
-        image: ({ node }) => `![${node.attrs.alt || 'image'}](${node.attrs.src})`,
-        hardBreak: () => '\n',
-    },
-}
-
-/**
- * Serialize tiptap JSON to markdown string.
- * Handles: bold, italic, code, images, mentions, hard breaks
- * Note: underline has no standard markdown syntax and is stripped
- */
-export function serializeToMarkdown(content: JSONContent): string {
-    return serializeNode(content)
-}
-
-function serializeNode(node: JSONContent): string {
-    if (!node) {
-        return ''
-    }
-
-    // Handle text nodes with marks
-    if (node.type === 'text') {
-        let text = node.text || ''
-        if (node.marks) {
-            for (const mark of node.marks) {
-                switch (mark.type) {
-                    case 'bold':
-                        text = `**${text}**`
-                        break
-                    case 'italic':
-                        text = `*${text}*`
-                        break
-                    case 'code':
-                        text = `\`${text}\``
-                        break
-                    // underline has no markdown equivalent, skip
-                }
-            }
-        }
-        return text
-    }
-
-    // Handle specific node types
-    switch (node.type) {
-        case 'doc':
-            return (node.content || []).map(serializeNode).join('')
-
-        case 'paragraph': {
-            const content = (node.content || []).map(serializeNode).join('')
-            return content + '\n\n'
-        }
-
-        case 'hardBreak':
-            return '\n'
-
-        case 'image':
-            return `![${node.attrs?.alt || 'image'}](${node.attrs?.src || ''})`
-
-        case RichContentNodeType.Mention:
-            return `@member:${node.attrs?.id}`
-
-        default:
-            // For unknown nodes, try to serialize children
-            if (node.content) {
-                return (node.content || []).map(serializeNode).join('')
-            }
-            return ''
-    }
+    textSerializers: { [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}` },
 }
 
 export function RichContentPreview({
@@ -185,12 +88,11 @@ export function RichContentPreview({
 }): JSX.Element {
     const editor = useRichContentEditor({
         extensions: [...DEFAULT_EXTENSIONS],
+        // preview isn't editable
         disabled: true,
         initialContent: content ?? DEFAULT_INITIAL_CONTENT,
     })
-    return (
-        <EditorContent editor={editor} className={cn('RichContentPreview [&_.ProseMirror]:outline-none', className)} />
-    )
+    return <RichContent editor={editor} className={className} />
 }
 
 export function LemonRichContentEditor({
@@ -199,14 +101,11 @@ export function LemonRichContentEditor({
     onCreate,
     onUpdate,
     onPressCmdEnter,
-    onUploadingChange,
     disabled = false,
     minRows,
 }: LemonRichContentEditorProps): JSX.Element {
-    const [isDragging, setIsDragging] = useState<boolean>(false)
+    const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
-    // Force re-render when selection changes so toolbar buttons update their active state
-    const [, setEditorState] = useState(0)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
     const editor = useRichContentEditor({
@@ -227,10 +126,6 @@ export function LemonRichContentEditor({
             if (onUpdate && ttEditor) {
                 onUpdate(ttEditor.isEmpty)
             }
-            setEditorState((n) => n + 1)
-        },
-        onSelectionUpdate: () => {
-            setEditorState((n) => n + 1)
         },
     })
 
@@ -239,7 +134,7 @@ export function LemonRichContentEditor({
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
             if (ttEditor) {
-                ttEditor.chain().focus().setImage({ src: url, alt: fileName }).run()
+                ttEditor.commands.insertContent(`\n\n![${fileName}](${url})`)
             }
             posthog.capture('rich text image uploaded', { name: fileName })
         },
@@ -249,123 +144,85 @@ export function LemonRichContentEditor({
         },
     })
 
-    // Notify parent of upload state changes
-    useEffect(() => {
-        onUploadingChange?.(uploading)
-    }, [uploading, onUploadingChange])
-
-    const handleDragEnter = (e: React.DragEvent): void => {
-        e.preventDefault()
-        if (e.dataTransfer.types.includes('Files')) {
-            setIsDragging(true)
-        }
-    }
-
-    const handleDragLeave = (e: React.DragEvent): void => {
-        e.preventDefault()
-        // Only set to false if we're leaving the container (not entering a child)
-        if (e.currentTarget === e.target) {
-            setIsDragging(false)
-        }
-    }
-
-    const handleDragOver = (e: React.DragEvent): void => {
-        e.preventDefault()
-    }
-
-    const handleDrop = (): void => {
-        setIsDragging(false)
-    }
-
     return (
-        <div
-            ref={dropRef}
-            className={cn(
-                'LemonRichContentEditor flex flex-col border rounded divide-y mt-4 input-like transition-shadow',
-                isDragging && 'ring-2 ring-primary ring-offset-1'
+        <div ref={dropRef} className="LemonRichContentEditor flex flex-col border rounded divide-y mt-4 input-like">
+            {isPreviewShown && ttEditor ? (
+                <RichContent editor={ttEditor} className="bg-fill-input" />
+            ) : (
+                <EditorContent
+                    editor={editor}
+                    className="RichContentEditor p-2"
+                    autoFocus
+                    style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
+                />
             )}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-        >
-            <EditorContent
-                editor={editor}
-                className="RichContentEditor p-2"
-                autoFocus
-                style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
-            />
             <div className="flex justify-between p-0.5">
-                <div className="flex items-center">
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('bold')}
-                        onClick={() => ttEditor?.chain().focus().toggleBold().run()}
-                        icon={<IconBold />}
-                        tooltip="Bold (Cmd+B)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('italic')}
-                        onClick={() => ttEditor?.chain().focus().toggleItalic().run()}
-                        icon={<IconItalic />}
-                        tooltip="Italic (Cmd+I)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('underline')}
-                        onClick={() => ttEditor?.chain().focus().toggleUnderline().run()}
-                        icon={<IconUnderline />}
-                        tooltip="Underline (Cmd+U)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('code')}
-                        onClick={() => ttEditor?.chain().focus().toggleCode().run()}
-                        icon={<IconCode />}
-                        tooltip="Inline code (Cmd+E)"
-                    />
-                    <div className="w-px h-4 bg-border mx-1" />
-                    <LemonFileInput
-                        key="file-upload"
-                        accept={'image/*'}
-                        multiple={false}
-                        alternativeDropTargetRef={dropRef}
-                        onChange={setFilesToUpload}
-                        loading={uploading}
-                        value={filesToUpload}
-                        showUploadedFiles={false}
-                        callToAction={
-                            <LemonButton
-                                size="small"
-                                icon={
-                                    uploading ? (
-                                        <Spinner className="text-lg" textColored={true} />
-                                    ) : (
-                                        <IconImage className="text-lg" />
-                                    )
-                                }
-                                disabledReason={
-                                    objectStorageAvailable
-                                        ? undefined
-                                        : 'Enable object storage to add images by dragging and dropping'
-                                }
-                                tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload images' : null}
-                            />
-                        }
-                    />
-                    <EmojiPickerPopover
-                        key="emoj-picker"
-                        data-attr="lemon-rich-text-editor-emoji-popover"
-                        onSelect={(emoji: string) => {
-                            if (ttEditor) {
-                                ttEditor.commands.insertContent(emoji)
-                                emojiUsed(emoji)
+                <div className="flex">
+                    {!isPreviewShown && (
+                        <LemonFileInput
+                            key="file-upload"
+                            accept={'image/*'}
+                            multiple={false}
+                            alternativeDropTargetRef={dropRef}
+                            onChange={setFilesToUpload}
+                            loading={uploading}
+                            value={filesToUpload}
+                            showUploadedFiles={false}
+                            callToAction={
+                                <LemonButton
+                                    size="small"
+                                    icon={
+                                        uploading ? (
+                                            <Spinner className="text-lg" textColored={true} />
+                                        ) : (
+                                            <IconImage className="text-lg" />
+                                        )
+                                    }
+                                    disabledReason={
+                                        objectStorageAvailable
+                                            ? undefined
+                                            : 'Enable object storage to add images by dragging and dropping'
+                                    }
+                                    tooltip={
+                                        objectStorageAvailable ? 'Click here or drag and drop to upload images' : null
+                                    }
+                                />
                             }
-                        }}
-                    />
+                        />
+                    )}
+                    {!isPreviewShown && (
+                        <EmojiPickerPopover
+                            key="emoj-picker"
+                            data-attr="lemon-rich-text-editor-emoji-popover"
+                            onSelect={(emoji: string) => {
+                                if (ttEditor) {
+                                    ttEditor.commands.insertContent(emoji)
+                                    emojiUsed(emoji)
+                                }
+                            }}
+                        />
+                    )}
+                </div>
+                <div className="flex items-center gap-0.5">
+                    <LemonButton size="small" active={!isPreviewShown} onClick={() => setIsPreviewShown(false)}>
+                        <IconPencil />
+                    </LemonButton>
+                    <LemonButton size="small" active={isPreviewShown} onClick={() => setIsPreviewShown(true)}>
+                        <IconEye />
+                    </LemonButton>
                 </div>
             </div>
         </div>
+    )
+}
+
+const RichContent = ({ editor, className }: { editor: TTEditor; className?: string }): JSX.Element => {
+    const text = editor?.getText(serializationOptions)
+
+    return (
+        <TextContent
+            text={text && text.length != 0 ? text : '_Nothing to preview_'}
+            className={cn('p-2 rounded-t', className)}
+        />
     )
 }
