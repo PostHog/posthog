@@ -1394,7 +1394,8 @@ class FeatureFlagViewSet(
                     )
 
                     # Combine both: usage-based OR config-based (for flags without usage data)
-                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
+                    # Use distinct() to avoid potential duplicates from the union
+                    queryset = (queryset.filter(usage_based_stale) | config_based_queryset).distinct()
                 else:
                     queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
