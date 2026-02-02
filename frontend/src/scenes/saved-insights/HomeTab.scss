@@ -1,0 +1,28 @@
+.HomeTab {
+    padding: 1rem 0;
+
+    &__columns {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+
+        @media (min-width: 768px) {
+            flex-direction: row;
+            align-items: flex-start;
+        }
+    }
+
+    &__column {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 1rem;
+        min-width: 0;
+    }
+
+    &__card {
+        display: flex;
+        flex-direction: column;
+        min-height: 300px;
+    }
+}

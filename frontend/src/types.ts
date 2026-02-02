@@ -853,9 +853,8 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
+    Home = 'home',
     All = 'all',
-    Yours = 'yours',
-    Favorites = 'favorites',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -2219,6 +2218,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     last_viewed_at?: string | null
+    viewers?: UserBasicType[]
     timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string

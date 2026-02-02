@@ -1053,6 +1053,53 @@ class InsightViewSet(
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
 
+    @action(methods=["GET"], detail=False)
+    def trending(self, request: request.Request, *args, **kwargs) -> Response:
+        """
+        Returns trending insights based on view count in the last 24 hours.
+        Defaults to returning top 10 insights.
+        """
+        from datetime import timedelta
+
+        days = int(request.GET.get("days", "1"))
+        limit = int(request.GET.get("limit", "10"))
+
+        cutoff_date = now() - timedelta(days=days)
+
+        # Get insights with views in the time period, annotated with view count
+        queryset = (
+            Insight.objects.filter(team__project_id=self.team.project_id, deleted=False)
+            .annotate(
+                view_count=Count(
+                    "insightviewed",
+                    filter=Q(insightviewed__last_viewed_at__gte=cutoff_date),
+                )
+            )
+            .filter(view_count__gt=0)
+            .order_by("-view_count", "-last_modified_at")[:limit]
+        )
+
+        # Annotate with last_viewed_at for consistency
+        queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+
+        response = InsightBasicSerializer(queryset, many=True)
+        data = response.data
+
+        for item in data:
+            viewers = (
+                InsightViewed.objects.filter(
+                    team=self.team,
+                    insight_id=item["id"],
+                    last_viewed_at__gte=cutoff_date,
+                    user__isnull=False,
+                )
+                .select_related("user")
+                .order_by("-last_viewed_at")[:3]
+            )
+            item["viewers"] = UserBasicSerializer([v.user for v in viewers], many=True).data
+
+        return Response(data=data, status=status.HTTP_200_OK)
+
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
