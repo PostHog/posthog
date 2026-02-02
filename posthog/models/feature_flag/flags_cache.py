@@ -110,11 +110,13 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         return {}
 
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
+    # Include disabled flags (active=False) so flag dependencies can reference them
+    # and evaluate them as false, rather than raising DependencyNotFound errors.
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(team__in=teams, active=True, deleted=False).annotate(
+        FeatureFlag.objects.filter(team__in=teams, deleted=False).annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "evaluation_tags__tag__name",
                 filter=Q(evaluation_tags__isnull=False),

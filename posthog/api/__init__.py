@@ -39,6 +39,7 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -59,6 +60,7 @@ from products.llm_analytics.backend.api import (
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
+    LLMEvaluationSummaryViewSet,
     LLMModelsViewSet,
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
@@ -878,6 +880,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/autocapture_controls",
+    ErrorTrackingAutoCaptureControlsViewSet,
+    "environment_error_tracking_autocapture_controls",
+    ["team_id"],
+)
+
+environments_router.register(
     r"quick_filters",
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
@@ -1116,6 +1125,13 @@ environments_router.register(
     r"llm_analytics/summarization",
     LLMAnalyticsSummarizationViewSet,
     "environment_llm_analytics_summarization",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/evaluation_summary",
+    LLMEvaluationSummaryViewSet,
+    "environment_llm_analytics_evaluation_summary",
     ["team_id"],
 )
 

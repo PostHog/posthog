@@ -42,6 +42,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    RESEARCH = "research"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -1604,6 +1605,7 @@ class ExternalDataSourceType(StrEnum):
     VITALLY = "Vitally"
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
+    CLERK = "Clerk"
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
@@ -5676,6 +5678,15 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    ts_from_s: int
+    ts_to_s: int | None = None
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):

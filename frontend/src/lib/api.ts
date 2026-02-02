@@ -72,6 +72,7 @@ import {
     CommentCreationParams,
     CommentType,
     ConversationDetail,
+    ConversationQueueResponse,
     CoreMemory,
     CreateGroupParams,
     CustomerProfileConfigType,
@@ -230,6 +231,7 @@ import {
     ErrorTrackingSymbolSet,
     SymbolSetStatusFilter,
 } from './components/Errors/types'
+import { ErrorTrackingAutoCaptureControls, ErrorTrackingLibrary } from './components/IngestionControls/types'
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
@@ -1191,6 +1193,14 @@ export class ApiRequest {
         return this.errorTrackingReleases().addPathComponent(id)
     }
 
+    public errorTrackingAutoCaptureControls(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('autocapture_controls')
+    }
+
+    public errorTrackingAutoCaptureControl(id: ErrorTrackingAutoCaptureControls['id']): ApiRequest {
+        return this.errorTrackingAutoCaptureControls().addPathComponent(id)
+    }
+
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
@@ -1952,8 +1962,12 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<EndpointType>> {
             return await new ApiRequest().endpoint().get()
         },
-        async get(name: string): Promise<EndpointType> {
-            return await new ApiRequest().endpointDetail(name).get()
+        async get(name: string, version?: number): Promise<EndpointVersionType> {
+            let request = new ApiRequest().endpointDetail(name)
+            if (version !== undefined) {
+                request = request.withQueryString({ version })
+            }
+            return await request.get()
         },
         async create(data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpoint().create({ data })
@@ -1961,8 +1975,12 @@ const api = {
         async delete(name: string): Promise<void> {
             return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: EndpointRequest): Promise<EndpointType> {
-            return await new ApiRequest().endpointDetail(name).update({ data })
+        async update(name: string, data: EndpointRequest, version?: number): Promise<EndpointType> {
+            const request = new ApiRequest().endpointDetail(name)
+            if (version !== undefined) {
+                request.withQueryString({ version })
+            }
+            return await request.update({ data })
         },
         async run(name: string, data: EndpointRunRequest): Promise<AnyResponseType> {
             return await new ApiRequest().endpointDetail(name).withAction('run').create({ data })
@@ -1990,14 +2008,15 @@ const api = {
 
             return result
         },
-        async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
-            return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
+        async getMaterializationStatus(name: string, version?: number): Promise<EndpointType['materialization']> {
+            let request = new ApiRequest().endpointDetail(name).withAction('materialization_status')
+            if (version !== undefined) {
+                request = request.withQueryString({ version })
+            }
+            return await request.get()
         },
         async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
-        },
-        async getVersion(name: string, version: number): Promise<EndpointVersionType> {
-            return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
         },
     },
 
@@ -3471,6 +3490,21 @@ const api = {
             }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
                 const queryString = { order_by: '-created_at', offset, limit }
                 return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryString)).get()
+            },
+        },
+
+        autoCaptureControls: {
+            async get(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls | null> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).get()
+            },
+            async create(library: ErrorTrackingLibrary = 'web'): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControls().withQueryString({ library }).create()
+            },
+            async update(data: ErrorTrackingAutoCaptureControls): Promise<ErrorTrackingAutoCaptureControls> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(data.id).update({ data })
+            },
+            async delete(id: ErrorTrackingAutoCaptureControls['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingAutoCaptureControl(id).delete()
             },
         },
 
@@ -5105,6 +5139,40 @@ const api = {
                 .conversation(conversationId)
                 .withAction('append_message')
                 .create({ data: { content } })
+        },
+
+        queue: {
+            list(conversationId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue').get()
+            },
+
+            enqueue(
+                conversationId: string,
+                data: {
+                    content: string
+                    contextual_tools?: Record<string, any>
+                    ui_context?: MaxUIContext
+                    billing_context?: MaxBillingContext | null
+                    agent_mode?: AgentMode | null
+                }
+            ): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue').create({ data })
+            },
+
+            update(conversationId: string, queueId: string, content: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest()
+                    .conversation(conversationId)
+                    .withAction(`queue/${queueId}`)
+                    .update({ data: { content } })
+            },
+
+            delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction(`queue/${queueId}`).delete()
+            },
+
+            clear(conversationId: string): Promise<ConversationQueueResponse> {
+                return new ApiRequest().conversation(conversationId).withAction('queue/clear').create({ data: {} })
+            },
         },
     },
 

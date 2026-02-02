@@ -135,7 +135,7 @@ class TestQueryRunner(BaseTest):
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "sessionTableVersion": SessionTableVersion.AUTO,
-                "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
+                "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
             },
             "products_modifiers": {
@@ -241,6 +241,7 @@ class TestQueryRunner(BaseTest):
 
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_fcc00123ff03c0b10da8389d6745abb0aec8c3d99a9c8024a76823b5a23c921b"
+
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
