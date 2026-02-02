@@ -415,5 +415,7 @@ const abortPreviousListeners = (id: number): void => {
     const controller = controllerById.get(id)
     if (controller) {
         controller.abort()
+        controllerById.delete(id)
     }
 }
+
