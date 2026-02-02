@@ -13,7 +13,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
 import { PersonPreview } from './PersonPreview'
-import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { PersonPropType, asDisplay, asLink, getPersonColorIndex, getPersonEmail } from './person-utils'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -42,13 +42,7 @@ export function PersonIcon({
     Omit<ProfilePictureProps, 'user' | 'name' | 'email'> & { displayName?: string }): JSX.Element {
     const display = displayName || asDisplay(person)
 
-    const email: string | undefined = useMemo(() => {
-        // The email property could be correct but it could also be set strangely such as an array or not even a string
-        const possibleEmail = Array.isArray(person?.properties?.email)
-            ? person?.properties?.email[0]
-            : person?.properties?.email
-        return typeof possibleEmail === 'string' ? possibleEmail : undefined
-    }, [person?.properties?.email])
+    const email = useMemo(() => getPersonEmail(person), [person?.properties?.email, person])
 
     // Generate a stable color index from the person's distinct_id (or display name) if not explicitly provided
     const identifier = person?.distinct_id || person?.distinct_ids?.[0] || displayName

@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 
+import { IconSend } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -16,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { asDisplay } from './person-utils'
+import { asDisplay, getPersonEmail } from './person-utils'
 import { personsLogic } from './personsLogic'
 
 export type PersonPreviewProps = {
@@ -79,6 +80,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     }
 
     const display = asDisplay(person)
+    const email = getPersonEmail(person)
     const url = urls.personByDistinctId(person?.distinct_ids[0])
 
     return (
@@ -96,6 +98,9 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"
                 />
+                {email && (
+                    <LemonButton size="small" icon={<IconSend />} to={`mailto:${email}`} tooltip="Email this person" />
+                )}
                 <LemonButton size="small" icon={<IconOpenInNew />} to={url} />
             </div>
 

@@ -30,6 +30,17 @@ export type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
 
+/**
+ * Safely extracts an email from person properties.
+ * Handles edge cases where email might be an array or non-string.
+ */
+export function getPersonEmail(person: PersonPropType | null | undefined): string | undefined {
+    const possibleEmail = Array.isArray(person?.properties?.email)
+        ? person?.properties?.email[0]
+        : person?.properties?.email
+    return typeof possibleEmail === 'string' ? possibleEmail : undefined
+}
+
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
