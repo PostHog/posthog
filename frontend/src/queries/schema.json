@@ -15731,7 +15731,10 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status"
             ],
             "type": "string"
         },
@@ -19400,6 +19403,9 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "resourceFingerprint": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
@@ -22537,6 +22543,9 @@
             "properties": {
                 "organization_name": {
                     "type": "string"
+                },
+                "use_current_time": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -28013,11 +28022,17 @@
                 "active": {
                     "type": "boolean"
                 },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
                 "ts_from_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "ts_to_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 }
             },
             "required": ["ts_from_s", "active"],

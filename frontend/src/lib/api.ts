@@ -4840,6 +4840,26 @@ const api = {
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
         },
+        async backfill(params: {
+            detector_config: Record<string, any>
+            n_observations: number
+            insight_id: number
+            series_index?: number
+            alert_id?: string
+        }): Promise<{
+            triggered_indices: number[]
+            scores: (number | null)[]
+            total_points: number
+            anomaly_count: number
+            data?: number[]
+            labels?: string[]
+            dates?: string[]
+            series_label?: string
+            saved_check_id?: string
+            check_state?: string
+        }> {
+            return await new ApiRequest().alerts().withAction('backfill').create({ data: params })
+        },
     },
 
     dataColorThemes: {

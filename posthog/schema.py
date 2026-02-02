@@ -1770,6 +1770,9 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2839,6 +2842,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    use_current_time: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
@@ -3204,6 +3208,17 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
+    ts_from_s: float
+    ts_to_s: float | None = None
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -5775,15 +5790,6 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
-
-
-class ReplayInactivityPeriod(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    active: bool
-    ts_from_s: int
-    ts_to_s: int | None = None
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
@@ -17098,6 +17104,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]

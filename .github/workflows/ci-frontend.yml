@@ -43,6 +43,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'common/hogql_parser/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'playwright/**'
@@ -82,6 +83,14 @@ jobs:
                   node-version: 24.13.0
                   cache: 'pnpm'
 
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
@@ -120,6 +129,14 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: 'pnpm'
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -190,6 +207,14 @@ jobs:
                   node-version: 24.13.0
                   cache: 'pnpm'
 
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
@@ -253,6 +278,14 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile

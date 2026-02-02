@@ -76,6 +76,10 @@
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-button-tertiary-active);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
@@ -103,6 +107,10 @@
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--active-bg-color);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
@@ -126,6 +134,10 @@
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-error-highlight);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
@@ -148,6 +160,10 @@
         &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-button-tertiary-active);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
