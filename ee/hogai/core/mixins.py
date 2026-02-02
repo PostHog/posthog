@@ -31,8 +31,8 @@ class AssistantContextMixin(ABC):
         except CoreMemory.DoesNotExist:
             return None
 
-    async def _aget_core_memory_text(self) -> str:
-        if is_core_memory_disabled(self._team, self._user):
+    async def _aget_core_memory_text(self, *, force_enabled: bool = False) -> str:
+        if not force_enabled and is_core_memory_disabled(self._team, self._user):
             return ""
         core_memory = await self._aget_core_memory()
         if not core_memory:
