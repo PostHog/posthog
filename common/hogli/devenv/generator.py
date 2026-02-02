@@ -306,6 +306,9 @@ def get_main_repo_from_worktree() -> Path | None:
             content = git_path.read_text().strip()
             if content.startswith("gitdir: ") and "worktrees" in content:
                 gitdir = Path(content.removeprefix("gitdir: ").strip())
+                # Resolve relative paths against .git file's directory
+                if not gitdir.is_absolute():
+                    gitdir = (git_path.parent / gitdir).resolve()
                 return gitdir.parent.parent.parent
         elif git_path.is_dir():
             break  # Regular repo, not a worktree

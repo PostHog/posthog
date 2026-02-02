@@ -39,6 +39,7 @@ def _choose_config_location(local_path: Path) -> Path:
 
     # Create symlink from worktree to main repo
     local_path.parent.mkdir(parents=True, exist_ok=True)
+    main_path.parent.mkdir(parents=True, exist_ok=True)
     if local_path.exists() or local_path.is_symlink():
         local_path.unlink()
     local_path.symlink_to(main_path)
@@ -69,7 +70,7 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     existing = load_devenv_config(local_path)
     if existing:
         if local_path.is_symlink():
-            click.echo(f"Found config (symlinked from main repo):")
+            click.echo("Found config (symlinked from main repo):")
         else:
             click.echo("Found existing config:")
         _show_config_summary(existing)
