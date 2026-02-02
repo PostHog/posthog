@@ -315,6 +315,10 @@ def get_latest_backups(
 
     They are sorted from most recent to oldest.
     """
+    if not config.incremental:
+        context.log.info("Full backup requested, skipping latest backups retrieval.")
+        return []
+
     shard_path = shard if shard else NO_SHARD_PATH
 
     base_prefix = f"{config.database}/"

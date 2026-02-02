@@ -31,7 +31,7 @@ def test_get_latest_backup_empty():
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {}
 
-    config = BackupConfig(database="posthog", table="dummy")
+    config = BackupConfig(database="posthog", table="dummy", incremental=True)
     context = dagster.build_op_context()
     result = get_latest_backups(context=context, config=config, s3=mock_s3)
 
@@ -51,7 +51,7 @@ def test_get_latest_backup(table: str):
         ]
     }
 
-    config = BackupConfig(database="posthog", table=table)
+    config = BackupConfig(database="posthog", table=table, incremental=True)
     context = dagster.build_op_context()
     result = get_latest_backups(context=context, config=config, s3=mock_s3)
 
