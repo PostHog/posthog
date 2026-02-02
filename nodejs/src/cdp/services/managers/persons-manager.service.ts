@@ -35,6 +35,7 @@ export class PersonsManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'person_manager',
             loader: async (ids) => await this.fetchPersons(ids),
+            refreshAgeMs: 1000 * 60 * 5, // 5 minutes
         })
     }
 
