@@ -4994,6 +4994,7 @@ export interface TestSetupResponse {
 
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
+    use_current_time?: boolean
 }
 
 export interface PlaywrightWorkspaceSetupResult {
