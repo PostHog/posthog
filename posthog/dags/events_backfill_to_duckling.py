@@ -124,7 +124,7 @@ duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_per
 # SQL for creating the events table in DuckLake if it doesn't exist
 # Types are chosen to match the Parquet output from ClickHouse
 EVENTS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {catalog}.main.events (
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     uuid VARCHAR,
     event VARCHAR,
     properties VARCHAR,
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.main.events (
 
 # SQL for creating the persons table in DuckLake if it doesn't exist
 PERSONS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {catalog}.main.persons (
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     team_id BIGINT,
     distinct_id VARCHAR,
     id VARCHAR,
@@ -346,14 +346,14 @@ def ensure_events_table_exists(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        if table_exists(conn, alias, "main", "events"):
+        if table_exists(conn, alias, "posthog", "events"):
             context.log.info("Events table already exists in duckling catalog")
             return False
 
@@ -363,7 +363,7 @@ def ensure_events_table_exists(
             conn.execute(ddl)
         except duckdb.CatalogException as exc:
             # Check if this was a race condition (another worker created the table)
-            if table_exists(conn, alias, "main", "events"):
+            if table_exists(conn, alias, "posthog", "events"):
                 context.log.info("Events table was created by another worker")
                 return False
             # Real error - log and re-raise
@@ -395,14 +395,14 @@ def ensure_persons_table_exists(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        if table_exists(conn, alias, "main", "persons"):
+        if table_exists(conn, alias, "posthog", "persons"):
             context.log.info("Persons table already exists in duckling catalog")
             return False
 
@@ -412,7 +412,7 @@ def ensure_persons_table_exists(
             conn.execute(ddl)
         except duckdb.CatalogException as exc:
             # Check if this was a race condition (another worker created the table)
-            if table_exists(conn, alias, "main", "persons"):
+            if table_exists(conn, alias, "posthog", "persons"):
                 context.log.info("Persons table was created by another worker")
                 return False
             # Real error - log and re-raise
@@ -443,20 +443,20 @@ def delete_events_table(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        if not table_exists(conn, alias, "main", "events"):
+        if not table_exists(conn, alias, "posthog", "events"):
             context.log.info("Events table does not exist, nothing to delete")
             return False
 
         context.log.warning("Deleting events table from duckling catalog...")
         _validate_identifier(alias)
-        conn.execute(f"DROP TABLE {alias}.main.events")
+        conn.execute(f"DROP TABLE {alias}.posthog.events")
         context.log.warning("Successfully deleted events table")
         logger.warning(
             "duckling_events_table_deleted",
@@ -481,20 +481,20 @@ def delete_persons_table(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        if not table_exists(conn, alias, "main", "persons"):
+        if not table_exists(conn, alias, "posthog", "persons"):
             context.log.info("Persons table does not exist, nothing to delete")
             return False
 
         context.log.warning("Deleting persons table from duckling catalog...")
         _validate_identifier(alias)
-        conn.execute(f"DROP TABLE {alias}.main.persons")
+        conn.execute(f"DROP TABLE {alias}.posthog.persons")
         context.log.warning("Successfully deleted persons table")
         logger.warning(
             "duckling_persons_table_deleted",
@@ -518,14 +518,14 @@ def validate_duckling_schema(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        result = conn.execute(f"DESCRIBE {alias}.main.events").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.events").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
@@ -567,14 +567,14 @@ def validate_duckling_persons_schema(
     """Validate that the duckling's persons table schema matches our export columns."""
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        result = conn.execute(f"DESCRIBE {alias}.main.persons").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.persons").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
@@ -829,7 +829,7 @@ def register_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -849,7 +849,7 @@ def register_file_with_duckling(
 
         # Register the file
         context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.events', '{escape(s3_path)}')")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
 
         context.log.info(f"Successfully registered: {s3_path}")
         logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -958,7 +958,7 @@ def register_persons_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -972,7 +972,7 @@ def register_persons_file_with_duckling(
         attach_catalog(conn, catalog_config, alias=alias)
 
         context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.persons', '{escape(s3_path)}')")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')")
 
         context.log.info(f"Successfully registered persons: {s3_path}")
         logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
