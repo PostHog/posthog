@@ -89,32 +89,32 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
     log('Waiting for recording with segment tracking, max wait:', maxWaitMs, 'ms')
     while (true) {
         const elapsedMs = Date.now() - playbackStarted
-        if (elapsedMs >= maxWaitMs) {
+        const remainingMs = maxWaitMs - elapsedMs
+        if (remainingMs <= 0) {
             log('Recording wait timeout reached')
             break
         }
         try {
-            const remainingMs = maxWaitMs - elapsedMs
-
-            const result = await page.evaluate((lastCounterVal) => {
-                if (window.__POSTHOG_RECORDING_ENDED__) {
-                    return { ended: true }
-                }
-                const counter = window.__POSTHOG_SEGMENT_COUNTER__ || 0
-                if (counter > lastCounterVal) {
-                    return {
-                        counter: counter,
-                        segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__,
+            const handle = await page.waitForFunction(
+                (lastCounterVal) => {
+                    if (window.__POSTHOG_RECORDING_ENDED__) {
+                        return { ended: true }
                     }
-                }
-                return null
-            }, lastCounter)
-            if (result === null) {
-                await new Promise((r) => setTimeout(r, Math.min(100, remainingMs)))
-                continue
-            }
+                    const counter = window.__POSTHOG_SEGMENT_COUNTER__ || 0
+                    if (counter > lastCounterVal) {
+                        return {
+                            counter: counter,
+                            segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__,
+                        }
+                    }
+                    return false
+                },
+                { timeout: remainingMs, polling: 'raf' },
+                lastCounter
+            )
+            const result = await handle.jsonValue()
             if (result.ended) {
-                log('Recording ended signal received: ', elapsedMs, 'ms')
+                log('Recording ended signal received at', elapsedMs, 'ms')
                 break
             }
             const segmentStartTs = result.segment_start_ts
@@ -126,8 +126,9 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
                 lastCounter = newCounter
             }
         } catch (e) {
-            // Continue waiting despite errors
-            await new Promise((r) => setTimeout(r, 100))
+            // waitForFunction throws on timeout
+            log('Recording wait timeout reached')
+            break
         }
     }
     log('Segment tracking complete, segments tracked:', Object.keys(segmentStartTimestamps).length)
@@ -155,11 +156,13 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
                 const tsFromS = period.ts_from_s
                 if (tsFromS !== undefined && segmentStartTimestamps[tsFromS] !== undefined) {
                     const rawTimestamp = segmentStartTimestamps[tsFromS]
+                    // We played video sped up, so need to multiply by playback speed to know where this moment is in the final video
                     period.recording_ts_from_s = rawTimestamp * playbackSpeed
                     const tsToS = period.ts_to_s
                     if (tsToS !== undefined) {
                         const segmentDuration = tsToS - tsFromS
-                        period.recording_ts_to_s = period.recording_ts_from_s + segmentDuration * playbackSpeed
+                        // As the final video is always slowed down to 1x, to get the end of the segment we just need to add the duration
+                        period.recording_ts_to_s = period.recording_ts_from_s + segmentDuration
                     }
                 }
             }
