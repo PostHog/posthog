@@ -66,6 +66,13 @@ Select the region where your Customer.io account is hosted (US or EU).
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": "Invalid API key. Make sure you're using an App API key (not a Track API key).",
+            "403 Client Error": "Access forbidden. Your API key may lack required permissions.",
+            "Wrong region selected": None,
+        }
+
     def get_schemas(
         self, config: CustomerIOSourceConfig, team_id: int, with_counts: bool = False
     ) -> list[SourceSchema]:
