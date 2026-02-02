@@ -299,6 +299,45 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("notIn(resource_fingerprint", query_str)
         self.assertIn("(in(resource_fingerprint", query_str)
 
+    def test_resource_fingerprint_filter(self):
+        """Test that resourceFingerprint parameter adds a direct equality filter"""
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[],
+                    )
+                ],
+            ),
+            resourceFingerprint="12345678",
+            kind="LogsQuery",
+        )
+
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        # Verify resource_fingerprint equality filter is present
+        self.assertIn("resource_fingerprint", query_str)
+        self.assertIn("12345678", query_str)
+
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True

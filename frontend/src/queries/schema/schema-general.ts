@@ -2703,6 +2703,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    resourceFingerprint?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {

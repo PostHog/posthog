@@ -389,9 +389,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "severity_number": result[8],
                     "level": result[9],
                     "resource_attributes": result[10],
-                    "instrumentation_scope": result[11],
-                    "event_name": result[12],
-                    "live_logs_checkpoint": result[13],
+                    "resource_fingerprint": str(result[11]),
+                    "instrumentation_scope": result[12],
+                    "event_name": result[13],
+                    "live_logs_checkpoint": result[14],
                 }
             )
 
@@ -420,6 +421,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 severity_number,
                 severity_text as level,
                 resource_attributes,
+                resource_fingerprint,
                 instrumentation_scope,
                 event_name,
                 (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint

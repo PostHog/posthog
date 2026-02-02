@@ -16963,6 +16963,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = Field(default=None, description="Filter logs by resource fingerprint")
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
