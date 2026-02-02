@@ -56,6 +56,8 @@ import { type Project, ProjectSchema } from '@/schema/projects'
 import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
+import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
+import { ActionResponseSchema } from '../schema/actions.js'
 import type {
     LogAttribute,
     LogAttributeValue,
@@ -64,8 +66,30 @@ import type {
     LogsQueryInput,
     LogsQueryResponse,
 } from '../schema/logs.js'
-import type { ActionResponse, CreateActionInput, ListActionsInput, UpdateActionInput } from '../schema/actions.js'
-import { ActionResponseSchema } from '../schema/actions.js'
+import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
+import type {
+    CreateSurveyInput,
+    GetSurveySpecificStatsInput,
+    GetSurveyStatsInput,
+    ListSurveysInput,
+    SurveyListItemOutput,
+    SurveyOutput,
+    SurveyResponseStatsOutput,
+    UpdateSurveyInput,
+} from '../schema/surveys.js'
+import {
+    CreateSurveyInputSchema,
+    GetSurveySpecificStatsInputSchema,
+    GetSurveyStatsInputSchema,
+    ListSurveysInputSchema,
+    SurveyListItemOutputSchema,
+    SurveyOutputSchema,
+    SurveyResponseStatsOutputSchema,
+    UpdateSurveyInputSchema,
+} from '../schema/surveys.js'
+import { buildApiFetcher } from './fetcher'
+import { type Schemas, createApiClient } from './generated'
+import { globalRateLimiter } from './rate-limiter'
 
 // Global search types
 export const SearchableEntitySchema = z.enum([
@@ -94,30 +118,6 @@ export const SearchResponseSchema = z.object({
     counts: z.record(z.number().nullable()),
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
-import { LogAttributeValueSchema, LogsListAttributesResponseSchema, LogsQueryResponseSchema } from '../schema/logs.js'
-import type {
-    CreateSurveyInput,
-    GetSurveySpecificStatsInput,
-    GetSurveyStatsInput,
-    ListSurveysInput,
-    SurveyListItemOutput,
-    SurveyOutput,
-    SurveyResponseStatsOutput,
-    UpdateSurveyInput,
-} from '../schema/surveys.js'
-import {
-    CreateSurveyInputSchema,
-    GetSurveySpecificStatsInputSchema,
-    GetSurveyStatsInputSchema,
-    ListSurveysInputSchema,
-    SurveyListItemOutputSchema,
-    SurveyOutputSchema,
-    SurveyResponseStatsOutputSchema,
-    UpdateSurveyInputSchema,
-} from '../schema/surveys.js'
-import { buildApiFetcher } from './fetcher'
-import { type Schemas, createApiClient } from './generated'
-import { globalRateLimiter } from './rate-limiter'
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
@@ -159,6 +159,7 @@ export class ApiClient {
     private async fetchWithSchema<T>(url: string, schema: z.ZodType<T>, options?: RequestInit): Promise<Result<T>> {
         const maxRetries = 3
         const baseBackoffMs = 2000
+        const method = options?.method ?? 'GET'
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
@@ -183,17 +184,18 @@ export class ApiClient {
                             : baseBackoffMs * Math.pow(2, attempt)
 
                         console.warn(
-                            `Rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `[API] Rate limited (429) on ${method} ${url}. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
                         )
                         await new Promise((resolve) => setTimeout(resolve, delayMs))
                         continue
                     }
                     // Max retries exceeded
                     const errorText = await response.text()
+                    console.error(`[API] Rate limit exceeded after ${maxRetries} retries on ${method} ${url}`)
                     return {
                         success: false,
                         error: new Error(
-                            `Rate limit exceeded after ${maxRetries} retries:\nStatus Code: ${response.status}\nError Message: ${errorText}`
+                            `Rate limit exceeded after ${maxRetries} retries:\nURL: ${method} ${url}\nStatus Code: ${response.status}\nError Message: ${errorText}`
                         ),
                     }
                 }
@@ -213,11 +215,13 @@ export class ApiClient {
                     }
 
                     if (errorData.type === 'validation_error' && errorData.code) {
+                        console.error(`[API] Validation error on ${method} ${url}: ${errorData.code}`)
                         throw new Error(`Validation error: ${errorData.code}`)
                     }
 
+                    console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
                     throw new Error(
-                        `Request failed:\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
+                        `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
                     )
                 }
 
@@ -225,7 +229,15 @@ export class ApiClient {
                 const parseResult = schema.safeParse(rawData)
 
                 if (!parseResult.success) {
-                    throw new Error(`Response validation failed: ${parseResult.error.message}`)
+                    const rawDataKeysJSON = JSON.stringify(Object.keys(rawData as any))
+                    console.error(
+                        `[API] Schema validation failed on ${method} ${url}:\n` +
+                            `  Error: ${parseResult.error.message}\n` +
+                            `  Raw response keys: ${rawDataKeysJSON}`
+                    )
+                    throw new Error(
+                        `Response validation failed on ${method} ${url}: ${parseResult.error.message}\nResponse keys: ${rawDataKeysJSON}`
+                    )
                 }
 
                 return { success: true, data: parseResult.data }
@@ -412,6 +424,70 @@ export class ApiClient {
                     const parsedData = responseSchema.parse(data)
 
                     return { success: true, data: parsedData.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            updateEventDefinition: async ({
+                projectId,
+                eventName,
+                data,
+            }: {
+                projectId: string
+                eventName: string
+                data: {
+                    description?: string
+                    tags?: string[]
+                    verified?: boolean
+                    hidden?: boolean
+                }
+            }): Promise<Result<ApiEventDefinition>> => {
+                try {
+                    // Fetching the event definition by name to get its ID
+                    const searchParams = new URLSearchParams({ name: eventName })
+                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+
+                    const findResponse = await fetch(findUrl, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
+
+                    if (findResponse.status === 404) {
+                        return {
+                            success: false,
+                            error: new Error(`Event definition not found: ${eventName}`),
+                        }
+                    }
+
+                    if (!findResponse.ok) {
+                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                    }
+
+                    const eventDef = await findResponse.json()
+                    const parsedEventDef = ApiEventDefinitionSchema.parse(eventDef)
+
+                    // Updating the event definition by ID
+                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${parsedEventDef.id}/`
+
+                    const updateResponse = await fetch(updateUrl, {
+                        method: 'PATCH',
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data),
+                    })
+
+                    if (!updateResponse.ok) {
+                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                    }
+
+                    const responseData = await updateResponse.json()
+                    const parsedData = ApiEventDefinitionSchema.parse(responseData)
+
+                    return { success: true, data: parsedData }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -1014,6 +1090,7 @@ export class ApiClient {
 
                 const queryResponseSchema = z.object({
                     results: z.any(),
+                    columns: z.any(),
                 })
 
                 return this.fetchWithSchema(url, queryResponseSchema, {
@@ -1582,13 +1659,10 @@ export class ApiClient {
             }): Promise<Result<{ success: boolean; message: string }>> => {
                 try {
                     // First fetch the action to get its name (required by backend validation)
-                    const getResponse = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'GET',
-                            headers: this.buildHeaders(),
-                        }
-                    )
+                    const getResponse = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
+                        method: 'GET',
+                        headers: this.buildHeaders(),
+                    })
 
                     if (!getResponse.ok) {
                         throw new Error(`Failed to fetch action: ${getResponse.statusText}`)
@@ -1596,14 +1670,11 @@ export class ApiClient {
 
                     const action = (await getResponse.json()) as { name: string }
 
-                    const response = await fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`,
-                        {
-                            method: 'PATCH',
-                            headers: this.buildHeaders(),
-                            body: JSON.stringify({ name: action.name, deleted: true }),
-                        }
-                    )
+                    const response = await fetch(`${this.baseUrl}/api/projects/${projectId}/actions/${actionId}/`, {
+                        method: 'PATCH',
+                        headers: this.buildHeaders(),
+                        body: JSON.stringify({ name: action.name, deleted: true }),
+                    })
 
                     if (!response.ok) {
                         throw new Error(`Failed to delete action: ${response.statusText}`)
