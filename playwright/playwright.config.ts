@@ -1,19 +1,14 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-// require('dotenv').config();
-
-/**
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
+    // globalSetup: './setup/workspace.setup.ts',
     testDir: '.',
-    /* 
-        Maximum time one test can run for. 
-        Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
+    /*
+        Maximum time one test can run for.
+        Must be >= expect timeout so assertions can complete before the test times out.
     */
     timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
     expect: {
@@ -31,13 +26,13 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: process.env.CI ? 3 : 2,
+    retries: 0,
     /* 
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: process.env.CI ? 3 : 6,
+    workers: 3,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [
         ['html', { open: 'never' }],
@@ -48,7 +43,7 @@ export default defineConfig({
         /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
         actionTimeout: 0,
         /* Base URL to use in actions like `await page.goto('/')`. */
-        baseURL: process.env.CI ? 'http://localhost:8000' : process.env.BASE_URL || 'http://localhost:8080',
+        baseURL: process.env.BASE_URL || 'http://localhost:8000',
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
         trace: 'on-first-retry',
