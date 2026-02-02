@@ -37,6 +37,7 @@ py_library(
         "@pypi//clickhouse_pool",
         "@pypi//infi_clickhouse_orm",
         "@pypi//kafka_python",
+        "@pypi//confluent_kafka",
         "@pypi//opentelemetry_api",
         "@pypi//opentelemetry_sdk",
         "@pypi//nexus_rpc",

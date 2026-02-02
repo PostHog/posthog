@@ -1317,8 +1317,12 @@ jobs:
 
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        needs: [changes, bazel-tests, get_clickhouse_versions]
+        # Run if legacy code changed or product changes affect legacy
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            (needs.changes.outputs.legacy == 'true' || needs.bazel-tests.outputs.run_legacy == 'true')
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
