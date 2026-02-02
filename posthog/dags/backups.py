@@ -48,6 +48,7 @@ def get_max_backup_bandwidth() -> str:
 
 
 SHARDED_TABLES = [
+    "sharded_events",
     "sharded_app_metrics",
     "sharded_app_metrics2",
     "sharded_heatmaps",
@@ -57,7 +58,6 @@ SHARDED_TABLES = [
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
     "sharded_sessions",
-    "sharded_events",
 ]
 
 NON_SHARDED_TABLES = [
@@ -70,19 +70,15 @@ NON_SHARDED_TABLES = [
     "groups",
     "infi_clickhouse_orm_migrations",
     "log_entries",
-    "metrics_query_log",
     "metrics_time_to_see_data",
-    "pending_person_deletes_reporting",
     "person",
     "person_collapsing",
-    "person_distinct_id",
     "person_distinct_id2",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
     "pg_embeddings",
     "plugin_log_entries",
-    "swap_person_distinct_id",
 ]
 
 
