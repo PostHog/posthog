@@ -187,7 +187,7 @@ def test_segments_and_embeddings():
         metadata = segment.get("metadata", {})
         _test_segments.append(
             VideoSegmentMetadata(
-                document_id=segment.get("document_id"),
+                document_id=segment["document_id"],
                 session_id=metadata.get("session_id", ""),
                 start_time=metadata.get("start_time", ""),
                 end_time=metadata.get("end_time", ""),
@@ -196,7 +196,7 @@ def test_segments_and_embeddings():
                 session_duration=metadata.get("session_duration", 0),
                 session_active_seconds=metadata.get("session_active_seconds", 0),
                 distinct_id=metadata.get("distinct_id", ""),
-                content=segment.get("content", ""),
+                content=segment["content"],
             )
         )
 
