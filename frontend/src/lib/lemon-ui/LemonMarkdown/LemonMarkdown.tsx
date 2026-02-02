@@ -1,6 +1,7 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
+import { props } from 'kea'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -30,8 +31,6 @@ export interface LemonMarkdownProps {
     disableDocsRedirect?: boolean
     className?: string
     wrapCode?: boolean
-    /** Custom renderers to override default behavior */
-    customRenderers?: Partial<Record<string, React.ElementType>>
 }
 
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
@@ -39,7 +38,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     wrapCode = false,
-    customRenderers,
 }: LemonMarkdownProps): JSX.Element {
     const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
         () => ({
@@ -65,16 +63,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                 }
                 // Regular list item
-                return <li>{children}</li>
+                return <li {...props}>{children}</li>
             },
             ...(lowKeyHeadings
                 ? {
                       heading: 'strong',
                   }
                 : {}),
-            ...customRenderers,
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode, customRenderers]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode]
     )
 
     return (
@@ -96,7 +93,6 @@ function LemonMarkdownComponent({
     disableDocsRedirect = false,
     wrapCode = false,
     className,
-    customRenderers,
 }: LemonMarkdownProps): JSX.Element {
     return (
         <LemonMarkdownContainer className={className}>
@@ -104,7 +100,6 @@ function LemonMarkdownComponent({
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
                 wrapCode={wrapCode}
-                customRenderers={customRenderers}
             >
                 {children}
             </LemonMarkdownRenderer>
