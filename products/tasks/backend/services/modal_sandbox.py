@@ -117,12 +117,19 @@ class ModalSandbox:
     config: SandboxConfig
     _sandbox: modal.Sandbox
     _app: modal.App
+    _sandbox_url: str | None
 
-    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig):
+    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
         self._app = ModalSandbox._get_app_for_template(config.template)
+        self._sandbox_url = sandbox_url
+
+    @property
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        return self._sandbox_url
 
     @staticmethod
     def _get_default_app() -> modal.App:
@@ -424,6 +431,27 @@ class ModalSandbox:
             logger.warning(f"Task stderr preview: {result.stderr[:500]}")
 
         return result
+
+    def start_agent_server(self, repository: str) -> str:
+        """
+        Start the agent-server HTTP server in the sandbox.
+
+        For Modal sandboxes, this uses Modal's tunnel feature to expose the port.
+        Currently not implemented - Modal tunnels require additional setup.
+
+        Args:
+            repository: Repository in org/repo format
+
+        Returns:
+            The sandbox URL for connecting to the agent server
+
+        Raises:
+            NotImplementedError: Modal agent server support is not yet implemented
+        """
+        raise NotImplementedError(
+            "Modal agent server support requires Modal tunnel configuration. "
+            "Use Docker sandbox for local development testing."
+        )
 
     def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
         create_pr_flag = "true" if create_pr else "false"

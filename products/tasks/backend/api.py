@@ -23,6 +23,7 @@ from posthog.storage import object_storage
 
 from .models import Task, TaskRun
 from .serializers import (
+    ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
@@ -334,6 +335,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Task ID is required")
         task = Task.objects.get(id=task_id, team=self.team)
         serializer.save(team=self.team, task=task)
+        # Note: Workflow is triggered by the /tasks/{id}/run/ endpoint, not here
 
     @validated_request(
         request_serializer=None,
@@ -517,3 +519,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
         return response
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=ConnectionTokenResponseSerializer,
+                description="Connection token for direct sandbox connection",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get sandbox connection token",
+        description="Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.",
+    )
+    @action(detail=True, methods=["get"], url_path="connection_token", required_scopes=["task:read"])
+    def connection_token(self, request, pk=None, **kwargs):
+        from .services.connection_token import create_sandbox_connection_token
+
+        task_run = cast(TaskRun, self.get_object())
+        user = request.user
+
+        token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=user.id,
+            distinct_id=user.distinct_id,
+        )
+
+        return Response(ConnectionTokenResponseSerializer({"token": token}).data)

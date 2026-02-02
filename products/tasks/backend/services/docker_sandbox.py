@@ -4,6 +4,7 @@ import uuid
 import shlex
 import base64
 import shutil
+import socket
 import logging
 import tempfile
 import subprocess
@@ -31,6 +32,7 @@ WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
+AGENT_SERVER_PORT = 3001
 
 
 class DockerSandbox:
@@ -42,13 +44,29 @@ class DockerSandbox:
     id: str
     config: SandboxConfig
     _container_id: str
+    _host_port: int | None
     _registry: dict[str, "DockerSandbox"] = {}
 
-    def __init__(self, container_id: str, config: SandboxConfig):
+    def __init__(self, container_id: str, config: SandboxConfig, host_port: int | None = None):
         self._container_id = container_id
         self.id = container_id[:12]
         self.config = config
+        self._host_port = host_port
         DockerSandbox._registry[self.id] = self
+
+    @property
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        if self._host_port is None:
+            return None
+        return f"http://localhost:{self._host_port}"
+
+    @staticmethod
+    def _find_available_port() -> int:
+        """Find an available port on the host machine."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
 
     @staticmethod
     def _run(args: list[str], check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess:
@@ -101,12 +119,22 @@ class DockerSandbox:
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
 
+        # Also copy the shared package from the same monorepo
+        local_shared_path = os.path.join(os.path.dirname(local_agent_path), "shared")
+
         with tempfile.TemporaryDirectory() as tmpdir:
             shutil.copytree(
                 local_agent_path,
                 os.path.join(tmpdir, "local-agent"),
                 ignore=shutil.ignore_patterns("node_modules"),
             )
+
+            if os.path.isdir(local_shared_path):
+                shutil.copytree(
+                    local_shared_path,
+                    os.path.join(tmpdir, "local-shared"),
+                    ignore=shutil.ignore_patterns("node_modules"),
+                )
 
             DockerSandbox._run(
                 [
@@ -190,6 +218,9 @@ class DockerSandbox:
             if os.path.exists(runagent_path):
                 volume_args.extend(["-v", f"{runagent_path}:/scripts/runAgent.mjs:ro"])
 
+            host_port = DockerSandbox._find_available_port()
+            port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
+
             docker_args = [
                 "docker",
                 "run",
@@ -204,6 +235,7 @@ class DockerSandbox:
                 f"--cpus={config.cpu_cores}",
                 *env_args,
                 *volume_args,
+                *port_args,
                 image,
                 "tail",
                 "-f",
@@ -213,8 +245,8 @@ class DockerSandbox:
             result = DockerSandbox._run(docker_args, check=True)
             container_id = result.stdout.strip()
 
-            sandbox = DockerSandbox(container_id=container_id, config=config)
-            logger.info(f"Created Docker sandbox {sandbox.id} for {config.name}")
+            sandbox = DockerSandbox(container_id=container_id, config=config, host_port=host_port)
+            logger.info(f"Created Docker sandbox {sandbox.id} for {config.name} (port {host_port})")
 
             return sandbox
 
@@ -513,6 +545,63 @@ class DockerSandbox:
             logger.warning(f"Task stderr:\n{result.stderr}")
 
         return result
+
+    def start_agent_server(self, repository: str) -> str:
+        """
+        Start the agent-server HTTP server in the sandbox.
+
+        Args:
+            repository: Repository in org/repo format
+
+        Returns:
+            The sandbox URL for connecting to the agent server
+        """
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
+
+        if self._host_port is None:
+            raise RuntimeError("Sandbox was not created with port exposure.")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        command = (
+            f"cd /scripts && "
+            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
+            f"> /tmp/agent-server.log 2>&1 &"
+        )
+
+        logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
+        logger.info(f"Command: {command}")
+
+        result = self.execute(command, timeout_seconds=30)
+
+        if result.exit_code != 0:
+            logger.error(f"Failed to start agent-server: {result.stderr}")
+            raise SandboxExecutionError(
+                "Failed to start agent-server",
+                {"sandbox_id": self.id, "stderr": result.stderr},
+                cause=RuntimeError(result.stderr),
+            )
+
+        import time
+
+        time.sleep(2)
+
+        health_result = self.execute(
+            f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health", timeout_seconds=10
+        )
+        if health_result.stdout.strip() != "200":
+            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            logger.error(f"Agent-server health check failed. Log output:\n{log_result.stdout}")
+            raise SandboxExecutionError(
+                "Agent-server failed to start",
+                {"sandbox_id": self.id, "health_status": health_result.stdout, "log": log_result.stdout},
+                cause=RuntimeError("Health check failed"),
+            )
+
+        logger.info(f"Agent-server started successfully on port {self._host_port}")
+        return self.sandbox_url  # type: ignore
 
     def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
         create_pr_flag = "true" if create_pr else "false"

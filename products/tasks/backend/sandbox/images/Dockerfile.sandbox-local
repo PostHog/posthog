@@ -4,7 +4,13 @@
 
 FROM posthog-sandbox-base
 
+COPY local-shared /local-shared
 COPY local-agent /local-agent
-RUN cd /local-agent && npm pack && \
-    cd /scripts && npm install /local-agent/*.tgz && \
-    rm -rf /local-agent
+
+# Pack shared first, then update agent's dependency to use the tarball, then pack and install agent
+RUN cd /local-shared && pnpm pack && \
+    cd /local-agent && \
+    sed -i 's/"@posthog\/shared": "workspace:\*"/"@posthog\/shared": "file:\/local-shared\/posthog-shared-1.0.0.tgz"/' package.json && \
+    pnpm pack && \
+    cd /scripts && pnpm install /local-agent/*.tgz && \
+    rm -rf /local-agent /local-shared

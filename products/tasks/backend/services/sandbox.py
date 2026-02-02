@@ -59,6 +59,11 @@ class SandboxProtocol(Protocol):
     id: str
     config: SandboxConfig
 
+    @property
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        ...
+
     @staticmethod
     def create(config: SandboxConfig) -> "SandboxProtocol": ...
 
@@ -83,6 +88,10 @@ class SandboxProtocol(Protocol):
     def is_git_clean(self, repository: str) -> tuple[bool, str]: ...
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
+
+    def start_agent_server(self, repository: str) -> str:
+        """Start the agent-server HTTP server and return the sandbox URL."""
+        ...
 
     def create_snapshot(self) -> str: ...
 

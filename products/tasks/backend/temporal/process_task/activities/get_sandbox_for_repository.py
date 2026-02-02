@@ -76,6 +76,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": settings.SITE_URL,
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
+            "JWT_SECRET": settings.SECRET_KEY,
         }
 
         config = SandboxConfig(
