@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -53,7 +54,7 @@ export function SdkDoctorScene(): JSX.Element {
                 description="Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications."
                 resourceType={{
                     to: undefined,
-                    type: 'health',
+                    type: 'sdk_doctor',
                 }}
                 actions={
                     <>
@@ -62,6 +63,7 @@ export function SdkDoctorScene(): JSX.Element {
                             type="primary"
                             disabledReason={loading ? 'Scan in progress' : undefined}
                             onClick={scanEvents}
+                            icon={<IconRefresh className="size-4" />}
                         >
                             {loading ? 'Scanning events...' : 'Scan events'}
                         </LemonButton>

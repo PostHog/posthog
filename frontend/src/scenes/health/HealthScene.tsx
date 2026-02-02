@@ -1,4 +1,4 @@
-import { IconDatabase, IconWarning } from '@posthog/icons'
+import { IconCode, IconDatabase, IconRefresh, IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -10,7 +10,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { healthSceneLogic } from './healthSceneLogic'
-import { IconHealthPlus } from './icons'
 
 export const scene: SceneExport = {
     component: HealthScene,
@@ -52,12 +51,12 @@ export function HealthScene(): JSX.Element {
                 name="Health"
                 description="See an at-a-glance view of the health of your project."
                 resourceType={{
-                    to: undefined,
                     type: 'health',
                 }}
                 actions={
-                    <LemonButton type="primary" size="small">
-                        Refresh
+                    // TODO: Implement refresh all
+                    <LemonButton type="primary" size="small" icon={<IconRefresh className="size-4" />}>
+                        Refresh all
                     </LemonButton>
                 }
             />
@@ -78,14 +77,14 @@ export function HealthScene(): JSX.Element {
                 <HealthCard
                     title="SDK health"
                     description="Click to view"
-                    icon={<IconHealthPlus className="size-6" />}
+                    icon={<IconCode className="size-6" />}
                     to={urls.sdkDoctor()}
                 />
                 <HealthCard
                     title="Pipelines status"
                     description="Click to view"
                     icon={<IconDatabase className="size-6" />}
-                    to={urls.sdkDoctor()}
+                    to={urls.pipelineStatus()}
                 />
             </div>
         </SceneContent>

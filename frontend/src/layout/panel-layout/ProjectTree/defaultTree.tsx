@@ -285,6 +285,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     sdk_doctor: {
         icon: <IconCode />,
     },
+    pipeline_status: {
+        icon: <IconDatabase />,
+    },
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {

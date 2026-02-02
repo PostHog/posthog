@@ -2893,6 +2893,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'sdk_doctor'
+    | 'pipeline_status'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

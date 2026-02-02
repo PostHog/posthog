@@ -471,6 +471,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Health',
         description: 'Monitor the health of your PostHog integrations.',
+        iconType: 'health',
+    },
+    [Scene.PipelineStatus]: {
+        projectBased: true,
+        name: 'Pipeline status',
+        description: 'Monitor the status of your data pipelines.',
+        iconType: 'pipeline_status',
     },
     [Scene.SdkDoctor]: {
         projectBased: true,
@@ -830,6 +837,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
+    [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
