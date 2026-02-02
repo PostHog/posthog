@@ -31,6 +31,8 @@ export function SidePanelHealth(): JSX.Element {
     const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(sidePanelHealthLogic)
     const { loadHealthIssues } = useActions(sidePanelHealthLogic)
 
+    // PLEASE NOTE IVE REBUILLT THIS COMPONENT INTO pipelineStatusScene.tsx, any developement here should be done there also/instead. @ux-platform
+
     return (
         <div className="flex flex-col h-full">
             <SidePanelPaneHeader title="Pipeline status">
@@ -169,7 +171,7 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
     )
 }
 
-function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
+export function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
     const typeLabel = getTypeLabel(issue)
     const statusLabel = getStatusLabel(issue.status)
     const statusTagType = getStatusTagType(issue.status)
