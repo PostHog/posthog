@@ -251,6 +251,20 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
  */
 const LOG_ZERO = 1e-10
 
+/**
+ * Checks if a data point at index `i` is an anomaly based on anomaly points data.
+ * Matches by date if available, otherwise falls back to index matching.
+ */
+function isAnomalyPoint(
+    i: number,
+    chartDays: string[] | undefined,
+    anomalyDates: Set<string>,
+    anomalyIndices: Set<number>
+): boolean {
+    const chartDate = chartDays?.[i]
+    return (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
+}
+
 export function LineGraph_({
     datasets: _datasets,
     labels,
@@ -482,14 +496,12 @@ export function LineGraph_({
                 if (seriesAnomalies.length === 0) {
                     return 0
                 }
-                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean))
+                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean)) as Set<string>
                 const anomalyIndices = new Set(seriesAnomalies.map((ap) => ap.index))
                 const chartDays = dataset.days as string[] | undefined
-                return dataset.data.map((_: unknown, i: number) => {
-                    const chartDate = chartDays?.[i]
-                    const isAnomaly = (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
-                    return isAnomaly ? 6 : 0
-                })
+                return dataset.data.map((_: unknown, i: number) =>
+                    isAnomalyPoint(i, chartDays, anomalyDates, anomalyIndices) ? 6 : 0
+                )
             })(),
             pointBackgroundColor: (() => {
                 if (isBar || !Array.isArray(dataset.data)) {
@@ -499,14 +511,12 @@ export function LineGraph_({
                 if (seriesAnomalies.length === 0) {
                     return undefined
                 }
-                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean))
+                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean)) as Set<string>
                 const anomalyIndices = new Set(seriesAnomalies.map((ap) => ap.index))
                 const chartDays = dataset.days as string[] | undefined
-                return dataset.data.map((_: unknown, i: number) => {
-                    const chartDate = chartDays?.[i]
-                    const isAnomaly = (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
-                    return isAnomaly ? '#F44336' : 'transparent'
-                })
+                return dataset.data.map((_: unknown, i: number) =>
+                    isAnomalyPoint(i, chartDays, anomalyDates, anomalyIndices) ? '#F44336' : 'transparent'
+                )
             })(),
             pointBorderColor: (() => {
                 if (isBar || !Array.isArray(dataset.data)) {
@@ -516,14 +526,12 @@ export function LineGraph_({
                 if (seriesAnomalies.length === 0) {
                     return undefined
                 }
-                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean))
+                const anomalyDates = new Set(seriesAnomalies.map((ap) => ap.date).filter(Boolean)) as Set<string>
                 const anomalyIndices = new Set(seriesAnomalies.map((ap) => ap.index))
                 const chartDays = dataset.days as string[] | undefined
-                return dataset.data.map((_: unknown, i: number) => {
-                    const chartDate = chartDays?.[i]
-                    const isAnomaly = (chartDate && anomalyDates.has(chartDate)) || anomalyIndices.has(i)
-                    return isAnomaly ? '#B71C1C' : 'transparent'
-                })
+                return dataset.data.map((_: unknown, i: number) =>
+                    isAnomalyPoint(i, chartDays, anomalyDates, anomalyIndices) ? '#B71C1C' : 'transparent'
+                )
             })(),
             pointBorderWidth: 2,
             hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,

@@ -10,7 +10,7 @@ import { getInterval, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps, IntervalType } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertCheck, AlertType } from './types'
+import { AlertType } from './types'
 
 export interface AnomalyPoint {
     index: number
@@ -124,29 +124,37 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                         continue
                     }
 
-                    const latestCheck = alert.checks.find((check: AlertCheck) => {
-                        if (!check.triggered_points || check.triggered_points.length === 0) {
-                            return false
-                        }
-                        if (check.interval && currentInterval && check.interval !== currentInterval) {
-                            return false
-                        }
-                        return true
-                    })
+                    // Only consider the most recent check - don't show stale anomaly data from older checks
+                    const mostRecentCheck = alert.checks[0]
+                    if (!mostRecentCheck?.triggered_points || mostRecentCheck.triggered_points.length === 0) {
+                        continue
+                    }
 
-                    if (!latestCheck?.triggered_points) {
+                    // Skip if interval doesn't match current insight interval
+                    if (
+                        mostRecentCheck.interval &&
+                        currentInterval &&
+                        mostRecentCheck.interval !== currentInterval
+                    ) {
                         continue
                     }
 
                     const seriesIndex = alert.config?.series_index ?? 0
-                    const scores = latestCheck.anomaly_scores ?? []
-                    const dates = latestCheck.triggered_dates ?? []
+                    const scores = mostRecentCheck.anomaly_scores ?? []
+                    const dates = mostRecentCheck.triggered_dates ?? []
 
-                    for (let i = 0; i < latestCheck.triggered_points.length; i++) {
-                        const index = latestCheck.triggered_points[i]
-                        const score = scores.length === 1 ? scores[0] : scores[index]
+                    for (let i = 0; i < mostRecentCheck.triggered_points.length; i++) {
+                        const dataIndex = mostRecentCheck.triggered_points[i]
+                        // Use scores[i] when scores array matches triggered_points length,
+                        // otherwise use scores[dataIndex] for full-length score arrays
+                        const score =
+                            scores.length === 1
+                                ? scores[0]
+                                : scores.length === mostRecentCheck.triggered_points.length
+                                  ? scores[i]
+                                  : scores[dataIndex]
                         points.push({
-                            index,
+                            index: dataIndex,
                             date: dates[i] ?? null,
                             score: score ?? null,
                             alertId: alert.id,
