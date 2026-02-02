@@ -464,7 +464,13 @@ export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
-    endpoint: (name: string): string => `/endpoints/${name}`,
+    endpoint: (name: string, version?: number): string => {
+        const searchParams: Record<string, string> = {}
+        if (version) {
+            searchParams.version = String(version)
+        }
+        return combineUrl(`/endpoints/${name}`, searchParams).url
+    },
     endpointsUsage: (params?: {
         endpointFilter?: string[]
         dateFrom?: string
@@ -1076,7 +1082,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Endpoints',
         intents: [ProductKey.ENDPOINTS],
-        category: 'Unreleased',
+        category: 'Tools',
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
@@ -1413,7 +1419,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Endpoints',
-        category: 'Unreleased',
+        category: 'Tools',
         iconType: 'endpoints' as FileSystemIconType,
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         href: urls.endpoints(),

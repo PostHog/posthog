@@ -2886,7 +2886,7 @@
             "atlas-cloud-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
-                "cache_read_token": 3e-7
+                "cache_read_token": 3e-8
             },
             "chutes-fp8": {
                 "prompt_token": 2.7e-7,
@@ -3636,7 +3636,7 @@
                 "completion_token": 0.0000028,
                 "cache_read_token": 2.8e-7
             },
-            "chutes": {
+            "chutes-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003
             },
@@ -7050,9 +7050,9 @@
                 "completion_token": 0.0000015
             },
             "deepinfra-fp4": {
-                "prompt_token": 4.3e-7,
-                "completion_token": 0.00000175,
-                "cache_read_token": 7.99999993e-8
+                "prompt_token": 4e-7,
+                "completion_token": 0.0000019,
+                "cache_read_token": 8e-8
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
