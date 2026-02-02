@@ -12,7 +12,7 @@ SummaryType = Literal["single", "group"]
 
 def capture_session_summary_timing(
     *,
-    distinct_id: str | None,
+    user_distinct_id: str | None,
     team: Team,
     session_id: str,
     timing_type: Literal["video_render", "transcript", "single_session_flow", "group_session_flow"],
@@ -20,7 +20,7 @@ def capture_session_summary_timing(
     success: bool,
     extra_properties: dict | None = None,
 ) -> None:
-    if not distinct_id:
+    if not user_distinct_id:
         return
     properties: dict = {
         "session_id": session_id,
@@ -31,7 +31,7 @@ def capture_session_summary_timing(
     if extra_properties:
         properties.update(extra_properties)
     posthoganalytics.capture(
-        distinct_id=distinct_id,
+        distinct_id=user_distinct_id,
         event="session summary timing",
         properties=properties,
         groups=groups(None, team),

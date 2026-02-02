@@ -200,7 +200,7 @@ async def analyze_video_segment_activity(
         duration_seconds = time.monotonic() - start_time
         team = await Team.objects.aget(id=inputs.team_id)
         capture_session_summary_timing(
-            distinct_id=inputs.user_distinct_id_to_log,
+            user_distinct_id=inputs.user_distinct_id_to_log,
             team=team,
             session_id=inputs.session_id,
             timing_type="transcript",
