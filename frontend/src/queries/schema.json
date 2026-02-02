@@ -27871,6 +27871,9 @@
                 "recording_ts_from_s": {
                     "type": "number"
                 },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
                 "ts_from_s": {
                     "type": "number"
                 },

@@ -3187,6 +3187,7 @@ class ReplayInactivityPeriod(BaseModel):
     )
     active: bool
     recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
     ts_from_s: float
     ts_to_s: float | None = None
 

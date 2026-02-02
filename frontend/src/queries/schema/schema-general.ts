@@ -5387,4 +5387,5 @@ export interface ReplayInactivityPeriod {
     ts_to_s?: number
     active: boolean
     recording_ts_from_s?: number
+    recording_ts_to_s?: number
 }
