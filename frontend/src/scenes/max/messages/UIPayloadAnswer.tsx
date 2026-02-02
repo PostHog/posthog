@@ -47,6 +47,15 @@ export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'upsert_dashboard',
 ]
 
+export function shouldRenderUIPayloadAnswer(toolName: string, toolPayload: unknown): boolean {
+    return (
+        (RENDERABLE_UI_PAYLOAD_TOOLS as readonly string[]).includes(toolName) ||
+        isDangerousOperationResponse(toolPayload)
+    )
+}
+
+// Renders rich UI for a small set of tools that return structured payloads (recordings search,
+// error-tracking search, create_form, upsert_dashboard) and for dangerous-operation approval cards.
 export function UIPayloadAnswer({
     toolCallId,
     toolName,
