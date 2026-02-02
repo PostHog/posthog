@@ -13,6 +13,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -199,7 +200,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         appendMessageToConversation: (message: string) => ({ message }),
-        loadQueuedMessages: true,
         enqueueQueuedMessage: (payload: {
             content: string
             uiContext?: MaxUIContext
@@ -322,6 +322,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         queuedMessages: [
             [] as ConversationQueueMessage[],
             {
+                loadQueueDataSuccess: (_, { queueData }) => queueData.messages,
                 setQueuedMessages: (_, { messages }) => messages,
                 consumeQueuedMessage: (state, { message }) => state.filter((item) => item.id !== message.id),
                 clearQueuedMessages: () => [],
@@ -331,6 +332,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         queueLimit: [
             0,
             {
+                loadQueueDataSuccess: (_, { queueData }) => queueData.limit,
                 setQueueLimit: (_, { limit }) => limit,
             },
         ],
@@ -499,6 +501,29 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setSupportOverrideEnabled: (_, { enabled }) => enabled,
                 // Reset when changing conversations
                 setConversation: () => false,
+            },
+        ],
+    })),
+
+    loaders(({ values }) => ({
+        queueData: [
+            { messages: [] as ConversationQueueMessage[], limit: 0 },
+            {
+                loadQueueData: async () => {
+                    if (!values.queueingEnabled || !values.conversation?.id) {
+                        return { messages: [], limit: 0 }
+                    }
+                    try {
+                        const queue = await api.conversations.queue.list(values.conversation.id)
+                        return { messages: queue.messages, limit: queue.max_queue_messages }
+                    } catch (error: any) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return { messages: [], limit: 0 }
+                        }
+                        lemonToast.error(error?.data?.detail || 'Failed to load queued messages.')
+                        return { messages: [], limit: 0 }
+                    }
+                },
             },
         ],
     })),
@@ -687,7 +712,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setQueuedMessages([])
                 actions.setQueueLimit(0)
                 if (values.queueingEnabled && conversation?.id) {
-                    actions.loadQueuedMessages()
+                    actions.loadQueueData()
                 }
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
@@ -701,26 +726,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
             // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
-        },
-        loadQueuedMessages: async () => {
-            if (!values.queueingEnabled || !values.conversation?.id) {
-                actions.setQueuedMessages([])
-                actions.setQueueLimit(0)
-                return
-            }
-            try {
-                const queue = await api.conversations.queue.list(values.conversation.id)
-                actions.setQueuedMessages(queue.messages)
-                actions.setQueueLimit(queue.max_queue_messages)
-            } catch (error: any) {
-                if (error instanceof ApiError && error.status === 404) {
-                    actions.setQueuedMessages([])
-                    actions.setQueueLimit(0)
-
-                    return
-                }
-                lemonToast.error(error?.data?.detail || 'Failed to load queued messages.')
-            }
         },
         enqueueQueuedMessage: async ({ content, contextualTools, uiContext, billingContext, agentMode }) => {
             if (!values.queueingEnabled || !values.conversation?.id) {
@@ -1016,7 +1021,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.loadConversation(values.conversation.id)
 
             if (values.queueingEnabled && values.conversation?.id) {
-                actions.loadQueuedMessages()
+                actions.loadQueueData()
             }
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
@@ -1556,7 +1561,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         if (values.queueingEnabled && values.conversation?.id) {
-            actions.loadQueuedMessages()
+            actions.loadQueueData()
         }
 
         if (values.autoRun && values.question) {
@@ -1592,7 +1597,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
         queueingEnabled: (enabled: boolean) => {
             if (enabled) {
-                actions.loadQueuedMessages()
+                actions.loadQueueData()
             }
         },
     })),
@@ -1755,7 +1760,7 @@ export async function onEventImplementation(
                 // Fallback – if we somehow don't have a provisional Human message, just add it
                 actions.addMessage({ ...parsedResponse, status: 'completed' })
                 if (values.queueingEnabled && values.conversation?.id) {
-                    actions.loadQueuedMessages()
+                    actions.loadQueueData()
                 }
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {

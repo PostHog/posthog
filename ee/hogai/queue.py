@@ -37,7 +37,7 @@ class ConversationQueueStore:
     cache_timeout_seconds: int = QUEUE_CACHE_TIMEOUT_SECONDS
 
     def _cache_key(self) -> str:
-        return f"max_conversation_queue_{self.conversation_id}"
+        return f"phai:max_conversation_queue_{self.conversation_id}"
 
     def _lock_key(self) -> str:
         return f"{self._cache_key()}_lock"
