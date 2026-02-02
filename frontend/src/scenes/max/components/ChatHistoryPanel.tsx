@@ -15,6 +15,7 @@ import { maxLogic } from '../maxLogic'
 import { CHAT_HISTORY_COLLAPSE_THRESHOLD, maxPanelSizingLogic } from '../maxPanelSizingLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { SuggestionsPanel } from './SuggestionsPanel'
+import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 
 interface ChatHistoryPanelProps {
     tabId: string
@@ -63,35 +64,46 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
             ref={chatHistoryPanelRef}
         >
             <div className="flex items-center gap-1 w-full p-2 pl-2">
-                <ButtonPrimitive
-                    onClick={toggleChatHistoryPanelCollapsed}
-                    tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
-                    className="shrink-0 z-50 h-[32px]"
-                    iconOnly
-                >
-                    <IconSidebarClose
-                        className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
+                {isSearching ? (
+                    <TextInputPrimitive
+                        type="search"
+                        placeholder="Search chats"
+                    // value={searchQuery}
+                    // onChange={(e) => setSearchQuery(e)}
                     />
-                </ButtonPrimitive>
-                {!isChatHistoryPanelCollapsed && (
+                ) : (
                     <>
-                        <h3 className="text-sm font-semibold mb-0 flex-1">Chat history</h3>
                         <ButtonPrimitive
-                            variant="outline"
+                            onClick={toggleChatHistoryPanelCollapsed}
+                            tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
+                            className="shrink-0 z-50 h-[32px]"
                             iconOnly
-                            onClick={() => setIsSearching(!isSearching)}
-                            tooltip="Search chats"
                         >
-                            {isSearching ? <IconX className="text-tertiary size-4" /> : <IconSearch className="text-tertiary size-4" />}
+                            <IconSidebarClose
+                                className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
+                            />
                         </ButtonPrimitive>
-                        <ButtonPrimitive
-                            variant="outline"
-                            iconOnly
-                            onClick={() => startNewConversation()}
-                            tooltip="New chat"
-                        >
-                            <IconPlusSmall />
-                        </ButtonPrimitive>
+                        {!isChatHistoryPanelCollapsed && (
+                            <>
+                                <h3 className="text-sm font-semibold mb-0 flex-1">Chat history</h3>
+                                <ButtonPrimitive
+                                    variant="outline"
+                                    iconOnly
+                                    onClick={() => setIsSearching(!isSearching)}
+                                    tooltip="Search chats"
+                                >
+                                    {isSearching ? <IconX className="text-tertiary size-4" /> : <IconSearch className="text-tertiary size-4" />}
+                                </ButtonPrimitive>
+                                <ButtonPrimitive
+                                    variant="outline"
+                                    iconOnly
+                                    onClick={() => startNewConversation()}
+                                    tooltip="New chat"
+                                >
+                                    <IconPlusSmall />
+                                </ButtonPrimitive>
+                            </>
+                        )}
                     </>
                 )}
             </div>
@@ -119,13 +131,13 @@ function ChatHistoryPanelContent({
     isRemovingSidePanel: boolean
     tabId: string
 }): JSX.Element {
-    // const { threadLogicKey, conversation } = useValues(maxLogic)
+    const { threadLogicKey, conversation } = useValues(maxLogic)
 
-    // const threadProps: MaxThreadLogicProps = {
-    //     tabId,
-    //     conversationId: threadLogicKey,
-    //     conversation,
-    // }
+    const threadProps: MaxThreadLogicProps = {
+        tabId,
+        conversationId: threadLogicKey,
+        conversation,
+    }
 
     return (
         <div className="flex flex-col z-20 h-full overflow-hidden">
@@ -138,12 +150,12 @@ function ChatHistoryPanelContent({
                 <ConversationHistory compact />
             </ScrollableShadows>
 
-            {/* <div className="border-b border-primary h-px " />
+            <div className="border-b border-primary h-px " />
             {isRemovingSidePanel && (
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <SuggestionsPanel />
                 </BindLogic>
-            )} */}
+            )}
         </div>
     )
 }
