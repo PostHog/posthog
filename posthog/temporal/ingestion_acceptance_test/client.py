@@ -5,16 +5,15 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 import structlog
 
-# Use posthoganalytics instead of posthog to avoid conflict with local posthog/ directory
-import posthoganalytics
-
 from .config import Config
-from .utils import mask_key_value
+
+if TYPE_CHECKING:
+    from posthoganalytics import Posthog
 
 logger = structlog.get_logger(__name__)
 
@@ -48,24 +47,9 @@ class PostHogClient:
     (since the SDK doesn't support querying).
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, posthog_sdk: "Posthog"):
         self.config = config
-
-        # Instantiate the official SDK client explicitly
-        self._posthog = posthoganalytics.Posthog(
-            config.project_api_key,
-            host=config.api_host,
-            debug=True,
-            sync_mode=True,  # Send events synchronously for testing
-        )
-
-        logger.info(
-            "PostHog SDK configured",
-            sdk_host=config.api_host,
-            sdk_api_key=mask_key_value(config.project_api_key),
-            sdk_sync_mode=True,
-            sdk_debug=True,
-        )
+        self._posthog = posthog_sdk
 
     def capture_event(
         self,
