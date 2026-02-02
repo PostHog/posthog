@@ -99,7 +99,7 @@ export function HealthMenu(): JSX.Element {
                 </DropdownMenuGroup>
                 <DropdownMenuGroup className="flex flex-col gap-px pt-0">
                     <DropdownMenuItem asChild>
-                        <Link to={urls.sdkDoctor()} buttonProps={{ menuItem: true }}>
+                        <Link to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
                             <IconWarning className="size-5" />
                             Ingestion warnings
                         </Link>

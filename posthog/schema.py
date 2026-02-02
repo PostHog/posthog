@@ -1739,6 +1739,9 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
 
 
 class FileSystemViewLogEntry(BaseModel):
