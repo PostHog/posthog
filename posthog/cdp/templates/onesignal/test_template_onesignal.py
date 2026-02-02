@@ -1,7 +1,10 @@
+import pytest
 from freezegun import freeze_time
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.onesignal.template_onesignal import template as template_onesignal
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 class TestTemplateOneSignal(BaseHogFunctionTemplateTest):
@@ -42,3 +45,18 @@ class TestTemplateOneSignal(BaseHogFunctionTemplateTest):
                 "method": "POST",
             },
         )
+
+    def test_function_errors_on_bad_status(self):
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(
+                inputs={
+                    "appId": "my-app-id",
+                    "apiKey": "my_secret_key",
+                    "externalId": "PERSON_ID",
+                    "eventName": "{event.event}",
+                    "eventProperties": {},
+                    "eventTimestamp": "{event.timestamp}",
+                }
+            )
+        assert "Error sending event" in e.value.message
