@@ -25,7 +25,9 @@ from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities import (
+    CaptureTimingInputs,
     analyze_video_segment_activity,
+    capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
@@ -383,15 +385,31 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
-        # Get summary data from the DB (caches in Redis for both LLM and video-based flows)
+        start_time = temporalio.workflow.now()
         await temporalio.workflow.execute_activity(
             fetch_session_data_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        # Generate session summary
         await ensure_llm_single_session_summary(inputs)
+        duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
+        await temporalio.workflow.execute_activity(
+            capture_timing_activity,
+            CaptureTimingInputs(
+                distinct_id=inputs.user_distinct_id_to_log,
+                team_id=inputs.team_id,
+                session_id=inputs.session_id,
+                timing_type="single_session_flow",
+                duration_seconds=duration_seconds,
+                success=True,
+                extra_properties={
+                    "video_validation_enabled": inputs.video_validation_enabled,
+                },
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
 
 
 def calculate_video_segment_specs(
