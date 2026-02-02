@@ -218,10 +218,15 @@ export function LemonTable<T extends Record<string, any>>({
             const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room
             // If the table starts above the top edge of the view, scroll to the top of the table minus breathing room
             if (realTableOffsetTop < 0) {
-                window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
+                const scrollContainer = document.querySelector('main') || window
+                if (scrollContainer === window) {
+                    window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
+                } else {
+                    scrollContainer.scrollBy(0, realTableOffsetTop)
+                }
             }
         }
-    }, [paginationState.currentPage, scrollRef.current])
+    }, [paginationState.currentPage])
 
     if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column

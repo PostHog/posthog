@@ -8,11 +8,13 @@ export class DashboardPage {
     readonly page: Page
 
     readonly topBarName: Locator
+    readonly items: Locator
 
     constructor(page: Page) {
         this.page = page
 
         this.topBarName = page.getByTestId('top-bar-name')
+        this.items = page.locator('.dashboard-items-wrapper')
     }
 
     async createNew(dashboardName: string = randomString('dashboard')): Promise<DashboardPage> {
@@ -20,13 +22,29 @@ export class DashboardPage {
         await this.page.getByTestId('new-dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
         await expect(this.page.locator('.dashboard')).toBeVisible()
+        await this.dismissQuickStartIfVisible()
 
         await this.editName(dashboardName)
         return this
     }
 
-    /** Checks assertions, reloads and checks again. This is useful for asserting both the local state
-     * and the backend side state are persisted correctly. */
+    async addInsightToNewDashboard(): Promise<void> {
+        await this.page.getByTestId('info-actions-panel').click()
+        await this.page.getByTestId('insight-add-to-dashboard-button').click()
+        await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
+        await this.page.getByTestId('create-dashboard-blank').click()
+        await this.page.waitForURL(/\/dashboard\/\d+/)
+        await this.dismissQuickStartIfVisible()
+        await expect(this.items).toBeVisible()
+    }
+
+    async dismissQuickStartIfVisible(): Promise<void> {
+        const skipAllButton = this.page.getByText('Skip all')
+        if (await skipAllButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await skipAllButton.click()
+        }
+    }
+
     async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
         await beforeFn?.()
         await callback()

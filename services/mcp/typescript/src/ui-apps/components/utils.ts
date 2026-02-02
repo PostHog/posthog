@@ -1,4 +1,4 @@
-import type { TrendsQuery, ChartDisplayType, FunnelResult } from './types'
+import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
 
 export function getDisplayType(query: TrendsQuery): ChartDisplayType {
     return query.trendsFilter?.display || 'ActionsLineGraph'
@@ -32,7 +32,9 @@ export function getSeriesLabel(item: { label?: string; action?: { name?: string 
 }
 
 export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: string; count: number; order: number }> {
-    if (results.length === 0) return []
+    if (results.length === 0) {
+        return []
+    }
 
     const firstItem = results[0]
     if (Array.isArray(firstItem)) {
