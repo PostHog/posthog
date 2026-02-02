@@ -66,8 +66,16 @@ export function HeatmapCanvas({
     context: 'in-app' | 'toolbar'
     exportToken?: string
 }): JSX.Element | null {
-    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette, isReady, heightOverride } =
-        useValues(heatmapDataLogic({ context, exportToken }))
+    const {
+        heatmapJsData,
+        heatmapFilters,
+        windowWidth,
+        windowHeight,
+        heatmapColorPalette,
+        isReady,
+        heightOverride,
+        heatmapFixedPositionMode,
+    } = useValues(heatmapDataLogic({ context, exportToken }))
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
@@ -158,10 +166,12 @@ export function HeatmapCanvas({
             )}
             data-attr="heatmap-canvas"
         >
-            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas except when it's an export */}
+            {/* NOTE: We key on the window dimensions and fixed position mode which triggers a recreation of the canvas */}
             <div
                 key={
-                    exportToken ? 'export-heatmap' : `${widthOverride ?? windowWidth}x${windowHeight}x${heightOverride}`
+                    exportToken
+                        ? 'export-heatmap'
+                        : `${widthOverride ?? windowWidth}x${windowHeight}x${heightOverride}x${heatmapFixedPositionMode}`
                 }
                 className="absolute inset-0"
                 ref={setHeatmapContainer}
