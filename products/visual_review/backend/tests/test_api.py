@@ -155,7 +155,8 @@ class TestRunAPI:
         assert identifiers == {"Button", "Card"}
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
-    def test_complete_run_triggers_task(self, mock_delay, project):
+    def test_complete_run_no_changes_skips_task(self, mock_delay, project):
+        """Runs with no changes complete immediately without triggering diff task."""
         create_result = api.create_run(
             CreateRunInput(
                 project_id=project.id,
@@ -163,6 +164,27 @@ class TestRunAPI:
                 commit_sha="abc123",
                 branch="main",
                 snapshots=[],
+            )
+        )
+
+        result = api.complete_run(create_result.run_id)
+
+        assert result.status == "completed"
+        mock_delay.assert_not_called()
+
+    @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+    def test_complete_run_with_changes_triggers_task(self, mock_delay, project):
+        """Runs with changes trigger the diff processing task."""
+        create_result = api.create_run(
+            CreateRunInput(
+                project_id=project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[
+                    SnapshotManifestItem(identifier="Button", content_hash="new_hash"),
+                ],
+                baseline_hashes={"Button": "old_hash"},
             )
         )
 

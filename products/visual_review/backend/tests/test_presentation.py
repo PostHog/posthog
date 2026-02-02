@@ -129,7 +129,8 @@ class TestRunViewSet(APIBaseTest):
         self.assertEqual(identifiers, {"Button", "Card"})
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
-    def test_complete_run(self, mock_delay):
+    def test_complete_run_no_changes(self, mock_delay):
+        """Runs with no changes complete immediately without triggering diff task."""
         create_result = api.create_run(
             CreateRunInput(
                 project_id=self.project.id,
@@ -143,8 +144,8 @@ class TestRunViewSet(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "processing")
-        mock_delay.assert_called_once()
+        self.assertEqual(response.json()["status"], "completed")
+        mock_delay.assert_not_called()
 
     def test_approve_run(self):
         # Create artifact directly via logic (API no longer exposes register_artifact)

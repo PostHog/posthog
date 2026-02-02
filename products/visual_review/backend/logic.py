@@ -298,6 +298,32 @@ def mark_run_processing(run_id: UUID) -> Run:
     return run
 
 
+def complete_run(run_id: UUID) -> Run:
+    """
+    Complete a run: verify uploads, create artifacts, trigger diff processing.
+
+    1. Verifies all expected uploads exist in S3
+    2. Creates Artifact records for verified uploads
+    3. Links artifacts to snapshots
+    4. Triggers async diff processing (only if there are changes to diff)
+    """
+    verify_uploads_and_create_artifacts(run_id)
+
+    run = get_run(run_id)
+
+    # Optimization: if no changes, skip diff processing entirely
+    if run.changed_count == 0 and run.new_count == 0:
+        mark_run_completed(run_id)
+        return get_run(run_id)
+
+    # Mark as processing and trigger diff task
+    mark_run_processing(run_id)
+    from .tasks.tasks import process_run_diffs
+
+    process_run_diffs.delay(str(run_id))
+    return get_run(run_id)
+
+
 def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
     Verify S3 uploads exist and create Artifact records.

@@ -189,21 +189,8 @@ def get_run_snapshots(run_id: UUID) -> list[dtos.Snapshot]:
 def complete_run(run_id: UUID) -> dtos.Run:
     """
     Complete a run: verify uploads, create artifacts, trigger diff processing.
-
-    1. Verifies all expected uploads exist in S3
-    2. Creates Artifact records for verified uploads
-    3. Links artifacts to snapshots
-    4. Triggers async diff processing
     """
-    # Verify uploads and create artifact records
-    logic.verify_uploads_and_create_artifacts(run_id)
-
-    # Mark as processing and trigger diff task
-    logic.mark_run_processing(run_id)
-    from ..tasks.tasks import process_run_diffs
-
-    process_run_diffs.delay(str(run_id))
-    run = logic.get_run(run_id)
+    run = logic.complete_run(run_id)
     return _to_run(run)
 
 
