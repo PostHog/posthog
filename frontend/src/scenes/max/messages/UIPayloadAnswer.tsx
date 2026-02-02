@@ -44,10 +44,9 @@ export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
     'create_form',
-    'upsert_dashboard',
 ]
 
-export function shouldRenderUIPayloadAnswer(toolName: string, toolPayload: unknown): boolean {
+export function isRenderableUIPayloadTool(toolName: string, toolPayload: unknown): boolean {
     return (
         (RENDERABLE_UI_PAYLOAD_TOOLS as readonly string[]).includes(toolName) ||
         isDangerousOperationResponse(toolPayload)

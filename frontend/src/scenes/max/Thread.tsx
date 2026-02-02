@@ -81,7 +81,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { RecordingsWidget, UIPayloadAnswer, shouldRenderUIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { RecordingsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
@@ -177,6 +177,15 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 if (isRetryPattern) {
                                     return null
                                 }
+                            }
+
+                            // Hide UI payload answers that are not renderable to prevent rendering an empty message component
+                            if (
+                                isAssistantToolCallMessage(message) &&
+                                (message.ui_payload === undefined ||
+                                    !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
+                            ) {
+                                return null
                             }
 
                             const nextMessage = threadGrouped[index + 1]
@@ -1002,7 +1011,7 @@ function AssistantActionComponent({
             {toolCall && isSubstepsExpanded && (
                 <>
                     {!!uiPayload &&
-                        shouldRenderUIPayloadAnswer(toolCall.name, uiPayload) &&
+                        isRenderableUIPayloadTool(toolCall.name, uiPayload) &&
                         Object.entries(uiPayload).map(([toolName, toolPayload]) => (
                             <div
                                 key={`${result?.tool_call_id}-${toolName}`}
