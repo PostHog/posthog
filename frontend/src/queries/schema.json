@@ -27878,11 +27878,17 @@
                 "active": {
                     "type": "boolean"
                 },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
                 "ts_from_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "ts_to_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 }
             },
             "required": ["ts_from_s", "active"],
