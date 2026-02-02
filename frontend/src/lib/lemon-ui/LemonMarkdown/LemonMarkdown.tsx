@@ -1,7 +1,6 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
-import { props } from 'kea'
 import React, { memo, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -116,7 +115,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                 }
                 // Regular list item
-                return <li {...props}>{children}</li>
+                return <li>{children}</li>
             },
             ...(lowKeyHeadings
                 ? {

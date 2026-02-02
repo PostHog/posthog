@@ -47,7 +47,6 @@ function IconUnderline(): JSX.Element {
 }
 
 export type LemonRichContentEditorProps = {
-    logicKey?: string
     initialContent?: JSONContent | null
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void
