@@ -436,6 +436,8 @@ jobs:
               if: contains(github.event.pull_request.labels.*.name, 'memory-leak-check')
               continue-on-error: true
               shell: bash
+              env:
+                  RUN_MEMORY_LEAK_TESTS: 'true'
               run: |
                   mkdir -p playwright/memory-leak-results
                   set +e

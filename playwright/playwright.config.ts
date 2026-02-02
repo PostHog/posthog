@@ -69,16 +69,20 @@ export default defineConfig({
             testIgnore: ['**/memory-leak.spec.ts'],
             use: { ...devices['Desktop Chrome'] },
         },
-        {
-            name: 'memory-leak',
-            testMatch: ['**/memory-leak.spec.ts'],
-            use: {
-                ...devices['Desktop Chrome'],
-                screenshot: 'off',
-                video: 'off',
-            },
-            retries: 0,
-        },
+        ...(process.env.RUN_MEMORY_LEAK_TESTS === 'true'
+            ? [
+                  {
+                      name: 'memory-leak',
+                      testMatch: ['**/memory-leak.spec.ts'],
+                      use: {
+                          ...devices['Desktop Chrome'],
+                          screenshot: 'off',
+                          video: 'off',
+                      },
+                      retries: 0,
+                  },
+              ]
+            : []),
         // {
         //     name: 'chromium',
         //     use: {
