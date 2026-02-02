@@ -7,7 +7,6 @@ from .a6_store_video_session_summary import store_video_session_summary_activity
 from .capture_timing import CaptureTimingInputs, capture_timing_activity
 
 __all__ = [
-    "SESSION_VIDEO_CHUNK_DURATION_S",
     "CaptureTimingInputs",
     "export_session_video_activity",
     "upload_video_to_gemini_activity",
