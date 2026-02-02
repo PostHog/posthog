@@ -337,16 +337,22 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()
 
-            // Check if all open conditions are now stale (groups were reset with new sort_keys)
+            // Clean up stale open conditions
             const currentSortKeys = new Set(values.filters.groups.map((g) => g.sort_key))
-            const anyOpenStillValid = values.openConditions.some((key) => {
+            const newOpenConditions = values.openConditions.filter((key) => {
                 const sortKey = key.replace('condition-', '')
                 return currentSortKeys.has(sortKey)
             })
 
-            // If we had open conditions but they're all stale, open the first new condition
-            if (!anyOpenStillValid && values.openConditions.length > 0 && values.filters.groups.length > 0) {
+            // If all conditions became stale but we had some open, open the first one
+            if (
+                newOpenConditions.length === 0 &&
+                values.openConditions.length > 0 &&
+                values.filters.groups.length > 0
+            ) {
                 actions.setOpenConditions([`condition-${values.filters.groups[0].sort_key}`])
+            } else if (newOpenConditions.length !== values.openConditions.length) {
+                actions.setOpenConditions(newOpenConditions)
             }
         },
         calculateBlastRadius: async () => {
