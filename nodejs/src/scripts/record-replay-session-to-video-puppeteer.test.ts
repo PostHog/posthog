@@ -2,11 +2,8 @@ const {
     scaleDimensionsIfNeeded,
     setupUrlForPlaybackSpeed,
     waitForPageReady,
-    detectRecordingResolution,
     waitForRecordingWithSegments,
     detectInactivityPeriods,
-    HEIGHT_OFFSET,
-    PLAYBACK_SPEED_MULTIPLIER,
     MAX_DIMENSION,
     DEFAULT_WIDTH,
     DEFAULT_HEIGHT,
@@ -15,34 +12,31 @@ const {
 describe('record-replay-session-to-video-puppeteer', () => {
     describe('constants', () => {
         it('has expected default values', () => {
-            expect(HEIGHT_OFFSET).toBe(85)
-            expect(PLAYBACK_SPEED_MULTIPLIER).toBe(4)
-            expect(MAX_DIMENSION).toBe(1400)
-            expect(DEFAULT_WIDTH).toBe(1400)
-            expect(DEFAULT_HEIGHT).toBe(600)
+            expect(MAX_DIMENSION).toBe(1920)
+            expect(DEFAULT_WIDTH).toBe(1920)
+            expect(DEFAULT_HEIGHT).toBe(1080)
         })
     })
 
     describe('scaleDimensionsIfNeeded', () => {
         it.each([
-            // [width, height, maxSize, expectedWidth, expectedHeight, description]
-            [800, 600, 1400, 800, 600, 'returns original when both under max'],
-            [1400, 600, 1400, 1400, 600, 'returns original when at max'],
-            [2800, 600, 1400, 1400, 300, 'scales down when width exceeds max'],
-            [600, 2800, 1400, 300, 1400, 'scales down when height exceeds max'],
-            [2800, 2100, 1400, 1400, 1050, 'scales by width when width > height'],
-            [2100, 2800, 1400, 1050, 1400, 'scales by height when height > width'],
-            [2000, 2000, 1400, 1400, 1400, 'scales square dimensions correctly'],
-            [100, 100, 1400, 100, 100, 'handles small dimensions'],
-            [0, 0, 1400, 0, 0, 'handles zero dimensions'],
+            [800, 600, 1920, 800, 600, 'returns original when both under max'],
+            [1920, 600, 1920, 1920, 600, 'returns original when at max'],
+            [3840, 600, 1920, 1920, 300, 'scales down when width exceeds max'],
+            [600, 3840, 1920, 300, 1920, 'scales down when height exceeds max'],
+            [3840, 2880, 1920, 1920, 1440, 'scales by width when width > height'],
+            [2880, 3840, 1920, 1440, 1920, 'scales by height when height > width'],
+            [3840, 3840, 1920, 1920, 1920, 'scales square dimensions correctly'],
+            [100, 100, 1920, 100, 100, 'handles small dimensions'],
+            [0, 0, 1920, 0, 0, 'handles zero dimensions'],
         ])('(%d, %d, %d) => (%d, %d) - %s', (width, height, maxSize, expectedWidth, expectedHeight) => {
             const result = scaleDimensionsIfNeeded(width, height, maxSize)
             expect(result).toEqual({ width: expectedWidth, height: expectedHeight })
         })
 
         it('uses MAX_DIMENSION as default maxSize', () => {
-            const result = scaleDimensionsIfNeeded(2800, 600)
-            expect(result).toEqual({ width: 1400, height: 300 })
+            const result = scaleDimensionsIfNeeded(3840, 600)
+            expect(result).toEqual({ width: 1920, height: 300 })
         })
     })
 
@@ -87,13 +81,12 @@ describe('record-replay-session-to-video-puppeteer', () => {
             expect(mockPage.waitForSelector).toHaveBeenCalledWith('.Spinner', { hidden: true, timeout: 20000 })
         })
 
-        it('continues when navigation times out', async () => {
+        it('throws when navigation fails', async () => {
             mockPage.goto.mockRejectedValue(new Error('Navigation timeout'))
 
-            await expect(
-                waitForPageReady(mockPage, 'https://example.com', '.replayer-wrapper')
-            ).resolves.toBeUndefined()
-            expect(mockPage.waitForSelector).toHaveBeenCalled()
+            await expect(waitForPageReady(mockPage, 'https://example.com', '.replayer-wrapper')).rejects.toThrow(
+                'Navigation timeout'
+            )
         })
 
         it('continues when selector wait times out', async () => {
@@ -115,182 +108,75 @@ describe('record-replay-session-to-video-puppeteer', () => {
         })
     })
 
-    describe('detectRecordingResolution', () => {
-        let mockBrowser: { newPage: jest.Mock }
-        let mockPage: {
-            setViewport: jest.Mock
-            goto: jest.Mock
-            waitForSelector: jest.Mock
-            evaluate: jest.Mock
-            close: jest.Mock
+    describe('waitForRecordingWithSegments', () => {
+        function mockHandle(value: any) {
+            return { jsonValue: jest.fn().mockResolvedValue(value) }
         }
 
-        beforeEach(() => {
-            mockPage = {
-                setViewport: jest.fn().mockResolvedValue(undefined),
-                goto: jest.fn().mockResolvedValue(undefined),
-                waitForSelector: jest.fn().mockResolvedValue(undefined),
-                evaluate: jest.fn(),
-                close: jest.fn().mockResolvedValue(undefined),
-            }
-            mockBrowser = {
-                newPage: jest.fn().mockResolvedValue(mockPage),
-            }
-        })
-
-        it('returns detected resolution from window.__POSTHOG_RESOLUTION__', async () => {
-            mockPage.evaluate.mockResolvedValue({ width: 1920, height: 1080 })
-
-            const result = await detectRecordingResolution(
-                mockBrowser,
-                'https://example.com',
-                '.replayer-wrapper',
-                1400,
-                600
-            )
-
-            expect(result).toEqual({ width: 1920, height: 1080 })
-            expect(mockPage.setViewport).toHaveBeenCalledWith({ width: 1400, height: 600 })
-            expect(mockPage.close).toHaveBeenCalled()
-        })
-
-        it('returns default resolution when detection returns null', async () => {
-            mockPage.evaluate.mockResolvedValue(null)
-
-            const result = await detectRecordingResolution(
-                mockBrowser,
-                'https://example.com',
-                '.replayer-wrapper',
-                1400,
-                600
-            )
-
-            expect(result).toEqual({ width: 1400, height: 600 })
-        })
-
-        it('returns default resolution when page.evaluate throws', async () => {
-            mockPage.evaluate.mockRejectedValue(new Error('Evaluation failed'))
-
-            const result = await detectRecordingResolution(
-                mockBrowser,
-                'https://example.com',
-                '.replayer-wrapper',
-                1400,
-                600
-            )
-
-            expect(result).toEqual({ width: 1400, height: 600 })
-            expect(mockPage.close).toHaveBeenCalled()
-        })
-
-        it('closes page even when detection fails', async () => {
-            mockPage.evaluate.mockRejectedValue(new Error('Evaluation failed'))
-
-            await detectRecordingResolution(mockBrowser, 'https://example.com', '.replayer-wrapper', 1400, 600)
-
-            expect(mockPage.close).toHaveBeenCalled()
-        })
-    })
-
-    describe('waitForRecordingWithSegments', () => {
-        let mockPage: { evaluate: jest.Mock }
+        let mockPage: { waitForFunction: jest.Mock }
 
         beforeEach(() => {
             mockPage = {
-                evaluate: jest.fn(),
+                waitForFunction: jest.fn(),
             }
-            jest.useFakeTimers()
-        })
-
-        afterEach(() => {
-            jest.useRealTimers()
         })
 
         it('returns empty segments when recording ends immediately', async () => {
-            mockPage.evaluate.mockResolvedValue({ ended: true })
+            mockPage.waitForFunction.mockResolvedValue(mockHandle({ ended: true }))
 
-            const promise = waitForRecordingWithSegments(mockPage, 5000, Date.now())
-            await jest.advanceTimersByTimeAsync(100)
-            const result = await promise
+            const result = await waitForRecordingWithSegments(mockPage, 5000, Date.now())
 
             expect(result).toEqual({})
         })
 
         it('tracks segment changes during recording', async () => {
-            const startTime = Date.now()
-            let callCount = 0
+            mockPage.waitForFunction
+                .mockResolvedValueOnce(mockHandle({ counter: 1, segment_start_ts: 0 }))
+                .mockResolvedValueOnce(mockHandle({ counter: 2, segment_start_ts: 10 }))
+                .mockResolvedValueOnce(mockHandle({ ended: true }))
 
-            mockPage.evaluate.mockImplementation(() => {
-                callCount++
-                if (callCount === 1) {
-                    return Promise.resolve({ counter: 1, segment_start_ts: 0 })
-                }
-                if (callCount === 2) {
-                    return Promise.resolve({ counter: 2, segment_start_ts: 10 })
-                }
-                return Promise.resolve({ ended: true })
-            })
+            const result = await waitForRecordingWithSegments(mockPage, 10000, Date.now())
 
-            const promise = waitForRecordingWithSegments(mockPage, 10000, startTime)
-
-            // Advance through the polling cycles
-            await jest.advanceTimersByTimeAsync(100)
-            await jest.advanceTimersByTimeAsync(100)
-            await jest.advanceTimersByTimeAsync(100)
-
-            const result = await promise
-
-            expect(Object.keys(result).length).toBeGreaterThanOrEqual(1)
+            expect(Object.keys(result).length).toBe(2)
+            expect(result[0]).toBeDefined()
+            expect(result[10]).toBeDefined()
         })
 
-        it('stops when maxWaitMs is reached', async () => {
-            mockPage.evaluate.mockResolvedValue(null) // No segment changes, no end signal
+        it('passes updated lastCounter to waitForFunction', async () => {
+            mockPage.waitForFunction
+                .mockResolvedValueOnce(mockHandle({ counter: 1, segment_start_ts: 0 }))
+                .mockResolvedValueOnce(mockHandle({ ended: true }))
 
-            const startTime = Date.now()
-            const promise = waitForRecordingWithSegments(mockPage, 1000, startTime)
+            await waitForRecordingWithSegments(mockPage, 10000, Date.now())
 
-            // Advance past maxWaitMs
-            await jest.advanceTimersByTimeAsync(1100)
+            expect(mockPage.waitForFunction.mock.calls[0][2]).toBe(0)
+            expect(mockPage.waitForFunction.mock.calls[1][2]).toBe(1)
+        })
 
-            const result = await promise
+        it('uses raf polling with remaining time as timeout', async () => {
+            mockPage.waitForFunction.mockResolvedValue(mockHandle({ ended: true }))
+
+            await waitForRecordingWithSegments(mockPage, 5000, Date.now())
+
+            const options = mockPage.waitForFunction.mock.calls[0][1]
+            expect(options.polling).toBe('raf')
+            expect(options.timeout).toBeGreaterThan(0)
+            expect(options.timeout).toBeLessThanOrEqual(5000)
+        })
+
+        it('stops when waitForFunction times out', async () => {
+            mockPage.waitForFunction.mockRejectedValue(new Error('Timeout'))
+
+            const result = await waitForRecordingWithSegments(mockPage, 10000, Date.now())
+
             expect(result).toEqual({})
         })
 
-        it('continues polling when evaluate returns null', async () => {
-            let callCount = 0
-            mockPage.evaluate.mockImplementation(() => {
-                callCount++
-                if (callCount < 3) {
-                    return Promise.resolve(null)
-                }
-                return Promise.resolve({ ended: true })
-            })
+        it('stops without calling waitForFunction when maxWaitMs already elapsed', async () => {
+            const result = await waitForRecordingWithSegments(mockPage, 1000, Date.now() - 2000)
 
-            const promise = waitForRecordingWithSegments(mockPage, 10000, Date.now())
-
-            await jest.advanceTimersByTimeAsync(3000)
-
-            await promise
-
-            expect(callCount).toBeGreaterThanOrEqual(3)
-        })
-
-        it('handles evaluate errors gracefully', async () => {
-            let callCount = 0
-            mockPage.evaluate.mockImplementation(() => {
-                callCount++
-                if (callCount === 1) {
-                    return Promise.reject(new Error('Evaluation error'))
-                }
-                return Promise.resolve({ ended: true })
-            })
-
-            const promise = waitForRecordingWithSegments(mockPage, 10000, Date.now())
-
-            await jest.advanceTimersByTimeAsync(200)
-
-            const result = await promise
             expect(result).toEqual({})
+            expect(mockPage.waitForFunction).not.toHaveBeenCalled()
         })
     })
 
@@ -326,7 +212,6 @@ describe('record-replay-session-to-video-puppeteer', () => {
         })
 
         it('handles null ts_to_s values', async () => {
-            // The transformation to null happens inside page.evaluate, so mock returns already-transformed data
             mockPage.evaluate.mockResolvedValue([{ ts_from_s: 0, ts_to_s: null, active: true }])
 
             const result = await detectInactivityPeriods(mockPage, 1, {})
@@ -334,7 +219,7 @@ describe('record-replay-session-to-video-puppeteer', () => {
             expect(result).toEqual([{ ts_from_s: 0, ts_to_s: null, active: true }])
         })
 
-        it('merges segment timestamps into periods', async () => {
+        it('merges segment timestamps and computes recording_ts_to_s', async () => {
             mockPage.evaluate.mockResolvedValue([
                 { ts_from_s: 0, ts_to_s: 5, active: true },
                 { ts_from_s: 10, ts_to_s: 15, active: false },
@@ -345,8 +230,8 @@ describe('record-replay-session-to-video-puppeteer', () => {
             const result = await detectInactivityPeriods(mockPage, 2, segmentStartTimestamps)
 
             expect(result).toEqual([
-                { ts_from_s: 0, ts_to_s: 5, active: true, recording_ts_from_s: 3 }, // 1.5 * 2 = 3
-                { ts_from_s: 10, ts_to_s: 15, active: false, recording_ts_from_s: 6 }, // 3.0 * 2 = 6
+                { ts_from_s: 0, ts_to_s: 5, active: true, recording_ts_from_s: 3, recording_ts_to_s: 8 },
+                { ts_from_s: 10, ts_to_s: 15, active: false, recording_ts_from_s: 6, recording_ts_to_s: 11 },
             ])
         })
 
@@ -357,7 +242,8 @@ describe('record-replay-session-to-video-puppeteer', () => {
 
             const result = await detectInactivityPeriods(mockPage, 4, segmentStartTimestamps)
 
-            expect(result[0].recording_ts_from_s).toBe(10) // 2.5 * 4 = 10
+            expect(result[0].recording_ts_from_s).toBe(10) // 2.5 * 4
+            expect(result[0].recording_ts_to_s).toBe(15) // 10 + (10 - 5)
         })
 
         it('returns null when evaluate throws', async () => {
@@ -374,12 +260,14 @@ describe('record-replay-session-to-video-puppeteer', () => {
                 { ts_from_s: 10, ts_to_s: 15, active: false },
             ])
 
-            const segmentStartTimestamps = { 0: 1.5 } // Only has timestamp for first period
+            const segmentStartTimestamps = { 0: 1.5 }
 
             const result = await detectInactivityPeriods(mockPage, 1, segmentStartTimestamps)
 
-            expect(result[0].recording_ts_from_s).toBe(2) // Math.round(1.5 * 1)
+            expect(result[0].recording_ts_from_s).toBe(1.5) // 1.5 * 1
+            expect(result[0].recording_ts_to_s).toBe(6.5) // 1.5 + (5 - 0)
             expect(result[1].recording_ts_from_s).toBeUndefined()
+            expect(result[1].recording_ts_to_s).toBeUndefined()
         })
     })
 })
