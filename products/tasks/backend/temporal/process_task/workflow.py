@@ -163,10 +163,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         finally:
-            # TODO: Re-enable cleanup after debugging
-            # if sandbox_id:
-            #     await self._cleanup_sandbox(sandbox_id)
-            pass
+            if sandbox_id:
+                await self._cleanup_sandbox(sandbox_id)
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
