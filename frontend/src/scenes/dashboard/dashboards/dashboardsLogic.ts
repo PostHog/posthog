@@ -105,9 +105,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         isFiltering: [
             (s) => [s.filters],
             (filters) => {
-                return Object.keys(filters).some(
-                    (key) => filters[key as keyof DashboardsFilters] !== DEFAULT_FILTERS[key]
-                )
+                return Object.keys(filters).some((key) => {
+                    const filterKey = key as keyof DashboardsFilters
+                    return filters[filterKey] !== DEFAULT_FILTERS[filterKey]
+                })
             },
         ],
         filteredTags: [
@@ -127,6 +128,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     haystack = fuse.search(filters.search).map((result) => result.item)
                 }
                 if (currentTab === DashboardsTab.Pinned) {
+                    haystack = haystack.filter((d) => d.pinned)
+                }
+                if (filters.pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
                 if (filters.shared) {
