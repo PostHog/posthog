@@ -4009,6 +4009,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     groupTypeIndex?: integer
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
+    /** Sample fraction (0.0-1.0) for efficient random sampling. Uses ClickHouse SAMPLE clause instead of ORDER BY rand(). */
+    sampleFraction?: number
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {

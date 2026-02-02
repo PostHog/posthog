@@ -883,6 +883,33 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestTracesQueryRunner.test_sample_fraction
+  '''
+  SELECT groupArray(trace_id) AS trace_ids,
+         min(first_ts) AS min_timestamp,
+         max(last_ts) AS max_timestamp
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS trace_id,
+            min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
+            max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
+     FROM events SAMPLE 0.5
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC'))))))
+     GROUP BY trace_id
+     ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
+     LIMIT 11)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group
   '''
   SELECT groupArray(trace_id) AS trace_ids,
