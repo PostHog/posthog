@@ -31,3 +31,34 @@ export function Default(): JSX.Element {
         </div>
     )
 }
+
+export function Inset(): JSX.Element {
+    return (
+        <div className="flex flex-col max-w-lg">
+            <p className="mb-4">
+                The inset prop adds vertical padding so skeletons don't fill their bounds completely. This prevents
+                rounded corners from touching when stacked, without causing layout shift when content loads.
+            </p>
+            <div className="border border-primary rounded p-2">
+                <p className="text-xs text-secondary mb-2">Without inset (corners touch):</p>
+                {[1, 2, 3].map((i) => (
+                    <WrappingLoadingSkeleton key={i} fullWidth>
+                        <ButtonPrimitive fullWidth inert aria-hidden>
+                            Row {i}
+                        </ButtonPrimitive>
+                    </WrappingLoadingSkeleton>
+                ))}
+            </div>
+            <div className="border border-primary rounded p-2 mt-4">
+                <p className="text-xs text-secondary mb-2">With inset (gaps between rows):</p>
+                {[1, 2, 3].map((i) => (
+                    <WrappingLoadingSkeleton key={i} fullWidth inset>
+                        <ButtonPrimitive fullWidth inert aria-hidden>
+                            Row {i}
+                        </ButtonPrimitive>
+                    </WrappingLoadingSkeleton>
+                ))}
+            </div>
+        </div>
+    )
+}
