@@ -212,10 +212,10 @@
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
                                                  FROM events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                 WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY events.event ASC
                                                  LIMIT 101
-                                                 OFFSET 0)), and(equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                 OFFSET 0)), and(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

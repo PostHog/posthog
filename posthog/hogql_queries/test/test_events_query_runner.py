@@ -503,17 +503,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
     def test_presorted_events_table_order_by_event(self, mock_flag):
         """Test presorted optimization when ordering by event column."""
-        self._create_events(
-            data=[
-                ("p1", "2020-01-20T12:00:04Z", {}),
-                ("p2", "2020-01-20T12:00:14Z", {}),
-            ]
-        )
+        self._create_events(data=[("p2", "2021-01-20T12:00:14Z", {})], event="beta_event")
+        self._create_events(data=[("p3", "2021-01-20T12:00:24Z", {})], event="gamma_event")
+        self._create_events(data=[("p1", "2021-01-20T12:00:04Z", {})], event="alpha_event")
         flush_persons_and_events()
 
         query = EventsQuery(
             after="-7d",
-            event="$pageview",
             kind="EventsQuery",
             orderBy=["event ASC"],
             select=["*"],
@@ -524,6 +520,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # Alphabetical order: alpha < beta < gamma (different from creation order)
+        assert response.results[0][0]["distinct_id"] == "p1"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p3"
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -532,8 +533,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """Test presorted optimization when ordering by property."""
         self._create_events(
             data=[
-                ("p1", "2020-01-20T12:00:04Z", {"priority": "high"}),
-                ("p2", "2020-01-20T12:00:14Z", {"priority": "low"}),
+                ("p2", "2021-01-20T12:00:14Z", {"priority": "medium"}),
+                ("p3", "2021-01-20T12:00:24Z", {"priority": "urgent"}),
+                ("p1", "2021-01-20T12:00:04Z", {"priority": "low"}),
             ]
         )
         flush_persons_and_events()
@@ -551,6 +553,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # Alphabetical order: low < medium < urgent (different from creation order)
+        assert response.results[0][0]["distinct_id"] == "p1"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p3"
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
@@ -559,8 +566,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """Test presorted optimization with multiple ORDER BY clauses."""
         self._create_events(
             data=[
-                ("p1", "2020-01-20T12:00:04Z", {}),
-                ("p2", "2020-01-20T12:00:14Z", {}),
+                ("p2", "2021-01-20T12:00:14Z", {}),
+                ("p1", "2021-01-20T12:00:04Z", {}),
+                ("p3", "2021-01-20T12:00:24Z", {}),
             ]
         )
         flush_persons_and_events()
@@ -578,6 +586,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.run()
 
         assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # timestamp DESC: p3 (12:00:24) > p2 (12:00:14) > p1 (12:00:04)
+        assert response.results[0][0]["distinct_id"] == "p3"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p1"
 
     def test_select_person_column(self):
         self._create_events(
