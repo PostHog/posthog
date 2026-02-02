@@ -266,19 +266,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 await actions.loadAllFlagKeys(flagIds)
             }
         },
-        duplicateConditionSet: async ({ index }, breakpoint) => {
-            // Open the new condition immediately for UI responsiveness
+        duplicateConditionSet: ({ index }) => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup?.sort_key) {
                 actions.openCondition(newGroup.sort_key)
-            }
-            await breakpoint(1000) // in ms
-            // Re-read state after breakpoint to get fresh values for affected users
-            const currentNewGroup = values.filters.groups[values.filters.groups.length - 1]
-            if (currentNewGroup?.sort_key) {
                 const sourceSortKey = values.filters.groups[index]?.sort_key
                 const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
-                actions.setAffectedUsers(currentNewGroup.sort_key, valueForSourceCondition)
+                actions.setAffectedUsers(newGroup.sort_key, valueForSourceCondition)
             }
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
