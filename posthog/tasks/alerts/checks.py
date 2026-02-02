@@ -313,6 +313,7 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
     )
 
     value = breaches = error = None
+    alert_evaluation_result = None
 
     # 1. Evaluate insight and get alert value
     try:

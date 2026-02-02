@@ -467,10 +467,10 @@ def check_trends_alert_with_detector(
     # Calculate minimum samples needed for this detector
     min_samples = DETECTOR_MIN_SAMPLES.get(detector_type, 31)
 
-    # For statistical detectors, check if they have a window config
+    # For statistical detectors with window config, ensure we fetch enough samples
     window = detector_config.get("window", 30)
-    if detector_type == DetectorType.ZSCORE:
-        min_samples = window + 1
+    if detector_type in (DetectorType.ZSCORE, DetectorType.MAD, DetectorType.IQR):
+        min_samples = max(min_samples, window + 1)
 
     # Calculate date range to fetch enough data
     filters_override = _date_range_override_for_detector(query, min_samples)
