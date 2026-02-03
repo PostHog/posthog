@@ -5277,6 +5277,10 @@ export enum ProductIntentContext {
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+    LLM_CLUSTER_EXPLORED = 'llm_cluster_explored',
+    LLM_DATASET_CREATED = 'llm_dataset_created',
+    LLM_EVALUATION_CREATED = 'llm_evaluation_created',
+    LLM_PROMPT_CREATED = 'llm_prompt_created',
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
