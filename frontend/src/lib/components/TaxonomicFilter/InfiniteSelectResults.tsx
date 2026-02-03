@@ -65,7 +65,10 @@ function CategoryPill({
                         totalResultCount
                     )}
                     {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
-                    {hasMore ? '+' : ''}
+                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                        {totalResultCount}
+                        {hasMore ? '+' : ''}
+                    </span>
                 </>
             )}
         </LemonTag>
