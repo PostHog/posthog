@@ -30,7 +30,7 @@ Partition Strategy:
     - date is the partition date (YYYY-MM-DD)
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     group3_created_at TIMESTAMPTZ,
     group4_created_at TIMESTAMPTZ,
     person_mode VARCHAR,
-    historical_migration VARCHAR,
+    historical_migration BOOLEAN,
     _inserted_at TIMESTAMPTZ
 )
 """
@@ -187,6 +187,7 @@ def parse_partition_key(key: str) -> tuple[int, str]:
 
     Args:
         key: Partition key in format "{team_id}_{date}" (e.g., "12345_2024-01-15")
+             or "{team_id}_{month}" (e.g., "12345_2024-01")
 
     Returns:
         Tuple of (team_id, date_str)
@@ -196,7 +197,7 @@ def parse_partition_key(key: str) -> tuple[int, str]:
     """
     parts = key.rsplit("_", 1)
     if len(parts) != 2:
-        raise ValueError(f"Invalid partition key format: {key}. Expected 'team_id_YYYY-MM-DD'")
+        raise ValueError(f"Invalid partition key format: {key}. Expected 'team_id_YYYY-MM-DD' or 'team_id_YYYY-MM'")
 
     team_id_str, date_str = parts
 
@@ -205,12 +206,49 @@ def parse_partition_key(key: str) -> tuple[int, str]:
     except ValueError as e:
         raise ValueError(f"Invalid team_id in partition key: {team_id_str}") from e
 
+    # Try daily format first, then monthly
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError as e:
-        raise ValueError(f"Invalid date in partition key: {date_str}") from e
+    except ValueError:
+        try:
+            datetime.strptime(date_str, "%Y-%m")
+        except ValueError as e:
+            raise ValueError(f"Invalid date in partition key: {date_str}. Expected YYYY-MM-DD or YYYY-MM") from e
 
     return team_id, date_str
+
+
+def parse_partition_key_dates(key: str) -> tuple[int, list[datetime]]:
+    """Parse a partition key and return the list of dates to process.
+
+    For daily partitions (YYYY-MM-DD): returns a single date
+    For monthly partitions (YYYY-MM): returns all dates in that month up to yesterday
+
+    Args:
+        key: Partition key in format "{team_id}_{date}" or "{team_id}_{month}"
+
+    Returns:
+        Tuple of (team_id, list of datetime objects to process)
+    """
+    import calendar
+
+    team_id, date_str = parse_partition_key(key)
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+
+    # Check if it's a monthly partition (YYYY-MM) or daily (YYYY-MM-DD)
+    if len(date_str) == 7:  # YYYY-MM format
+        year, month = int(date_str[:4]), int(date_str[5:7])
+        _, last_day = calendar.monthrange(year, month)
+
+        dates = []
+        for day in range(1, last_day + 1):
+            d = datetime(year, month, day)
+            # Don't process future dates
+            if d.date() <= yesterday:
+                dates.append(d)
+        return team_id, dates
+    else:  # YYYY-MM-DD format
+        return team_id, [datetime.strptime(date_str, "%Y-%m-%d")]
 
 
 def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str) -> str:
@@ -1001,24 +1039,27 @@ def register_persons_file_with_duckling(
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
 
+    Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
+    For monthly partitions, processes all days in the month.
+
     This asset:
-    1. Parses the partition key to get team_id and date
+    1. Parses the partition key to get team_id and date(s)
     2. Looks up the DuckLakeCatalog for the team
     3. Creates the events table if it doesn't exist (optional, enabled by default)
     4. Validates the duckling's schema compatibility (optional)
-    5. Cleans up orphaned files from prior failed runs (optional)
-    6. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
-    7. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
+    5. For each date in the partition:
+       a. Cleans up orphaned files from prior failed runs (optional)
+       b. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
+       c. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
-    team_id, date_str = parse_partition_key(context.partition_key)
-    partition_date = datetime.strptime(date_str, "%Y-%m-%d")
+    team_id, dates = parse_partition_key_dates(context.partition_key)
     run_id = context.run.run_id[:8]
 
-    context.log.info(f"Starting duckling backfill for team_id={team_id}, date={date_str}")
+    context.log.info(f"Starting duckling backfill for team_id={team_id}, dates={len(dates)} day(s)")
     logger.info(
         "duckling_backfill_start",
         team_id=team_id,
-        date=date_str,
+        date_count=len(dates),
         run_id=run_id,
     )
 
@@ -1044,11 +1085,6 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         context.log.info("Validating duckling schema compatibility...")
         validate_duckling_schema(context, catalog)
 
-    # Clean up orphaned files from prior failed runs
-    if config.cleanup_prior_run_files and not config.dry_run:
-        context.log.info("Cleaning up orphaned files from prior runs...")
-        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_EVENTS_S3_PREFIX)
-
     # Prepare ClickHouse settings
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
     merged_settings.update(settings_with_log_comment(context))
@@ -1060,50 +1096,66 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
-    def do_export(client: Client) -> str | None:
-        with tags_context(kind="dagster", dagster=tags):
-            return export_events_to_duckling_s3(
-                context=context,
-                client=client,
-                config=config,
-                catalog=catalog,
-                team_id=team_id,
-                date=partition_date,
-                run_id=run_id,
-                settings=merged_settings,
-            )
+    # Process each date in the partition
+    total_exported = 0
+    total_registered = 0
+    s3_paths: list[str] = []
 
-    s3_path = cluster.any_host_by_role(
-        fn=do_export,
-        workload=workload,
-        node_role=NodeRole.DATA,
-    ).result()
+    for partition_date in dates:
+        date_str = partition_date.strftime("%Y-%m-%d")
+        context.log.info(f"Processing date {date_str}...")
 
-    # Register with DuckLake if we have a file
-    registered = False
-    if s3_path:
-        registered = register_file_with_duckling(context, catalog, s3_path, config)
+        # Clean up orphaned files from prior failed runs
+        if config.cleanup_prior_run_files and not config.dry_run:
+            cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_EVENTS_S3_PREFIX)
+
+        def do_export(client: Client, date: datetime = partition_date) -> str | None:
+            with tags_context(kind="dagster", dagster=tags):
+                return export_events_to_duckling_s3(
+                    context=context,
+                    client=client,
+                    config=config,
+                    catalog=catalog,
+                    team_id=team_id,
+                    date=date,
+                    run_id=run_id,
+                    settings=merged_settings,
+                )
+
+        s3_path = cluster.any_host_by_role(
+            fn=do_export,
+            workload=workload,
+            node_role=NodeRole.DATA,
+        ).result()
+
+        # Register with DuckLake if we have a file
+        if s3_path:
+            total_exported += 1
+            s3_paths.append(s3_path)
+            if register_file_with_duckling(context, catalog, s3_path, config):
+                total_registered += 1
 
     context.add_output_metadata(
         {
             "team_id": team_id,
-            "partition_date": date_str,
-            "s3_path": s3_path or "(dry run)",
-            "registered": registered,
+            "partition_key": context.partition_key,
+            "dates_processed": len(dates),
+            "files_exported": total_exported,
+            "files_registered": total_registered,
             "bucket": catalog.bucket,
         }
     )
 
     context.log.info(
-        f"Completed duckling backfill for team_id={team_id}, date={date_str}: "
-        f"exported={'yes' if s3_path else 'no'}, registered={'yes' if registered else 'no'}"
+        f"Completed duckling backfill for team_id={team_id}: "
+        f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
     )
     logger.info(
         "duckling_backfill_complete",
         team_id=team_id,
-        date=date_str,
-        s3_path=s3_path,
-        registered=registered,
+        dates_processed=len(dates),
+        files_exported=total_exported,
+        files_registered=total_registered,
     )
 
 
@@ -1115,28 +1167,31 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
 
+    Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
+    For monthly partitions, processes all days in the month.
+
     This asset exports persons joined with person_distinct_id2 to include all
     distinct_ids associated with each person. Uses _timestamp for date partitioning
     since persons don't have a natural event timestamp.
 
     Steps:
-    1. Parses the partition key to get team_id and date
+    1. Parses the partition key to get team_id and date(s)
     2. Looks up the DuckLakeCatalog for the team
     3. Creates the persons table if it doesn't exist (optional, enabled by default)
     4. Validates the duckling's persons schema compatibility (optional)
-    5. Cleans up orphaned files from prior failed runs (optional)
-    6. Exports persons+distinct_ids to the duckling's S3 bucket
-    7. Registers the Parquet file with the duckling's DuckLake catalog
+    5. For each date in the partition:
+       a. Cleans up orphaned files from prior failed runs (optional)
+       b. Exports persons+distinct_ids to the duckling's S3 bucket
+       c. Registers the Parquet file with the duckling's DuckLake catalog
     """
-    team_id, date_str = parse_partition_key(context.partition_key)
-    partition_date = datetime.strptime(date_str, "%Y-%m-%d")
+    team_id, dates = parse_partition_key_dates(context.partition_key)
     run_id = context.run.run_id[:8]
 
-    context.log.info(f"Starting duckling persons backfill for team_id={team_id}, date={date_str}")
+    context.log.info(f"Starting duckling persons backfill for team_id={team_id}, dates={len(dates)} day(s)")
     logger.info(
         "duckling_persons_backfill_start",
         team_id=team_id,
-        date=date_str,
+        date_count=len(dates),
         run_id=run_id,
     )
 
@@ -1160,10 +1215,6 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         context.log.info("Validating duckling persons schema compatibility...")
         validate_duckling_persons_schema(context, catalog)
 
-    if config.cleanup_prior_run_files and not config.dry_run:
-        context.log.info("Cleaning up orphaned persons files from prior runs...")
-        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_PERSONS_S3_PREFIX)
-
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
     merged_settings.update(settings_with_log_comment(context))
     if config.clickhouse_settings:
@@ -1174,49 +1225,62 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
-    def do_export(client: Client) -> str | None:
-        with tags_context(kind="dagster", dagster=tags):
-            return export_persons_to_duckling_s3(
-                context=context,
-                client=client,
-                config=config,
-                catalog=catalog,
-                team_id=team_id,
-                date=partition_date,
-                run_id=run_id,
-                settings=merged_settings,
-            )
+    # Process each date in the partition
+    total_exported = 0
+    total_registered = 0
 
-    s3_path = cluster.any_host_by_role(
-        fn=do_export,
-        workload=workload,
-        node_role=NodeRole.DATA,
-    ).result()
+    for partition_date in dates:
+        date_str = partition_date.strftime("%Y-%m-%d")
+        context.log.info(f"Processing persons for date {date_str}...")
 
-    registered = False
-    if s3_path:
-        registered = register_persons_file_with_duckling(context, catalog, s3_path, config)
+        if config.cleanup_prior_run_files and not config.dry_run:
+            cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_PERSONS_S3_PREFIX)
+
+        def do_export(client: Client, date: datetime = partition_date) -> str | None:
+            with tags_context(kind="dagster", dagster=tags):
+                return export_persons_to_duckling_s3(
+                    context=context,
+                    client=client,
+                    config=config,
+                    catalog=catalog,
+                    team_id=team_id,
+                    date=date,
+                    run_id=run_id,
+                    settings=merged_settings,
+                )
+
+        s3_path = cluster.any_host_by_role(
+            fn=do_export,
+            workload=workload,
+            node_role=NodeRole.DATA,
+        ).result()
+
+        if s3_path:
+            total_exported += 1
+            if register_persons_file_with_duckling(context, catalog, s3_path, config):
+                total_registered += 1
 
     context.add_output_metadata(
         {
             "team_id": team_id,
-            "partition_date": date_str,
-            "s3_path": s3_path or "(dry run)",
-            "registered": registered,
+            "partition_key": context.partition_key,
+            "dates_processed": len(dates),
+            "files_exported": total_exported,
+            "files_registered": total_registered,
             "bucket": catalog.bucket,
         }
     )
 
     context.log.info(
-        f"Completed duckling persons backfill for team_id={team_id}, date={date_str}: "
-        f"exported={'yes' if s3_path else 'no'}, registered={'yes' if registered else 'no'}"
+        f"Completed duckling persons backfill for team_id={team_id}: "
+        f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
     )
     logger.info(
         "duckling_persons_backfill_complete",
         team_id=team_id,
-        date=date_str,
-        s3_path=s3_path,
-        registered=registered,
+        dates_processed=len(dates),
+        files_exported=total_exported,
+        files_registered=total_registered,
     )
 
 
@@ -1316,114 +1380,165 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     )
 
 
+# Number of monthly partitions to create per sensor tick (to avoid timeout)
+BACKFILL_MONTHS_PER_TICK = 3
+
+
+def get_months_in_range(start_date: date, end_date: date) -> list[str]:
+    """Generate list of month strings (YYYY-MM) between start and end dates."""
+    months = []
+    current = date(start_date.year, start_date.month, 1)
+    end_month = date(end_date.year, end_date.month, 1)
+
+    while current <= end_month:
+        months.append(current.strftime("%Y-%m"))
+        # Move to next month
+        if current.month == 12:
+            current = date(current.year + 1, 1, 1)
+        else:
+            current = date(current.year, current.month + 1, 1)
+
+    return months
+
+
 @sensor(
     name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
+    minimum_interval_seconds=30,  # Run frequently to process backlog quickly
     job_name="duckling_events_backfill_job",
-    default_status=DefaultSensorStatus.RUNNING,  # Always on
+    default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical backfill sensor - runs once daily, can be triggered manually.
+    """Full historical backfill sensor - creates MONTHLY partitions for efficiency.
 
-    This sensor runs once per day to backfill missing historical events data:
+    Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
+    Each monthly partition processes all days in that month.
 
-    1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
-    2. Create up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions (default 100)
-    3. Wait until tomorrow to process the next batch
+    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
+
+    Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
+    to stay within the 60-second timeout limit.
 
     Manual trigger:
-        To run immediately, reset the cursor in Dagster UI:
+        To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_full_backfill_sensor -> Reset cursor
-
-    The daily `duckling_backfill_discovery_sensor` handles ongoing top-ups
-    for yesterday's data specifically.
     """
-    today = timezone.now().date().isoformat()
-
-    # Already ran today? Skip until tomorrow (or cursor reset)
-    last_completed_date = context.cursor
-    if last_completed_date == today:
-        context.log.debug("Full backfill: already ran today, skipping until tomorrow")
-        return SensorResult(run_requests=[], cursor=today)
+    import json
 
     yesterday = (timezone.now() - timedelta(days=1)).date()
-    existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+
+    # Parse cursor - tracks where we left off
+    cursor_data: dict = {}
+    if context.cursor:
+        try:
+            cursor_data = json.loads(context.cursor)
+        except json.JSONDecodeError:
+            cursor_data = {}
+
+    # Get list of teams to process
+    catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    if not catalogs:
+        context.log.info("No DuckLakeCatalog entries found")
+        return SensorResult(run_requests=[])
+
+    # Find where to resume from
+    resume_team_id = cursor_data.get("team_id")
+    resume_month = cursor_data.get("next_month")
+    cached_earliest = cursor_data.get("earliest")
+
+    # Find the catalog to resume from (or start from first)
+    start_idx = 0
+    if resume_team_id:
+        for i, cat in enumerate(catalogs):
+            if cat.team_id == resume_team_id:
+                start_idx = i
+                break
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
-    total_partitions_created = 0
 
-    for catalog in DuckLakeCatalog.objects.all():
-        # Stop if we've hit the batch limit
-        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-            context.log.info(
-                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue tomorrow"
-            )
+    # Process catalogs starting from where we left off
+    for catalog in catalogs[start_idx:]:
+        if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
+            context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
 
         team_id = catalog.team_id
 
-        # Query ClickHouse for the earliest event date
-        earliest_date = get_earliest_event_date_for_team(team_id)
-        if earliest_date is None:
-            context.log.info(f"No events found for team_id={team_id}, skipping")
-            continue
+        # Determine start month - use cached value if resuming same team
+        if team_id == resume_team_id and cached_earliest:
+            earliest_month = cached_earliest
+            current_month = resume_month if resume_month else earliest_month
+        else:
+            # Query ClickHouse for earliest date (only once per team)
+            earliest_dt = get_earliest_event_date_for_team(team_id)
+            if earliest_dt is None:
+                context.log.info(f"No events found for team_id={team_id}, skipping")
+                continue
+            earliest_month = earliest_dt.strftime("%Y-%m")
+            current_month = earliest_month
 
-        earliest = earliest_date.date()
-        team_partition_count = 0
+        # Generate monthly partitions for this team
+        end_month = yesterday.strftime("%Y-%m")
+        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
 
-        # Generate partitions from earliest date to yesterday
-        current_date = earliest
-        while current_date <= yesterday:
-            # Stop if we've hit the batch limit
-            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+        for month in all_months:
+            if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
                 break
 
-            date_str = current_date.strftime("%Y-%m-%d")
-            partition_key = f"{team_id}_{date_str}"
-
-            if partition_key not in existing:
-                new_partitions.append(partition_key)
-                run_requests.append(
-                    RunRequest(
-                        partition_key=partition_key,
-                        run_key=f"{partition_key}_full_backfill",
-                    )
+            partition_key = f"{team_id}_{month}"
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_full_backfill",
                 )
-                team_partition_count += 1
-                total_partitions_created += 1
-
-            current_date += timedelta(days=1)
-
-        if team_partition_count > 0:
-            context.log.info(f"Team {team_id}: created {team_partition_count} new partitions (earliest: {earliest})")
-            logger.info(
-                "duckling_full_backfill_team_partitions",
-                team_id=team_id,
-                partition_count=team_partition_count,
-                earliest_date=earliest.isoformat(),
-                latest_date=yesterday.isoformat(),
             )
+            current_month = month
+
+        # Update cursor for next tick
+        # Move to next month after the last one we processed
+        last_processed = datetime.strptime(current_month, "%Y-%m").date()
+        if last_processed.month == 12:
+            next_month_date = date(last_processed.year + 1, 1, 1)
+        else:
+            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
+        next_month = next_month_date.strftime("%Y-%m")
+
+        if next_month <= end_month:
+            # More months to process for this team
+            cursor_data = {
+                "team_id": team_id,
+                "next_month": next_month,
+                "earliest": earliest_month,
+            }
+        else:
+            # Done with this team, move to next
+            next_idx = catalogs.index(catalog) + 1
+            if next_idx < len(catalogs):
+                cursor_data = {"team_id": catalogs[next_idx].team_id}
+            else:
+                # All teams done - reset cursor to check again tomorrow
+                cursor_data = {"completed": timezone.now().date().isoformat()}
+
+    # Check if we're in "completed" state and should skip until new data
+    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
+        context.log.debug("Full backfill complete for today")
+        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
 
     if new_partitions:
-        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions")
+        context.log.info(f"Creating {len(new_partitions)} monthly partitions")
         logger.info(
-            "duckling_full_backfill_discovered",
+            "duckling_full_backfill_batch",
             partition_count=len(new_partitions),
-            run_count=len(run_requests),
-            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+            cursor=cursor_data,
         )
-    else:
-        context.log.info("Full backfill: no new partitions to create (all up to date)")
 
-    # Mark today as done - won't run again until tomorrow (or cursor reset)
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
-        cursor=today,
+        cursor=json.dumps(cursor_data),
     )
 
 
@@ -1524,108 +1639,141 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
+    minimum_interval_seconds=30,  # Run frequently to process backlog quickly
     job_name="duckling_persons_backfill_job",
-    default_status=DefaultSensorStatus.RUNNING,  # Always on
+    default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical persons backfill sensor - runs once daily, can be triggered manually.
+    """Full historical persons backfill sensor - creates MONTHLY partitions for efficiency.
 
-    Similar to duckling_full_backfill_sensor but for persons data.
-    Queries min(_timestamp) from the person table to find the earliest date.
+    Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
+    Each monthly partition processes all days in that month.
 
-    Creates up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions per day.
+    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
+
+    Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
+    to stay within the 60-second timeout limit.
 
     Manual trigger:
-        To run immediately, reset the cursor in Dagster UI:
+        To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    today = timezone.now().date().isoformat()
-
-    # Already ran today? Skip until tomorrow (or cursor reset)
-    last_completed_date = context.cursor
-    if last_completed_date == today:
-        context.log.debug("Persons full backfill: already ran today, skipping until tomorrow")
-        return SensorResult(run_requests=[], cursor=today)
+    import json
 
     yesterday = (timezone.now() - timedelta(days=1)).date()
-    existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+
+    # Parse cursor - tracks where we left off
+    cursor_data: dict = {}
+    if context.cursor:
+        try:
+            cursor_data = json.loads(context.cursor)
+        except json.JSONDecodeError:
+            cursor_data = {}
+
+    # Get list of teams to process
+    catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    if not catalogs:
+        context.log.info("No DuckLakeCatalog entries found")
+        return SensorResult(run_requests=[])
+
+    # Find where to resume from
+    resume_team_id = cursor_data.get("team_id")
+    resume_month = cursor_data.get("next_month")
+    cached_earliest = cursor_data.get("earliest")
+
+    # Find the catalog to resume from (or start from first)
+    start_idx = 0
+    if resume_team_id:
+        for i, cat in enumerate(catalogs):
+            if cat.team_id == resume_team_id:
+                start_idx = i
+                break
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
-    total_partitions_created = 0
 
-    for catalog in DuckLakeCatalog.objects.all():
-        # Stop if we've hit the batch limit
-        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-            context.log.info(
-                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue tomorrow"
-            )
+    # Process catalogs starting from where we left off
+    for catalog in catalogs[start_idx:]:
+        if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
+            context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
 
         team_id = catalog.team_id
 
-        earliest_date = get_earliest_person_date_for_team(team_id)
-        if earliest_date is None:
-            context.log.info(f"No persons found for team_id={team_id}, skipping")
-            continue
+        # Determine start month - use cached value if resuming same team
+        if team_id == resume_team_id and cached_earliest:
+            earliest_month = cached_earliest
+            current_month = resume_month if resume_month else earliest_month
+        else:
+            # Query ClickHouse for earliest date (only once per team)
+            earliest_dt = get_earliest_person_date_for_team(team_id)
+            if earliest_dt is None:
+                context.log.info(f"No persons found for team_id={team_id}, skipping")
+                continue
+            earliest_month = earliest_dt.strftime("%Y-%m")
+            current_month = earliest_month
 
-        earliest = earliest_date.date()
-        team_partition_count = 0
+        # Generate monthly partitions for this team
+        end_month = yesterday.strftime("%Y-%m")
+        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
 
-        current_date = earliest
-        while current_date <= yesterday:
-            # Stop if we've hit the batch limit
-            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+        for month in all_months:
+            if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
                 break
 
-            date_str = current_date.strftime("%Y-%m-%d")
-            partition_key = f"{team_id}_{date_str}"
-
-            if partition_key not in existing:
-                new_partitions.append(partition_key)
-                run_requests.append(
-                    RunRequest(
-                        partition_key=partition_key,
-                        run_key=f"{partition_key}_persons_full_backfill",
-                    )
+            partition_key = f"{team_id}_{month}"
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_persons_full_backfill",
                 )
-                team_partition_count += 1
-                total_partitions_created += 1
-
-            current_date += timedelta(days=1)
-
-        if team_partition_count > 0:
-            context.log.info(
-                f"Team {team_id}: created {team_partition_count} new persons partitions (earliest: {earliest})"
             )
-            logger.info(
-                "duckling_persons_full_backfill_team_partitions",
-                team_id=team_id,
-                partition_count=team_partition_count,
-                earliest_date=earliest.isoformat(),
-                latest_date=yesterday.isoformat(),
-            )
+            current_month = month
+
+        # Update cursor for next tick
+        last_processed = datetime.strptime(current_month, "%Y-%m").date()
+        if last_processed.month == 12:
+            next_month_date = date(last_processed.year + 1, 1, 1)
+        else:
+            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
+        next_month = next_month_date.strftime("%Y-%m")
+
+        if next_month <= end_month:
+            # More months to process for this team
+            cursor_data = {
+                "team_id": team_id,
+                "next_month": next_month,
+                "earliest": earliest_month,
+            }
+        else:
+            # Done with this team, move to next
+            next_idx = catalogs.index(catalog) + 1
+            if next_idx < len(catalogs):
+                cursor_data = {"team_id": catalogs[next_idx].team_id}
+            else:
+                # All teams done - reset cursor to check again tomorrow
+                cursor_data = {"completed": timezone.now().date().isoformat()}
+
+    # Check if we're in "completed" state and should skip until new data
+    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
+        context.log.debug("Persons full backfill complete for today")
+        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
 
     if new_partitions:
-        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions")
+        context.log.info(f"Creating {len(new_partitions)} monthly persons partitions")
         logger.info(
-            "duckling_persons_full_backfill_discovered",
+            "duckling_persons_full_backfill_batch",
             partition_count=len(new_partitions),
-            run_count=len(run_requests),
-            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+            cursor=cursor_data,
         )
-    else:
-        context.log.info("Persons full backfill: no new partitions to create (all up to date)")
 
-    # Mark today as done - won't run again until tomorrow (or cursor reset)
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
-        cursor=today,
+        cursor=json.dumps(cursor_data),
     )
 
 
