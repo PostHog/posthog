@@ -157,6 +157,9 @@ Email verification step shows **35% drop** in completion rate (from 78% to 51%).
 # Why did signups drop last week?
 
 ## Executive Summary
+
+[Executive summary table with key findings]
+
 Signups dropped **28%** last week due to email verification failures. The root cause was a misconfigured rate limit deployed Tuesday that blocked legitimate verification attempts. Recommend immediate rollback and monitoring.
 
 ## Key Findings
@@ -184,6 +187,7 @@ The signup drop was caused by overly aggressive rate limiting in email verificat
 </example_final_version>
 
 # Requirements
+- Always include an **Executive Summary table** at the top of the final report summarizing key findings
 - Use clear business language, avoiding technical jargon
 - Reference insights using <insight>{{artifact_id}}</insight> tags with the insight's id
 - Provide data-driven conclusions with specific numbers, percentages, counts
