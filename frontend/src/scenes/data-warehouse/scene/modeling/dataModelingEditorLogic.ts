@@ -9,6 +9,7 @@ import {
     applyEdgeChanges,
     applyNodeChanges,
 } from '@xyflow/react'
+import equal from 'fast-deep-equal'
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { RefObject } from 'react'
@@ -189,6 +190,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     {} as Record<string, ModelNode>
                 )
             },
+            { resultEqualityCheck: equal },
         ],
         nodeIdBySavedQueryId: [
             (s) => [s.nodes],
@@ -203,11 +205,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     {} as Record<string, string>
                 )
             },
+            { resultEqualityCheck: equal },
         ],
         selectedNode: [
-            (s) => [s.nodes, s.selectedNodeId],
-            (nodes, selectedNodeId) => {
-                return nodes.find((node) => node.id === selectedNodeId) ?? null
+            (s) => [s.nodesById, s.selectedNodeId],
+            (nodesById, selectedNodeId) => {
+                return selectedNodeId ? (nodesById[selectedNodeId] ?? null) : null
             },
         ],
         nodesLoading: [
@@ -226,6 +229,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 }
                 return statusMap
             },
+            { resultEqualityCheck: equal },
         ],
     }),
     listeners(({ values, actions }) => ({

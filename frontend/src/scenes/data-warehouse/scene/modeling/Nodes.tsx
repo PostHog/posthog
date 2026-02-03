@@ -1,7 +1,7 @@
 import { Handle, useUpdateNodeInternals } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCheck, IconPlay, IconPlayFilled, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -44,54 +44,50 @@ function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Elem
     )
 }
 
-function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
+interface ModelNodeInnerProps {
+    id: string
+    data: ModelNodeProps['data']
+    isSelected: boolean
+    isRunning: boolean
+    isSearchMatch: boolean
+    isTypeHighlighted: boolean
+    lastJobStatus: DataModelingJobStatus | undefined
+    onRunUpstream: (e: React.MouseEvent) => void
+    onRunDownstream: (e: React.MouseEvent) => void
+    onMaterialize: (e: React.MouseEvent) => void
+    onNodeClick: () => void
+}
+
+const ModelNodeInner = React.memo(function ModelNodeInner({
+    id,
+    data,
+    isSelected,
+    isRunning,
+    isSearchMatch,
+    isTypeHighlighted,
+    lastJobStatus,
+    onRunUpstream,
+    onRunDownstream,
+    onMaterialize,
+    onNodeClick,
+}: ModelNodeInnerProps): JSX.Element {
     const updateNodeInternals = useUpdateNodeInternals()
-    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId } =
-        useValues(dataModelingEditorLogic)
-    const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
-    const { newTab } = useActions(sceneLogic)
-    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
     const [isHovered, setIsHovered] = useState(false)
 
     useEffect(() => {
-        updateNodeInternals(props.id)
-    }, [props.id, updateNodeInternals])
+        updateNodeInternals(id)
+    }, [id, updateNodeInternals])
 
-    const settings = NODE_TYPE_SETTINGS[props.data.type]
-    const isSelected = selectedNodeId === props.id
-    const { userTag, name, type, savedQueryId } = props.data
-    const isRunning = runningNodeIds.has(props.id)
-    const lastJobStatus = lastJobStatusByNodeId[props.id]
-
-    const isSearchMatch =
-        debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
+    const settings = NODE_TYPE_SETTINGS[data.type]
+    const { userTag, name, type, savedQueryId } = data
 
     const canRun = type !== 'table'
     const canOpenInEditor = type !== 'table' && savedQueryId
     const hasUpstream = props.data.upstreamCount > 0
     const hasDownstream = props.data.downstreamCount > 0
 
-    const handleRunUpstream = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        runNode(props.id, 'upstream')
-    }
-
-    const handleRunDownstream = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        runNode(props.id, 'downstream')
-    }
-
-    const handleMaterialize = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        materializeNode(props.id)
-    }
-
-    const handleNodeClick = (): void => {
-        if (canOpenInEditor) {
-            newTab(urls.sqlEditor({ view_id: savedQueryId }))
-        }
-    }
+    const handleMouseEnter = useCallback(() => setIsHovered(true), [])
+    const handleMouseLeave = useCallback(() => setIsHovered(false), [])
 
     return (
         <div
@@ -113,11 +109,11 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
             }}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            onClick={handleNodeClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onClick={onNodeClick}
         >
-            {props.data.handles?.map((handle) => (
+            {data.handles?.map((handle) => (
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
 
@@ -133,7 +129,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                         <Tooltip title="Run all upstream nodes including this one">
                             <button
                                 type="button"
-                                onClick={handleRunUpstream}
+                                onClick={onRunUpstream}
                                 className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                             >
                                 <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
@@ -144,7 +140,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                         <Tooltip title="Run all downstream nodes including this one">
                             <button
                                 type="button"
-                                onClick={handleRunDownstream}
+                                onClick={onRunDownstream}
                                 className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                             >
                                 <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
@@ -182,7 +178,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                onClick={handleMaterialize}
+                                onClick={onMaterialize}
                                 disabled={isRunning}
                                 icon={isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
                             />
@@ -191,6 +187,73 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 </div>
             </div>
         </div>
+    )
+})
+
+function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
+    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId } =
+        useValues(dataModelingEditorLogic)
+    const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
+    const { newTab } = useActions(sceneLogic)
+    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
+
+    const { id, data } = props
+    const { name, type, savedQueryId } = data
+
+    const isSelected = selectedNodeId === id
+    const isRunning = runningNodeIds.has(id)
+    const lastJobStatus = lastJobStatusByNodeId[id]
+    const isSearchMatch = useMemo(
+        () => debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()),
+        [debouncedSearchTerm, name]
+    )
+    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
+
+    const handleRunUpstream = useCallback(
+        (e: React.MouseEvent): void => {
+            e.stopPropagation()
+            runNode(id, 'upstream')
+        },
+        [id, runNode]
+    )
+
+    const handleRunDownstream = useCallback(
+        (e: React.MouseEvent): void => {
+            e.stopPropagation()
+            runNode(id, 'downstream')
+        },
+        [id, runNode]
+    )
+
+    const handleMaterialize = useCallback(
+        (e: React.MouseEvent): void => {
+            e.stopPropagation()
+            materializeNode(id)
+        },
+        [id, materializeNode]
+    )
+
+    const canOpenInEditor = type !== 'table' && savedQueryId
+    const handleNodeClick = useCallback((): void => {
+        if (canOpenInEditor) {
+            newTab(urls.sqlEditor({ view_id: savedQueryId }))
+        }
+    }, [canOpenInEditor, savedQueryId, newTab])
+
+    return (
+        <ModelNodeInner
+            id={id}
+            data={data}
+            isSelected={isSelected}
+            isRunning={isRunning}
+            isSearchMatch={isSearchMatch}
+            isTypeHighlighted={isTypeHighlighted}
+            lastJobStatus={lastJobStatus}
+            onRunUpstream={handleRunUpstream}
+            onRunDownstream={handleRunDownstream}
+            onMaterialize={handleMaterialize}
+            onNodeClick={handleNodeClick}
+        />
     )
 }
 
