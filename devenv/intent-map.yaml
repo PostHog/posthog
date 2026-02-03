@@ -227,5 +227,6 @@ always_required:
     - celery-beat
     - nodejs
     - capture
+    - capture-replay
     - feature-flags
     - property-defs-rs
