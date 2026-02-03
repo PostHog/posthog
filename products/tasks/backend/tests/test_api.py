@@ -1,7 +1,9 @@
 import json
 
+import jwt
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -580,9 +582,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_connection_token_returns_jwt(self):
-        import jwt
-        from django.conf import settings
-
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
@@ -604,6 +603,57 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(decoded["team_id"], self.team.id)
         self.assertEqual(decoded["user_id"], self.user.id)
         self.assertIn("exp", decoded)
+
+    def test_connection_token_has_correct_expiry(self):
+        import time
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        decoded = jwt.decode(
+            response.json()["token"],
+            settings.SECRET_KEY,
+            audience="posthog:sandbox_connection",
+            algorithms=["HS256"],
+        )
+
+        now = time.time()
+        expected_expiry = now + (24 * 60 * 60)
+        self.assertAlmostEqual(decoded["exp"], expected_expiry, delta=60)
+
+    def test_connection_token_includes_distinct_id(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        decoded = jwt.decode(
+            response.json()["token"],
+            settings.SECRET_KEY,
+            audience="posthog:sandbox_connection",
+            algorithms=["HS256"],
+        )
+
+        self.assertIn("distinct_id", decoded)
+        self.assertEqual(decoded["distinct_id"], self.user.distinct_id)
+
+    def test_connection_token_cannot_access_other_team_run(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Other Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/connection_token/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):

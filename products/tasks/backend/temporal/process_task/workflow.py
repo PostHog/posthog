@@ -48,17 +48,14 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
+SANDBOX_SESSION_TIMEOUT_MINUTES = 60
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
-        self._is_completed: bool = False
-
-    @workflow.signal
-    def complete(self) -> None:
-        """Signal to mark the task as completed."""
-        self._is_completed = True
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -119,8 +116,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            # Wait for completion signal from client
-            await workflow.wait_condition(lambda: self._is_completed)
+            # TODO: implement heartbeat signal from agent-server, timeout after N minutes without heartbeat
+            await asyncio.sleep(SANDBOX_SESSION_TIMEOUT_MINUTES * 60)
 
             await self._update_task_run_status("completed")
             await self._post_slack_update()
