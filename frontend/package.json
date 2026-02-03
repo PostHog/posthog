@@ -56,6 +56,7 @@
         "@dnd-kit/modifiers": "^6.0.1",
         "@dnd-kit/sortable": "^7.0.2",
         "@dnd-kit/utilities": "^3.2.1",
+        "@enhance-eng/sandbox": "^0.5.4",
         "@floating-ui/dom": "^1.7.3",
         "@floating-ui/react": "^0.26.9",
         "@lottiefiles/react-lottie-player": "^3.4.7",

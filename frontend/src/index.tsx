@@ -1,5 +1,6 @@
 import '~/styles'
 
+import { enhance } from '@enhance-eng/sandbox'
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { getContext } from 'kea'
 import posthog from 'posthog-js'
@@ -13,6 +14,8 @@ import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
 import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
+
+enhance()
 
 loadPostHogJS()
 initKea()
