@@ -36,12 +36,14 @@ interface OpenQuestionSummaryV2Props {
     questionId?: string
     questionIndex: number
     totalResponses: number
+    appearance?: 'card' | 'plain'
 }
 
 export function OpenQuestionSummaryV2({
     questionId,
     questionIndex,
     totalResponses,
+    appearance = 'card',
 }: OpenQuestionSummaryV2Props): JSX.Element | null {
     const { survey } = useValues(surveyLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
@@ -118,14 +120,18 @@ export function OpenQuestionSummaryV2({
         },
     })
 
+    const isPlain = appearance === 'plain'
+
     if (!shouldShowSummary) {
         return null
     }
 
     if (loading && !summary) {
         return (
-            <div className="border rounded p-4 mb-4 bg-surface-primary">
-                <div className="flex items-center gap-2 mb-3">
+            <div
+                className={`mb-4 ${isPlain ? 'bg-transparent border-0 p-0' : 'border rounded p-4 bg-surface-primary'}`}
+            >
+                <div className={`flex items-center gap-2 ${isPlain ? 'mb-2' : 'mb-3'}`}>
                     <IconSparkles className="text-warning" />
                     <span className="font-semibold">Response summary</span>
                 </div>
@@ -140,7 +146,9 @@ export function OpenQuestionSummaryV2({
 
     if (error && !summary) {
         return (
-            <div className="border rounded p-4 mb-2 bg-surface-primary border-danger">
+            <div
+                className={`mb-2 ${isPlain ? 'bg-transparent border-0 p-0' : 'border rounded p-4 bg-surface-primary border-danger'}`}
+            >
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-danger">
                         <IconSparkles />
@@ -158,7 +166,9 @@ export function OpenQuestionSummaryV2({
         // Waiting for consent or initial load
         if (!dataProcessingAccepted) {
             return (
-                <div className="border rounded p-4 mb-2 bg-surface-primary">
+                <div
+                    className={`mb-2 ${isPlain ? 'bg-transparent border-0 p-0' : 'border rounded p-4 bg-surface-primary'}`}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <IconSparkles className="text-warning" />
@@ -189,11 +199,13 @@ export function OpenQuestionSummaryV2({
     const generatedTime = dayjs(summary.generatedAt)
 
     return (
-        <div className="border rounded mb-2 bg-surface-primary overflow-hidden">
+        <div className={isPlain ? 'mb-2' : 'border rounded mb-2 bg-surface-primary overflow-hidden'}>
             {/* Collapsible header */}
             <button
                 type="button"
-                className="w-full flex items-center justify-between p-3 hover:bg-surface-secondary transition-colors cursor-pointer"
+                className={`w-full flex items-center justify-between transition-colors cursor-pointer ${
+                    isPlain ? 'py-2 hover:bg-transparent' : 'p-3 hover:bg-surface-secondary'
+                }`}
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex items-center gap-2">
@@ -221,12 +233,16 @@ export function OpenQuestionSummaryV2({
                     isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'
                 }`}
             >
-                <div className="px-3 pb-3">
-                    <div className="prose prose-sm max-w-none">
+                <div className={isPlain ? 'pb-2' : 'px-3 pb-3'}>
+                    <div className="prose prose-base max-w-none">
                         <LemonMarkdown>{summary.content}</LemonMarkdown>
                     </div>
 
-                    <div className="flex items-center justify-between mt-3 pt-2 border-t text-xs text-muted">
+                    <div
+                        className={`flex items-center justify-between text-xs text-muted ${
+                            isPlain ? 'mt-2 pt-2 border-t' : 'mt-3 pt-2 border-t'
+                        }`}
+                    >
                         <div className="flex items-center gap-2">
                             <span>
                                 Based on {summary.responseCount}

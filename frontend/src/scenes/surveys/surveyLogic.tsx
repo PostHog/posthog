@@ -86,7 +86,7 @@ import {
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
-import { surveysLogic } from './surveysLogic'
+import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
     buildPartialResponsesFilter,
@@ -612,6 +612,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             intent_context: ProductIntentContext.SURVEY_VIEWED,
                             metadata: {
                                 survey_id: survey.id,
+                                survey_status: getSurveyStatus(survey),
                             },
                         })
                         return survey
