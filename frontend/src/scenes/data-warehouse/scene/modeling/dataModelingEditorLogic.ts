@@ -243,7 +243,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             },
             { resultEqualityCheck: equal },
         ],
-        // nodes are eriched with derived state to optimize reactflow rendering
+        // nodes are enriched with derived state to optimize reactflow rendering
         enrichedNodes: [
             (s) => [s.nodes, s.selectedNodeId, s.runningNodeIds, s.lastJobStatusByNodeId, s.highlightedNodeType],
             (nodes, selectedNodeId, runningNodeIds, lastJobStatusByNodeId, highlightedNodeType): ModelNode[] => {
