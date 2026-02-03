@@ -128,7 +128,13 @@ class TeamManager(models.Manager):
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
             team.save()
-            team.kick_off_demo_data_generation(initiating_user)
+            # Defer Celery task if we're inside an atomic block (e.g., ensure_account_and_save)
+            # to avoid sending task before transaction commits. In tests, Celery tasks run
+            # synchronously so we can call directly (and on_commit doesn't run in TestCase).
+            if connection.in_atomic_block and not settings.TEST:
+                transaction.on_commit(lambda: team.kick_off_demo_data_generation(initiating_user))
+            else:
+                team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults

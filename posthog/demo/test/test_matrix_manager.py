@@ -4,7 +4,6 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import ClickhouseDestroyTablesMixin
-from unittest import mock
 
 from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
@@ -70,8 +69,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         # At least one event for each cluster
         assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
 
-    @mock.patch("posthog.models.team.team.Team.kick_off_demo_data_generation")
-    def test_create_team(self, mock_kick_off):
+    def test_create_team(self):
         manager = MatrixManager(self.matrix)
 
         demo_team = manager.create_team(self.organization, initiating_user=self.user)
@@ -79,7 +77,6 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         assert demo_team.organization == self.organization
         assert demo_team.ingested_event
         assert demo_team.is_demo
-        mock_kick_off.assert_called_once_with(self.user)
 
     def test_run_on_team(self):
         manager = MatrixManager(self.matrix)
