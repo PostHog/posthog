@@ -32,8 +32,8 @@ export function getToolDefinitions(version?: number): ToolDefinitions {
     if (version === 2) {
         if (!_toolDefinitionsV2) {
             const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
-            const overrides = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
-            _toolDefinitionsV2 = { ...base, ...overrides }
+            const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
+            _toolDefinitionsV2 = { ...new_tools, ...base }
         }
         return _toolDefinitionsV2
     }
@@ -66,6 +66,11 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
+
+    // Filter out tools that are not supported in new MCP
+    if (version === 2) {
+        entries = entries.filter(([_, definition]) => definition.new_mcp !== false)
+    }
 
     // Filter by features if provided
     if (features && features.length > 0) {

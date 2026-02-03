@@ -24,11 +24,21 @@ import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const INSTRUCTIONS = `
-- You are a helpful assistant that can query PostHog API.
+const SHARED_PROMPT = `
 - If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
 - If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
 `
+
+const INSTRUCTIONS_V1 = `
+- You are a helpful assistant that can query PostHog API.
+${SHARED_PROMPT}
+`.trim()
+
+const INSTRUCTIONS_V2 = `
+- IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
+- You have access to the PostHog SQL interface via the 'posthog:execute-sql' tool and \`posthog-query-data\` skill.
+${SHARED_PROMPT}
+`.trim()
 
 export type RequestProperties = {
     userHash: string
@@ -40,7 +50,7 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS })
+    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_V1 })
 
     initialState: State = {
         projectId: undefined,
@@ -283,6 +293,10 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
+        const { features, version } = this.requestProperties
+        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+
         const context = await this.getContext()
 
         // Register prompts and resources
@@ -291,7 +305,6 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const { features, version } = this.requestProperties
         const allTools = await getToolsFromContext(context, { features, version })
 
         for (const tool of allTools) {
