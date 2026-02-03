@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { ProjectSecretAPIKeyRequest } from 'src/queries/schema/schema-general'
+import { ProjectSecretAPIKeyAllowedScope, ProjectSecretAPIKeyRequest } from 'src/queries/schema/schema-general'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -197,7 +197,7 @@ export const projectAPIKeysLogic = kea<projectAPIKeysLogicType>([
                 const key = values.keys.find((k: ProjectSecretAPIKeyType) => k.id === id)
                 actions.resetEditingKey({
                     label: key?.label ?? '',
-                    scopes: key?.scopes ?? [],
+                    scopes: (key?.scopes ?? []) as ProjectSecretAPIKeyAllowedScope[],
                     preset: undefined,
                 })
             }
@@ -206,7 +206,7 @@ export const projectAPIKeysLogic = kea<projectAPIKeysLogicType>([
         setScopeRadioValue: ({ key, action }: { key: string; action: string }) => {
             const newScopes = (values.editingKey.scopes || []).filter((s: string) => !s.startsWith(key))
             if (action !== 'none') {
-                newScopes.push(`${key}:${action}`)
+                newScopes.push(`${key}:${action}` as ProjectSecretAPIKeyAllowedScope)
             }
             actions.setEditingKeyValue('scopes', newScopes)
         },

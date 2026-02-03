@@ -1,5 +1,5 @@
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
@@ -54,7 +54,7 @@ export function APIKeyTable({
     showCreatedBy = false,
     showActions = false,
 }: APIKeyTableProps): JSX.Element {
-    const columns: any[] = [
+    const columns: LemonTableColumn<APIKeyTableRow, any>[] = [
         {
             title: 'Label',
             dataIndex: 'label',
@@ -146,7 +146,7 @@ export function APIKeyTable({
                   {
                       title: '',
                       key: 'actions',
-                      align: 'right',
+                      align: 'right' as const,
                       width: 0,
                       render: (_: any, key: APIKeyTableRow) => (
                           <LemonMenu
