@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { PaginationManual, Sorting } from '@posthog/lemon-ui'
@@ -26,7 +26,6 @@ const DEFAULT_SORTING: Sorting = { columnKey: '-created_at', order: 1 }
 
 export const sessionGroupSummariesTableLogic = kea<sessionGroupSummariesTableLogicType>([
     path(['products', 'session_summaries', 'frontend', 'sessionGroupSummariesTableLogic']),
-    connect({}),
     actions({
         loadSessionGroupSummaries: true, // Takes no parameters, load by default
         setFilters: (filters: Partial<SessionGroupSummariesListFilters>) => ({ filters }),

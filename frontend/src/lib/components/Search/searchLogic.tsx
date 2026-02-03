@@ -63,7 +63,7 @@ export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -74,7 +74,7 @@ export const searchLogic = kea<searchLogicType>([
             preflightLogic,
             ['isDev'],
         ],
-    }),
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
     }),

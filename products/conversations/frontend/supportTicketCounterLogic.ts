@@ -17,10 +17,10 @@ export interface UnreadCountResponse {
 
 export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
     path(['products', 'conversations', 'frontend', 'supportTicketCounterLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam'], browserNotificationLogic, ['canShowNotifications']],
         actions: [browserNotificationLogic, ['showNotification']],
-    }),
+    })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,

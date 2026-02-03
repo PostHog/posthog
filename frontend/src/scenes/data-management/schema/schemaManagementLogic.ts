@@ -101,9 +101,9 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
     path(['scenes', 'data-management', 'schema', 'schemaManagementLogic']),
     props({} as SchemaManagementLogicProps),
     key((props) => props.key || 'default'),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setPropertyGroupModalOpen: (open: boolean) => ({ open }),

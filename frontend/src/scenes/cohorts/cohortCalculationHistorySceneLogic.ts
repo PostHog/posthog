@@ -47,9 +47,9 @@ export const cohortCalculationHistorySceneLogic = kea<cohortCalculationHistorySc
     key(({ cohortId }) => String(cohortId)),
     path((key) => ['scenes', 'cohorts', 'cohortCalculationHistorySceneLogic', key]),
 
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     actions({
         setPage: (page: number) => ({ page }),

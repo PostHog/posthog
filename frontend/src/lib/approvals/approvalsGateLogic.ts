@@ -12,9 +12,9 @@ import type { approvalsGateLogicType } from './approvalsGateLogicType'
 export const approvalsGateLogic = kea<approvalsGateLogicType>([
     path(['lib', 'approvals', 'approvalsGateLogic']),
 
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     loaders(({ values }) => ({
         activePolicies: [

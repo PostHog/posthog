@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-managed-migrations",
     "dependencies": {
-        "kea": "^4.0.0-pre.1",
+        "kea": "^4.0.0-pre.2",
         "kea-forms": "^3.2.0",
         "kea-loaders": "^3.1.1",
         "kea-router": "^3.4.1"
