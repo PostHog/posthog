@@ -5,6 +5,8 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import MaxTool from 'scenes/max/MaxTool'
 
@@ -32,6 +34,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
         reportAIQueryPromptOpen,
     } = useActions(multitabEditorLogic)
     const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
+    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
 
     return (
         <>
@@ -55,6 +59,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         height={height}
                                         width={width}
                                         originalValue={props.originalValue}
+                                        enableVimMode={editorVimModeEnabled}
                                         {...props.codeEditorProps}
                                         autoFocus={true}
                                         options={{
@@ -74,6 +79,17 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                 ) : null
                             }
                         />
+                    </div>
+                    <div className="absolute bottom-6 left-4">
+                        <Tooltip title={editorVimModeEnabled ? 'Disable vim mode' : 'Enable vim mode'}>
+                            <LemonButton
+                                size="small"
+                                type={editorVimModeEnabled ? 'primary' : 'secondary'}
+                                onClick={() => setEditorVimModeEnabled(!editorVimModeEnabled)}
+                            >
+                                Vim
+                            </LemonButton>
+                        </Tooltip>
                     </div>
                     <div className="absolute bottom-6 right-4">
                         <MaxTool
