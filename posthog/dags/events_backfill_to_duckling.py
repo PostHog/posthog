@@ -341,6 +341,71 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     ).result()
 
 
+def get_months_with_events_for_team(team_id: int) -> list[str]:
+    """Query ClickHouse to get all months that have events for a team.
+
+    Returns a list of month strings (YYYY-MM) in ascending order.
+    Only returns months up to and including yesterday's month.
+    """
+    cluster = get_cluster()
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    max_month = yesterday.strftime("%Y-%m")
+
+    def query_months(client: Client) -> list[str]:
+        result = client.execute(
+            """
+            SELECT formatDateTime(timestamp, '%%Y-%%m') as month
+            FROM events
+            WHERE team_id = %(team_id)s
+            GROUP BY month
+            ORDER BY month ASC
+            """,
+            {"team_id": team_id},
+        )
+        # Filter to only include months up to yesterday
+        return [row[0] for row in result if row[0] <= max_month]
+
+    return cluster.any_host_by_role(
+        fn=query_months,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
+
+
+def get_months_with_persons_for_team(team_id: int) -> list[str]:
+    """Query ClickHouse to get all months that have persons for a team.
+
+    Uses _timestamp (Kafka ingestion time) for date filtering.
+    Returns a list of month strings (YYYY-MM) in ascending order.
+    Only returns months up to and including yesterday's month.
+    """
+    cluster = get_cluster()
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+    max_month = yesterday.strftime("%Y-%m")
+
+    def query_months(client: Client) -> list[str]:
+        result = client.execute(
+            """
+            SELECT formatDateTime(_timestamp, '%%Y-%%m') as month
+            FROM person
+            WHERE team_id = %(team_id)s
+            GROUP BY month
+            ORDER BY month ASC
+            """,
+            {"team_id": team_id},
+        )
+        # Filter to only include months up to yesterday
+        return [row[0] for row in result if row[0] <= max_month]
+
+    return cluster.any_host_by_role(
+        fn=query_months,
+        workload=workload,
+        node_role=NodeRole.DATA,
+    ).result()
+
+
 def _validate_identifier(identifier: str) -> None:
     """Validate that an identifier is safe for SQL interpolation.
 
@@ -1423,7 +1488,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
     Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
     Each monthly partition processes all days in that month.
 
-    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
+    Cursor format: {"team_id": X, "month_idx": N, "months": ["YYYY-MM", ...]}
 
     Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
     to stay within the 60-second timeout limit.
@@ -1435,7 +1500,6 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
     import time
 
     t0 = time.time()
-    yesterday = (timezone.now() - timedelta(days=1)).date()
 
     # Parse cursor - tracks where we left off
     cursor_data: dict = {}
@@ -1459,8 +1523,8 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
     # Find where to resume from
     resume_team_id = cursor_data.get("team_id")
-    resume_month = cursor_data.get("next_month")
-    cached_earliest = cursor_data.get("earliest")
+    resume_month_idx = cursor_data.get("month_idx", 0)
+    cached_months = cursor_data.get("months")
 
     # Find the catalog to resume from (or start from first)
     start_idx = 0
@@ -1481,30 +1545,36 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
         team_id = catalog.team_id
 
-        # Determine start month - use cached value if resuming same team
-        if team_id == resume_team_id and cached_earliest:
-            earliest_month = cached_earliest
-            current_month = resume_month if resume_month else earliest_month
+        # Get months with data - use cached list if resuming same team
+        if team_id == resume_team_id and cached_months:
+            all_months = cached_months
+            month_start_idx = resume_month_idx
         else:
-            # Query ClickHouse for earliest date (only once per team)
+            # Query ClickHouse for all months with events
             t_ch_start = time.time()
-            earliest_dt = get_earliest_event_date_for_team(team_id)
+            all_months = get_months_with_events_for_team(team_id)
             t_ch_end = time.time()
-            context.log.info(f"[TIMING] ClickHouse query for team {team_id} took {t_ch_end - t_ch_start:.2f}s")
-            if earliest_dt is None:
+            context.log.info(
+                f"[TIMING] ClickHouse query for team {team_id} took {t_ch_end - t_ch_start:.2f}s, "
+                f"found {len(all_months)} months with data"
+            )
+            if not all_months:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
-            earliest_month = earliest_dt.strftime("%Y-%m")
-            current_month = earliest_month
+            month_start_idx = 0
 
-        # Generate monthly partitions for this team
-        end_month = yesterday.strftime("%Y-%m")
-        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
-
-        for month in all_months:
+        # Process months starting from where we left off
+        for month_idx in range(month_start_idx, len(all_months)):
             if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
+                # Save progress - will continue from this month next tick
+                cursor_data = {
+                    "team_id": team_id,
+                    "month_idx": month_idx,
+                    "months": all_months,
+                }
                 break
 
+            month = all_months[month_idx]
             partition_key = f"{team_id}_{month}"
             new_partitions.append(partition_key)
             run_requests.append(
@@ -1513,26 +1583,8 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
                     run_key=f"{partition_key}_full_backfill",
                 )
             )
-            current_month = month
-
-        # Update cursor for next tick
-        # Move to next month after the last one we processed
-        last_processed = datetime.strptime(current_month, "%Y-%m").date()
-        if last_processed.month == 12:
-            next_month_date = date(last_processed.year + 1, 1, 1)
         else:
-            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
-        next_month = next_month_date.strftime("%Y-%m")
-
-        if next_month <= end_month:
-            # More months to process for this team
-            cursor_data = {
-                "team_id": team_id,
-                "next_month": next_month,
-                "earliest": earliest_month,
-            }
-        else:
-            # Done with this team, move to next
+            # Finished all months for this team, move to next
             next_idx = catalog_idx + 1
             if next_idx < len(catalogs):
                 cursor_data = {"team_id": catalogs[next_idx].team_id}
@@ -1669,7 +1721,7 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
     Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
     Each monthly partition processes all days in that month.
 
-    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
+    Cursor format: {"team_id": X, "month_idx": N, "months": ["YYYY-MM", ...]}
 
     Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
     to stay within the 60-second timeout limit.
@@ -1678,7 +1730,9 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    yesterday = (timezone.now() - timedelta(days=1)).date()
+    import time
+
+    t0 = time.time()
 
     # Parse cursor - tracks where we left off
     cursor_data: dict = {}
@@ -1688,16 +1742,22 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
         except json.JSONDecodeError:
             cursor_data = {}
 
+    t1 = time.time()
+    context.log.info(f"[TIMING] Cursor parsing took {t1 - t0:.2f}s")
+
     # Get list of teams to process
     catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    t2 = time.time()
+    context.log.info(f"[TIMING] Django ORM query took {t2 - t1:.2f}s, found {len(catalogs)} catalogs")
+
     if not catalogs:
         context.log.info("No DuckLakeCatalog entries found")
         return SensorResult(run_requests=[])
 
     # Find where to resume from
     resume_team_id = cursor_data.get("team_id")
-    resume_month = cursor_data.get("next_month")
-    cached_earliest = cursor_data.get("earliest")
+    resume_month_idx = cursor_data.get("month_idx", 0)
+    cached_months = cursor_data.get("months")
 
     # Find the catalog to resume from (or start from first)
     start_idx = 0
@@ -1718,27 +1778,36 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
 
         team_id = catalog.team_id
 
-        # Determine start month - use cached value if resuming same team
-        if team_id == resume_team_id and cached_earliest:
-            earliest_month = cached_earliest
-            current_month = resume_month if resume_month else earliest_month
+        # Get months with data - use cached list if resuming same team
+        if team_id == resume_team_id and cached_months:
+            all_months = cached_months
+            month_start_idx = resume_month_idx
         else:
-            # Query ClickHouse for earliest date (only once per team)
-            earliest_dt = get_earliest_person_date_for_team(team_id)
-            if earliest_dt is None:
+            # Query ClickHouse for all months with persons
+            t_ch_start = time.time()
+            all_months = get_months_with_persons_for_team(team_id)
+            t_ch_end = time.time()
+            context.log.info(
+                f"[TIMING] ClickHouse query for team {team_id} took {t_ch_end - t_ch_start:.2f}s, "
+                f"found {len(all_months)} months with data"
+            )
+            if not all_months:
                 context.log.info(f"No persons found for team_id={team_id}, skipping")
                 continue
-            earliest_month = earliest_dt.strftime("%Y-%m")
-            current_month = earliest_month
+            month_start_idx = 0
 
-        # Generate monthly partitions for this team
-        end_month = yesterday.strftime("%Y-%m")
-        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
-
-        for month in all_months:
+        # Process months starting from where we left off
+        for month_idx in range(month_start_idx, len(all_months)):
             if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
+                # Save progress - will continue from this month next tick
+                cursor_data = {
+                    "team_id": team_id,
+                    "month_idx": month_idx,
+                    "months": all_months,
+                }
                 break
 
+            month = all_months[month_idx]
             partition_key = f"{team_id}_{month}"
             new_partitions.append(partition_key)
             run_requests.append(
@@ -1747,25 +1816,8 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
                     run_key=f"{partition_key}_persons_full_backfill",
                 )
             )
-            current_month = month
-
-        # Update cursor for next tick
-        last_processed = datetime.strptime(current_month, "%Y-%m").date()
-        if last_processed.month == 12:
-            next_month_date = date(last_processed.year + 1, 1, 1)
         else:
-            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
-        next_month = next_month_date.strftime("%Y-%m")
-
-        if next_month <= end_month:
-            # More months to process for this team
-            cursor_data = {
-                "team_id": team_id,
-                "next_month": next_month,
-                "earliest": earliest_month,
-            }
-        else:
-            # Done with this team, move to next
+            # Finished all months for this team, move to next
             next_idx = catalog_idx + 1
             if next_idx < len(catalogs):
                 cursor_data = {"team_id": catalogs[next_idx].team_id}
