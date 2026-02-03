@@ -62,7 +62,6 @@ import type {
     AgentMemory,
     CreateMemoryInput,
     MemoryQueryResponse,
-    MemoryQueryResult,
     MetadataKeysResponse,
     QueryMemoryInput,
     UpdateMemoryInput,

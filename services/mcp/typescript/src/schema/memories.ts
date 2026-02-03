@@ -26,10 +26,14 @@ export const QueryMemoryInputSchema = z.object({
 })
 export type QueryMemoryInput = z.infer<typeof QueryMemoryInputSchema>
 
-export const UpdateMemoryInputSchema = z.object({
-    contents: z.string().optional().describe('New content for the memory'),
-    metadata: z.record(z.any()).optional().describe('New metadata for the memory'),
-})
+export const UpdateMemoryInputSchema = z
+    .object({
+        contents: z.string().optional().describe('New content for the memory'),
+        metadata: z.record(z.any()).optional().describe('New metadata for the memory'),
+    })
+    .refine((data) => data.contents !== undefined || data.metadata !== undefined, {
+        message: 'At least one of "contents" or "metadata" must be provided',
+    })
 export type UpdateMemoryInput = z.infer<typeof UpdateMemoryInputSchema>
 
 export const MemoryQueryResultSchema = z.object({

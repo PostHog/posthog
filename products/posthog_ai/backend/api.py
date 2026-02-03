@@ -2,7 +2,7 @@ import json
 
 from django.db import transaction
 
-from rest_framework import serializers, status
+from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
@@ -66,11 +66,8 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         return AgentMemory.objects.filter(team=self.team)
 
     def perform_destroy(self, instance):
-        # Soft delete pattern: mark as deleted in embedding, then hard delete
-        instance.metadata = {**instance.metadata, "deleted": True}
-        with transaction.atomic():
-            instance.embed(EMBEDDING_MODEL)
-            instance.delete()
+        # Hard delete - the embedding service will handle cleanup
+        instance.delete()
 
     @action(detail=False, methods=["post"])
     def query(self, request, *args, **kwargs):
