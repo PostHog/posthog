@@ -7,7 +7,6 @@ import dataclasses
 from django.conf import settings
 from django.db import close_old_connections
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -18,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.posthog_analytics import capture_in_background
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
@@ -134,7 +134,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
         if has_non_retryable_error:
-            posthoganalytics.capture(
+            capture_in_background(
                 distinct_id=get_machine_id(),
                 event="schema non-retryable error",
                 properties={

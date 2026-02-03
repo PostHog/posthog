@@ -2,7 +2,7 @@ from dataclasses import is_dataclass
 from typing import Any, Optional
 
 import temporalio.exceptions
-from posthoganalytics import api_key, capture_exception
+from posthoganalytics import api_key
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -14,6 +14,7 @@ from temporalio.worker import (
 )
 
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.posthog_analytics import capture_exception_async
 
 logger = get_write_only_logger()
 
@@ -34,7 +35,7 @@ async def _add_inputs_to_capture_kwargs(
         await logger.awarning(
             "Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e
         )
-        capture_exception(e, **capture_kwargs)
+        await capture_exception_async(e, **capture_kwargs)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -60,7 +61,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
             if api_key:
                 try:
-                    capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
+                    await capture_exception_async(e, **capture_kwargs)
                 except Exception as capture_error:
                     await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
@@ -96,7 +97,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     try:
-                        capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
+                        await capture_exception_async(e, **capture_kwargs)
                     except Exception as capture_error:
                         await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise

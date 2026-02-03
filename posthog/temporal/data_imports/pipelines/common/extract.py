@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING, NoReturn
 from django.conf import settings
 
 import pyarrow as pa
-import posthoganalytics
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+from posthog.temporal.common.posthog_analytics import capture_in_background
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.util import NonRetryableException
 
@@ -120,9 +120,9 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
             )
 
-            posthoganalytics.capture(
-                "dwh_pod_heartbeat_timeout",
+            capture_in_background(
                 distinct_id=None,
+                event="dwh_pod_heartbeat_timeout",
                 properties={
                     "team_id": inputs.team_id,
                     "schema_id": str(inputs.schema_id),
