@@ -495,6 +495,7 @@ export interface PluginsServerConfig
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
     SES_REGION: string
+    SES_V2_ENABLED: boolean
 
     // Pod termination
     POD_TERMINATION_ENABLED: boolean

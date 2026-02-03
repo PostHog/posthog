@@ -16,7 +16,12 @@ import { RecipientTokensService } from './recipient-tokens.service'
 
 export type EmailServiceHub = Pick<
     Hub,
-    'SES_ACCESS_KEY_ID' | 'SES_SECRET_ACCESS_KEY' | 'SES_REGION' | 'SES_ENDPOINT' | 'integrationManager'
+    | 'SES_ACCESS_KEY_ID'
+    | 'SES_SECRET_ACCESS_KEY'
+    | 'SES_REGION'
+    | 'SES_ENDPOINT'
+    | 'SES_V2_ENABLED'
+    | 'integrationManager'
 >
 
 export class EmailService {
@@ -68,8 +73,13 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params)
+                    if (!!this.hub.SES_V2_ENABLED) {
+                        await this.sendEmailWithSESv2(result, params)
+                    } else {
+                        await this.sendEmailWithSES(result, params)
+                    }
                     break
+
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
             }
