@@ -35,12 +35,18 @@ export class DashboardPage {
 
     async addInsightToNewDashboard(): Promise<void> {
         await this.page.getByTestId('info-actions-panel').click()
-        await this.page.getByTestId('insight-add-to-dashboard-button').click()
-        await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
+        const addButton = this.page.getByTestId('insight-add-to-dashboard-button')
+        await expect(addButton).toBeVisible()
+        await addButton.click()
+
+        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Add to dashboard' })
+        await expect(modal).toBeVisible()
+        await modal.getByText('Add to a new dashboard').click()
+
         await this.page.getByTestId('create-dashboard-blank').click()
-        await this.page.waitForURL(/\/dashboard\/\d+/)
+
+        await expect(this.page.locator('.InsightCard')).toBeVisible({ timeout: 30000 })
         await this.closeSidePanels()
-        await expect(this.items).toBeVisible()
     }
 
     async closeSidePanels(): Promise<void> {
