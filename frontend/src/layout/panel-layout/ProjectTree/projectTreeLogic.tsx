@@ -1007,6 +1007,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     const childPrefix = folderId.endsWith('://') ? folderId : folderId + '/'
                     const newExpandedFolders = values.expandedFolders.filter(
                         (f) => f !== folderId && !f.startsWith(childPrefix)
+                    )
                     actions.setExpandedFolders(newExpandedFolders)
                     actions.pruneClosedFolders(newExpandedFolders)
                 } else {
