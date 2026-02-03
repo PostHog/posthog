@@ -129,7 +129,7 @@ pub async fn process_event(
 
     // Resolve issue (create new or find existing)
     let issue = resolve_issue(
-        ctx.clone(),
+        &ctx.clone(),
         team_id,
         name,
         description,

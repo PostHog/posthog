@@ -15,6 +15,19 @@ use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
+use crate::types::batch::Batch;
+
+mod exception;
+mod stacktrace;
+
+pub mod batch;
+pub mod event;
+pub mod operator;
+pub mod pipeline;
+pub mod stage;
+
+pub use exception::*;
+pub use stacktrace::*;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -29,31 +42,6 @@ pub struct Mechanism {
     pub synthetic: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Stacktrace {
-    Raw { frames: Vec<RawFrame> },
-    Resolved { frames: Vec<Frame> },
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Exception {
-    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
-    pub exception_id: Option<String>,
-    #[serde(rename = "type")]
-    pub exception_type: String,
-    #[serde(rename = "value", default)]
-    pub exception_message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mechanism: Option<Mechanism>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "stacktrace")]
-    pub stack: Option<Stacktrace>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
@@ -61,6 +49,12 @@ pub struct ExceptionList(pub Vec<Exception>);
 impl From<Vec<Exception>> for ExceptionList {
     fn from(exceptions: Vec<Exception>) -> Self {
         ExceptionList(exceptions)
+    }
+}
+
+impl From<&[Exception]> for ExceptionList {
+    fn from(exceptions: &[Exception]) -> Self {
+        ExceptionList(exceptions.to_vec())
     }
 }
 
@@ -74,6 +68,15 @@ impl Deref for ExceptionList {
 impl DerefMut for ExceptionList {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl IntoIterator for ExceptionList {
+    type Item = Exception;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

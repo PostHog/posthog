@@ -4,7 +4,7 @@ use crate::{
     app_context::AppContext,
     assignment_rules::NewAssignment,
     error::UnhandledError,
-    types::{Exception, RawErrProps},
+    types::{ExceptionList, RawErrProps},
 };
 use common_types::TeamId;
 use grouping_rules::{try_grouping_rules, GroupingRule};
@@ -24,18 +24,8 @@ pub async fn resolve_fingerprint(
     if let Some(rule) = try_grouping_rules(&mut conn, team_id, team_manager, props).await? {
         Ok(Fingerprint::from_rule(rule))
     } else {
-        Ok(generate_fingerprint(&props.exception_list))
+        Ok(Fingerprint::from_exception_list(&props.exception_list))
     }
-}
-
-pub fn generate_fingerprint(exceptions: &[Exception]) -> Fingerprint {
-    let mut fingerprint = FingerprintBuilder::default();
-
-    for exc in exceptions.iter() {
-        exc.include_in_fingerprint(&mut fingerprint);
-    }
-
-    fingerprint.finalize()
 }
 
 // We put a vec of these on the event as a record of what actually went into a fingerprint.
@@ -62,10 +52,12 @@ pub trait FingerprintComponent {
     fn update(&self, fingerprint: &mut FingerprintBuilder);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fingerprint {
     pub value: String,
     pub record: Vec<FingerprintRecordPart>,
+    // DEPRECATED: assignment is never used
+    #[serde(skip)]
     pub assignment: Option<NewAssignment>, // If this fingerprint came from a custom rule, it might carry an assignment with it
 }
 
@@ -104,12 +96,25 @@ impl Fingerprint {
             assignment: rule.assignment(),
         }
     }
+
+    pub fn from_exception_list(exception_list: &ExceptionList) -> Fingerprint {
+        let mut fingerprint = FingerprintBuilder::default();
+
+        for exc in exception_list.iter() {
+            exc.include_in_fingerprint(&mut fingerprint);
+        }
+
+        fingerprint.finalize()
+    }
 }
 
 #[cfg(test)]
 mod test {
 
-    use crate::{frames::Frame, types::Stacktrace};
+    use crate::{
+        frames::Frame,
+        types::{Exception, Stacktrace},
+    };
     use common_types::error_tracking::FrameId;
     use uuid::Uuid;
 
@@ -193,14 +198,15 @@ mod test {
             frames: resolved_frames.clone(),
         });
 
-        let fingerprint_with_all_resolved = super::generate_fingerprint(&[exception.clone()]).value;
+        let fingerprint_with_all_resolved =
+            Fingerprint::from_exception_list(&vec![exception.clone()].into()).value;
 
         resolved_frames.push(unresolved_frame);
         exception.stack = Some(Stacktrace::Resolved {
             frames: resolved_frames,
         });
 
-        let mixed_fingerprint = super::generate_fingerprint(&[exception]).value;
+        let mixed_fingerprint = Fingerprint::from_exception_list(&vec![exception].into()).value;
 
         // In cases where there are SOME resolved frames, the fingerprint should be identical
         // to the case where all frames are resolved (unresolved frames should be ignored)
@@ -279,13 +285,15 @@ mod test {
             },
         ];
 
-        let no_stack_fingerprint = super::generate_fingerprint(&[exception.clone()]).value;
+        let no_stack_fingerprint =
+            Fingerprint::from_exception_list(&vec![exception.clone()].into()).value;
 
         exception.stack = Some(Stacktrace::Resolved {
             frames: resolved_frames,
         });
 
-        let with_stack_fingerprint = super::generate_fingerprint(&[exception]).value;
+        let with_stack_fingerprint =
+            Fingerprint::from_exception_list(&vec![exception].into()).value;
 
         // If there are NO resolved frames, fingerprinting should account for the unresolved frames
         assert_ne!(no_stack_fingerprint, with_stack_fingerprint);
@@ -347,14 +355,14 @@ mod test {
             frames: resolved_frames.clone(),
         });
 
-        let fingerprint_1 = super::generate_fingerprint(&[exception.clone()]).value;
+        let fingerprint_1 = Fingerprint::from_exception_list(&vec![exception.clone()].into()).value;
 
         resolved_frames.push(non_app_frame);
         exception.stack = Some(Stacktrace::Resolved {
             frames: resolved_frames,
         });
 
-        let fingerprint_2 = super::generate_fingerprint(&[exception]).value;
+        let fingerprint_2 = Fingerprint::from_exception_list(&vec![exception.clone()].into()).value;
 
         // Fingerprinting should ignore non-in-app frames
         assert_eq!(fingerprint_1, fingerprint_2);

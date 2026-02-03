@@ -190,6 +190,11 @@ pub struct Frame {
     pub release: Option<ReleaseRecord>,
 }
 
+pub enum AnyFrame {
+    Resolved(Frame),
+    Unresolved(RawFrame),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Context {
     pub before: Vec<ContextLine>,

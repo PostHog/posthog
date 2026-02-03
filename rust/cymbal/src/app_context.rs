@@ -18,6 +18,7 @@ use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
+    stages::resolution::symbol::{local::LocalSymbolResolver, remote::RemoteSymbolResolver},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
@@ -44,7 +45,7 @@ pub struct AppContext {
     pub immediate_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
     pub persons_pool: PgPool,
-    pub catalog: Catalog,
+    pub catalog: Arc<Catalog>,
     pub resolver: Resolver,
     pub config: Config,
     pub geoip_client: GeoIpClient,
@@ -55,6 +56,9 @@ pub struct AppContext {
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
+
+    pub remote_symbol_resolver: Arc<RemoteSymbolResolver>,
+    pub local_symbol_resolver: Arc<LocalSymbolResolver>,
 }
 
 impl AppContext {
@@ -237,7 +241,7 @@ impl AppContext {
             immediate_producer,
             posthog_pool,
             persons_pool,
-            catalog,
+            catalog: Arc::new(catalog),
             resolver,
             config: config.clone(),
             team_manager,

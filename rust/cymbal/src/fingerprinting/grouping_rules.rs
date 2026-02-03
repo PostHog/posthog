@@ -139,8 +139,6 @@ pub async fn try_grouping_rules(
     team_manager: &TeamManager,
     exception_properties: &RawErrProps,
 ) -> Result<Option<GroupingRule>, UnhandledError> {
-    let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
-
     let mut props_json = serde_json::to_value(exception_properties)?;
 
     if let Value::Object(ref mut props) = props_json {
@@ -171,6 +169,17 @@ pub async fn try_grouping_rules(
         );
     }
 
+    evaluate_grouping_rules(con, team_id, team_manager, props_json).await
+}
+
+pub async fn evaluate_grouping_rules(
+    con: &mut PgConnection,
+    team_id: TeamId,
+    team_manager: &TeamManager,
+    props: Value,
+) -> Result<Option<GroupingRule>, UnhandledError> {
+    let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
+
     let mut rules = team_manager.get_grouping_rules(&mut *con, team_id).await?;
 
     metrics::counter!(GROUPING_RULES_FOUND).increment(rules.len() as u64);
@@ -178,7 +187,7 @@ pub async fn try_grouping_rules(
     rules.sort_unstable_by_key(|r| r.order_key);
 
     for rule in rules {
-        match rule.try_match(&props_json) {
+        match rule.try_match(&props) {
             Ok(false) => continue,
             Ok(true) => {
                 timing.label("outcome", "match").fin();
@@ -186,7 +195,7 @@ pub async fn try_grouping_rules(
                 return Ok(Some(rule));
             }
             Err(err) => {
-                rule.disable(&mut *con, err.to_string(), props_json.clone())
+                rule.disable(&mut *con, err.to_string(), props.clone())
                     .await?
             }
         }

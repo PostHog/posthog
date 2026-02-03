@@ -154,6 +154,8 @@ pub enum ProguardError {
     NoMapId,
     #[error("No original frames could be derived from this raw frame")]
     NoOriginalFrames,
+    #[error("No module provided")]
+    NoModuleProvided,
 }
 
 #[derive(Debug, Error, Clone)]
