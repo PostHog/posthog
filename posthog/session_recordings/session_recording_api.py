@@ -247,8 +247,11 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             SessionRecordingExternalReferenceSerializer,
         )
 
-        references = obj.external_references.select_related("integration").all()
-        return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
+        return list(
+            SessionRecordingExternalReferenceSerializer(
+                obj.external_references.select_related("integration").all(), many=True, context=self.context
+            ).data
+        )
 
     class Meta:
         model = SessionRecording
@@ -274,6 +277,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "expiry_time",
             "recording_ttl",
             "snapshot_source",
+            "snapshot_library",
             "ongoing",
             "activity_score",
             "external_references",
@@ -299,6 +303,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "expiry_time",
             "recording_ttl",
             "snapshot_source",
+            "snapshot_library",
             "ongoing",
             "activity_score",
         ]
@@ -698,6 +703,7 @@ class SessionRecordingViewSet(
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
+            "snapshot_library": player_metadata.get("snapshot_library"),
         }
         user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
@@ -912,6 +918,26 @@ class SessionRecordingViewSet(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="batch_check_exists")
+    def batch_check_exists(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Batch check which session IDs have recordings.
+
+        Returns a dict mapping session_id -> exists (boolean).
+        Only positive results (exists=True) are cached.
+        Negative results are not cached since recordings may still be ingesting.
+        """
+        session_ids = request.data.get("session_ids", [])
+
+        if not session_ids or not isinstance(session_ids, list):
+            raise exceptions.ValidationError("session_ids must be provided as a non-empty array")
+
+        if len(session_ids) > 100:
+            raise exceptions.ValidationError("Cannot check more than 100 session IDs at once")
+
+        results = SessionReplayEvents().batch_exists(session_ids, self.team)
+        return Response({"results": results})
+
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
@@ -986,9 +1012,20 @@ class SessionRecordingViewSet(
                     decompress=decompress,
                 )
             elif source == "blob_v2_lts" and "blob_key" in validated_data:
-                response = self._stream_lts_blob_v2_to_client(
-                    blob_key=validated_data["blob_key"], decompress=decompress
-                )
+                if not recording.full_recording_v2_path:
+                    raise exceptions.NotFound("Recording not found")
+                expected_blob_key = urlparse(recording.full_recording_v2_path).path.lstrip("/")
+                provided_blob_key = validated_data["blob_key"].lstrip("/")
+                if provided_blob_key != expected_blob_key:
+                    logger.warning(
+                        "blob_key_mismatch_for_lts_recording",
+                        team_id=self.team_id,
+                        session_id=recording.session_id,
+                        provided_blob_key=provided_blob_key,
+                        expected_blob_key=expected_blob_key,
+                    )
+                    raise exceptions.NotFound("Recording not found")
+                response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
                 response = self._gather_session_recording_sources(recording, timer)
 

@@ -62,7 +62,6 @@ class License(models.Model):
         AvailableFeature.PATHS_ADVANCED,
         AvailableFeature.CORRELATION_ANALYSIS,
         AvailableFeature.GROUP_ANALYTICS,
-        AvailableFeature.TAGGING,
         AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
         AvailableFeature.WHITE_LABELLING,
         AvailableFeature.SUBSCRIPTIONS,

@@ -3,30 +3,17 @@ import json
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
-
-from posthog.models import Team, User
+from posthog.schema import ErrorTrackingIssueFilteringToolOutput
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
-from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.chat_agent.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
-from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
-    ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
-    ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
-    ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
-    ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
     ERROR_TRACKING_SYSTEM_PROMPT,
     PREFER_FILTERS_PROMPT,
 )
@@ -118,96 +105,3 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
             )
 
         return ErrorTrackingIssueFilteringToolOutput(**data)
-
-
-class final_answer(base_final_answer[ErrorTrackingIssueImpactToolOutput]):
-    __doc__ = base_final_answer.__doc__  # Inherit from the base final answer or create your own.
-
-
-class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user)
-
-    async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
-        return await super().handle_tools(tool_metadata)
-
-    def _get_custom_tools(self) -> list:
-        return [final_answer]
-
-    def get_tools(self) -> list:
-        """Returns the list of tools available in this toolkit."""
-        return [*self._get_custom_tools(), ask_user_for_help]
-
-
-class ErrorTrackingIssueImpactLoopNode(
-    TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
-):
-    def __init__(self, team: Team, user: User, toolkit_class: type[ErrorTrackingIssueImpactToolkit]):
-        super().__init__(team, user, toolkit_class=toolkit_class)
-
-    def _get_system_prompt(self) -> ChatPromptTemplate:
-        system = [
-            ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
-            ERROR_TRACKING_ISSUE_IMPACT_TOOL_USAGE_PROMPT,
-            ERROR_TRACKING_ISSUE_IMPACT_EVENT_PROMPT,
-            ERROR_TRACKING_ISSUE_IMPACT_TOOL_EXAMPLES,
-            HUMAN_IN_THE_LOOP_PROMPT,
-        ]
-        return ChatPromptTemplate([("system", m) for m in system], template_format="mustache")
-
-
-class ErrorTrackingIssueImpactToolsNode(
-    TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
-):
-    def __init__(self, team: Team, user: User, toolkit_class: type[ErrorTrackingIssueImpactToolkit]):
-        super().__init__(team, user, toolkit_class=toolkit_class)
-
-
-class ErrorTrackingIssueImpactGraph(
-    TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[ErrorTrackingIssueImpactToolOutput]]
-):
-    def __init__(self, team: Team, user: User):
-        super().__init__(
-            team,
-            user,
-            loop_node_class=ErrorTrackingIssueImpactLoopNode,
-            tools_node_class=ErrorTrackingIssueImpactToolsNode,
-            toolkit_class=ErrorTrackingIssueImpactToolkit,
-        )
-
-
-class IssueImpactQueryArgs(BaseModel):
-    instructions: str = Field(description="The specific user query to find issues impacting occurrences of events.")
-
-
-class ErrorTrackingIssueImpactTool(MaxTool):
-    name: str = "find_error_tracking_impactful_issue_event_list"
-    description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
-    context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
-    args_schema: type[BaseModel] = IssueImpactQueryArgs
-
-    def get_required_resource_access(self):
-        return [("error_tracking", "viewer")]
-
-    async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
-        graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
-
-        graph_context = {
-            "change": f"Goal: {instructions}",
-            "output": None,
-            "tool_progress_messages": [],
-            **self.context,
-        }
-
-        result = await graph.compile_full_graph().ainvoke(graph_context)
-
-        if type(result["output"]) is not ErrorTrackingIssueImpactToolOutput:
-            content = "❌ I need to know what events you are looking to understand the impact for."
-            events = ErrorTrackingIssueImpactToolOutput(events=[])
-        else:
-            try:
-                content = "✅ Relevant events found. Searching for impacting issues."
-                events = ErrorTrackingIssueImpactToolOutput.model_validate(result["output"])
-            except Exception as e:
-                raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
-        return content, events

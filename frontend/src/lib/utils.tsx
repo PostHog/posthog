@@ -179,6 +179,20 @@ export function percentage(
     })
 }
 
+/**
+ * Formats the percentage difference between two values for display.
+ * Returns null if the result would be NaN or Infinity (e.g., division by zero).
+ */
+export function formatPercentageDiff(current: number, previous: number): string | null {
+    const diff = (current - previous) / previous
+
+    if (!Number.isFinite(diff)) {
+        return null
+    }
+
+    return diff >= 0 ? `(+${(diff * 100).toFixed(1)}%)` : `(-${(-diff * 100).toFixed(1)}%)`
+}
+
 export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Partial<CSSProperties>> = {
     control: (base) => ({
         ...base,
@@ -1267,9 +1281,13 @@ export function dateFilterToText(
     dateTo = (dateTo || undefined) as string | undefined
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
-        return isDateFormatted
-            ? formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
-            : `${dateFrom} - ${dateTo}`
+        if (isDateFormatted) {
+            return formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
+        }
+        if (dateFrom?.includes('T') || dateTo?.includes('T')) {
+            return formatDateTimeRange(dayjs(dateFrom, 'YYYY-MM-DD HH:mm'), dayjs(dateTo, 'YYYY-MM-DD HH:mm'))
+        }
+        return `${dateFrom} - ${dateTo}`
     }
 
     // From date to today

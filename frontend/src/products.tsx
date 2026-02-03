@@ -141,7 +141,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
-    '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+    '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
@@ -408,6 +408,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'task',
     },
     TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
+    Toolbar: {
+        name: 'Toolbar',
+        projectBased: true,
+        description: 'PostHog toolbar launches PostHog right in your app or website.',
+        iconType: 'toolbar',
+    },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -420,7 +426,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Workflows',
         iconType: 'workflows',
         projectBased: true,
-        description: 'Create and manage your workflows',
+        description: 'Automate user communication and internal processes',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -458,7 +464,13 @@ export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
-    endpoint: (name: string): string => `/endpoints/${name}`,
+    endpoint: (name: string, version?: number): string => {
+        const searchParams: Record<string, string> = {}
+        if (version) {
+            searchParams.version = String(version)
+        }
+        return combineUrl(`/endpoints/${name}`, searchParams).url
+    },
     endpointsUsage: (params?: {
         endpointFilter?: string[]
         dateFrom?: string
@@ -572,7 +584,7 @@ export const productUrls = {
     llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
-    llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
+    llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
     llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
@@ -603,10 +615,10 @@ export const productUrls = {
         sceneSource?: InsightSceneSource
     } = {}): string => {
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor(query.query)
+            return urls.sqlEditor({ query: query.query })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor(query.source.query)
+            return urls.sqlEditor({ query: query.source.query })
         }
         return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
@@ -647,6 +659,7 @@ export const productUrls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
     alerts: (): string => `/insights?tab=alerts`,
+    insightOptions: (): string => '/insights/options',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     replay: (
@@ -685,8 +698,10 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+    toolbarLaunch: (): string => '/toolbar',
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
@@ -1025,6 +1040,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Data pipelines`,
+        intents: [
+            ProductKey.PIPELINE_BATCH_EXPORTS,
+            ProductKey.PIPELINE_DESTINATIONS,
+            ProductKey.PIPELINE_TRANSFORMATIONS,
+            ProductKey.SITE_APPS,
+        ],
         category: 'Tools',
         type: 'hog_function',
         iconType: 'data_pipeline',
@@ -1061,7 +1082,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Endpoints',
         intents: [ProductKey.ENDPOINTS],
-        category: 'Unreleased',
+        category: 'Tools',
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
@@ -1174,7 +1195,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
-        tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
     },
@@ -1192,6 +1212,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Notebooks',
+        intents: [ProductKey.NOTEBOOKS],
         category: 'Tools',
         type: 'notebook',
         iconType: 'notebook',
@@ -1212,6 +1233,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Product tours',
+        intents: [ProductKey.PRODUCT_TOURS],
         category: 'Behavior',
         type: 'product_tour',
         href: urls.productTours(),
@@ -1256,7 +1278,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
-        category: 'Unreleased',
+        category: 'Behavior',
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
@@ -1279,6 +1301,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Tasks',
+        intents: [ProductKey.TASKS],
         category: 'Unreleased',
         type: 'task',
         href: urls.taskTracker(),
@@ -1288,6 +1311,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
         sceneKey: 'TaskTracker',
         sceneKeys: ['TaskTracker', 'TaskDetail'],
+    },
+    {
+        path: 'Toolbar',
+        intents: [ProductKey.TOOLBAR],
+        href: urls.toolbarLaunch(),
+        type: 'toolbar',
+        category: 'Tools',
+        iconType: 'toolbar',
+        sceneKey: 'Toolbar',
+        sceneKeys: ['Toolbar'],
     },
     {
         path: 'User interviews',
@@ -1318,8 +1351,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.workflows(),
         type: 'workflows',
         category: 'Tools',
-        tags: ['beta'],
-        flag: FEATURE_FLAGS.WORKFLOWS,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
@@ -1388,7 +1419,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Endpoints',
-        category: 'Unreleased',
+        category: 'Tools',
         iconType: 'endpoints' as FileSystemIconType,
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         href: urls.endpoints(),
@@ -1465,7 +1496,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Support',
-        category: 'Unreleased',
+        category: 'Behavior',
         iconType: 'conversations' as FileSystemIconType,
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         href: urls.supportTickets(),

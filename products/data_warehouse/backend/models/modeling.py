@@ -96,15 +96,22 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
     The parents of a query are any names in the `FROM` clause of the query.
     """
 
+    parents = set()
+    ctes = set()
+
     hogql_query = parse_select(model_query)
 
     if isinstance(hogql_query, ast.SelectSetQuery):
         queries = list(extract_select_queries(hogql_query))
+        # for SelectSetQuery, CTEs defined on the first query are accessible
+        # to all queries in the union. we pre-collect these CTE names before processing
+        # to ensure they're not mistakenly added as parents.
+        first_query = queries[0]
+        if first_query.ctes is not None:
+            for name in first_query.ctes.keys():
+                ctes.add(name)
     else:
         queries = [hogql_query]
-
-    parents = set()
-    ctes = set()
 
     while queries:
         query = queries.pop()

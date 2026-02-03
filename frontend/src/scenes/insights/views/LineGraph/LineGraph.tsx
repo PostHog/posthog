@@ -295,7 +295,7 @@ export function LineGraph_({
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
-    const { hideTooltip, getTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, getTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -467,8 +467,8 @@ export function LineGraph_({
                 },
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: 0,
-            hitRadius: 0,
+            pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
+            hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
@@ -712,6 +712,18 @@ export function LineGraph_({
                                 },
                                 borderWidth: 1,
                                 borderDash: [5, 8],
+                                enter: () => {
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    if (tooltipEl) {
+                                        tooltipEl.classList.add('opacity-0', 'invisible')
+                                    }
+                                },
+                                leave: () => {
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    if (tooltipEl) {
+                                        tooltipEl.classList.remove('opacity-0', 'invisible')
+                                    }
+                                },
                             }
 
                             return acc
@@ -954,10 +966,14 @@ export function LineGraph_({
                 if (hideXAxis || hideYAxis) {
                     options.layout = { padding: 20 }
                 }
+                const allDatasetsHaveSingleDataPoint =
+                    processedDatasets.length > 0 &&
+                    processedDatasets.every((d) => Array.isArray(d.data) && d.data.length === 1)
                 options.scales = {
                     x: {
                         display: !hideXAxis,
                         beginAtZero: true,
+                        offset: allDatasetsHaveSingleDataPoint,
                         ticks: tickOptions,
                         grid: {
                             ...gridOptions,

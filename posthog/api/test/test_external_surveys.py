@@ -131,8 +131,20 @@ class TestExternalSurveys(APIBaseTest):
         response = self.client.get(f"/external_surveys/{survey.id}/")
         assert response.status_code == 200
 
-        # Check security headers
+        # Check security headers - iframe embedding disabled by default
         assert response["X-Frame-Options"] == "DENY"
+        assert "Cache-Control" in response
+        assert "Vary" in response
+
+    def test_iframe_embedding_enabled_removes_x_frame_options(self):
+        """Test that X-Frame-Options is removed when iframe embedding is enabled"""
+        survey = self.create_external_survey(enable_iframe_embedding=True)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+        assert response.status_code == 200
+
+        # X-Frame-Options should not be present when iframe embedding is enabled
+        assert "X-Frame-Options" not in response
         assert "Cache-Control" in response
         assert "Vary" in response
 

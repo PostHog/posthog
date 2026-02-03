@@ -26,11 +26,11 @@ export function SidebarQuestionInputWithSuggestions({
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const isAiUx = useFeatureFlag('AI_UX')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
 
     const handleSettingsClick = (): void => {
-        if (isAiUx) {
+        if (isRemovingSidePanelFlag) {
             setSettingsModalOpen(true)
         } else {
             openSettingsPanel({ sectionId: 'environment-max' })
@@ -75,7 +75,7 @@ export function SidebarQuestionInputWithSuggestions({
                     ]}
                 />
             </div>
-            {isAiUx && (
+            {isRemovingSidePanelFlag && (
                 <LemonModal
                     title="PostHog AI memory"
                     isOpen={settingsModalOpen}

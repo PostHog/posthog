@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -19,7 +20,6 @@ import {
     ListSurveysInputSchema,
     UpdateSurveyInputSchema,
 } from './surveys'
-import { CreateActionInputSchema, ListActionsInputSchema, UpdateActionInputSchema } from './actions'
 
 export const DashboardAddInsightSchema = z.object({
     data: AddInsightToDashboardSchema,
@@ -350,6 +350,29 @@ export const ProjectEventDefinitionsSchema = z.object({
     offset: z.number().int().min(0).optional(),
 })
 
+export const EventDefinitionUpdateInputSchema = z.object({
+    description: z.string().optional().describe('Description explaining when the event is triggered'),
+    tags: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
+        ),
+    verified: z
+        .boolean()
+        .optional()
+        .describe('Mark as verified to indicate the event is properly instrumented and tracking correctly'),
+    hidden: z
+        .boolean()
+        .optional()
+        .describe('Mark event as no longer used/captured. Hides it from UI while preserving historical data'),
+})
+
+export const EventDefinitionUpdateSchema = z.object({
+    eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
+    data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
 export const ProjectPropertyDefinitionsInputSchema = z.object({
     type: z.enum(['event', 'person']).describe('Type of properties to get'),
     eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
@@ -431,4 +454,9 @@ export const EntitySearchSchema = z.object({
         .describe(
             'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
         ),
+})
+
+// Demo MCP UI Apps
+export const DemoMcpUiAppsSchema = z.object({
+    message: z.string().optional().describe('Optional message to include in the demo data'),
 })

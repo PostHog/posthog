@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { deterministicRandom } from 'lib/utils/random'
@@ -341,7 +342,7 @@ export default {
         viewMode: 'story',
         mockDate: '2023-02-18',
         testOptions: {
-            waitForSelector: 'text=/Logs is in beta/i',
+            waitForSelector: '[data-attr="logs-viewer"]',
         },
     }, // scene mode
 } as Meta
@@ -351,4 +352,7 @@ export function LogsScene(): JSX.Element {
         router.actions.push(urls.logs())
     }, [])
     return <App />
+}
+LogsScene.parameters = {
+    featureFlags: [FEATURE_FLAGS.NEW_LOGS_FILTER_BAR],
 }

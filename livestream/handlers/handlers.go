@@ -91,6 +91,19 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			geoOnly = true
 		}
 
+		var columns []string
+		if _, hasColumns := c.QueryParams()["columns"]; hasColumns {
+			columnsParam := strings.TrimSpace(c.QueryParam("columns"))
+			if columnsParam != "" {
+				columns = strings.Split(columnsParam, ",")
+				for i, col := range columns {
+					columns[i] = strings.TrimSpace(col)
+				}
+			} else {
+				columns = []string{}
+			}
+		}
+
 		var eventTypes []string
 		if eventType != "" {
 			eventTypes = strings.Split(eventType, ",")
@@ -102,6 +115,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			Token:         token,
 			DistinctId:    distinctId,
 			Geo:           geoOnly,
+			Columns:       columns,
 			EventTypes:    eventTypes,
 			EventChan:     make(chan interface{}, 100),
 			ShouldClose:   &atomic.Bool{},

@@ -1,5 +1,5 @@
 import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyPersonProcessingRestrictionsStep,
     createValidateEventMetadataStep,

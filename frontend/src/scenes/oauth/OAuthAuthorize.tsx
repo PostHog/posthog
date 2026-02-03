@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -46,6 +47,9 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectDomain,
         requiredAccessLevel,
         authorizationComplete,
+        scopesWereDefaulted,
+        isMcpResource,
+        resourceScopesLoading,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -92,6 +96,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                     </div>
                 )}
 
+                {scopesWereDefaulted && isMcpResource && (
+                    <LemonBanner type="info" className="mb-4">
+                        <strong>No permissions requested.</strong> This application didn't request specific permissions.
+                        Showing all permissions supported by this resource.
+                    </LemonBanner>
+                )}
+
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
                     <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
                         <ScopeAccessSelector
@@ -103,14 +114,21 @@ export const OAuthAuthorize = (): JSX.Element => {
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
-                            <ul className="space-y-2">
-                                {scopeDescriptions.map((scopeDescription, idx) => (
-                                    <li key={idx} className="flex items-center space-x-2 text-large">
-                                        <IconCheck color="var(--success)" />
-                                        <span className="font-medium">{scopeDescription}</span>
-                                    </li>
-                                ))}
-                            </ul>
+                            {resourceScopesLoading ? (
+                                <div className="flex items-center gap-2 py-2">
+                                    <Spinner className="text-muted" />
+                                    <span className="text-muted">Loading permissions...</span>
+                                </div>
+                            ) : (
+                                <ul className="space-y-2">
+                                    {scopeDescriptions.map((scopeDescription, idx) => (
+                                        <li key={idx} className="flex items-center space-x-2 text-large">
+                                            <IconCheck color="var(--success)" />
+                                            <span className="font-medium">{scopeDescription}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
 
                         {redirectDomain && (
@@ -154,7 +172,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         ? 'Authorizing...'
                                         : isCanceling
                                           ? 'Processing...'
-                                          : undefined
+                                          : resourceScopesLoading
+                                            ? 'Loading permissions...'
+                                            : undefined
                                 }
                                 onClick={() => submitOauthAuthorization()}
                             >

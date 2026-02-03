@@ -1873,6 +1873,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
         },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
+        },
         "$ai_model": {
             "label": "AI model (LLM)",
             "description": "The model used to generate the output from the LLM API.",
@@ -1957,6 +1962,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",
             "examples": ["The response accurately addresses the query", "The output contains factual inaccuracies"],
+        },
+        "$ai_evaluation_provider": {
+            "label": "AI Evaluation Provider (LLM)",
+            "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
+            "examples": ["openai", "anthropic", "gemini"],
+        },
+        "$ai_evaluation_allows_na": {
+            "label": "AI Evaluation Allows N/A (LLM)",
+            "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
+            "examples": [True, False],
+        },
+        "$ai_evaluation_key_type": {
+            "label": "AI Evaluation Key Type (LLM)",
+            "description": "The type of API key used for the evaluation (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_evaluation_key_id": {
+            "label": "AI Evaluation Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the evaluation.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_evaluation_applicable": {
+            "label": "AI Evaluation Applicable (LLM)",
+            "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
+            "examples": [True, False],
         },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",

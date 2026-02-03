@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -14,7 +13,7 @@ export const manifest: ProductManifest = {
             name: 'Workflows',
             iconType: 'workflows',
             projectBased: true,
-            description: 'Create and manage your workflows',
+            description: 'Automate user communication and internal processes',
         },
         Workflow: {
             import: () => import('./frontend/Workflows/WorkflowScene'),
@@ -67,8 +66,6 @@ export const manifest: ProductManifest = {
             href: urls.workflows(),
             type: 'workflows',
             category: 'Tools',
-            tags: ['beta'],
-            flag: FEATURE_FLAGS.WORKFLOWS,
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             sceneKey: 'Workflows',

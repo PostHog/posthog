@@ -12,7 +12,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -25,7 +24,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
-    const { hasTagging } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -62,17 +60,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, definition: PropertyDefinition) {
-                          return <ObjectTags tags={definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, definition: PropertyDefinition) {
+                return <ObjectTags tags={definition.tags ?? []} staticOnly />
+            },
+        } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
     ]
 
     return (

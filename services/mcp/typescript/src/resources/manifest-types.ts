@@ -65,3 +65,36 @@ export interface ResourceManifest {
     }
     templates?: ResourceTemplate[]
 }
+
+/**
+ * Context-mill manifest types
+ *
+ * Only the fields the MCP server needs to register resources are typed here.
+ * Context-mill may include arbitrary additional fields — the MCP server
+ * ignores them and never needs updating when context-mill's schema evolves.
+ */
+export interface ContextMillResource {
+    /** Used for logging and archive validation */
+    id: string
+    /** MCP resource registration name */
+    name: string
+    /** MCP resource URI */
+    uri: string
+    /** Filename in the archive (for validation). Absent for inline resources. */
+    file?: string
+    /** Complete MCP resource representation, served directly to clients */
+    resource: {
+        mimeType: string
+        description: string
+        text: string
+        [key: string]: unknown
+    }
+    /** Any additional fields from context-mill are allowed */
+    [key: string]: unknown
+}
+
+export interface ContextMillManifest {
+    version: string
+    resources: ContextMillResource[]
+    [key: string]: unknown
+}

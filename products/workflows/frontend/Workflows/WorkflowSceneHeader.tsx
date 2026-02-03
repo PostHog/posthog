@@ -8,16 +8,16 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SaveAsTemplateModal } from './SaveAsTemplateModal'
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
+import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
-import { workflowTemplateLogic } from './workflowTemplateLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, deleteWorkflow } =
+    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
         useActions(logic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -76,6 +76,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     size="small"
                                     disabledReason={workflowChanged ? 'Save changes first' : undefined}
                                     className="transition-colors duration-300 ease-in-out"
+                                    data-attr="workflow-launch"
                                 >
                                     <span
                                         className={`inline-block transition-opacity duration-300 ease-in-out ${
@@ -97,8 +98,12 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                                 Save as template
                                             </LemonButton>
                                             <LemonDivider />
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteWorkflow()}>
-                                                Delete
+                                            <LemonButton
+                                                status="danger"
+                                                fullWidth
+                                                onClick={() => archiveWorkflow(workflow)}
+                                            >
+                                                Archive
                                             </LemonButton>
                                         </>
                                     }

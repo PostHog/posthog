@@ -26,6 +26,17 @@ pub struct Config {
     #[envconfig(default = "30000")] // 30 seconds
     pub kafka_metadata_max_age_ms: u32,
 
+    // Session timeout: how long broker waits for heartbeats before declaring consumer dead.
+    // With static membership (group.instance.id), broker holds partition assignments for this
+    // duration after a consumer disappears. Should be longer than typical pod restart time.
+    #[envconfig(default = "60000")] // 60 seconds - covers slow pod restarts
+    pub kafka_session_timeout_ms: u32,
+
+    // Heartbeat interval: how often consumer sends heartbeats to broker.
+    // With 60s session timeout and 5s heartbeat, 12 heartbeats can miss before timeout.
+    #[envconfig(default = "5000")] // 5 seconds
+    pub kafka_heartbeat_interval_ms: u32,
+
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
     #[envconfig(from = "HOSTNAME")]
@@ -125,6 +136,10 @@ pub struct Config {
     #[envconfig(default = "102400")] // 100MB max bytes to prefetch (value is in KB)
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    #[envconfig(default = "300000")]
+    // 5 minutes - max time between poll() calls before consumer leaves group
+    pub kafka_max_poll_interval_ms: u32,
+
     // Partition worker channel buffer size for pipeline parallelism
     #[envconfig(default = "10")]
     pub partition_worker_channel_buffer_size: usize,
@@ -156,6 +171,11 @@ pub struct Config {
 
     #[envconfig(default = "20")] // 20 seconds
     pub s3_attempt_timeout_secs: u64,
+
+    /// Maximum number of retries for S3 operations before giving up.
+    /// Works in conjunction with s3_operation_timeout which provides the total retry budget.
+    #[envconfig(default = "3")]
+    pub s3_max_retries: usize,
 
     /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
     pub s3_endpoint: Option<String>,
@@ -217,7 +237,25 @@ pub struct Config {
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
 
-    //// End checkpoint config ////
+    // Maximum concurrent S3 file downloads during checkpoint import
+    // Limits memory usage by bounding the number of in-flight HTTP connections
+    // Critical during rebalance when many partitions are assigned simultaneously
+    // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
+    #[envconfig(default = "50")]
+    pub max_concurrent_checkpoint_file_downloads: usize,
+
+    // Maximum concurrent S3 file uploads during checkpoint export
+    // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
+    #[envconfig(default = "25")]
+    pub max_concurrent_checkpoint_file_uploads: usize,
+
+    // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
+    // This includes listing checkpoints, downloading metadata, and downloading all files.
+    // Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
+    #[envconfig(default = "240")]
+    pub checkpoint_partition_import_timeout_secs: u64,
+
+    //// End checkpoint configuration ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
@@ -367,17 +405,15 @@ impl Config {
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
         self.checkpoint_export_enabled
-            && self.s3_endpoint.is_some()
-            && self.aws_region.is_some()
             && self.s3_bucket.is_some()
+            && (self.s3_endpoint.is_some() || self.aws_region.is_some())
     }
 
-    // Check mulitple conditions for safe checkpoint import enablement
+    // Check multiple conditions for safe checkpoint import enablement
     pub fn checkpoint_import_enabled(&self) -> bool {
         self.checkpoint_import_enabled
-            && self.s3_endpoint.is_some()
-            && self.aws_region.is_some()
             && self.s3_bucket.is_some()
+            && (self.s3_endpoint.is_some() || self.aws_region.is_some())
     }
 
     /// Get checkpoint interval as Duration
@@ -401,6 +437,11 @@ impl Config {
     /// Get S3 per-attempt timeout as Duration
     pub fn s3_attempt_timeout(&self) -> Duration {
         Duration::from_secs(self.s3_attempt_timeout_secs)
+    }
+
+    /// Get checkpoint partition import timeout as Duration
+    pub fn checkpoint_partition_import_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
     }
 
     /// Build Kafka producer configuration
@@ -543,5 +584,97 @@ mod tests {
 
         config.max_store_capacity = "".to_string();
         assert!(config.parse_storage_capacity().is_err());
+    }
+
+    #[test]
+    fn test_checkpoint_export_enabled() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // All disabled by default (no bucket, no endpoint, no region)
+        config.checkpoint_export_enabled = true;
+        assert!(!config.checkpoint_export_enabled());
+
+        // Flag disabled - should be false regardless of other settings
+        config.checkpoint_export_enabled = false;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_export_enabled());
+
+        // Production AWS: region + bucket (no endpoint)
+        config.checkpoint_export_enabled = true;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        config.s3_endpoint = None;
+        assert!(config.checkpoint_export_enabled());
+
+        // Local dev MinIO: endpoint + bucket (no region)
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = None;
+        assert!(config.checkpoint_export_enabled());
+
+        // Local dev MinIO with region: endpoint + bucket + region
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(config.checkpoint_export_enabled());
+
+        // Missing bucket - should be false
+        config.s3_bucket = None;
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_export_enabled());
+
+        // Missing both endpoint and region - should be false
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = None;
+        config.aws_region = None;
+        assert!(!config.checkpoint_export_enabled());
+    }
+
+    #[test]
+    fn test_checkpoint_import_enabled() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // All disabled by default (no bucket, no endpoint, no region)
+        config.checkpoint_import_enabled = true;
+        assert!(!config.checkpoint_import_enabled());
+
+        // Flag disabled - should be false regardless of other settings
+        config.checkpoint_import_enabled = false;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_import_enabled());
+
+        // Production AWS: region + bucket (no endpoint)
+        config.checkpoint_import_enabled = true;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        config.s3_endpoint = None;
+        assert!(config.checkpoint_import_enabled());
+
+        // Local dev MinIO: endpoint + bucket (no region)
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = None;
+        assert!(config.checkpoint_import_enabled());
+
+        // Local dev MinIO with region: endpoint + bucket + region
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(config.checkpoint_import_enabled());
+
+        // Missing bucket - should be false
+        config.s3_bucket = None;
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_import_enabled());
+
+        // Missing both endpoint and region - should be false
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = None;
+        config.aws_region = None;
+        assert!(!config.checkpoint_import_enabled());
     }
 }

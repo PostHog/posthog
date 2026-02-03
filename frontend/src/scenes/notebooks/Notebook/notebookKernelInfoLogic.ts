@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -62,6 +62,7 @@ const findClosestOptionIndex = (options: number[], value?: number | null): numbe
 export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
     props({} as NotebookKernelInfoLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookKernelInfoLogic', key]),
+    key(({ shortId }) => shortId),
     actions({
         executeKernel: (code) => ({ code }),
         setCode: (code: string) => ({ code }),
@@ -75,8 +76,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         startKernel: true,
         stopKernel: true,
         restartKernel: true,
-        saveKernelConfig: (config: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }) => ({
+        saveKernelConfig: (
+            config: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number },
+            nextAction: 'start' | 'restart'
+        ) => ({
             config,
+            nextAction,
         }),
         saveKernelConfigFailure: true,
         clearExecution: true,
@@ -107,6 +112,18 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             {
                 setIdleTimeoutSeconds: (_, { idleTimeoutSeconds }) => idleTimeoutSeconds,
                 setConfigFromKernelInfo: (_, { config }) => config.idleTimeoutSeconds,
+            },
+        ],
+        isEditingConfig: [
+            false,
+            {
+                setCpuIndex: () => true,
+                setMemoryIndex: () => true,
+                setIdleTimeoutSeconds: () => true,
+                setConfigFromKernelInfo: () => false,
+                resetConfigToKernel: () => false,
+                saveKernelConfig: () => false,
+                saveKernelConfigFailure: () => true,
             },
         ],
         actionInFlight: [
@@ -205,6 +222,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                     running: { label: 'Running', tone: 'success' },
                     starting: { label: 'Starting', tone: 'warning' },
                     stopped: { label: 'Stopped', tone: 'default' },
+                    timed_out: { label: 'Timed out', tone: 'warning' },
                     discarded: { label: 'Discarded', tone: 'default' },
                     error: { label: 'Error', tone: 'danger' },
                 }
@@ -285,17 +303,24 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 actions.loadKernelInfo()
             }
         },
-        saveKernelConfig: async ({ config }) => {
+        saveKernelConfig: async ({ config, nextAction }) => {
             try {
                 await api.notebooks.kernelConfig(props.shortId, config)
             } catch {
                 actions.saveKernelConfigFailure()
                 return
             }
+            if (nextAction === 'start') {
+                actions.startKernel()
+                return
+            }
             actions.restartKernel()
         },
         loadKernelInfoSuccess: ({ kernelInfo }) => {
             if (!kernelInfo) {
+                return
+            }
+            if (values.isEditingConfig && values.hasConfigChanges) {
                 return
             }
             actions.setConfigFromKernelInfo({

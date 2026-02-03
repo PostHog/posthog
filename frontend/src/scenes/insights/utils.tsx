@@ -462,7 +462,7 @@ export const INSIGHT_TYPE_URLS: Record<InsightType | string, string> = {
     [InsightType.WEB_ANALYTICS]: urls.insightNew({ type: InsightType.WEB_ANALYTICS }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
-    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    SQL: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery)['query'] }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */

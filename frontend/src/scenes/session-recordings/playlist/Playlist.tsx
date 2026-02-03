@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useRef, useState } from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
+import { IconMagicWand, IconSidebarClose } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -27,6 +27,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
@@ -74,6 +75,9 @@ export function Playlist({
 }: PlaylistProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
+
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -203,6 +207,24 @@ export function Playlist({
             <ListEmptyState />
         )
 
+    // Show collapsed view
+    if (isPlaylistCollapsed) {
+        return (
+            <div
+                className="flex items-start justify-center h-full w-full pt-2 pr-1 cursor-pointer"
+                onClick={() => setPlaylistCollapsed(false)}
+                data-attr="expand-playlist"
+            >
+                <LemonButton
+                    icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
+                    tooltip="Expand playlist"
+                    size="xsmall"
+                    noPadding
+                />
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col min-w-60 h-full">
             {!notebookNode && (
@@ -235,12 +257,25 @@ export function Playlist({
                             <div className="flex flex-col gap-1">
                                 <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    <SessionRecordingsPlaylistTopSettings
-                                        filters={filters}
-                                        setFilters={setFilters}
-                                        type={type}
-                                        shortId={logicKey}
-                                    />
+                                    <div className="flex items-center gap-0.5">
+                                        <LemonButton
+                                            icon={
+                                                <IconSidebarClose
+                                                    className={clsx(!isPlaylistCollapsed && 'rotate-180')}
+                                                />
+                                            }
+                                            onClick={() => setPlaylistCollapsed(true)}
+                                            tooltip="Collapse playlist"
+                                            size="xsmall"
+                                            data-attr="collapse-playlist"
+                                        />
+                                        <SessionRecordingsPlaylistTopSettings
+                                            filters={filters}
+                                            setFilters={setFilters}
+                                            type={type}
+                                            shortId={logicKey}
+                                        />
+                                    </div>
                                 </div>
                                 <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                             </div>

@@ -19,7 +19,6 @@
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -33,14 +32,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -66,7 +63,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 /**
@@ -77,10 +74,10 @@ export interface UserBasicApi {
  * `web_experiments` - web_experiments
  * `product_tours` - product_tours
  */
-export type CreationContextEnumApi = (typeof CreationContextEnumApi)[keyof typeof CreationContextEnumApi]
+export type FeatureFlagCreationContextEnumApi =
+    (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreationContextEnumApi = {
+export const FeatureFlagCreationContextEnumApi = {
     feature_flags: 'feature_flags',
     experiments: 'experiments',
     surveys: 'surveys',
@@ -96,7 +93,6 @@ export const CreationContextEnumApi = {
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
@@ -109,7 +105,6 @@ export const EvaluationRuntimeEnumApi = {
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BucketingIdentifierEnumApi = {
     distinct_id: 'distinct_id',
     device_id: 'device_id',
@@ -122,7 +117,7 @@ export type FeatureFlagApiSurveys = { [key: string]: unknown }
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface FeatureFlagApi {
     readonly id: number
@@ -139,15 +134,12 @@ export interface FeatureFlagApi {
     readonly updated_at: string | null
     version?: number
     readonly last_modified_by: UserBasicApi
-    readonly is_simple_flag: boolean
-    /** @nullable */
-    readonly rollout_percentage: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: string
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
-    rollback_conditions?: unknown
+    rollback_conditions?: unknown | null
     /** @nullable */
     performed_rollback?: boolean | null
     readonly can_edit: boolean
@@ -170,7 +162,7 @@ export interface FeatureFlagApi {
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments
 * `product_tours` - product_tours */
-    creation_context?: CreationContextEnumApi
+    creation_context?: FeatureFlagCreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -181,12 +173,12 @@ export interface FeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -212,7 +204,7 @@ export type PatchedFeatureFlagApiSurveys = { [key: string]: unknown }
 export type PatchedFeatureFlagApiFeatures = { [key: string]: unknown }
 
 /**
- * Serializer mixin that resolves appropriate response for tags depending on license.
+ * Serializer mixin that handles tags for objects.
  */
 export interface PatchedFeatureFlagApi {
     readonly id?: number
@@ -229,15 +221,12 @@ export interface PatchedFeatureFlagApi {
     readonly updated_at?: string | null
     version?: number
     readonly last_modified_by?: UserBasicApi
-    readonly is_simple_flag?: boolean
-    /** @nullable */
-    readonly rollout_percentage?: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set?: string
     readonly surveys?: PatchedFeatureFlagApiSurveys
     readonly features?: PatchedFeatureFlagApiFeatures
-    rollback_conditions?: unknown
+    rollback_conditions?: unknown | null
     /** @nullable */
     performed_rollback?: boolean | null
     readonly can_edit?: boolean
@@ -260,7 +249,7 @@ export interface PatchedFeatureFlagApi {
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments
 * `product_tours` - product_tours */
-    creation_context?: CreationContextEnumApi
+    creation_context?: FeatureFlagCreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -271,12 +260,12 @@ export interface PatchedFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -370,12 +359,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
 }
 
@@ -406,7 +395,7 @@ export type FeatureFlagsListParams = {
      */
     excluded_properties?: string
     /**
-     * Filter feature flags by presence of evaluation environment tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
      */
     has_evaluation_tags?: FeatureFlagsListHasEvaluationTags
     /**
@@ -430,7 +419,6 @@ export type FeatureFlagsListParams = {
 
 export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeof FeatureFlagsListActive]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FeatureFlagsListActive = {
     STALE: 'STALE',
     false: 'false',
@@ -440,7 +428,6 @@ export const FeatureFlagsListActive = {
 export type FeatureFlagsListEvaluationRuntime =
     (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FeatureFlagsListEvaluationRuntime = {
     both: 'both',
     client: 'client',
@@ -450,7 +437,6 @@ export const FeatureFlagsListEvaluationRuntime = {
 export type FeatureFlagsListHasEvaluationTags =
     (typeof FeatureFlagsListHasEvaluationTags)[keyof typeof FeatureFlagsListHasEvaluationTags]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FeatureFlagsListHasEvaluationTags = {
     false: 'false',
     true: 'true',
@@ -458,7 +444,6 @@ export const FeatureFlagsListHasEvaluationTags = {
 
 export type FeatureFlagsListType = (typeof FeatureFlagsListType)[keyof typeof FeatureFlagsListType]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FeatureFlagsListType = {
     boolean: 'boolean',
     experiment: 'experiment',

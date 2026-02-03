@@ -8,7 +8,9 @@ from posthog.schema import (
     FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyGroupFilterValue,
+    PropertyOperator,
     RecordingOrder,
+    RecordingPropertyFilter,
     RecordingsQuery,
 )
 
@@ -125,6 +127,24 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if expanded_query.filter_test_accounts:
             expanded_query.properties = expand_test_account_filters(team) + (expanded_query.properties or [])
 
+        # Convert $lib event property filters to snapshot_library recording filters
+        # This avoids expensive events table scans by using the pre-aggregated column
+        if expanded_query.properties:
+            remaining_properties = []
+            for prop in expanded_query.properties:
+                if getattr(prop, "type", None) == "event" and getattr(prop, "key", None) == "$lib":
+                    # Convert to recording property filter and add to having_predicates
+                    recording_filter = RecordingPropertyFilter(
+                        type="recording",
+                        key="snapshot_library",
+                        value=getattr(prop, "value", None),
+                        operator=getattr(prop, "operator", PropertyOperator.EXACT),
+                    )
+                    expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
+                else:
+                    remaining_properties.append(prop)
+            expanded_query.properties = remaining_properties if remaining_properties else None
+
         super().__init__(team, expanded_query)
 
         # Use offset-based pagination only when offset is explicitly provided, otherwise use cursor-based
@@ -147,6 +167,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 after=expanded_query.after,
                 order_field=order_field,
                 order_direction=order_direction,
+                secondary_sort_field="session_id",
                 field_indices=field_indices,
                 use_having_clause=True,  # Session recordings query uses GROUP BY, so cursor conditions must be in HAVING
             )

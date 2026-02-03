@@ -206,6 +206,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "event_count": IntegerDatabaseField(name="event_count", nullable=False),
     "message_count": IntegerDatabaseField(name="message_count", nullable=False),
     "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
+    "snapshot_library": StringDatabaseField(name="snapshot_library", nullable=True),
     "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
     "events": LazyJoin(
         from_field=["session_id"],

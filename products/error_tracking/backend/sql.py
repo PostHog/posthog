@@ -121,6 +121,12 @@ INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, t
 """
 
 
+# IMPORTANT: The following table definitions are obsolete and were replaced by the general-purpose
+# document_embeddings tables in migration 0155. However, they MUST remain here for historical
+# migration compatibility - migration 0153 references these functions to create the tables,
+# and migration 0155 drops them. Removing these definitions would break the migration chain.
+# DO NOT remove these definitions or the functions below.
+
 ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE = "error_tracking_issue_fingerprint_embeddings"
 ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE = f"writable_{ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}"
 KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE = f"kafka_{ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE}"
@@ -205,7 +211,3 @@ FROM {database}.{kafka_table}
         kafka_table=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
         database=settings.CLICKHOUSE_DATABASE,
     )
-
-
-def TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"

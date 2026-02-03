@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 
-from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, AvailableFeature
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.dashboard_tile import DashboardTile, Text
@@ -19,13 +19,12 @@ logger = structlog.get_logger(__name__)
 
 def _create_website_dashboard(dashboard: Dashboard) -> None:
     dashboard.filters = {"date_from": "-30d"}
-    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        tag, _ = Tag.objects.get_or_create(
-            name="marketing",
-            team_id=dashboard.team_id,
-            defaults={"team_id": dashboard.team_id},
-        )
-        dashboard.tagged_items.create(tag_id=tag.id)
+    tag, _ = Tag.objects.get_or_create(
+        name="marketing",
+        team_id=dashboard.team_id,
+        defaults={"team_id": dashboard.team_id},
+    )
+    dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save(update_fields=["filters"])
 
     # row 1
@@ -466,21 +465,18 @@ DASHBOARD_TEMPLATES: dict[str, Callable] = {
 # end of area to be removed
 
 
-def create_from_template(
-    dashboard: Dashboard, template: DashboardTemplate, user=None, force_system_tags: bool = False
-) -> None:
+def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description
-    if force_system_tags or dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        for template_tag in template.tags or []:
-            tag, _ = Tag.objects.get_or_create(
-                name=template_tag,
-                team_id=dashboard.team_id,
-                defaults={"team_id": dashboard.team_id},
-            )
-            dashboard.tagged_items.create(tag_id=tag.id)
+    for template_tag in template.tags or []:
+        tag, _ = Tag.objects.get_or_create(
+            name=template_tag,
+            team_id=dashboard.team_id,
+            defaults={"team_id": dashboard.team_id},
+        )
+        dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
     for template_tile in template.tiles:
@@ -566,13 +562,12 @@ FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique user
 
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
-    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        tag, _ = Tag.objects.get_or_create(
-            name="feature flags",
-            team_id=dashboard.team_id,
-            defaults={"team_id": dashboard.team_id},
-        )
-        dashboard.tagged_items.create(tag_id=tag.id)
+    tag, _ = Tag.objects.get_or_create(
+        name="feature flags",
+        team_id=dashboard.team_id,
+        defaults={"team_id": dashboard.team_id},
+    )
+    dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save(update_fields=["filters"])
 
     # 1 row

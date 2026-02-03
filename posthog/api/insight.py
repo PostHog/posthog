@@ -110,11 +110,6 @@ logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 
-INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
-    "insight_refresh_initiated",
-    "Insight refreshes initiated, based on should_refresh_insight().",
-    labelnames=["is_shared"],
-)
 
 EXPORT_QUERY_CACHE_MISS = Counter(
     "export_query_cache_miss",
@@ -615,7 +610,7 @@ class InsightSerializer(InsightBasicSerializer):
             # it will mean this dashboard becomes restricted because of the patch
             if (
                 self.user_permissions.dashboard(dashboard).effective_privilege_level
-                == Dashboard.PrivilegeLevel.CAN_VIEW
+                != Dashboard.PrivilegeLevel.CAN_EDIT
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
@@ -629,6 +624,17 @@ class InsightSerializer(InsightBasicSerializer):
                 tile.save()
 
         if ids_to_remove:
+            # Check permission before removing insight from dashboards
+            dashboards_to_remove = Dashboard.objects.filter(id__in=ids_to_remove)
+            for dashboard in dashboards_to_remove:
+                if (
+                    self.user_permissions.dashboard(dashboard).effective_privilege_level
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
+                ):
+                    raise PermissionDenied(
+                        f"You don't have permission to remove insights from dashboard: {dashboard.id}"
+                    )
+
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
@@ -941,7 +947,7 @@ class InsightViewSet(
     ]
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     sharing_enabled_actions = ["retrieve", "list"]
     queryset = Insight.objects_including_soft_deleted.all()
 
@@ -1139,6 +1145,36 @@ class InsightViewSet(
                             .values_list("insight__id", flat=True)
                             .all()
                         )
+            elif key == "tags":
+                tags_filter = request.GET["tags"]
+                if tags_filter:
+                    tags_list = json.loads(tags_filter)
+                    if tags_list:
+                        queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            elif key == "created_by":
+                created_by_filter = request.GET["created_by"]
+                if created_by_filter:
+                    created_by_ids = json.loads(created_by_filter)
+                    if created_by_ids:
+                        queryset = queryset.filter(created_by__id__in=created_by_ids)
+            elif key == "created_date_from":
+                queryset = queryset.filter(
+                    created_at__gt=relative_date_parse(request.GET["created_date_from"], self.team.timezone_info)
+                )
+            elif key == "created_date_to":
+                queryset = queryset.filter(
+                    created_at__lt=relative_date_parse(request.GET["created_date_to"], self.team.timezone_info)
+                )
+            elif key == "last_viewed_date_from":
+                queryset = queryset.filter(
+                    last_viewed_at__gt=relative_date_parse(
+                        request.GET["last_viewed_date_from"], self.team.timezone_info
+                    )
+                )
+            elif key == "last_viewed_date_to":
+                queryset = queryset.filter(
+                    last_viewed_at__lt=relative_date_parse(request.GET["last_viewed_date_to"], self.team.timezone_info)
+                )
 
         return queryset
 

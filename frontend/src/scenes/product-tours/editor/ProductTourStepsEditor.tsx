@@ -1,19 +1,10 @@
 import './ProductTourStepsEditor.scss'
 
 import { JSONContent } from '@tiptap/core'
-import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
-import {
-    IconChevronLeft,
-    IconChevronRight,
-    IconCursorClick,
-    IconEye,
-    IconMessage,
-    IconQuestion,
-    IconTrash,
-} from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCursorClick, IconEye, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonMenu, LemonModal } from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
@@ -27,40 +18,18 @@ import {
     SurveyPosition,
 } from '~/types'
 
+import { ProductTourPreview } from '../components/ProductTourPreview'
+import { STEP_TYPE_ICONS, STEP_TYPE_LABELS, createDefaultStep, getStepTitle } from '../stepUtils'
+import { StepButtonsEditor } from './StepButtonsEditor'
 import { StepContentEditor } from './StepContentEditor'
 import { StepLayoutSettings } from './StepLayoutSettings'
 import { StepScreenshotThumbnail } from './StepScreenshotThumbnail'
 import { SurveyStepEditor } from './SurveyStepEditor'
-import { prepareStepForRender } from './generateStepHtml'
 
 export interface ProductTourStepsEditorProps {
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     onChange: (steps: ProductTourStep[]) => void
-}
-
-const STEP_TYPE_ICONS: Record<ProductTourStepType, JSX.Element> = {
-    element: <IconCursorClick />,
-    modal: <IconMessage />,
-    survey: <IconQuestion />,
-}
-
-const STEP_TYPE_LABELS: Record<ProductTourStepType, string> = {
-    element: 'Element',
-    modal: 'Modal',
-    survey: 'Survey',
-}
-
-function getStepTitle(step: ProductTourStep, index: number): string {
-    if (step.content && typeof step.content === 'object') {
-        const doc = step.content as JSONContent
-        const firstContent = doc.content?.[0]
-        if (firstContent?.content?.[0]?.text) {
-            const text = firstContent.content[0].text
-            return text.length > 30 ? text.slice(0, 30) + '...' : text
-        }
-    }
-    return `Step ${index + 1}`
 }
 
 export function getWidthValue(maxWidth: ProductTourStep['maxWidth']): number {
@@ -92,10 +61,15 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
     const [stepToDelete, setStepToDelete] = useState<number | null>(null)
     const [showPreviewModal, setShowPreviewModal] = useState(false)
     const [showScreenshotModal, setShowScreenshotModal] = useState(false)
-    const previewRef = useRef<HTMLDivElement>(null)
-    const surveyPreviewRef = useRef<HTMLDivElement>(null)
 
     const selectedStep = steps[selectedStepIndex]
+
+    const addStep = (type: ProductTourStepType): void => {
+        const newStep = createDefaultStep(type)
+        const newSteps = [...steps, newStep]
+        onChange(newSteps)
+        setSelectedStepIndex(newSteps.length - 1)
+    }
 
     const updateStep = (index: number, updates: Partial<ProductTourStep>): void => {
         const newSteps = [...steps]
@@ -127,31 +101,6 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
         setSelectedStepIndex(toIndex)
     }
 
-    useEffect(() => {
-        if (showPreviewModal && previewRef.current && selectedStep) {
-            renderProductTourPreview({
-                step: prepareStepForRender(selectedStep) as any,
-                appearance: appearance as any,
-                parentElement: previewRef.current,
-                stepIndex: selectedStepIndex,
-                totalSteps: steps.length,
-            })
-        }
-    }, [showPreviewModal, selectedStep, appearance, selectedStepIndex, steps.length])
-
-    // Render inline survey preview
-    useEffect(() => {
-        if (surveyPreviewRef.current && selectedStep?.type === 'survey') {
-            renderProductTourPreview({
-                step: prepareStepForRender(selectedStep) as any,
-                appearance: appearance as any,
-                parentElement: surveyPreviewRef.current,
-                stepIndex: selectedStepIndex,
-                totalSteps: steps.length,
-            })
-        }
-    }, [selectedStep, appearance, selectedStepIndex, steps.length])
-
     if (steps.length === 0) {
         return (
             <div className="ProductTourStepsEditor ProductTourStepsEditor--empty">
@@ -173,6 +122,28 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
             <div className="ProductTourStepsEditor__sidebar">
                 <div className="ProductTourStepsEditor__sidebar-header">
                     <span className="font-semibold">Steps</span>
+                    <LemonMenu
+                        items={[
+                            {
+                                icon: STEP_TYPE_ICONS['modal'],
+                                label: STEP_TYPE_LABELS['modal']!,
+                                onClick: () => addStep('modal'),
+                            },
+                            {
+                                icon: STEP_TYPE_ICONS['survey'],
+                                label: STEP_TYPE_LABELS['survey']!,
+                                onClick: () => addStep('survey'),
+                            },
+                            {
+                                icon: STEP_TYPE_ICONS['element'],
+                                label: STEP_TYPE_LABELS['element']!,
+                                disabledReason: 'Add element steps with the Toolbar',
+                            },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton size="xsmall" icon={<IconPlus />} tooltip="Add step" />
+                    </LemonMenu>
                 </div>
 
                 <div className="ProductTourStepsEditor__sidebar-list">
@@ -191,7 +162,7 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                             <span className="ProductTourStepsEditor__sidebar-item-title">
                                 {getStepTitle(step, index)}
                             </span>
-                            <LemonBadge.Number count={index + 1} size="small" />
+                            <LemonBadge.Number count={index + 1} size="small" maxDigits={2} />
                         </button>
                     ))}
                 </div>
@@ -204,17 +175,17 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                         {/* Step header */}
                         <div className="ProductTourStepsEditor__step-header">
                             <div className="flex items-center gap-2">
-                                <LemonBadge.Number count={selectedStepIndex + 1} size="medium" />
+                                <LemonBadge.Number count={selectedStepIndex + 1} size="medium" maxDigits={2} />
                                 <span className="font-semibold">{STEP_TYPE_LABELS[selectedStep.type]} step</span>
                                 {selectedStep.type === 'element' && (
                                     <>
-                                        {selectedStep.screenshotMediaId && (
+                                        {!selectedStep.useManualSelector && selectedStep.screenshotMediaId && (
                                             <StepScreenshotThumbnail
                                                 mediaId={selectedStep.screenshotMediaId}
                                                 onClick={() => setShowScreenshotModal(true)}
                                             />
                                         )}
-                                        {selectedStep.selector && (
+                                        {selectedStep.useManualSelector && selectedStep.selector && (
                                             <code className="text-xs bg-fill-primary px-2 py-0.5 rounded">
                                                 {selectedStep.selector}
                                             </code>
@@ -225,16 +196,20 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     size="small"
-                                    icon={<IconChevronLeft />}
+                                    icon={<IconChevronDown transform="rotate(180)" />}
                                     onClick={() => moveStep(selectedStepIndex, 'up')}
-                                    disabledReason={selectedStepIndex === 0 ? 'First step' : undefined}
+                                    disabledReason={selectedStepIndex === 0 ? 'Cannot move first step up' : undefined}
                                     tooltip="Move up"
                                 />
                                 <LemonButton
                                     size="small"
-                                    icon={<IconChevronRight />}
+                                    icon={<IconChevronDown />}
                                     onClick={() => moveStep(selectedStepIndex, 'down')}
-                                    disabledReason={selectedStepIndex === steps.length - 1 ? 'Last step' : undefined}
+                                    disabledReason={
+                                        selectedStepIndex === steps.length - 1
+                                            ? 'Cannot move last step down'
+                                            : undefined
+                                    }
                                     tooltip="Move down"
                                 />
                                 <LemonButton
@@ -273,7 +248,12 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                 <div className="ProductTourStepsEditor__survey-preview">
                                     <div className="text-xs text-muted uppercase tracking-wide mb-3">Preview</div>
                                     <div className="flex justify-center p-6 bg-[#f0f0f0] rounded min-h-[200px]">
-                                        <div ref={surveyPreviewRef} />
+                                        <ProductTourPreview
+                                            step={selectedStep}
+                                            appearance={appearance}
+                                            stepIndex={selectedStepIndex}
+                                            totalSteps={steps.length}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -286,17 +266,27 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                     placeholder={`Type '/' for commands, or start writing your step ${selectedStepIndex + 1} content...`}
                                 />
 
-                                {/* Step settings */}
-                                <LemonDivider className="my-4" />
-
-                                <div className="ProductTourStepsEditor__step-settings">
-                                    <h4 className="font-semibold mb-3">Step settings</h4>
-
-                                    <StepLayoutSettings
-                                        step={selectedStep}
-                                        onChange={(updates) => updateStep(selectedStepIndex, updates)}
-                                        showPosition={selectedStep.type === 'modal'}
+                                {/* Step configuration */}
+                                <div className="mt-4 p-4 bg-fill-primary rounded-lg space-y-6">
+                                    <StepButtonsEditor
+                                        buttons={selectedStep.buttons}
+                                        onChange={(buttons) => updateStep(selectedStepIndex, { buttons })}
+                                        isTourContext={true}
+                                        stepIndex={selectedStepIndex}
+                                        totalSteps={steps.length}
+                                        layout="horizontal"
                                     />
+
+                                    <div>
+                                        <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
+                                            Layout
+                                        </div>
+                                        <StepLayoutSettings
+                                            step={selectedStep}
+                                            onChange={(updates) => updateStep(selectedStepIndex, updates)}
+                                            showPosition={selectedStep.type === 'modal'}
+                                        />
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -335,7 +325,14 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                 width={800}
             >
                 <div className="flex justify-center items-center p-8 bg-[#f0f0f0] rounded min-h-[300px]">
-                    <div ref={previewRef} />
+                    {selectedStep && (
+                        <ProductTourPreview
+                            step={selectedStep}
+                            appearance={appearance}
+                            stepIndex={selectedStepIndex}
+                            totalSteps={steps.length}
+                        />
+                    )}
                 </div>
             </LemonModal>
 

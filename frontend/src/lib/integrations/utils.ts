@@ -15,6 +15,7 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
+import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
@@ -52,6 +53,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     vercel: IconVercel,
     'azure-blob': IconAzureBlob,
     firebase: IconFirebase,
+    jira: IconJira,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
