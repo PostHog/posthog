@@ -19,7 +19,6 @@ test.describe('Dashboards', () => {
         const dashboard = new DashboardPage(page)
         const insightName = randomString('dash-insight')
         const updatedName = randomString('dash-updated')
-        let insightUrl: string
 
         await test.step('create and save a Trends insight', async () => {
             await insight.goToNewTrends()
@@ -27,7 +26,6 @@ test.describe('Dashboards', () => {
             await insight.editName(insightName)
             await insight.save()
             await expect(insight.editButton).toBeVisible()
-            insightUrl = page.url()
         })
 
         await test.step('add the insight to a new dashboard', async () => {
@@ -35,19 +33,21 @@ test.describe('Dashboards', () => {
             await expect(page.getByText(insightName)).toBeVisible()
         })
 
-        const dashboardUrl = page.url()
+        await test.step('open the insight from dashboard tile', async () => {
+            await page.locator('.InsightCard').getByText(insightName).click()
+            await expect(page).toHaveURL(/\/insights\//)
+        })
 
         await test.step('edit the insight name', async () => {
-            await page.goto(insightUrl)
             await insight.edit()
             await insight.editName(updatedName)
             await insight.save()
             await expect(insight.topBarName).toContainText(updatedName)
         })
 
-        await test.step('verify the updated name on the dashboard', async () => {
-            await page.goto(dashboardUrl, { waitUntil: 'networkidle' })
-            await dashboard.dismissQuickStartIfVisible()
+        await test.step('navigate back and verify the updated name on the dashboard', async () => {
+            await page.locator('a[href*="/dashboard/"]').first().click()
+            await expect(page).toHaveURL(/\/dashboard\//)
             await expect(page.getByText(updatedName)).toBeVisible()
         })
     })
