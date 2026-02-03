@@ -2935,6 +2935,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    @snapshot_clickhouse_queries
     def test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library(self):
         """
         Test that $lib event property filters are automatically converted to snapshot_library
