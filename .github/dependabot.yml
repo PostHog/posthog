@@ -21,16 +21,39 @@ updates:
                   - 'minor'
                   - 'patch'
 
-    # Rust/Cargo dependencies - configured to only update from workspace root
-    # Without this, automatic security updates try to update from subdirectories
-    # which fails with workspace structure errors (missing members, can't find root)
+    # Rust/Cargo dependencies - main workspace
+    # Configured to update from workspace root only to prevent subdirectory update failures
     - package-ecosystem: 'cargo'
       directory: '/rust'
       schedule:
           interval: weekly
       open-pull-requests-limit: 5
       groups:
-          cargo:
+          cargo-rust:
+              patterns:
+                  - '*'
+              applies-to: 'security-updates'
+
+    # Rust/Cargo dependencies - CLI tool (standalone project)
+    - package-ecosystem: 'cargo'
+      directory: '/cli'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          cargo-cli:
+              patterns:
+                  - '*'
+              applies-to: 'security-updates'
+
+    # Rust/Cargo dependencies - Funnel UDF (standalone project)
+    - package-ecosystem: 'cargo'
+      directory: '/funnel-udf'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          cargo-funnel-udf:
               patterns:
                   - '*'
               applies-to: 'security-updates'
