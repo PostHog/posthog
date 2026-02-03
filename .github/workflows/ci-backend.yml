@@ -274,17 +274,19 @@ jobs:
                   fi
 
                   # Use turbo's cache to detect contract changes
-                  # If contract-check has cache miss, contracts changed → run Django
-                  OUTPUT=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null || echo '{}')
-                  CACHE_STATUS=$(echo "$OUTPUT" | jq -r '.tasks[]? | select(.taskId | contains("backend:contract-check")) | .cache.status' 2>/dev/null | head -1)
+                  # If any real contract-check task has cache miss, contracts changed → run Django
+                  OUTPUT=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null || echo '{"tasks":[]}')
 
-                  echo "Contract check cache status: $CACHE_STATUS"
+                  # Check if any task with a real command (not <NONEXISTENT>) has cache MISS
+                  HAS_MISS=$(echo "$OUTPUT" | jq '[.tasks[] | select(.command | startswith("<") | not) | select(.cache.status == "MISS")] | length')
 
-                  if [[ "$CACHE_STATUS" == "MISS" || "$CACHE_STATUS" == "" ]]; then
+                  echo "Tasks with cache miss: $HAS_MISS"
+
+                  if [[ "$HAS_MISS" -gt 0 ]]; then
                     echo "Contract files changed (cache miss) - Django will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                   else
-                    echo "Only impl changed (cache hit) - Django can be skipped"
+                    echo "Contracts unchanged (cache hit) - Django can be skipped"
                     echo "run_legacy=false" >> $GITHUB_OUTPUT
                   fi
 
