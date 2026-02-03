@@ -168,6 +168,12 @@ class BatchImportConfigBuilder:
                     # Mixpanel endpoint is slow and can only request a day at a time at minimum so we need a long timeout
                     "timeout_seconds": 300,
                     "headers": {"Accept-Encoding": "gzip"},
+                    # Mixpanel's export API uses inclusive date ranges (both from_date and to_date are inclusive).
+                    # Our interval logic creates adjacent intervals like [June 5, June 6) and [June 6, June 7),
+                    # but when formatted as from_date=06-05&to_date=06-06 and from_date=06-06&to_date=06-07,
+                    # Mixpanel returns June 6 events in BOTH responses, causing duplicates.
+                    # Setting this to -86400 (minus 1 day) adjusts the to_date so each interval fetches only its own day.
+                    "end_qp_offset_seconds": -86400,
                 }
             case _:
                 raise ValueError(f"Unsupported export source: {export_source}")

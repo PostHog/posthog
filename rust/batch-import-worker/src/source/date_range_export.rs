@@ -87,6 +87,11 @@ pub struct DateRangeExportSourceBuilder {
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
+    // Offset applied to the end date when formatting the query parameter.
+    // Use negative values for APIs with inclusive date ranges (e.g., Mixpanel).
+    // For example, with daily intervals and an inclusive API, set to -86400 (minus 1 day)
+    // so that interval [June 5, June 6) queries as from_date=June 5, to_date=June 5.
+    end_qp_offset_seconds: i64,
 }
 
 impl DateRangeExportSourceBuilder {
@@ -111,6 +116,7 @@ impl DateRangeExportSourceBuilder {
             auth_config: AuthConfig::None,
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
+            end_qp_offset_seconds: 0,
         }
     }
 
@@ -149,6 +155,17 @@ impl DateRangeExportSourceBuilder {
         self.headers = headers;
         self
     }
+
+    /// Sets an offset (in seconds) to apply to the end date when formatting the query parameter.
+    ///
+    /// Use negative values for APIs with inclusive date ranges (e.g., Mixpanel).
+    /// For example, with daily intervals and an inclusive API, set to -86400 (minus 1 day)
+    /// so that interval [June 5 00:00, June 6 00:00) queries as from_date=June 5, to_date=June 5.
+    pub fn with_end_qp_offset_seconds(mut self, offset_seconds: i64) -> Self {
+        self.end_qp_offset_seconds = offset_seconds;
+        self
+    }
+
     pub fn build(self) -> Result<DateRangeExportSource, Error> {
         let mut intervals = Vec::new();
         let mut current = self.start;
@@ -180,6 +197,7 @@ impl DateRangeExportSourceBuilder {
             extractor: self.extractor,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
+            end_qp_offset_seconds: self.end_qp_offset_seconds,
         })
     }
 }
@@ -198,6 +216,7 @@ pub struct DateRangeExportSource {
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
+    end_qp_offset_seconds: i64,
 }
 
 /*
@@ -312,9 +331,15 @@ impl DateRangeExportSource {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<ExtractedPartData, Error> {
+        // Apply offset to end date for APIs with inclusive date ranges (e.g., Mixpanel)
+        let end_for_query = end + ChronoDuration::seconds(self.end_qp_offset_seconds);
+
         let mut request = self.client.get(&self.base_url).query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),
-            (&self.end_qp, end.format(&self.date_format).to_string()),
+            (
+                &self.end_qp,
+                end_for_query.format(&self.date_format).to_string(),
+            ),
         ]);
 
         request = match &self.auth_config {
@@ -1154,6 +1179,143 @@ mod tests {
             mock.hits(),
             1,
             "Single request, surfaced to job-level backoff"
+        );
+
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    /// Test that verifies no duplicate events are fetched when using adjacent date intervals.
+    ///
+    /// This test simulates Mixpanel's inclusive date range API behavior:
+    /// - from_date and to_date are both INCLUSIVE
+    /// - from_date=2025-06-05&to_date=2025-06-06 returns events from June 5 AND June 6
+    ///
+    /// The mock server handles all possible date combinations (both buggy and correct queries).
+    /// The test passes only if NO duplicate $insert_id values appear across all fetched data.
+    ///
+    /// Current behavior (buggy): queries to_date as the interval end, causing overlap
+    /// Expected behavior (fixed): queries to_date as interval end minus one day, no overlap
+    #[tokio::test]
+    async fn test_adjacent_intervals_should_not_produce_duplicate_events() {
+        // Test events for each day, with unique $insert_id values
+        let june_5_events = r#"{"event":"Event A","properties":{"time":1749085200,"distinct_id":"user1","$insert_id":"id_june5_event1"}}
+{"event":"Event B","properties":{"time":1749088800,"distinct_id":"user2","$insert_id":"id_june5_event2"}}"#;
+
+        let june_6_events = r#"{"event":"Event C","properties":{"time":1749171600,"distinct_id":"user1","$insert_id":"id_june6_event1"}}
+{"event":"Event D","properties":{"time":1749175200,"distinct_id":"user2","$insert_id":"id_june6_event2"}}"#;
+
+        let june_7_events = r#"{"event":"Event E","properties":{"time":1749258000,"distinct_id":"user1","$insert_id":"id_june7_event1"}}
+{"event":"Event F","properties":{"time":1749261600,"distinct_id":"user2","$insert_id":"id_june7_event2"}}"#;
+
+        let server = MockServer::start();
+
+        // Mock all possible date query combinations, simulating Mixpanel's INCLUSIVE behavior
+        // Buggy queries (current implementation sends these):
+        let _mock_buggy_1 = server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/export")
+                .query_param("from_date", "2025-06-05")
+                .query_param("to_date", "2025-06-06");
+            then.status(200)
+                .body(format!("{}\n{}", june_5_events, june_6_events));
+        });
+
+        let _mock_buggy_2 = server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/export")
+                .query_param("from_date", "2025-06-06")
+                .query_param("to_date", "2025-06-07");
+            then.status(200)
+                .body(format!("{}\n{}", june_6_events, june_7_events));
+        });
+
+        // Correct queries (fixed implementation should send these):
+        let _mock_fixed_1 = server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/export")
+                .query_param("from_date", "2025-06-05")
+                .query_param("to_date", "2025-06-05");
+            then.status(200).body(june_5_events);
+        });
+
+        let _mock_fixed_2 = server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/export")
+                .query_param("from_date", "2025-06-06")
+                .query_param("to_date", "2025-06-06");
+            then.status(200).body(june_6_events);
+        });
+
+        // Create source with Mixpanel-style config: daily intervals, %Y-%m-%d format
+        let start = Utc.with_ymd_and_hms(2025, 6, 5, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2025, 6, 7, 0, 0, 0).unwrap();
+
+        let source = DateRangeExportSource::builder(
+            server.url("/export"),
+            start,
+            end,
+            86400, // 1 day intervals
+            Arc::new(MockExtractor),
+        )
+        .with_query_params("from_date".to_string(), "to_date".to_string())
+        .with_date_format("%Y-%m-%d".to_string())
+        // Fix for Mixpanel's inclusive date ranges: subtract 1 day from to_date
+        .with_end_qp_offset_seconds(-86400)
+        .build()
+        .unwrap();
+
+        source.prepare_for_job().await.unwrap();
+
+        let keys = source.keys().await.unwrap();
+        assert_eq!(keys.len(), 2, "Should have 2 daily intervals");
+
+        // Fetch data for both intervals
+        source.prepare_key(&keys[0]).await.unwrap();
+        let chunk0 = source.get_chunk(&keys[0], 0, 100000).await.unwrap();
+
+        source.prepare_key(&keys[1]).await.unwrap();
+        let chunk1 = source.get_chunk(&keys[1], 0, 100000).await.unwrap();
+
+        // Combine all fetched data and extract $insert_id values
+        let data0 = String::from_utf8(chunk0).unwrap();
+        let data1 = String::from_utf8(chunk1).unwrap();
+        let combined = format!("{}\n{}", data0, data1);
+
+        // Extract all $insert_id values from the combined data
+        let mut insert_ids: Vec<&str> = Vec::new();
+        for line in combined.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Some(start_idx) = line.find("\"$insert_id\":\"") {
+                let rest = &line[start_idx + 14..];
+                if let Some(end_idx) = rest.find('"') {
+                    insert_ids.push(&rest[..end_idx]);
+                }
+            }
+        }
+
+        // Check for duplicates
+        let mut seen = std::collections::HashSet::new();
+        let mut duplicates = Vec::new();
+        for id in &insert_ids {
+            if !seen.insert(*id) {
+                duplicates.push(*id);
+            }
+        }
+
+        assert!(
+            duplicates.is_empty(),
+            "DUPLICATE EVENTS DETECTED! The following $insert_id values appeared multiple times: {:?}\n\
+            This indicates that adjacent date intervals are fetching overlapping data.\n\
+            Total events fetched: {}, Unique events: {}\n\
+            Chunk 0 data:\n{}\n\
+            Chunk 1 data:\n{}",
+            duplicates,
+            insert_ids.len(),
+            seen.len(),
+            data0,
+            data1
         );
 
         source.cleanup_after_job().await.unwrap();

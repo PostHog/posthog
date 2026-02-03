@@ -93,6 +93,10 @@ pub struct DateRangeExportSourceConfig {
     date_format: String,
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// Offset in seconds to apply to the end date query parameter.
+    /// Use negative values for APIs with inclusive date ranges (e.g., Mixpanel: -86400).
+    #[serde(default)]
+    end_qp_offset_seconds: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -427,6 +431,7 @@ impl DateRangeExportSourceConfig {
         .with_auth(auth_config)
         .with_date_format(self.date_format.clone())
         .with_headers(self.headers.clone())
+        .with_end_qp_offset_seconds(self.end_qp_offset_seconds)
         .build()
     }
 
