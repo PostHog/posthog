@@ -70,19 +70,20 @@ export class DashboardPage {
     }
 
     async renameFirstTile(newTileName: string): Promise<void> {
-        await this.page.locator('.CardMeta').getByTestId('more-button').click()
+        await this.page.locator('.InsightCard').first().getByTestId('more-button').click()
         await this.page.locator('.Popover').getByText('Rename').click()
         await this.page.locator('.LemonModal').getByTestId('insight-name').fill(newTileName)
         await this.page.locator('.LemonModal').getByText('Submit').click()
+        await expect(this.page.locator('.LemonModal')).not.toBeVisible()
     }
 
     async removeFirstTile(): Promise<void> {
-        await this.page.locator('.CardMeta').getByTestId('more-button').click()
+        await this.page.locator('.InsightCard').first().getByTestId('more-button').click()
         await this.page.locator('.Popover').getByText('Remove from dashboard').click()
     }
 
     async duplicateFirstTile(): Promise<void> {
-        await this.page.locator('.CardMeta').getByTestId('more-button').click()
+        await this.page.locator('.InsightCard').first().getByTestId('more-button').click()
         await this.page.locator('.Popover').getByText('Duplicate').click()
     }
 }
