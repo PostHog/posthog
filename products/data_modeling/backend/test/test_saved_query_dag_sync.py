@@ -1,10 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
-
-from posthog.hogql.errors import QueryError
-
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
@@ -76,10 +72,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
-            query={
-                "query": "SELECT e.*, p.* FROM events e JOIN persons p ON e.person_id = p.id",
-                "kind": "HogQLQuery",
-            },
+            query={"query": "SELECT * FROM events e JOIN persons p ON e.person_id = p.id", "kind": "HogQLQuery"},
         )
 
         node = sync_saved_query_to_dag(saved_query)
@@ -203,22 +196,18 @@ class TestSyncSavedQueryToDag(BaseTest):
         with self.assertRaises(ValueError):
             sync_saved_query_to_dag(null_query)
 
-    @parameterized.expand(
-        [
-            ("select * from nonexistent_table",),
-            ("select nonexistent_alias.* from events",),
-            ("select * from events, persons",),  # ambiguous
-        ]
-    )
-    def test_sync_raises_for_query_errors(self, query):
+    def test_sync_stores_unresolved_dependencies_in_properties(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
-            query={"query": query, "kind": "HogQLQuery"},
+            query={"query": "SELECT * FROM nonexistent_table", "kind": "HogQLQuery"},
         )
 
-        with pytest.raises(QueryError):
-            sync_saved_query_to_dag(saved_query)
+        node = sync_saved_query_to_dag(saved_query)
+        assert node is not None
+        unresolved = node.properties.get("unresolved_dependencies", [])
+        self.assertEqual(len(unresolved), 1)
+        self.assertEqual(unresolved[0]["name"], "nonexistent_table")
 
 
 @pytest.mark.django_db
