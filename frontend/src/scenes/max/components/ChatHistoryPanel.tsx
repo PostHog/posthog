@@ -1,7 +1,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useRef } from 'react'
 
 import { IconEllipsis, IconPlusSmall, IconSearch, IconShare, IconSidebarClose } from '@posthog/icons'
 import { LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
@@ -34,19 +34,8 @@ interface ChatHistoryPanelProps {
 
 export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHistoryPanelProps): JSX.Element {
     const chatHistoryPanelRef = useRef<HTMLDivElement>(null)
-    const inputRef = useRef<HTMLInputElement>(null)
     const { startNewConversation, openConversation } = useActions(maxLogic({ tabId }))
     const { conversationHistory, conversationHistoryLoading, conversationId } = useValues(maxLogic({ tabId }))
-    const [isSearching, setIsSearching] = useState<boolean>(false)
-    const [inputValue, setInputValue] = useState('')
-
-    const filteredConversations = useMemo(() => {
-        if (!inputValue.trim()) {
-            return conversationHistory
-        }
-        const searchLower = inputValue.toLowerCase()
-        return conversationHistory.filter((c) => (c.title || '').toLowerCase().includes(searchLower))
-    }, [conversationHistory, inputValue])
 
     const resizerProps: ResizerLogicProps = {
         containerRef: chatHistoryPanelRef,
@@ -70,13 +59,6 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
         })
     )
 
-    const handleToggleSearch = (): void => {
-        if (isSearching) {
-            setInputValue('')
-        }
-        setIsSearching(!isSearching)
-    }
-
     return (
         <div
             className={cn(
@@ -92,144 +74,139 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
             ref={chatHistoryPanelRef}
         >
             <Autocomplete.Root
-                items={filteredConversations}
-                filter={null}
+                items={conversationHistory}
+                filter={(item, query) => (item?.title || '').toLowerCase().includes(query.toLowerCase())}
                 itemToStringValue={(item: ConversationDetail) => item?.title ?? ''}
                 inline
                 defaultOpen
                 autoHighlight={true}
-                className="flex flex-col h-full min-h-0"
             >
-                <div className="flex items-center gap-1 p-2 shrink-0">
-                    <ButtonPrimitive
-                        onClick={toggleChatHistoryPanelCollapsed}
-                        tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
-                        className="h-[32px]"
-                        iconOnly
-                    >
-                        <IconSidebarClose
-                            className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
-                        />
-                    </ButtonPrimitive>
-                    {!isChatHistoryPanelCollapsed && (
-                        <>
-                            <label
-                                htmlFor="search-chats"
-                                className="input-like flex items-center flex-1 px-1 gap-1 group h-[30px]"
-                            >
-                                <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
-                                <Autocomplete.Input
-                                    ref={inputRef}
-                                    id="search-chats"
-                                    value={inputValue}
-                                    onChange={(e) => setInputValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Escape') {
-                                            handleToggleSearch()
-                                            e.currentTarget.blur()
-                                        }
-                                    }}
-                                    placeholder="Chat history"
-                                    aria-label="Chat history"
-                                    className={cn(
-                                        'w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]'
-                                    )}
-                                />
-                            </label>
-                            <ButtonPrimitive
-                                variant="outline"
-                                iconOnly
-                                onClick={() => startNewConversation()}
-                                tooltip="New chat"
-                            >
-                                <IconPlusSmall />
-                            </ButtonPrimitive>
-                        </>
-                    )}
-                </div>
-
-                {!isChatHistoryPanelCollapsed && (
-                    <ScrollableShadows
-                        direction="vertical"
-                        className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                        innerClassName="flex flex-col px-2 pt-2 pb-4"
-                        styledScrollbars
-                    >
-                        {conversationHistoryLoading && conversationHistory.length === 0 ? (
-                            <div className="flex flex-col gap-1">
-                                <LemonSkeleton className="h-8" />
-                                <LemonSkeleton className="h-8 opacity-60" />
-                                <LemonSkeleton className="h-8 opacity-30" />
-                            </div>
-                        ) : (
+                <div className="flex flex-col h-full min-h-0">
+                    <div className="flex items-center gap-1 p-2 shrink-0">
+                        <ButtonPrimitive
+                            onClick={toggleChatHistoryPanelCollapsed}
+                            tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
+                            className="h-[32px]"
+                            iconOnly
+                        >
+                            <IconSidebarClose
+                                className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
+                            />
+                        </ButtonPrimitive>
+                        {!isChatHistoryPanelCollapsed && (
                             <>
-                                <Autocomplete.List className="flex flex-col gap-1 -mx-1">
-                                    <Autocomplete.Group items={filteredConversations}>
-                                        <Autocomplete.Collection>
-                                            {(conversation: ConversationDetail) => (
-                                                <DropdownMenu>
-                                                    <ButtonGroupPrimitive fullWidth className="group">
-                                                        <Autocomplete.Item
-                                                            key={conversation.id}
-                                                            value={conversation}
-                                                            onClick={(e) => {
-                                                                e.preventDefault()
-                                                                openConversation(conversation.id)
-                                                            }}
-                                                            render={
-                                                                <Link
-                                                                    to={
-                                                                        combineUrl(urls.ai(conversation.id), {
-                                                                            from: 'history',
-                                                                        }).url
-                                                                    }
-                                                                    buttonProps={{
-                                                                        active: conversation.id === conversationId,
-                                                                        fullWidth: true,
-                                                                        className: 'pr-0',
-                                                                    }}
-                                                                    tooltip={conversation.title || 'view conversation'}
-                                                                    tooltipPlacement="right"
-                                                                    extraContextMenuItems={
-                                                                        <ContextMenuItem asChild>
-                                                                            <ButtonPrimitive
-                                                                                menuItem
-                                                                                onClick={() => {
-                                                                                    copyToClipboard(
-                                                                                        urls.absolute(
-                                                                                            urls.currentProject(
-                                                                                                urls.ai(conversation.id)
-                                                                                            )
-                                                                                        ),
-                                                                                        'conversation sharing link'
-                                                                                    )
-                                                                                }}
-                                                                            >
-                                                                                <IconShare className="size-4 text-tertiary" />
-                                                                                Copy link to chat
-                                                                            </ButtonPrimitive>
-                                                                        </ContextMenuItem>
-                                                                    }
-                                                                >
-                                                                    <span className="flex-1 line-clamp-1 text-primary">
-                                                                        {conversation.title}
-                                                                    </span>
-                                                                    {conversation.status ===
-                                                                        ConversationStatus.InProgress && (
-                                                                        <Spinner className="h-3 w-3" />
-                                                                    )}
-                                                                    <span className="opacity-30 text-xs pr-1.5 group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0 transition-opacity duration-100">
-                                                                        {formatConversationDate(
-                                                                            conversation.updated_at
+                                <label
+                                    htmlFor="search-chats"
+                                    className="input-like flex items-center flex-1 px-1 gap-1 group h-[30px]"
+                                >
+                                    <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
+                                    <Autocomplete.Input
+                                        id="search-chats"
+                                        placeholder="Chat history"
+                                        aria-label="Chat history"
+                                        className={cn(
+                                            'w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]'
+                                        )}
+                                    />
+                                </label>
+                                <ButtonPrimitive
+                                    variant="outline"
+                                    iconOnly
+                                    onClick={() => startNewConversation()}
+                                    tooltip="New chat"
+                                >
+                                    <IconPlusSmall />
+                                </ButtonPrimitive>
+                            </>
+                        )}
+                    </div>
+
+                    {!isChatHistoryPanelCollapsed && (
+                        <ScrollableShadows
+                            direction="vertical"
+                            className="flex flex-col flex-1 min-h-0 overflow-hidden"
+                            innerClassName="flex flex-col px-2 pt-2 pb-4"
+                            styledScrollbars
+                        >
+                            {conversationHistoryLoading && conversationHistory.length === 0 ? (
+                                <div className="flex flex-col gap-1">
+                                    <LemonSkeleton className="h-8" />
+                                    <LemonSkeleton className="h-8 opacity-60" />
+                                    <LemonSkeleton className="h-8 opacity-30" />
+                                </div>
+                            ) : (
+                                <>
+                                    <Autocomplete.List className="flex flex-col gap-1 -mx-1">
+                                        <Autocomplete.Group items={conversationHistory}>
+                                            <Autocomplete.Collection>
+                                                {(conversation: ConversationDetail) => (
+                                                    <DropdownMenu>
+                                                        <ButtonGroupPrimitive fullWidth className="group">
+                                                            <Autocomplete.Item
+                                                                key={conversation.id}
+                                                                value={conversation}
+                                                                onClick={(e) => {
+                                                                    e.preventDefault()
+                                                                    openConversation(conversation.id)
+                                                                }}
+                                                                render={
+                                                                    <Link
+                                                                        to={
+                                                                            combineUrl(urls.ai(conversation.id), {
+                                                                                from: 'history',
+                                                                            }).url
+                                                                        }
+                                                                        buttonProps={{
+                                                                            active: conversation.id === conversationId,
+                                                                            fullWidth: true,
+                                                                            className: 'pr-0',
+                                                                        }}
+                                                                        tooltip={
+                                                                            conversation.title || 'view conversation'
+                                                                        }
+                                                                        tooltipPlacement="right"
+                                                                        extraContextMenuItems={
+                                                                            <ContextMenuItem asChild>
+                                                                                <ButtonPrimitive
+                                                                                    menuItem
+                                                                                    onClick={() => {
+                                                                                        copyToClipboard(
+                                                                                            urls.absolute(
+                                                                                                urls.currentProject(
+                                                                                                    urls.ai(
+                                                                                                        conversation.id
+                                                                                                    )
+                                                                                                )
+                                                                                            ),
+                                                                                            'conversation sharing link'
+                                                                                        )
+                                                                                    }}
+                                                                                >
+                                                                                    <IconShare className="size-4 text-tertiary" />
+                                                                                    Copy link to chat
+                                                                                </ButtonPrimitive>
+                                                                            </ContextMenuItem>
+                                                                        }
+                                                                    >
+                                                                        <span className="flex-1 line-clamp-1 text-primary">
+                                                                            {conversation.title}
+                                                                        </span>
+                                                                        {conversation.status ===
+                                                                            ConversationStatus.InProgress && (
+                                                                            <Spinner className="h-3 w-3" />
                                                                         )}
-                                                                    </span>
-                                                                </Link>
-                                                            }
-                                                        />
-                                                        <DropdownMenuTrigger asChild>
-                                                            <ButtonPrimitive
-                                                                iconOnly
-                                                                className="
+                                                                        <span className="opacity-30 text-xs pr-1.5 group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0 transition-opacity duration-100">
+                                                                            {formatConversationDate(
+                                                                                conversation.updated_at
+                                                                            )}
+                                                                        </span>
+                                                                    </Link>
+                                                                }
+                                                            />
+                                                            <DropdownMenuTrigger asChild>
+                                                                <ButtonPrimitive
+                                                                    iconOnly
+                                                                    className="
                                                                         absolute right-0
                                                                         translate-x-full opacity-0
                                                                         group-hover:translate-x-0 group-hover:opacity-100
@@ -237,45 +214,46 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                                                         data-[state=open]:opacity-100
                                                                         transition-[opacity] duration-100 ease-initial
                                                                     "
-                                                            >
-                                                                <IconEllipsis className="text-tertiary size-3 group-hover:text-primary z-10" />
-                                                            </ButtonPrimitive>
-                                                        </DropdownMenuTrigger>
-                                                    </ButtonGroupPrimitive>
-                                                    <DropdownMenuContent>
-                                                        <DropdownMenuGroup>
-                                                            <DropdownMenuItem asChild>
-                                                                <ButtonPrimitive
-                                                                    menuItem
-                                                                    onClick={() => {
-                                                                        copyToClipboard(
-                                                                            urls.absolute(
-                                                                                urls.currentProject(
-                                                                                    urls.ai(conversation.id)
-                                                                                )
-                                                                            ),
-                                                                            'conversation sharing link'
-                                                                        )
-                                                                    }}
                                                                 >
-                                                                    <IconShare className="size-4 text-tertiary" />
-                                                                    Copy link to chat
+                                                                    <IconEllipsis className="text-tertiary size-3 group-hover:text-primary z-10" />
                                                                 </ButtonPrimitive>
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuGroup>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            )}
-                                        </Autocomplete.Collection>
-                                    </Autocomplete.Group>
-                                </Autocomplete.List>
-                                <Autocomplete.Empty className="flex flex-col items-center justify-center text-center py-8 text-muted empty:hidden">
-                                    <p className="text-sm mb-0">No chats found</p>
-                                </Autocomplete.Empty>
-                            </>
-                        )}
-                    </ScrollableShadows>
-                )}
+                                                            </DropdownMenuTrigger>
+                                                        </ButtonGroupPrimitive>
+                                                        <DropdownMenuContent>
+                                                            <DropdownMenuGroup>
+                                                                <DropdownMenuItem asChild>
+                                                                    <ButtonPrimitive
+                                                                        menuItem
+                                                                        onClick={() => {
+                                                                            copyToClipboard(
+                                                                                urls.absolute(
+                                                                                    urls.currentProject(
+                                                                                        urls.ai(conversation.id)
+                                                                                    )
+                                                                                ),
+                                                                                'conversation sharing link'
+                                                                            )
+                                                                        }}
+                                                                    >
+                                                                        <IconShare className="size-4 text-tertiary" />
+                                                                        Copy link to chat
+                                                                    </ButtonPrimitive>
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuGroup>
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                )}
+                                            </Autocomplete.Collection>
+                                        </Autocomplete.Group>
+                                    </Autocomplete.List>
+                                    <Autocomplete.Empty className="flex flex-col items-center justify-center text-center py-8 text-muted empty:hidden">
+                                        <p className="text-sm mb-0">No chats found</p>
+                                    </Autocomplete.Empty>
+                                </>
+                            )}
+                        </ScrollableShadows>
+                    )}
+                </div>
             </Autocomplete.Root>
 
             <Resizer
