@@ -19,6 +19,9 @@ pnpm-lock.yaml
 posthog/templates/**/*
 common/hogvm/typescript/src/stl/bytecode.ts
 common/hogvm/__tests__/__snapshots__/*
+common/hogql_parser/build_wasm/
+common/hogql_parser/build/
+common/hogql_parser/dist/
 rust/
 livestream/
 cli/target/

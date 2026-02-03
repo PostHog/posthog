@@ -3,19 +3,19 @@
 import json
 import time
 import uuid
-import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
-
-# Use posthoganalytics instead of posthog to avoid conflict with local posthog/ directory
-import posthoganalytics
+import structlog
 
 from .config import Config
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from posthoganalytics import Posthog
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -47,14 +47,9 @@ class PostHogClient:
     (since the SDK doesn't support querying).
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, posthog_sdk: "Posthog"):
         self.config = config
-
-        # Configure the official SDK
-        posthoganalytics.api_key = config.project_api_key
-        posthoganalytics.host = config.api_host
-        posthoganalytics.debug = True
-        posthoganalytics.sync_mode = True  # Send events synchronously for testing
+        self._posthog = posthog_sdk
 
     def capture_event(
         self,
@@ -65,16 +60,23 @@ class PostHogClient:
         """Send an event using the official PostHog SDK."""
         event_uuid = str(uuid.uuid4())
 
-        logger.info("[capture] Sending event '%s' with UUID %s", event_name, event_uuid)
+        logger.info(
+            "Capturing event",
+            event_name=event_name,
+            event_uuid=event_uuid,
+            distinct_id=distinct_id,
+            sdk_host=self.config.api_host,
+        )
 
-        posthoganalytics.capture(
+        self._posthog.capture(
             distinct_id=distinct_id,
             event=event_name,
             properties=properties or {},
             uuid=event_uuid,
         )
 
-        logger.info("[capture] Event sent successfully")
+        logger.info("Event captured", event_uuid=event_uuid)
+
         return event_uuid
 
     def query_event_by_uuid(
@@ -103,7 +105,7 @@ class PostHogClient:
 
     def shutdown(self) -> None:
         """Shutdown the client and flush any pending events."""
-        posthoganalytics.shutdown()
+        self._posthog.shutdown()
 
     def _poll_until_found(
         self,
@@ -114,22 +116,13 @@ class PostHogClient:
         """Poll until fetch_fn returns a non-None result or timeout."""
         timeout = timeout_seconds or self.config.event_timeout_seconds
         start_time = time.time()
-        attempt = 0
-
-        logger.info("[query] Polling for %s (timeout: %ds)", description, timeout)
 
         while time.time() - start_time < timeout:
-            attempt += 1
             result = fetch_fn()
             if result is not None:
-                logger.info(
-                    "[query] Found %s after %.1fs (%d attempts)", description, time.time() - start_time, attempt
-                )
                 return result
-
             time.sleep(self.config.poll_interval_seconds)
 
-        logger.warning("[query] %s not found within %ds (%d attempts)", description, timeout, attempt)
         return None
 
     def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:

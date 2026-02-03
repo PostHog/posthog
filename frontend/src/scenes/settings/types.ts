@@ -228,4 +228,10 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
         resourceType: AccessControlResourceType
         minimumAccessLevel: AccessControlLevel
     }
+
+    /**
+     * Optional group name to organize sections under collapsible headers.
+     * Sections with the same group will be nested under a group header.
+     */
+    group?: string
 }

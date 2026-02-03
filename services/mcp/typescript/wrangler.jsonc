@@ -43,7 +43,7 @@
                 "posthog"
             ],
             "head_sampling_rate": 1.0, // Collect all logs for now
-            "persist": false // Don't persist logs in Cloudflare dashboard
+            "persist": true // Keep showing logs in Cloudflare dashboard
         }
     },
     "rules": [

@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react'
+
+import { type HorizontalBar, HorizontalBarChart } from './charts'
 import type { FunnelVisualizerProps } from './types'
-import { normalizeFunnelSteps, formatPercent, formatNumber } from './utils'
-import { HorizontalBarChart, type HorizontalBar } from './charts'
+import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
 
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
     const steps = normalizeFunnelSteps(results)

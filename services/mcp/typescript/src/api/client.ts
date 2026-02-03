@@ -428,6 +428,70 @@ export class ApiClient {
                     return { success: false, error: error as Error }
                 }
             },
+
+            updateEventDefinition: async ({
+                projectId,
+                eventName,
+                data,
+            }: {
+                projectId: string
+                eventName: string
+                data: {
+                    description?: string
+                    tags?: string[]
+                    verified?: boolean
+                    hidden?: boolean
+                }
+            }): Promise<Result<ApiEventDefinition>> => {
+                try {
+                    // Fetching the event definition by name to get its ID
+                    const searchParams = new URLSearchParams({ name: eventName })
+                    const findUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/by_name/?${searchParams}`
+
+                    const findResponse = await fetch(findUrl, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
+
+                    if (findResponse.status === 404) {
+                        return {
+                            success: false,
+                            error: new Error(`Event definition not found: ${eventName}`),
+                        }
+                    }
+
+                    if (!findResponse.ok) {
+                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                    }
+
+                    const eventDef = await findResponse.json()
+                    const parsedEventDef = ApiEventDefinitionSchema.parse(eventDef)
+
+                    // Updating the event definition by ID
+                    const updateUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${parsedEventDef.id}/`
+
+                    const updateResponse = await fetch(updateUrl, {
+                        method: 'PATCH',
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data),
+                    })
+
+                    if (!updateResponse.ok) {
+                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                    }
+
+                    const responseData = await updateResponse.json()
+                    const parsedData = ApiEventDefinitionSchema.parse(responseData)
+
+                    return { success: true, data: parsedData }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
         }
     }
 
