@@ -17,6 +17,15 @@ runs:
               path: emsdk-cache
               key: emsdk-${{ runner.os }}-${{ inputs.emsdk-version }}
 
+        - name: Install build dependencies
+          shell: bash
+          run: |
+              if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y unzip ninja-build
+              elif command -v apk &> /dev/null; then
+                apk add --no-cache unzip ninja
+              fi
+
         - name: Setup Emscripten
           uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
           with:
@@ -30,15 +39,3 @@ runs:
           with:
               path: emsdk-cache
               key: emsdk-${{ runner.os }}-${{ inputs.emsdk-version }}
-
-        - name: Install Ninja
-          shell: bash
-          run: |
-              if command -v apt-get &> /dev/null; then
-                sudo apt-get update && sudo apt-get install -y ninja-build
-              elif command -v apk &> /dev/null; then
-                apk add --no-cache ninja
-              else
-                echo "Unknown package manager, attempting apt-get"
-                apt-get update && apt-get install -y ninja-build
-              fi
