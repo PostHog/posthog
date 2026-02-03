@@ -518,7 +518,15 @@ def test_create_batch_export_with_custom_schema(client: HttpClient, temporal, or
         ("WITH cte AS (SELECT event FROM events) SELECT event FROM cte", "Subqueries or CTEs are not supported"),
         ("SELECT event FROM (SELECT event FROM events)", "Subqueries or CTEs are not supported"),
         (
+            "SELECT event FROM (SELECT event FROM events UNION ALL SELECT event FROM events)",
+            "Subqueries or CTEs are not supported",
+        ),
+        (
             "SELECT uuid, (SELECT event FROM events LIMIT 1) AS leaked FROM events",
+            "Subqueries in SELECT expressions are not supported",
+        ),
+        (
+            "SELECT coalesce((SELECT uuid FROM events LIMIT 1), uuid) AS foo FROM events",
             "Subqueries in SELECT expressions are not supported",
         ),
     ],

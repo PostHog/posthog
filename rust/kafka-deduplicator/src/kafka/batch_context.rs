@@ -4,9 +4,10 @@ use tokio::sync::mpsc;
 
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
+use crate::metrics_const::REBALANCE_EMPTY_SKIPPED;
 use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, TopicPartitionList};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Events sent to the async rebalance worker
 #[derive(Debug, Clone)]
@@ -140,6 +141,16 @@ impl ConsumerContext for BatchConsumerContext {
         // Handle partition revocation if applicable
         match rebalance {
             Rebalance::Revoke(partitions) => {
+                // Short-circuit for empty TPL (cooperative-sticky sends these frequently)
+                // With cooperative-sticky protocol, the broker triggers rebalances for all
+                // consumers when any group membership changes, even if partitions don't move.
+                if partitions.count() == 0 {
+                    debug!("Skipping empty revoke rebalance (cooperative-sticky no-op)");
+                    metrics::counter!(REBALANCE_EMPTY_SKIPPED, "event_type" => "revoke")
+                        .increment(1);
+                    return;
+                }
+
                 info!("Revoking {} partitions", partitions.count());
 
                 // SYNC: Call setup handler directly within callback
@@ -177,6 +188,16 @@ impl ConsumerContext for BatchConsumerContext {
         // Handle partition assignment if applicable
         match rebalance {
             Rebalance::Assign(partitions) => {
+                // Short-circuit for empty TPL (cooperative-sticky sends these frequently)
+                // With cooperative-sticky protocol, the broker triggers rebalances for all
+                // consumers when any group membership changes, even if partitions don't move.
+                if partitions.count() == 0 {
+                    debug!("Skipping empty assign rebalance (cooperative-sticky no-op)");
+                    metrics::counter!(REBALANCE_EMPTY_SKIPPED, "event_type" => "assign")
+                        .increment(1);
+                    return;
+                }
+
                 info!("Assigned {} partitions", partitions.count());
 
                 // PAUSE partitions IMMEDIATELY to prevent message delivery
@@ -251,5 +272,58 @@ impl ConsumerContext for BatchConsumerContext {
                 warn!("Failed to commit offsets: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rdkafka::{Offset, TopicPartitionList};
+
+    /// Verify that empty TopicPartitionList has count() == 0.
+    /// This is the behavior we rely on for short-circuiting empty rebalances.
+    #[test]
+    fn test_empty_topic_partition_list_count_is_zero() {
+        let tpl = TopicPartitionList::new();
+        assert_eq!(tpl.count(), 0, "Empty TPL should have count == 0");
+    }
+
+    /// Verify that non-empty TopicPartitionList has count() > 0.
+    #[test]
+    fn test_non_empty_topic_partition_list_count() {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        assert_eq!(
+            tpl.count(),
+            1,
+            "TPL with one partition should have count == 1"
+        );
+
+        tpl.add_partition_offset("test-topic", 1, Offset::Beginning)
+            .unwrap();
+        assert_eq!(
+            tpl.count(),
+            2,
+            "TPL with two partitions should have count == 2"
+        );
+    }
+
+    /// Verify that our short-circuit condition works correctly.
+    /// This simulates the check we do in pre_rebalance and post_rebalance.
+    #[test]
+    fn test_empty_tpl_short_circuit_condition() {
+        let empty_tpl = TopicPartitionList::new();
+        let should_skip = empty_tpl.count() == 0;
+        assert!(should_skip, "Empty TPL should trigger short-circuit");
+
+        let mut non_empty_tpl = TopicPartitionList::new();
+        non_empty_tpl
+            .add_partition_offset("test-topic", 0, Offset::Beginning)
+            .unwrap();
+        let should_not_skip = non_empty_tpl.count() == 0;
+        assert!(
+            !should_not_skip,
+            "Non-empty TPL should not trigger short-circuit"
+        );
     }
 }
