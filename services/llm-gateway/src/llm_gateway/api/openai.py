@@ -136,6 +136,18 @@ async def _handle_transcription(
             detail={"error": {"message": "File must have a filename", "type": "invalid_request_error", "code": None}},
         )
 
+    if file.size and file.size > 25 * 1024 * 1024:  # 25MB - OpenAI's limit
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "error": {
+                    "message": "File size exceeds maximum allowed size of 25MB",
+                    "type": "invalid_request_error",
+                    "code": None,
+                }
+            },
+        )
+
     normalized_model = _normalize_model_name(model)
     content = await file.read()
     file_tuple = (file.filename, content, file.content_type or "audio/mpeg")
