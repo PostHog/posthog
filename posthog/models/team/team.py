@@ -119,9 +119,9 @@ class TeamManager(models.Manager):
         team = cast("Team", self.create(**kwargs))
 
         # Create test users cohort and set test account filters to exclude it
-        from posthog.models.cohort.cohort import get_or_create_test_users_cohort
+        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
 
-        test_users_cohort = get_or_create_test_users_cohort(team)
+        test_users_cohort = get_or_create_internal_test_users_cohort(team)
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": test_users_cohort.id, "negation": True}]
 
         if kwargs.get("is_demo"):
