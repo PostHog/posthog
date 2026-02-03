@@ -13,7 +13,7 @@ import { CollapsibleHeading } from './CollapsibleHeading'
 
 function DragHandle(): JSX.Element {
     return (
-        <div className="draggable-text-node__drag-handle" data-drag-handle contentEditable={false}>
+        <div className="draggable-text-node__drag-handle" data-drag-handle contentEditable={false} draggable={true}>
             <IconDragHandle className="cursor-move text-base shrink-0" />
         </div>
     )
@@ -84,8 +84,6 @@ function findSectionRange(doc: PMNode, headingPos: number): [number, number] | n
 }
 
 export const DraggableHeading = Heading.extend({
-    draggable: true,
-
     addProseMirrorPlugins() {
         const pluginKey = new PluginKey('dragHandleHeading')
         const sectionDragKey = new PluginKey('sectionDragHeading')
@@ -115,8 +113,14 @@ export const DraggableHeading = Heading.extend({
                         dragstart: (view, event) => {
                             const target = event.target as HTMLElement
 
-                            // The drag is initiated on the heading element itself
-                            const headingElement = target.closest('h1, h2, h3, h4, h5, h6')
+                            // Only allow drag if it started from the drag handle
+                            const dragHandle = target.closest('[data-drag-handle]')
+                            if (!dragHandle) {
+                                return false
+                            }
+
+                            // Find the heading element that contains this drag handle
+                            const headingElement = dragHandle.parentElement?.closest('h1, h2, h3, h4, h5, h6')
 
                             if (!headingElement) {
                                 return false
@@ -143,7 +147,6 @@ export const DraggableHeading = Heading.extend({
                                 if (range) {
                                     draggingSectionRange = range
                                 }
-                            } else {
                             }
                             return false
                         },
@@ -198,8 +201,6 @@ export const DraggableHeading = Heading.extend({
 })
 
 export const DraggableCollapsibleHeading = CollapsibleHeading.extend({
-    draggable: true,
-
     addProseMirrorPlugins() {
         const pluginKey = new PluginKey('dragHandleCollapsibleHeading')
         const sectionDragKey = new PluginKey('sectionDragCollapsibleHeading')
@@ -231,8 +232,14 @@ export const DraggableCollapsibleHeading = CollapsibleHeading.extend({
                         dragstart: (view, event) => {
                             const target = event.target as HTMLElement
 
-                            // The drag is initiated on the heading element itself
-                            const headingElement = target.closest('h1, h2, h3, h4, h5, h6')
+                            // Only allow drag if it started from the drag handle
+                            const dragHandle = target.closest('[data-drag-handle]')
+                            if (!dragHandle) {
+                                return false
+                            }
+
+                            // Find the heading element that contains this drag handle
+                            const headingElement = dragHandle.parentElement?.closest('h1, h2, h3, h4, h5, h6')
 
                             if (!headingElement) {
                                 return false
@@ -259,7 +266,6 @@ export const DraggableCollapsibleHeading = CollapsibleHeading.extend({
                                 if (range) {
                                     draggingSectionRange = range
                                 }
-                            } else {
                             }
                             return false
                         },
@@ -314,10 +320,12 @@ export const DraggableCollapsibleHeading = CollapsibleHeading.extend({
 })
 
 export const DraggableParagraph = Paragraph.extend({
-    draggable: true,
-
     addProseMirrorPlugins() {
         const pluginKey = new PluginKey('dragHandleParagraph')
+        const paragraphDragKey = new PluginKey('paragraphDrag')
+
+        let draggingNodeRange: [number, number] | null = null
+
         return [
             new Plugin({
                 key: pluginKey,
@@ -332,6 +340,92 @@ export const DraggableParagraph = Paragraph.extend({
                 },
                 props: {
                     decorations: (state) => pluginKey.getState(state),
+                },
+            }),
+            new Plugin({
+                key: paragraphDragKey,
+                props: {
+                    handleDOMEvents: {
+                        dragstart: (view, event) => {
+                            const target = event.target as HTMLElement
+
+                            // Only allow drag if it started from the drag handle
+                            const dragHandle = target.closest('[data-drag-handle]')
+                            if (!dragHandle) {
+                                return false
+                            }
+
+                            // Find the paragraph element that contains this drag handle
+                            const paragraphElement = dragHandle.parentElement?.closest('p')
+
+                            if (!paragraphElement) {
+                                return false
+                            }
+
+                            // Get the position before the paragraph element
+                            let pos = view.posAtDOM(paragraphElement, 0)
+                            const $pos = view.state.doc.resolve(pos)
+
+                            // Walk up to find the paragraph node position
+                            for (let d = $pos.depth; d > 0; d--) {
+                                const node = $pos.node(d)
+                                if (node.type.name === 'paragraph') {
+                                    pos = $pos.before(d)
+                                    break
+                                }
+                            }
+
+                            const node = view.state.doc.nodeAt(pos)
+
+                            if (node && node.type.name === 'paragraph') {
+                                draggingNodeRange = [pos, pos + node.nodeSize]
+                            }
+                            return false
+                        },
+                        dragend: () => {
+                            draggingNodeRange = null
+                            return false
+                        },
+                    },
+                    handleDrop: (view, event, _slice, moved) => {
+                        if (!draggingNodeRange || !moved) {
+                            return false
+                        }
+
+                        const [from, to] = draggingNodeRange
+
+                        const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })
+                        if (!dropPos) {
+                            draggingNodeRange = null
+                            return false
+                        }
+
+                        let insertPos = dropPos.pos
+                        const $insertPos = view.state.doc.resolve(insertPos)
+                        if ($insertPos.depth > 0) {
+                            insertPos = $insertPos.before(1)
+                        }
+
+                        if (insertPos > from && insertPos < to) {
+                            draggingNodeRange = null
+                            return false
+                        }
+
+                        const nodeSlice = view.state.doc.slice(from, to)
+                        const tr = view.state.tr
+
+                        if (insertPos > to) {
+                            tr.insert(insertPos, nodeSlice.content)
+                            tr.delete(from, to)
+                        } else {
+                            tr.delete(from, to)
+                            tr.insert(insertPos, nodeSlice.content)
+                        }
+
+                        view.dispatch(tr)
+                        draggingNodeRange = null
+                        return true
+                    },
                 },
             }),
         ]
