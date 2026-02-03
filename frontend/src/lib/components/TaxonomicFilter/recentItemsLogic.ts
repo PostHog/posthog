@@ -4,7 +4,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
 
 import type { recentItemsLogicType } from './recentItemsLogicType'
 
-const MAX_RECENT_ITEMS = 20
+const MAX_RECENT_ITEMS = 10
 
 export interface RecentItem {
     type: TaxonomicFilterGroupType

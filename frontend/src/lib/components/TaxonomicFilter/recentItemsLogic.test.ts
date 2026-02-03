@@ -94,18 +94,18 @@ describe('recentItemsLogic', () => {
             })
         })
 
-        it('limits to 20 items maximum', async () => {
+        it('limits to 10 items maximum', async () => {
             const items: RecentItem[] = []
-            for (let i = 0; i < 25; i++) {
+            for (let i = 0; i < 15; i++) {
                 const item = createEventItem(`event_${i}`, `event_${i}`)
                 items.push(item)
                 logic.actions.addRecentEvent(item)
             }
 
             const { recentEvents } = logic.values
-            expect(recentEvents.length).toBe(20)
-            expect(recentEvents[0].name).toBe('event_24')
-            expect(recentEvents[19].name).toBe('event_5')
+            expect(recentEvents.length).toBe(10)
+            expect(recentEvents[0].name).toBe('event_14')
+            expect(recentEvents[9].name).toBe('event_5')
         })
 
         it('clears recent events', async () => {
@@ -212,18 +212,18 @@ describe('recentItemsLogic', () => {
             })
         })
 
-        it('limits to 20 items maximum', async () => {
+        it('limits to 10 items maximum', async () => {
             const items: RecentItem[] = []
-            for (let i = 0; i < 25; i++) {
+            for (let i = 0; i < 15; i++) {
                 const item = createPropertyItem(`property_${i}`, `property_${i}`)
                 items.push(item)
                 logic.actions.addRecentProperty(item)
             }
 
             const { recentProperties } = logic.values
-            expect(recentProperties.length).toBe(20)
-            expect(recentProperties[0].name).toBe('property_24')
-            expect(recentProperties[19].name).toBe('property_5')
+            expect(recentProperties.length).toBe(10)
+            expect(recentProperties[0].name).toBe('property_14')
+            expect(recentProperties[9].name).toBe('property_5')
         })
 
         it('clears recent properties', async () => {
