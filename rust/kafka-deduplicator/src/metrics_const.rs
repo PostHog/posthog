@@ -175,6 +175,13 @@ pub const BATCH_PROCESSING_ERROR: &str = "batch_processing_error_total";
 /// Counter for Resume commands skipped entirely (no owned partitions)
 pub const REBALANCE_RESUME_SKIPPED_NO_OWNED: &str = "rebalance_resume_skipped_no_owned_total";
 
+/// Counter for empty rebalances skipped (cooperative-sticky no-ops)
+/// Labels: event_type (assign|revoke)
+/// With cooperative-sticky protocol, the broker triggers rebalances for all consumers
+/// when any group membership changes, even if partitions don't move. This tracks
+/// how many of these empty rebalances we short-circuit.
+pub const REBALANCE_EMPTY_SKIPPED: &str = "rebalance_empty_skipped_total";
+
 // ==== Partition Batch Processing Diagnostics ====
 /// Histogram for partition batch processing duration (in milliseconds)
 pub const PARTITION_BATCH_PROCESSING_DURATION_MS: &str = "partition_batch_processing_duration_ms";

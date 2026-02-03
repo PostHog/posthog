@@ -133,6 +133,7 @@ class TestTableExists:
 class TestEventsDDL:
     def test_events_ddl_is_valid_sql(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = EVENTS_TABLE_DDL.format(catalog="memory")
         conn.execute(ddl)
 
@@ -145,6 +146,7 @@ class TestEventsDDL:
 
     def test_events_ddl_is_idempotent(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = EVENTS_TABLE_DDL.format(catalog="memory")
         # Should not raise on second execution
         conn.execute(ddl)
@@ -155,6 +157,7 @@ class TestEventsDDL:
 class TestPersonsDDL:
     def test_persons_ddl_is_valid_sql(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = PERSONS_TABLE_DDL.format(catalog="memory")
         conn.execute(ddl)
 
@@ -167,6 +170,7 @@ class TestPersonsDDL:
 
     def test_persons_ddl_is_idempotent(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = PERSONS_TABLE_DDL.format(catalog="memory")
         # Should not raise on second execution
         conn.execute(ddl)
