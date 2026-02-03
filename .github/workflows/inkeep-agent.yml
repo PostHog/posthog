@@ -21,7 +21,7 @@ jobs:
             - name: Trigger Inkeep Agent
               uses: inkeep/inkeep-agents-action@5cff55f6466991b866886e2bc18587d7b8aceecf # v0
               with:
-                  trigger-url: 'https://api.pilot.inkeep.com/run/tenants/posthog/projects/content-team-project/agents/docs-writer-agent/triggers/00lxwpo0x5z5w6rvcgoj0'
+                  trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
 
                   # Filters out PRs that dont match the given regex. Update regex as desired or remove entirely
                   pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'
