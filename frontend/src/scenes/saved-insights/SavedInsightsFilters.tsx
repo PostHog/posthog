@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconFlag, IconStar } from '@posthog/icons'
+import { LemonSelectOption, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 import { tagSelectLogic } from 'lib/components/tagSelectLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,6 +9,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +23,7 @@ export function SavedInsightsFilters({
     showQuickFilters?: boolean
 }): JSX.Element {
     const { user } = useValues(userLogic)
-    const { search, hideFeatureFlagInsights, createdBy, favorited, tags } = filters
+    const { search, hideFeatureFlagInsights, createdBy, favorited, tags, insightType } = filters
 
     const { filteredTags, search: tagSearch } = useValues(tagSelectLogic)
     const { setSearch: setTagSearch } = useActions(tagSelectLogic)
@@ -50,23 +52,55 @@ export function SavedInsightsFilters({
                     <>
                         <LemonButton
                             type="secondary"
-                            active={!!(user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id))}
-                            onClick={() => {
-                                if (user) {
-                                    const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
-                                    const selected = new Set(currentUsers)
-                                    if (selected.has(user.id)) {
-                                        selected.delete(user.id)
-                                    } else {
-                                        selected.add(user.id)
-                                    }
-                                    const newValue = Array.from(selected)
-                                    setFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
-                                }
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-end',
+                                    actionable: true,
+                                    overlay: (
+                                        <div className="deprecated-space-y-px">
+                                            {(INSIGHT_TYPE_OPTIONS as LemonSelectOption<string>[]).map((option) => {
+                                                const opt = option as LemonSelectOptionLeaf<string>
+                                                return (
+                                                    <LemonButton
+                                                        key={opt.value}
+                                                        onClick={() =>
+                                                            setFilters({
+                                                                insightType: opt.value,
+                                                            })
+                                                        }
+                                                        active={insightType === opt.value}
+                                                        icon={opt.icon}
+                                                        fullWidth
+                                                    >
+                                                        {opt.label}
+                                                    </LemonButton>
+                                                )
+                                            })}
+                                            {insightType && insightType !== 'All types' && (
+                                                <>
+                                                    <div className="my-1 border-t" />
+                                                    <LemonButton
+                                                        fullWidth
+                                                        onClick={() => setFilters({ insightType: 'All types' })}
+                                                        type="tertiary"
+                                                    >
+                                                        Clear filter
+                                                    </LemonButton>
+                                                </>
+                                            )}
+                                        </div>
+                                    ),
+                                },
+                                icon: <IconChevronDown />,
                             }}
+                            active={insightType !== 'All types'}
                             size="small"
                         >
-                            Created by me
+                            {(
+                                INSIGHT_TYPE_OPTIONS.find((o) => 'value' in o && o.value === insightType) as
+                                    | LemonSelectOptionLeaf<string>
+                                    | undefined
+                            )?.label || 'All types'}
                         </LemonButton>
                         <LemonButton
                             type="secondary"
@@ -143,6 +177,27 @@ export function SavedInsightsFilters({
                             size="small"
                         >
                             Tags{(tags?.length || 0) > 0 ? `: ${tags?.length}` : ''}
+                        </LemonButton>
+
+                        <LemonButton
+                            type="secondary"
+                            active={!!(user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id))}
+                            onClick={() => {
+                                if (user) {
+                                    const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
+                                    const selected = new Set(currentUsers)
+                                    if (selected.has(user.id)) {
+                                        selected.delete(user.id)
+                                    } else {
+                                        selected.add(user.id)
+                                    }
+                                    const newValue = Array.from(selected)
+                                    setFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
+                                }
+                            }}
+                            size="small"
+                        >
+                            Created by me
                         </LemonButton>
                         <LemonButton
                             type="secondary"
