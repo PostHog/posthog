@@ -54,6 +54,9 @@ pub async fn delete_completed_and_failed_jobs_batch<'c, E>(
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
+    // LIMIT NULL is treated as no limit in Postgres
+    let effective_limit: Option<i64> = if limit <= 0 { None } else { Some(limit) };
+
     let result = sqlx::query!(
         r#"
 WITH to_delete AS (
@@ -65,7 +68,7 @@ WITH to_delete AS (
 DELETE FROM cyclotron_jobs
 USING to_delete
 WHERE cyclotron_jobs.id = to_delete.id"#,
-        limit
+        effective_limit
     )
     .execute(executor)
     .await
