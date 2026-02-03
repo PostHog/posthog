@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconFlag } from '@posthog/icons'
+import { IconFlag, IconStar } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -59,6 +59,7 @@ export function SavedInsightsFilters({
                             active={favorited || false}
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
+                            icon={<IconStar />}
                         >
                             Favorites
                         </LemonButton>
