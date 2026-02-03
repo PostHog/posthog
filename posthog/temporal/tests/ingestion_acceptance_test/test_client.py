@@ -18,15 +18,19 @@ def config() -> Config:
 
 
 @pytest.fixture
-def client(config: Config) -> PostHogClient:
-    with patch("posthog.temporal.ingestion_acceptance_test.client.posthoganalytics"):
-        return PostHogClient(config)
+def mock_posthog_sdk() -> MagicMock:
+    return MagicMock()
+
+
+@pytest.fixture
+def client(config: Config, mock_posthog_sdk: MagicMock) -> PostHogClient:
+    return PostHogClient(config, mock_posthog_sdk)
 
 
 class TestCaptureEvent:
-    @patch("posthog.temporal.ingestion_acceptance_test.client.posthoganalytics")
-    def test_calls_sdk_with_correct_arguments(self, mock_sdk: MagicMock, config: Config) -> None:
-        client = PostHogClient(config)
+    def test_calls_sdk_with_correct_arguments(self, config: Config) -> None:
+        mock_sdk = MagicMock()
+        client = PostHogClient(config, mock_sdk)
         properties = {"key": "value", "$set": {"email": "test@example.com"}}
 
         event_uuid = client.capture_event(
@@ -42,18 +46,18 @@ class TestCaptureEvent:
             uuid=event_uuid,
         )
 
-    @patch("posthog.temporal.ingestion_acceptance_test.client.posthoganalytics")
-    def test_returns_uuid(self, mock_sdk: MagicMock, config: Config) -> None:
-        client = PostHogClient(config)
+    def test_returns_uuid(self, config: Config) -> None:
+        mock_sdk = MagicMock()
+        client = PostHogClient(config, mock_sdk)
 
         event_uuid = client.capture_event(event_name="test_event", distinct_id="user_123")
 
         assert event_uuid is not None
         assert len(event_uuid) == 36  # UUID format
 
-    @patch("posthog.temporal.ingestion_acceptance_test.client.posthoganalytics")
-    def test_uses_empty_dict_when_no_properties(self, mock_sdk: MagicMock, config: Config) -> None:
-        client = PostHogClient(config)
+    def test_uses_empty_dict_when_no_properties(self, config: Config) -> None:
+        mock_sdk = MagicMock()
+        client = PostHogClient(config, mock_sdk)
 
         client.capture_event(event_name="test_event", distinct_id="user_123")
 

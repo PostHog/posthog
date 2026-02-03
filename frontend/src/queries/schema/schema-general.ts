@@ -407,7 +407,6 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
@@ -2703,6 +2702,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    resourceFingerprint?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2891,6 +2891,9 @@ export type FileSystemIconType =
     | 'conversations'
     | 'toolbar'
     | 'settings'
+    | 'health'
+    | 'sdk_doctor'
+    | 'pipeline_status'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -4995,6 +4998,7 @@ export interface TestSetupResponse {
 
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
+    use_current_time?: boolean
 }
 
 export interface PlaywrightWorkspaceSetupResult {
@@ -5384,7 +5388,9 @@ export type WebsiteBrowsingHistoryProdInterest =
     | 'endpoints'
 
 export interface ReplayInactivityPeriod {
-    ts_from_s: integer
-    ts_to_s?: integer
+    ts_from_s: number
+    ts_to_s?: number
     active: boolean
+    recording_ts_from_s?: number
+    recording_ts_to_s?: number
 }
