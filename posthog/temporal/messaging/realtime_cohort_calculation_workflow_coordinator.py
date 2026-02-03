@@ -115,7 +115,7 @@ async def check_running_child_workflows_activity() -> RunningChildWorkflowsCheck
     has_running_children = running_count > 0
 
     if has_running_children:
-        LOGGER.info(f"Found {running_count}+ running child workflows")
+        LOGGER.info(f"Found {running_count}{'+' if running_count >= 100 else ''} running child workflows")
 
     return RunningChildWorkflowsCheckResult(
         has_running_children=has_running_children,
