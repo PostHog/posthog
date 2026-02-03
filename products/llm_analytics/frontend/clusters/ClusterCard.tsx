@@ -40,7 +40,11 @@ export function ClusterCard({
             }`}
         >
             {/* Card Header */}
-            <div className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors" onClick={onToggleExpand}>
+            <div
+                className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
+                onClick={onToggleExpand}
+                data-attr="clusters-card-header"
+            >
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2 mb-2">
@@ -48,6 +52,7 @@ export function ClusterCard({
                                 to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
                                 className="font-semibold text-base truncate hover:underline"
                                 onClick={(e) => e.stopPropagation()}
+                                data-attr="clusters-card-title-link"
                             >
                                 {cluster.title}
                             </Link>
@@ -82,6 +87,7 @@ export function ClusterCard({
                         <Link
                             to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
                             className="text-link hover:underline text-sm font-medium"
+                            data-attr="clusters-view-all-link"
                         >
                             View all {Object.keys(cluster.traces).length} {itemLabel} →
                         </Link>
