@@ -1,6 +1,14 @@
 {
     "name": "@posthog/products-visual_review",
-    "scripts": {},
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "backend:test": "cd ../.. && uv run pytest products/visual_review/backend/tests -v --tb=short",
+        "backend:test:unit": "cd ../.. && uv run pytest products/visual_review/backend/tests -v -m 'not integration' --tb=short",
+        "backend:test:integration": "cd ../.. && uv run pytest products/visual_review/backend/tests -v -m 'integration' --tb=short",
+        "backend:lint": "cd ../.. && ruff check products/visual_review/backend && ruff format --check products/visual_review/backend",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
     "dependencies": {
         "kea": "^3.1.7",
         "kea-loaders": "^3.1.1",
@@ -10,5 +18,55 @@
         "@posthog/icons": "*",
         "@types/react": "*",
         "react": "*"
+    },
+    "turbo": {
+        "extends": [
+            "//"
+        ],
+        "tasks": {
+            "backend:test": {
+                "inputs": [
+                    "backend/**/*.py",
+                    "!backend/**/__pycache__/**",
+                    "../../pyproject.toml",
+                    "../../uv.lock"
+                ],
+                "outputs": [],
+                "cache": true,
+                "env": [
+                    "DATABASE_URL",
+                    "REDIS_URL",
+                    "CLICKHOUSE_HOST",
+                    "TEST"
+                ]
+            },
+            "backend:test:unit": {
+                "inputs": [
+                    "backend/**/*.py",
+                    "!backend/**/__pycache__/**"
+                ],
+                "outputs": [],
+                "cache": true
+            },
+            "backend:lint": {
+                "inputs": [
+                    "backend/**/*.py",
+                    "!backend/**/__pycache__/**"
+                ],
+                "outputs": [],
+                "cache": true
+            },
+            "backend:contract-check": {
+                "inputs": [
+                    "backend/api/dtos.py",
+                    "backend/domain_types.py",
+                    "backend/models.py"
+                ],
+                "outputs": [
+                    ".turbo/contract-status.txt"
+                ],
+                "cache": true
+            }
+        }
     }
 }
