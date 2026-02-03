@@ -12,7 +12,7 @@ from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 class TestNodeViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.dag_id = "test_dag"
+        self.dag_id = f"posthog_{self.team.id}"
 
         self.saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -227,7 +227,7 @@ class TestNodeViewSet(APIBaseTest):
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.dag_id = "test_dag"
+        self.dag_id = f"posthog_{self.team.id}"
 
         self.source_node = Node.objects.create(
             team=self.team,

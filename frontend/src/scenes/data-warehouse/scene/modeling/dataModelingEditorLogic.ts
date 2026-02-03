@@ -76,6 +76,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         pollRunningJobsSuccess: (runningJobs: DataModelingJob[]) => ({ runningJobs }),
         loadRecentJobs: true,
         loadRecentJobsSuccess: (recentJobs: DataModelingJob[]) => ({ recentJobs }),
+        fitViewToNodes: true,
     }),
     loaders({
         dataModelingNodes: [
@@ -176,6 +177,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 },
             },
         ],
+        hasInitiallyFitView: [
+            false,
+            {
+                fitViewToNodes: () => true,
+            },
+        ],
     })),
     selectors({
         nodesById: [
@@ -225,6 +232,72 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     }
                 }
                 return statusMap
+            },
+        ],
+        highlightedNodeIds: [
+            (s) => [s.nodes, s.edges],
+            (nodes, edges): ((baseName: string, mode: 'upstream' | 'downstream' | 'all') => Set<string>) => {
+                // Build adjacency lists for efficient traversal
+                const upstreamEdges = new Map<string, string[]>() // target -> sources
+                const downstreamEdges = new Map<string, string[]>() // source -> targets
+
+                for (const edge of edges) {
+                    // upstream: edge.source is upstream of edge.target
+                    if (!upstreamEdges.has(edge.target)) {
+                        upstreamEdges.set(edge.target, [])
+                    }
+                    upstreamEdges.get(edge.target)!.push(edge.source)
+
+                    // downstream: edge.target is downstream of edge.source
+                    if (!downstreamEdges.has(edge.source)) {
+                        downstreamEdges.set(edge.source, [])
+                    }
+                    downstreamEdges.get(edge.source)!.push(edge.target)
+                }
+
+                // BFS helper to traverse in one direction
+                const traverse = (startId: string, adjacencyMap: Map<string, string[]>): Set<string> => {
+                    const result = new Set<string>()
+                    const queue = [startId]
+                    while (queue.length > 0) {
+                        const current = queue.shift()!
+                        const neighbors = adjacencyMap.get(current) ?? []
+                        for (const neighbor of neighbors) {
+                            if (!result.has(neighbor)) {
+                                result.add(neighbor)
+                                queue.push(neighbor)
+                            }
+                        }
+                    }
+                    return result
+                }
+
+                return (baseName: string, mode: 'upstream' | 'downstream' | 'all'): Set<string> => {
+                    // Find the starting node by name (exact match first, then partial)
+                    const lowerBaseName = baseName.toLowerCase()
+                    let startNode = nodes.find((n) => n.data.name.toLowerCase() === lowerBaseName)
+                    if (!startNode) {
+                        startNode = nodes.find((n) => n.data.name.toLowerCase().includes(lowerBaseName))
+                    }
+                    if (!startNode) {
+                        return new Set()
+                    }
+
+                    const result = new Set<string>([startNode.id])
+
+                    if (mode === 'upstream' || mode === 'all') {
+                        for (const id of traverse(startNode.id, upstreamEdges)) {
+                            result.add(id)
+                        }
+                    }
+                    if (mode === 'downstream' || mode === 'all') {
+                        for (const id of traverse(startNode.id, downstreamEdges)) {
+                            result.add(id)
+                        }
+                    }
+
+                    return result
+                }
             },
         ],
     }),
@@ -322,6 +395,10 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             }
             const formattedNodes = await getFormattedNodes(nodes, values.edges)
             actions.setNodesRaw(formattedNodes)
+
+            if (!values.hasInitiallyFitView) {
+                actions.fitViewToNodes()
+            }
         },
 
         onNodesDelete: ({ deleted }) => {
@@ -410,6 +487,13 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             } catch {
                 // Silently fail
             }
+        },
+
+        fitViewToNodes: () => {
+            // Small delay to ensure React Flow has rendered the new node positions
+            setTimeout(() => {
+                values.reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1, duration: 300 })
+            }, 50)
         },
     })),
     afterMount(({ actions }) => {

@@ -39,6 +39,8 @@ from ee.hogai.chat_agent.prompts import (
 )
 from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.core.agent_modes.presets.product_analytics import SubagentProductAnalyticsAgentToolkit
+from ee.hogai.core.agent_modes.presets.survey import SubagentSurveyAgentToolkit
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -629,3 +631,109 @@ class TestRootNodeTools(BaseTest):
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
             self.assertIn("does not exist", result.messages[0].content)
+
+
+class TestChatAgentModeManagerSubagent(BaseTest):
+    @parameterized.expand(
+        [
+            # (error_tracking_flag, plan_flag, survey_flag, expected_modes, unexpected_modes)
+            [
+                False,
+                False,
+                False,
+                ["product_analytics", "sql", "session_replay"],
+                ["plan", "error_tracking", "survey"],
+            ],
+            [
+                True,
+                False,
+                False,
+                ["product_analytics", "sql", "session_replay", "error_tracking"],
+                ["plan", "survey"],
+            ],
+            [
+                False,
+                False,
+                True,
+                ["product_analytics", "sql", "session_replay", "survey"],
+                ["plan", "error_tracking"],
+            ],
+            [
+                False,
+                True,
+                False,
+                ["product_analytics", "sql", "session_replay"],
+                ["plan", "error_tracking", "survey"],
+            ],
+        ]
+    )
+    def test_subagent_mode_registry(
+        self, error_tracking_flag, plan_flag, survey_flag, expected_modes, unexpected_modes
+    ):
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+        config = RunnableConfig(configurable={"is_subagent": True})
+        context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
+        with (
+            patch(
+                "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag",
+                return_value=error_tracking_flag,
+            ),
+            patch("ee.hogai.chat_agent.mode_manager.has_plan_mode_feature_flag", return_value=plan_flag),
+            patch("ee.hogai.chat_agent.mode_manager.has_survey_mode_feature_flag", return_value=survey_flag),
+        ):
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=AssistantState(messages=[HumanMessage(content="Test")]),
+            )
+            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+            for expected in expected_modes:
+                self.assertIn(expected, mode_names)
+            for unexpected in unexpected_modes:
+                self.assertNotIn(unexpected, mode_names)
+
+    def test_subagent_product_analytics_toolkit_excludes_dangerous_tools(self):
+        from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
+
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
+        )
+        toolkit = SubagentProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+        self.assertIn(CreateInsightTool, toolkit.tools)
+        self.assertNotIn(CreateDashboardTool, toolkit.tools)
+        self.assertNotIn(UpsertDashboardTool, toolkit.tools)
+
+    def test_subagent_survey_toolkit_excludes_dangerous_tools(self):
+        from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
+
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
+        )
+        toolkit = SubagentSurveyAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+        self.assertIn(SurveyAnalysisTool, toolkit.tools)
+        self.assertNotIn(CreateSurveyTool, toolkit.tools)
+        self.assertNotIn(EditSurveyTool, toolkit.tools)
+
+    def test_non_subagent_mode_registry_unchanged(self):
+        node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+        config = RunnableConfig(configurable={})
+        context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
+        with (
+            patch("ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=True),
+            patch("ee.hogai.chat_agent.mode_manager.has_plan_mode_feature_flag", return_value=True),
+            patch("ee.hogai.chat_agent.mode_manager.has_survey_mode_feature_flag", return_value=True),
+        ):
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=AssistantState(messages=[HumanMessage(content="Test")]),
+            )
+            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+            self.assertIn("product_analytics", mode_names)
+            self.assertIn("plan", mode_names)
+            self.assertIn("survey", mode_names)
+            self.assertIn("error_tracking", mode_names)

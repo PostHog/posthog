@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from typing import cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.http import StreamingHttpResponse
 
 import pydantic
@@ -14,6 +15,7 @@ from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import Throttled
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -25,7 +27,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AIResearchBurstRateThrottle,
+    AIResearchSustainedRateThrottle,
+    AISustainedRateThrottle,
+)
 from posthog.temporal.ai.chat_agent import (
     CHAT_AGENT_STREAM_MAX_LENGTH,
     CHAT_AGENT_WORKFLOW_TIMEOUT,
@@ -51,6 +58,12 @@ from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+RESEARCH_RATE_LIMIT_MESSAGE = (
+    "You've reached the usage limit for Research mode, which is currently in beta "
+    "with limited capacity. Please try again {retry_after}, or switch to a regular "
+    "conversation for continued access."
+)
 
 STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_iteration_latency_seconds",
@@ -204,17 +217,70 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return queryset
 
     def get_throttles(self):
-        if (
-            # Do not apply limits in local development
-            not settings.DEBUG
-            # Only for streaming
-            and self.action == "create"
-            # No limits for customers
-            and not self.organization.customer_id
-        ):
-            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-
+        # For create action, throttling is handled in check_throttles() for conditional logic
+        if self.action == "create":
+            return []
         return super().get_throttles()
+
+    def _is_research_request(self, request: Request) -> bool:
+        """Check if the request is for a research conversation."""
+        # Check if it's a new conversation with research mode
+        agent_mode = request.data.get("agent_mode")
+        if agent_mode == AgentMode.RESEARCH or agent_mode == AgentMode.RESEARCH.value:
+            return True
+
+        # Check if it's an existing deep research conversation
+        conversation_id = request.data.get("conversation")
+        if conversation_id:
+            try:
+                conversation = Conversation.objects.get(id=conversation_id)
+                if conversation.type == Conversation.Type.DEEP_RESEARCH:
+                    return True
+            except (Conversation.DoesNotExist, ValidationError):
+                # DoesNotExist or ValidationError (invalid UUID) - not a research conversation
+                pass
+
+        return False
+
+    def check_throttles(self, request: Request):
+        # Only apply custom throttling for create action
+        if self.action != "create":
+            return super().check_throttles(request)
+
+        # Skip throttling in local development
+        if settings.DEBUG:
+            return
+
+        # Determine which throttles to apply based on request type
+        is_research = self._is_research_request(request)
+
+        if is_research:
+            throttles = [AIResearchBurstRateThrottle(), AIResearchSustainedRateThrottle()]
+        else:
+            # Skip throttling for paying customers
+            if self.organization.customer_id:
+                return
+            throttles = [AIBurstRateThrottle(), AISustainedRateThrottle()]
+
+        for throttle in throttles:
+            if not throttle.allow_request(request, self):
+                wait = throttle.wait()
+                if wait is not None:
+                    if wait < 60:
+                        retry_after = f"in {int(wait)} seconds"
+                    elif wait < 3600:
+                        retry_after = f"in {int(wait / 60)} minutes"
+                    else:
+                        retry_after = "later today"
+                else:
+                    retry_after = "later"
+
+                if is_research:
+                    detail = RESEARCH_RATE_LIMIT_MESSAGE.format(retry_after=retry_after)
+                else:
+                    detail = f"You've reached PostHog AI's usage limit for the moment. Please try again {retry_after}."
+
+                raise Throttled(wait=wait, detail=detail)
 
     def get_serializer_class(self):
         if self.action == "create":

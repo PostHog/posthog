@@ -1742,6 +1742,9 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2805,6 +2808,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    use_current_time: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
@@ -2839,6 +2843,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
+    LOGS_SETTINGS_OPENED = "logs_settings_opened"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -3170,6 +3175,17 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
+    ts_from_s: float
+    ts_to_s: float | None = None
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -5246,7 +5262,6 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
-    usePresortedEventsTable: bool | None = None
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
@@ -5680,15 +5695,6 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
-
-
-class ReplayInactivityPeriod(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    active: bool
-    ts_from_s: int
-    ts_to_s: int | None = None
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
@@ -15303,6 +15309,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None
@@ -16964,6 +16974,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
