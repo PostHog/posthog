@@ -458,10 +458,6 @@ async fn janitor_skip_aggregation_test(db: PgPool) {
 
     // No Kafka messages should have been produced
     use std::time::Duration as StdDuration;
-    let poll = tokio::time::timeout(
-        StdDuration::from_millis(500),
-        kafka_consumer.recv(),
-    )
-    .await;
+    let poll = tokio::time::timeout(StdDuration::from_millis(500), kafka_consumer.recv()).await;
     assert!(poll.is_err(), "Expected no Kafka messages but got one");
 }
