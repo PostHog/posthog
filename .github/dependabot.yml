@@ -21,6 +21,20 @@ updates:
                   - 'minor'
                   - 'patch'
 
+    # Rust/Cargo dependencies - configured to only update from workspace root
+    # Without this, automatic security updates try to update from subdirectories
+    # which fails with workspace structure errors (missing members, can't find root)
+    - package-ecosystem: 'cargo'
+      directory: '/rust'
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+          cargo:
+              patterns:
+                  - '*'
+              applies-to: 'security-updates'
+
     # Python dependencies for main PostHog application (uv updates both pyproject.toml and uv.lock)
     - package-ecosystem: 'uv'
       directory: '/'
