@@ -117,6 +117,12 @@ pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
 /// when local store is missing after Kafka rebalances
 pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
 
+/// Counter for immediate cleanup of checkpoint imports after cancellation or ownership loss.
+/// This counts directories cleaned up immediately rather than waiting for orphan cleaner.
+/// Tags: result=success|failed
+pub const CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER: &str =
+    "checkpoint_import_cancelled_cleanup_total";
+
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)
 pub const STORE_CREATION_DURATION_MS: &str = "store_creation_duration_ms";
