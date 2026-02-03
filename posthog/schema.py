@@ -1745,6 +1745,10 @@ class FileSystemIconType(StrEnum):
     HEALTH = "health"
     SDK_DOCTOR = "sdk_doctor"
     PIPELINE_STATUS = "pipeline_status"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_DATASETS = "llm_datasets"
+    LLM_PROMPTS = "llm_prompts"
+    LLM_CLUSTERS = "llm_clusters"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2928,6 +2932,10 @@ class ProductKey(StrEnum):
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
     LLM_ANALYTICS = "llm_analytics"
+    LLM_CLUSTERS = "llm_clusters"
+    LLM_DATASETS = "llm_datasets"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"

@@ -2895,6 +2895,10 @@ export type FileSystemIconType =
     | 'health'
     | 'sdk_doctor'
     | 'pipeline_status'
+    | 'llm_evaluations'
+    | 'llm_datasets'
+    | 'llm_prompts'
+    | 'llm_clusters'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -5215,6 +5219,10 @@ export enum ProductKey {
     LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
     LLM_ANALYTICS = 'llm_analytics',
+    LLM_CLUSTERS = 'llm_clusters',
+    LLM_DATASETS = 'llm_datasets',
+    LLM_EVALUATIONS = 'llm_evaluations',
+    LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',

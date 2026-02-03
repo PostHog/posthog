@@ -187,21 +187,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (s) => [s.prompt],
             (prompt): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Prompts',
                     path: urls.llmAnalyticsPrompts(),
                     key: 'LLMAnalyticsPrompts',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_prompts',
                 },
                 {
                     name: prompt && 'name' in prompt ? prompt.name : 'New prompt',
                     key: 'LLMAnalyticsPrompt',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_prompts',
                 },
             ],
         ],

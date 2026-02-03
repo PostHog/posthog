@@ -15668,7 +15668,11 @@
                 "settings",
                 "health",
                 "sdk_doctor",
-                "pipeline_status"
+                "pipeline_status",
+                "llm_evaluations",
+                "llm_datasets",
+                "llm_prompts",
+                "llm_clusters"
             ],
             "type": "string"
         },
@@ -22592,6 +22596,10 @@
                 "links",
                 "live_debugger",
                 "llm_analytics",
+                "llm_clusters",
+                "llm_datasets",
+                "llm_evaluations",
+                "llm_prompts",
                 "logs",
                 "marketing_analytics",
                 "max",

@@ -252,21 +252,15 @@ export const llmAnalyticsDatasetLogic = kea<llmAnalyticsDatasetLogicType>([
             (s) => [s.dataset],
             (dataset): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Datasets',
                     path: urls.llmAnalyticsDatasets(),
                     key: 'LLMAnalyticsDatasets',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_datasets',
                 },
                 {
                     name: dataset && 'name' in dataset ? dataset.name : 'New Dataset',
                     key: 'LLMAnalyticsDataset',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_datasets',
                 },
             ],
         ],

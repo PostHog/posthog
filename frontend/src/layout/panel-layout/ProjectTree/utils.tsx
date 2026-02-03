@@ -12,6 +12,18 @@ import { getCustomIcon } from './customIconRegistry'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
+// Hardcoded category order - categories not in this list will be sorted alphabetically after these
+// We're only introducing this to guarantee `Analytics` is ranked first, before `AI Analytics`
+const CATEGORY_ORDER: string[] = ['Analytics', 'AI Analytics']
+
+function getCategoryOrder(category: string | undefined): number {
+    if (!category) {
+        return CATEGORY_ORDER.length
+    }
+    const index = CATEGORY_ORDER.indexOf(category)
+    return index === -1 ? CATEGORY_ORDER.length : index
+}
+
 export interface ConvertProps {
     imports: (FileSystemImport | FileSystemEntry)[]
     folderStates: Record<string, FolderState>
@@ -267,8 +279,13 @@ export function convertFileSystemEntryToTreeDataItem({
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
-            // If they have a category, sort by that
+            // If they have a category, sort by hardcoded category order
             if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
+                const orderA = getCategoryOrder(a.record.category)
+                const orderB = getCategoryOrder(b.record.category)
+                if (orderA !== orderB) {
+                    return orderA - orderB
+                }
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 
