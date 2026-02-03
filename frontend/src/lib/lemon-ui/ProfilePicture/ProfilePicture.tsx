@@ -3,7 +3,7 @@ import './ProfilePicture.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
@@ -35,6 +35,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
 ) {
     const { user: currentUser } = useValues(userLogic)
     const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
+    const imgRef = useRef<HTMLImageElement>(null)
 
     let email = user?.email
 
@@ -58,6 +59,28 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
             return `https://www.gravatar.com/avatar/${hash}?s=96&d=404`
         }
     }, [email, hedgehogProfile, name])
+
+    useEffect(() => {
+        const controller = new AbortController()
+        const img = imgRef.current
+        if (img) {
+            // Check if already loaded before attaching listeners
+            if (img.complete) {
+                if (img.naturalHeight !== 0) {
+                    setGravatarLoaded(true)
+                } else {
+                    setGravatarLoaded(false)
+                }
+            }
+            const onLoad = (): void => setGravatarLoaded(true)
+            const onError = (): void => setGravatarLoaded(false)
+            img.addEventListener('load', onLoad, { signal: controller.signal })
+            img.addEventListener('error', onError, { signal: controller.signal })
+        }
+        return () => {
+            controller.abort()
+        }
+    }, [gravatarUrl])
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture ph-no-capture', size, className)} ref={ref}>
@@ -83,13 +106,12 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
+                    ref={imgRef}
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
                     loading="lazy"
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
-                    onError={() => setGravatarLoaded(false)}
-                    onLoad={() => setGravatarLoaded(true)}
                 />
             ) : null}
         </span>
