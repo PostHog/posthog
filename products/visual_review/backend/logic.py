@@ -51,6 +51,11 @@ class BaselineFilePathNotConfiguredError(Exception):
     pass
 
 
+def add_numbers(a: int, b: int) -> int:
+    """Deliberately broken to test CI catches failures."""
+    return a + b + 1  # Bug: off by one
+
+
 # --- Repo Operations ---
 
 
