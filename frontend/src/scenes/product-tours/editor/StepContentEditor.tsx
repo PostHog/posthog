@@ -10,15 +10,15 @@ import StarterKit from '@tiptap/starter-kit'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconImage, IconPlusSmall, IconVideoCamera } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonModal } from '@posthog/lemon-ui'
+import { IconCode, IconImage, IconVideoCamera } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconBold, IconItalic, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
+import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
 import { CodeBlockExtension } from './CodeBlockExtension'
 import { EmbedExtension } from './EmbedExtension'
@@ -45,8 +45,6 @@ export interface StepContentEditorProps {
     autoFocus?: boolean
     /** Custom image upload function. If not provided, uses the default PostHog API upload. Used for Toolbar uploads. */
     uploadImage?: (file: File) => Promise<{ url: string; fileName: string }>
-    /** Compact mode shows a condensed toolbar with dropdown menus. Useful for narrow containers like the toolbar. */
-    compact?: boolean
     // restrict to only inline styles - no images/videos/etc
     inlineOnly?: boolean
 }
@@ -66,7 +64,6 @@ export function StepContentEditor({
     placeholder = "Type '/' for commands...",
     autoFocus = false,
     uploadImage,
-    compact = false,
     inlineOnly = false,
 }: StepContentEditorProps): JSX.Element {
     const dropRef = useRef<HTMLDivElement>(null)
@@ -249,129 +246,7 @@ export function StepContentEditor({
         return <div className="StepContentEditor loading">Loading editor...</div>
     }
 
-    const compactToolbar = (
-        <div className="StepContentEditor__format-toolbar">
-            <LemonMenu
-                items={[
-                    {
-                        label: 'Heading 1',
-                        onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-                        active: editor.isActive('heading', { level: 1 }),
-                    },
-                    {
-                        label: 'Heading 2',
-                        onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-                        active: editor.isActive('heading', { level: 2 }),
-                    },
-                    {
-                        label: 'Heading 3',
-                        onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-                        active: editor.isActive('heading', { level: 3 }),
-                    },
-                    {
-                        label: 'Bold',
-                        icon: <IconBold />,
-                        onClick: () => editor.chain().focus().toggleBold().run(),
-                        active: editor.isActive('bold'),
-                    },
-                    {
-                        label: 'Italic',
-                        icon: <IconItalic />,
-                        onClick: () => editor.chain().focus().toggleItalic().run(),
-                        active: editor.isActive('italic'),
-                    },
-                    {
-                        label: 'Underline',
-                        icon: <IconUnderline />,
-                        onClick: () => editor.chain().focus().toggleUnderline().run(),
-                        active: editor.isActive('underline'),
-                    },
-                    {
-                        label: 'Code',
-                        icon: <IconCode />,
-                        onClick: () => editor.chain().focus().toggleCode().run(),
-                        active: editor.isActive('code'),
-                    },
-                ]}
-            >
-                <LemonButton size="small" icon={<IconTextSize />} sideIcon={null} tooltip="Styles" />
-            </LemonMenu>
-
-            {!inlineOnly && (
-                <Popover
-                    visible={showLinkPopover}
-                    onClickOutside={() => setShowLinkPopover(false)}
-                    overlay={
-                        <div className="p-2 flex flex-col gap-2 min-w-64">
-                            <LemonInput
-                                size="small"
-                                placeholder="https://..."
-                                value={linkUrl}
-                                onChange={setLinkUrl}
-                                onPressEnter={setLink}
-                                autoFocus
-                                fullWidth
-                            />
-                            <div className="flex gap-2 justify-end">
-                                {hasExistingLink && (
-                                    <LemonButton size="small" status="danger" onClick={removeLink}>
-                                        Remove
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    onClick={setLink}
-                                    disabledReason={!linkUrl ? 'Enter a URL' : undefined}
-                                >
-                                    {hasExistingLink ? 'Update' : 'Set'}
-                                </LemonButton>
-                            </div>
-                        </div>
-                    }
-                >
-                    <LemonButton
-                        ref={linkButtonRef}
-                        size="small"
-                        active={editor.isActive('link')}
-                        onClick={openLinkPopover}
-                        icon={<IconLink />}
-                        tooltip="Link"
-                    />
-                </Popover>
-            )}
-
-            <LemonMenu
-                items={[
-                    {
-                        label: 'Image',
-                        icon: <IconImage />,
-                        onClick: () => {
-                            const input = document.createElement('input')
-                            input.type = 'file'
-                            input.accept = 'image/*'
-                            input.onchange = (e) => {
-                                const file = (e.target as HTMLInputElement).files?.[0]
-                                if (file) {
-                                    void handleFileUpload([file])
-                                }
-                            }
-                            input.click()
-                        },
-                    },
-                    {
-                        label: 'Video',
-                        icon: <IconVideoCamera />,
-                        onClick: () => setShowVideoModal(true),
-                    },
-                ]}
-            >
-                <LemonButton size="small" icon={<IconPlusSmall />} sideIcon={null} tooltip="Insert" />
-            </LemonMenu>
-        </div>
-    )
-
-    const fullToolbar = (
+    const toolbar = (
         <div className="StepContentEditor__format-toolbar">
             {!inlineOnly && (
                 <>
@@ -506,8 +381,6 @@ export function StepContentEditor({
             )}
         </div>
     )
-
-    const toolbar = compact ? compactToolbar : fullToolbar
 
     return (
         <div ref={inlineOnly ? undefined : dropRef} className="StepContentEditor">
