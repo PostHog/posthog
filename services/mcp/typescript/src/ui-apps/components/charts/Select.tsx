@@ -1,4 +1,4 @@
-import type { ReactElement, CSSProperties } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 
 export interface SelectOption<T extends string = string> {
     value: T
@@ -22,18 +22,9 @@ const defaultStyle: CSSProperties = {
     cursor: 'pointer',
 }
 
-export function Select<T extends string = string>({
-    value,
-    onChange,
-    options,
-    style,
-}: SelectProps<T>): ReactElement {
+export function Select<T extends string = string>({ value, onChange, options, style }: SelectProps<T>): ReactElement {
     return (
-        <select
-            value={value}
-            onChange={(e) => onChange(e.target.value as T)}
-            style={{ ...defaultStyle, ...style }}
-        >
+        <select value={value} onChange={(e) => onChange(e.target.value as T)} style={{ ...defaultStyle, ...style }}>
             {options.map((option) => (
                 <option key={option.value} value={option.value}>
                     {option.label}

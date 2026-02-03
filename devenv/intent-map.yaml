@@ -84,7 +84,7 @@ capabilities:
         docker_profiles: []
 
     cyclotron:
-        description: 'Cyclotron janitor service'
+        description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
         requires: [core_infra]
         docker_profiles: []
 
@@ -183,7 +183,8 @@ intents:
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows]
+        capabilities:
+            [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows, cyclotron]
 
     ai_features:
         description: 'AI features'
@@ -195,7 +196,7 @@ intents:
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows]
+        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows, cyclotron]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'
