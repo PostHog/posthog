@@ -70,7 +70,7 @@ export function DataModelingTab(): JSX.Element {
                         size="small"
                     />
                 </div>
-                <div className="h-[550px] border rounded-lg overflow-hidden">
+                <div className="h-[calc(100vh-17rem)] min-h-[400px] border rounded-lg overflow-hidden">
                     <DataModelingEditor />
                 </div>
             </div>

@@ -231,6 +231,36 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             },
             { resultEqualityCheck: equal },
         ],
+        // nodes are eriched with derived state to optimize reactflow rendering
+        enrichedNodes: [
+            (s) => [s.nodes, s.selectedNodeId, s.runningNodeIds, s.lastJobStatusByNodeId, s.highlightedNodeType],
+            (nodes, selectedNodeId, runningNodeIds, lastJobStatusByNodeId, highlightedNodeType): ModelNode[] => {
+                return nodes.map((node) => {
+                    const isSelected = selectedNodeId === node.id
+                    const isRunning = runningNodeIds.has(node.id)
+                    const lastJobStatus = lastJobStatusByNodeId[node.id]
+                    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === node.data.type
+                    if (
+                        node.data.isSelected === isSelected &&
+                        node.data.isRunning === isRunning &&
+                        node.data.lastJobStatus === lastJobStatus &&
+                        node.data.isTypeHighlighted === isTypeHighlighted
+                    ) {
+                        return node
+                    }
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            isSelected,
+                            isRunning,
+                            lastJobStatus,
+                            isTypeHighlighted,
+                        },
+                    }
+                })
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
@@ -308,7 +338,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     id: getEdgeId(edge.source_id, edge.target_id),
                     source: edge.source_id,
                     target: edge.target_id,
-                    type: 'bezier',
+                    type: 'straight',
                     deletable: false,
                     markerEnd: { type: MarkerType.ArrowClosed },
                     sourceHandle: `source_${edge.source_id}`,

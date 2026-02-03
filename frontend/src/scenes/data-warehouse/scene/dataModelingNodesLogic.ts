@@ -1,7 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-
-import api from 'lib/api'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { DataModelingNode } from '~/types'
 
@@ -12,21 +9,13 @@ export const PAGE_SIZE = 10
 
 export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'dataModelingNodesLogic']),
+    connect({
+        values: [dataModelingEditorLogic, ['dataModelingNodes as nodes', 'dataModelingNodesLoading as nodesLoading']],
+    }),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setDebouncedSearchTerm: (debouncedSearchTerm: string) => ({ debouncedSearchTerm }),
         setCurrentPage: (page: number) => ({ page }),
-    }),
-    loaders({
-        nodes: [
-            [] as DataModelingNode[],
-            {
-                loadNodes: async () => {
-                    const response = await api.dataModelingNodes.list()
-                    return response.results
-                },
-            },
-        ],
     }),
     reducers({
         searchTerm: [
@@ -83,7 +72,4 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
             actions.setDebouncedSearchTerm(searchTerm)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadNodes()
-    }),
 ])

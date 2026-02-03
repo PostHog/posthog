@@ -1,7 +1,7 @@
-import { Handle, useUpdateNodeInternals } from '@xyflow/react'
+import { Handle } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 
 import { IconCheck, IconPlay, IconPlayFilled, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -45,7 +45,6 @@ function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Elem
 }
 
 interface ModelNodeInnerProps {
-    id: string
     data: ModelNodeProps['data']
     isSelected: boolean
     isRunning: boolean
@@ -59,7 +58,6 @@ interface ModelNodeInnerProps {
 }
 
 const ModelNodeInner = React.memo(function ModelNodeInner({
-    id,
     data,
     isSelected,
     isRunning,
@@ -71,20 +69,15 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
     onMaterialize,
     onNodeClick,
 }: ModelNodeInnerProps): JSX.Element {
-    const updateNodeInternals = useUpdateNodeInternals()
     const [isHovered, setIsHovered] = useState(false)
-
-    useEffect(() => {
-        updateNodeInternals(id)
-    }, [id, updateNodeInternals])
 
     const settings = NODE_TYPE_SETTINGS[data.type]
     const { userTag, name, type, savedQueryId } = data
 
     const canRun = type !== 'table'
     const canOpenInEditor = type !== 'table' && savedQueryId
-    const hasUpstream = props.data.upstreamCount > 0
-    const hasDownstream = props.data.downstreamCount > 0
+    const hasUpstream = data.upstreamCount > 0
+    const hasDownstream = data.downstreamCount > 0
 
     const handleMouseEnter = useCallback(() => setIsHovered(true), [])
     const handleMouseLeave = useCallback(() => setIsHovered(false), [])
@@ -92,7 +85,7 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
     return (
         <div
             className={clsx(
-                'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
+                'relative rounded-lg border bg-bg-light',
                 isRunning
                     ? 'border-warning ring-2 ring-warning/30 animate-pulse'
                     : isSearchMatch
@@ -130,7 +123,7 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
                             <button
                                 type="button"
                                 onClick={onRunUpstream}
-                                className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
+                                className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                             >
                                 <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
                             </button>
@@ -141,7 +134,7 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
                             <button
                                 type="button"
                                 onClick={onRunDownstream}
-                                className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
+                                className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                             >
                                 <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
                             </button>
@@ -190,24 +183,15 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
     )
 })
 
-function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
-    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId } =
-        useValues(dataModelingEditorLogic)
+const ModelNodeComponent = React.memo(function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
     const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
 
     const { id, data } = props
-    const { name, type, savedQueryId } = data
-
-    const isSelected = selectedNodeId === id
-    const isRunning = runningNodeIds.has(id)
-    const lastJobStatus = lastJobStatusByNodeId[id]
-    const isSearchMatch = useMemo(
-        () => debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()),
-        [debouncedSearchTerm, name]
-    )
-    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
+    const { name, type, savedQueryId, isSelected, isRunning, isTypeHighlighted, lastJobStatus } = data
+    const isSearchMatch =
+        debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
 
     const handleRunUpstream = useCallback(
         (e: React.MouseEvent): void => {
@@ -242,12 +226,11 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     return (
         <ModelNodeInner
-            id={id}
             data={data}
-            isSelected={isSelected}
-            isRunning={isRunning}
-            isSearchMatch={isSearchMatch}
-            isTypeHighlighted={isTypeHighlighted}
+            isSelected={isSelected ?? false}
+            isRunning={isRunning ?? false}
+            isSearchMatch={isSearchMatch ?? false}
+            isTypeHighlighted={isTypeHighlighted ?? false}
             lastJobStatus={lastJobStatus}
             onRunUpstream={handleRunUpstream}
             onRunDownstream={handleRunDownstream}
@@ -255,7 +238,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             onNodeClick={handleNodeClick}
         />
     )
-}
+})
 
 export const REACT_FLOW_NODE_TYPES = {
     model: ModelNodeComponent,

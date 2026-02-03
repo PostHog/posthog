@@ -13,6 +13,8 @@ import {
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { Spinner } from '@posthog/lemon-ui'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
@@ -30,7 +32,7 @@ const FIT_VIEW_OPTIONS = {
 function DataModelingEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges } = useValues(dataModelingEditorLogic)
+    const { enrichedNodes, edges, nodesLoading } = useValues(dataModelingEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -53,8 +55,8 @@ function DataModelingEditorContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
-        if (debouncedSearchTerm.length > 0 && nodes.length > 0) {
-            const matchingNode = nodes.find((node) =>
+        if (debouncedSearchTerm.length > 0 && enrichedNodes.length > 0) {
+            const matchingNode = enrichedNodes.find((node) =>
                 node.data.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
             )
             if (matchingNode) {
@@ -63,13 +65,18 @@ function DataModelingEditorContent(): JSX.Element {
                 reactFlowInstance.setCenter(x, y, { duration: 300, zoom: 1 })
             }
         }
-    }, [debouncedSearchTerm, nodes, reactFlowInstance])
+    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance])
 
     return (
-        <div ref={reactFlowWrapper} className="w-full h-full">
+        <div ref={reactFlowWrapper} className="relative w-full h-full">
+            {nodesLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-bg-light/50 z-50">
+                    <Spinner className="text-4xl" />
+                </div>
+            )}
             <ReactFlow<ModelNode, Edge>
                 fitView
-                nodes={nodes}
+                nodes={enrichedNodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -81,6 +88,10 @@ function DataModelingEditorContent(): JSX.Element {
                 onPaneClick={() => setSelectedNodeId(null)}
                 fitViewOptions={FIT_VIEW_OPTIONS}
                 proOptions={{ hideAttribution: true }}
+                elevateNodesOnSelect={false}
+                minZoom={0.25}
+                maxZoom={1.5}
+                onlyRenderVisibleElements
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
                 <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
