@@ -560,7 +560,12 @@ class WidgetUploadView(APIView):
         except ValidationError as e:
             # Extract code from ValidationError (get_codes() returns a list)
             codes = e.get_codes()
-            code = codes[0] if isinstance(codes, list) and codes else (codes or "validation_error")
+            if isinstance(codes, list) and codes:
+                code = str(codes[0])
+            elif isinstance(codes, str):
+                code = codes
+            else:
+                code = "validation_error"
             self._log_upload_attempt(
                 request, result=code, team_id=team.pk, widget_session_id=widget_session_id, file_size=file_size
             )

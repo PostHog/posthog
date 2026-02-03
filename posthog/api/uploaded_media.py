@@ -65,20 +65,20 @@ def upload_image(
     Validates size/content-type, saves to object storage, and verifies with PIL.
     Raises ValidationError, UnsupportedMediaType, or ObjectStorageUnavailable on failure.
     """
-    if file.size > size_limit:
+    if file.size is None or file.size > size_limit:
         raise ValidationError(
             code="file_too_large", detail=f"Uploaded media must be less than {size_limit // (1024 * 1024)}MB"
         )
 
     if not file.content_type or not file.content_type.startswith("image/"):
-        raise UnsupportedMediaType(file.content_type)
+        raise UnsupportedMediaType(file.content_type or "unknown")
 
     uploaded_media = UploadedMedia.save_content(
         team=team,
         created_by=created_by,
-        file_name=file.name,
+        file_name=file.name or "unnamed",
         content_type=file.content_type,
-        content=file.file,
+        content=file.read(),
     )
     if uploaded_media is None or not uploaded_media.media_location:
         raise APIException("Could not save media")
