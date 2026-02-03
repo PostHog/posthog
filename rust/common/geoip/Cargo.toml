@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 serde_json.workspace = true
-maxminddb = "0.17"
+maxminddb = "0.27"
 thiserror.workspace = true
 tracing.workspace = true
 tracing.features = ["log"]
