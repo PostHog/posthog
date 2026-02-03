@@ -25,6 +25,9 @@ DEFAULT_COORDINATOR_PARALLELISM = 10
 DEFAULT_WORKFLOWS_PER_BATCH = 5
 DEFAULT_BATCH_DELAY_MINUTES = 5
 
+# PostHog team ID for realtime cohort calculation processing
+POSTHOG_TEAM_ID = 2
+
 
 async def create_realtime_cohort_calculation_schedule(client: Client):
     """Create or update the schedule for the realtime cohort calculation coordinator.
@@ -43,7 +46,7 @@ async def create_realtime_cohort_calculation_schedule(client: Client):
                     parallelism=DEFAULT_COORDINATOR_PARALLELISM,
                     workflows_per_batch=DEFAULT_WORKFLOWS_PER_BATCH,
                     batch_delay_minutes=DEFAULT_BATCH_DELAY_MINUTES,
-                    team_id=2,
+                    team_id=POSTHOG_TEAM_ID,
                     cohort_id=None,
                 )
             ),
