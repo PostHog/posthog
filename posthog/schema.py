@@ -2809,6 +2809,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     )
     organization_name: str | None = None
     use_current_time: bool | None = None
+    skip_onboarding: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
