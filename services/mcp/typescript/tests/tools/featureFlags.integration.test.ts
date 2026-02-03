@@ -131,6 +131,87 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             createdResources.featureFlags.push(flagData.id)
         })
+
+        it('should create a multivariate feature flag', async () => {
+            const params = {
+                name: 'Multivariate Test Flag',
+                key: generateUniqueKey('multivariate-flag'),
+                description: 'Flag with multiple variants for A/B testing',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeTruthy()
+            expect(flagData.key).toBe(params.key)
+            expect(flagData.name).toBe(params.name)
+            expect(flagData.filters.multivariate).toBeTruthy()
+            expect(flagData.filters.multivariate.variants).toHaveLength(2)
+            expect(flagData.filters.multivariate.variants[0].key).toBe('control')
+            expect(flagData.filters.multivariate.variants[1].key).toBe('test')
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+
+        it('should create a multivariate flag with variant-specific targeting', async () => {
+            const params = {
+                name: 'Targeted Multivariate Flag',
+                key: generateUniqueKey('targeted-multivariate'),
+                description: 'Multivariate flag with group-specific variant targeting',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    type: 'person',
+                                    value: '@posthog.com',
+                                    operator: 'icontains',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                            variant: 'test',
+                        },
+                        {
+                            properties: [],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                    multivariate: {
+                        variants: [
+                            { key: 'control', name: 'Control Group', rollout_percentage: 50 },
+                            { key: 'test', name: 'Test Group', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeTruthy()
+            expect(flagData.key).toBe(params.key)
+            expect(flagData.filters.multivariate.variants).toHaveLength(2)
+            expect(flagData.filters.groups[0].variant).toBe('test')
+
+            createdResources.featureFlags.push(flagData.id)
+        })
     })
 
     describe('update-feature-flag tool', () => {
@@ -310,22 +391,22 @@ describe('Feature Flags', { concurrent: false }, () => {
             // Get all flags
             const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
             const allFlags = parseToolResponse(allResult)
-            
+
             // Get flags with offset=1
             const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
             const offsetFlags = parseToolResponse(offsetResult)
-            
+
             // Extract IDs for comparison
             const allFlagIds = allFlags.map((f: any) => f.id)
             const offsetFlagIds = offsetFlags.map((f: any) => f.id)
             const testFlagIds = testFlags.map((f: any) => f.id)
-            
+
             // Verify offset is working by checking that offsetFlagIds matches allFlagIds starting from index 1
             expect(offsetFlags.length).toBeGreaterThan(0)
             expect(offsetFlagIds[0]).toBe(allFlagIds[1])
-            
+
             // Verify our test flags appear in the results to ensure we're testing with controlled data
-            const testFlagsInAll = testFlagIds.filter(id => allFlagIds.includes(id))
+            const testFlagsInAll = testFlagIds.filter((id) => allFlagIds.includes(id))
             expect(testFlagsInAll.length).toBeGreaterThan(0)
         })
 

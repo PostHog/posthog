@@ -85,9 +85,17 @@ export const VariantSchema = z.object({
 
 export type Variant = z.infer<typeof VariantSchema>
 
-export const MultivariateSchema = z.object({
-    variants: z.array(VariantSchema).min(2, 'At least 2 variants required for multivariate flags'),
-})
+export const MultivariateSchema = z
+    .object({
+        variants: z.array(VariantSchema).min(2, 'At least 2 variants required for multivariate flags'),
+    })
+    .refine(
+        (data) => {
+            const sum = data.variants.reduce((acc, v) => acc + v.rollout_percentage, 0)
+            return sum === 100
+        },
+        { message: 'Variant rollout percentages must sum to 100' }
+    )
 
 export type Multivariate = z.infer<typeof MultivariateSchema>
 
