@@ -387,7 +387,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     <LemonLabel className="mb-1">Match filters</LemonLabel>
                                     <div
                                         className={
-                                            highlightedFields.includes('conditions')
+                                            index === 0 && highlightedFields.includes('conditions')
                                                 ? 'template-highlight-glow rounded p-1 -m-1'
                                                 : ''
                                         }
@@ -412,7 +412,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 <div>
                                     <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
                                     <div
-                                        className={`flex items-center gap-3 ${highlightedFields.includes('rollout') ? 'template-highlight-glow rounded p-1 -m-1' : ''}`}
+                                        className={`flex items-center gap-3 ${index === 0 && highlightedFields.includes('rollout') ? 'template-highlight-glow rounded p-1 -m-1' : ''}`}
                                     >
                                         <div className="flex-1">
                                             <LemonSlider
