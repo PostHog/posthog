@@ -46,7 +46,7 @@ const platformAddonAdVariants: Record<
         title: 'Village got too many villagers to look after?',
         description: 'Upgrade for more control over member permissions plus audit logs for every action.',
         cta: 'Upgrade now',
-        alt: 'Hedgehogs eating poridge',
+        alt: 'Hedgehogs eating porridge',
     },
 }
 
