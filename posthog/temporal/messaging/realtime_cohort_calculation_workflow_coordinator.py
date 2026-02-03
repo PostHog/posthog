@@ -12,7 +12,7 @@ import temporalio.workflow
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import connect
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
@@ -90,7 +90,7 @@ class RunningChildWorkflowsCheckResult:
 @temporalio.activity.defn
 async def check_running_child_workflows_activity() -> RunningChildWorkflowsCheckResult:
     """Check if any child workflows from previous runs are still running."""
-    client = await connect()
+    client = await async_connect()
 
     # Query for workflows that match our child workflow ID pattern and are running
     query = 'WorkflowId STARTS_WITH "realtime-cohort-calculation-schedule" AND WorkflowId CONTAINS "-child-" AND ExecutionStatus="Running"'
