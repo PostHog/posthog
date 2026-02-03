@@ -1,3 +1,6 @@
+import copy
+
+import structlog
 from rest_framework import mixins, status, viewsets
 from rest_framework.response import Response
 
@@ -10,7 +13,10 @@ from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.user_permissions import UserPermissions
+
+logger = structlog.get_logger(__name__)
 
 
 class OrganizationFeatureFlagView(
@@ -110,8 +116,18 @@ class OrganizationFeatureFlagView(
             )
 
             # Also include cohorts from scheduled changes if copying schedules
+            # Fetch schedules once and reuse for both cohort extraction and copying
+            source_schedules = []
             if copy_schedule:
-                schedule_cohort_ids = self._extract_cohort_ids_from_schedules(flag_to_copy)
+                source_schedules = list(
+                    ScheduledChange.objects.filter(
+                        record_id=str(flag_to_copy.id),
+                        model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                        executed_at__isnull=True,
+                        team=flag_to_copy.team,
+                    )
+                )
+                schedule_cohort_ids = self._extract_cohort_ids_from_schedules(source_schedules)
                 for cohort_id in schedule_cohort_ids:
                     if cohort_id not in seen_cohorts_cache:
                         cohort = Cohort.objects.filter(id=cohort_id, team=flag_to_copy.team, deleted=False).first()
@@ -119,6 +135,9 @@ class OrganizationFeatureFlagView(
                             seen_cohorts_cache[cohort_id] = cohort
                             sorted_cohort_ids.append(cohort_id)
 
+            # Cohorts are mapped by name because IDs differ across projects. This is fragile
+            # if cohort names change or aren't unique, but it's the only identifier we can use
+            # to match cohorts across projects.
             # destination cohort id is different from original cohort id - create mapping
             name_to_dest_cohort_id: dict[str, int] = {}
             # create cohorts in the destination project
@@ -235,23 +254,28 @@ class OrganizationFeatureFlagView(
                 saved_flag = feature_flag_serializer.save(team_id=target_project_id)
 
                 # Copy schedules if requested
+                schedule_copy_error = None
                 if copy_schedule:
                     try:
                         self._copy_feature_flag_schedules(
-                            flag_to_copy, saved_flag, request.user, name_to_dest_cohort_id, seen_cohorts_cache
+                            source_schedules,
+                            saved_flag,
+                            request.user,
+                            name_to_dest_cohort_id,
+                            seen_cohorts_cache,
                         )
-                    except Exception:
-                        # Log the error but don't fail the entire operation
-                        import structlog
-
-                        logger = structlog.get_logger(__name__)
+                    except Exception as e:
                         logger.exception(
                             "Failed to copy feature flag schedules",
                             source_flag_id=flag_to_copy.id,
                             target_flag_id=saved_flag.id,
                         )
+                        schedule_copy_error = str(e)
 
-                successful_projects.append(feature_flag_serializer.data)
+                result = feature_flag_serializer.data
+                if schedule_copy_error:
+                    result["schedule_copy_warning"] = f"Flag copied but schedules failed: {schedule_copy_error}"
+                successful_projects.append(result)
             except Exception as e:
                 failed_projects.append(
                     {
@@ -265,18 +289,17 @@ class OrganizationFeatureFlagView(
             status=status.HTTP_200_OK,
         )
 
-    def _copy_feature_flag_schedules(self, source_flag, target_flag, user, cohort_mapping, cohort_cache):
+    def _copy_feature_flag_schedules(self, source_schedules, target_flag, user, cohort_mapping, cohort_cache):
         """
         Copy all scheduled changes from source flag to target flag.
 
         Args:
-            source_flag: The original FeatureFlag instance
+            source_schedules: List of ScheduledChange objects to copy (already fetched)
             target_flag: The newly created/updated FeatureFlag instance
             user: The user performing the copy operation
             cohort_mapping: Dict mapping source cohort names to target cohort IDs
             cohort_cache: Dict of cohort_id -> Cohort objects to avoid N+1 queries
         """
-        from posthog.models.scheduled_change import ScheduledChange
         from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 
         # Validate user has permission to create schedules in target project
@@ -288,14 +311,6 @@ class OrganizationFeatureFlagView(
         ):
             # Skip copying schedules if user lacks permissions, don't fail the entire operation
             return
-
-        # Get all pending scheduled changes for the source flag
-        source_schedules = ScheduledChange.objects.filter(
-            record_id=str(source_flag.id),
-            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-            executed_at__isnull=True,  # Only copy pending schedules
-            team=source_flag.team,
-        )
 
         # Copy each schedule to the target flag
         for schedule in source_schedules:
@@ -316,8 +331,6 @@ class OrganizationFeatureFlagView(
 
     def _remap_cohort_ids_in_payload(self, payload, cohort_mapping, cohort_cache):
         """Remap cohort IDs in schedule payload to target project cohorts."""
-        import copy
-
         updated_payload = copy.deepcopy(payload)
 
         # Handle filters in payload (for AddReleaseCondition operations)
@@ -336,17 +349,9 @@ class OrganizationFeatureFlagView(
 
         return updated_payload
 
-    def _extract_cohort_ids_from_schedules(self, flag):
+    def _extract_cohort_ids_from_schedules(self, schedules):
         """Extract all cohort IDs referenced in pending scheduled changes."""
-        from posthog.models.scheduled_change import ScheduledChange
-
         cohort_ids = set()
-        schedules = ScheduledChange.objects.filter(
-            record_id=str(flag.id),
-            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-            executed_at__isnull=True,
-            team=flag.team,
-        )
 
         for schedule in schedules:
             payload = schedule.payload
