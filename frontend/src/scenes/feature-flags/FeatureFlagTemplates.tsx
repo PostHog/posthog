@@ -4,8 +4,6 @@ import { useState } from 'react'
 import { IconFlask, IconPeople, IconTestTube, IconToggle } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { userLogic } from '../userLogic'
@@ -55,7 +53,6 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             },
         } as FeatureFlagType)
 
-        lemonToast.success(`${template.name} template applied`)
         onTemplateApplied?.(template.modifiedFields)
     }
 
