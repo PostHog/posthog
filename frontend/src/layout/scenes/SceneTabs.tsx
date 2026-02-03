@@ -13,6 +13,7 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -35,6 +36,7 @@ export function SceneTabs(): JSX.Element {
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { sqlEditorNewTabOpensSearch } = useValues(userPreferencesLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -123,9 +125,11 @@ export function SceneTabs(): JSX.Element {
                                 onClick={(e) => {
                                     e.preventDefault()
                                     const currentPath = router.values.location.pathname
-                                    // If on /sql route, open a new /sql tab, otherwise default to /search
+                                    // If on /sql route and user prefers SQL tabs, open a new /sql tab
+                                    // Otherwise default to /search (null)
                                     const isSqlRoute = currentPath.endsWith('/sql')
-                                    newTab(isSqlRoute ? '/sql' : null)
+                                    const openSqlTab = isSqlRoute && !sqlEditorNewTabOpensSearch
+                                    newTab(openSqlTab ? '/sql' : null)
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}

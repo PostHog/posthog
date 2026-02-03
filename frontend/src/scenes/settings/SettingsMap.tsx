@@ -113,6 +113,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { SqlEditorTabPreference } from './user/SqlEditorTabPreference'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -1039,6 +1040,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
+            },
+            {
+                id: 'sql-editor-tab-preference',
+                title: 'SQL editor new tab behavior',
+                component: <SqlEditorTabPreference />,
             },
             {
                 id: 'optout',

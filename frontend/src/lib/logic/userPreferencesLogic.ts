@@ -11,6 +11,7 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
     actions({
         setHidePostHogPropertiesInTable: (enabled: boolean) => ({ enabled }),
         setHideNullValues: (enabled: boolean) => ({ enabled }),
+        setSqlEditorNewTabOpensSearch: (enabled: boolean) => ({ enabled }),
         pinPersonProperty: (prop: string) => ({ prop }),
         unpinPersonProperty: (prop: string) => ({ prop }),
         pinGroupProperty: (prop: string) => ({ prop }),
@@ -28,6 +29,11 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
             },
         ],
         hideNullValues: [true, { persist: true }, { setHideNullValues: (_, { enabled }) => enabled }],
+        sqlEditorNewTabOpensSearch: [
+            false,
+            { persist: true },
+            { setSqlEditorNewTabOpensSearch: (_, { enabled }) => enabled },
+        ],
         pinnedPersonProperties: [
             [
                 ...(values.currentTeam?.person_display_name_properties || PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES),
