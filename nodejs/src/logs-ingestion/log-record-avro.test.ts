@@ -225,8 +225,8 @@ describe('log-record-avro', () => {
                 },
             ]
 
-            const encoded = await encodeLogRecords(LOG_RECORD_SCHEMA, records)
-            const [_, decoded] = await decodeLogRecords(encoded)
+            const encoded = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const [_, __, decoded] = await decodeLogRecords(encoded)
 
             expect(decoded).toEqual(records)
         })
@@ -251,8 +251,8 @@ describe('log-record-avro', () => {
                 },
             ]
 
-            const encoded = await encodeLogRecords(LOG_RECORD_SCHEMA, records)
-            const [_, decoded] = await decodeLogRecords(encoded)
+            const encoded = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const [_, __, decoded] = await decodeLogRecords(encoded)
 
             expect(decoded).toEqual(records)
         })
@@ -386,9 +386,9 @@ describe('log-record-avro', () => {
                 },
             ]
 
-            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, records)
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
             const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
-            const [_, decoded] = await decodeLogRecords(outputBuffer)
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
 
             expect(decoded[0]?.attributes).toEqual({
                 level: '\"info\"',
@@ -432,9 +432,9 @@ describe('log-record-avro', () => {
                 },
             ]
 
-            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, records)
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
             const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
-            const [_, decoded] = await decodeLogRecords(outputBuffer)
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
 
             expect(decoded).toHaveLength(2)
             expect(decoded[0]?.attributes).toEqual({
@@ -467,7 +467,7 @@ describe('log-record-avro', () => {
                 },
             ]
 
-            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, records)
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
             const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: false })
 
             expect(outputBuffer).toBe(inputBuffer)
@@ -504,9 +504,9 @@ describe('log-record-avro', () => {
                 },
             ]
 
-            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, records)
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
             const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
-            const [_, decoded] = await decodeLogRecords(outputBuffer)
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
 
             expect(Object.keys(decoded[0]?.attributes || {}).length).toBe(50)
         })

@@ -1,10 +1,18 @@
 import { compress, decompress } from '@mongodb-js/zstd'
 import avro from 'avsc'
+import { Histogram } from 'prom-client'
 import { Readable } from 'stream'
 
 import { parseJSON } from '../utils/json-parse'
 
 const MAX_JSON_ATTRIBUTES = 50
+
+const logProcessingDurationHistogram = new Histogram({
+    name: 'logs_ingestion_processing_duration_seconds',
+    help: 'Time spent processing log messages (AVRO decode/encode cycle)',
+    labelNames: ['json_parse_enabled', 'compression_codec'],
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
+})
 
 export interface LogRecord {
     uuid: string | null
@@ -23,7 +31,7 @@ export interface LogRecord {
     attributes: Record<string, string> | null
 }
 
-export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, LogRecord[]]> {
+export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {
     return new Promise((resolve, reject) => {
         try {
             const records: LogRecord[] = []
@@ -47,10 +55,12 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
             stream.pipe(decoder)
 
             let logRecordType: avro.Type | undefined
+            let compressionCodec: string = 'null'
 
             // pull the schema out from the metadata
-            decoder.on('metadata', (type: avro.types.RecordType) => {
+            decoder.on('metadata', (type: avro.types.RecordType, codec?: string) => {
                 logRecordType = type
+                compressionCodec = codec || 'null'
             })
 
             decoder.on('data', (record: unknown) => {
@@ -62,7 +72,7 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
                     reject(new Error('No metadata found'))
                     return
                 }
-                resolve([logRecordType, records])
+                resolve([logRecordType, compressionCodec, records])
             })
 
             decoder.on('error', (err: Error) => {
@@ -74,13 +84,13 @@ export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | und
     })
 }
 
-export async function encodeLogRecords(logRecordType: avro.Type, records: LogRecord[]): Promise<Buffer> {
+export async function encodeLogRecords(logRecordType: avro.Type, codec: string, records: LogRecord[]): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         try {
             const buffers: Buffer[] = []
 
             const encoder = new avro.streams.BlockEncoder(logRecordType, {
-                codec: 'zstandard',
+                codec: codec,
                 codecs: {
                     zstandard: (buf: Buffer, cb: (err: Error | null, compressed?: Buffer) => void) => {
                         compress(buf, 1)
@@ -217,15 +227,29 @@ export async function processLogMessageBuffer(
         return buffer
     }
 
-    const [logRecordType, records] = await decodeLogRecords(buffer)
-    if (!logRecordType) {
-        throw new Error('avro schema metadata not found')
-    }
+    const startTime = Date.now()
+    let codec = 'unknown'
 
-    // Enrich each record with JSON attributes from body
-    for (const record of records) {
-        enrichLogRecordWithJsonAttributes(record)
-    }
+    try {
+        const [logRecordType, compressionCodec, records] = await decodeLogRecords(buffer)
+        codec = compressionCodec
 
-    return await encodeLogRecords(logRecordType, records)
+        if (!logRecordType) {
+            throw new Error('avro schema metadata not found')
+        }
+
+        // Enrich each record with JSON attributes from body
+        for (const record of records) {
+            enrichLogRecordWithJsonAttributes(record)
+        }
+
+        const resultBuffer = await encodeLogRecords(logRecordType, codec, records)
+        return resultBuffer
+    } finally {
+        const durationSeconds = (Date.now() - startTime) / 1000
+        logProcessingDurationHistogram.observe(
+            { json_parse_enabled: String(settings.json_parse_logs), compression_codec: codec },
+            durationSeconds
+        )
+    }
 }

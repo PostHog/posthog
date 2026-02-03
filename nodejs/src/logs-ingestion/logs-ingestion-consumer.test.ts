@@ -81,7 +81,7 @@ const createKafkaMessage = async (logData: any, headers: Record<string, string> 
         ],
     })
 
-    const value = await encodeLogRecords(logRecordType, [record])
+    const value = await encodeLogRecords(logRecordType, 'zstandard', [record])
 
     return {
         key: null,
