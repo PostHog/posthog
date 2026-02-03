@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React from 'react'
+import React, { useMemo } from 'react'
 
-import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
@@ -21,6 +21,8 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
+import { editCustomProductsModalLogic } from '~/layout/panel-layout/PinnedFolder/editCustomProductsModalLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -40,7 +42,6 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
-import { LLMProviderKeysSettings } from './settings/LLMProviderKeysSettings'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
 import { truncateValue } from './utils'
@@ -325,7 +326,6 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
-    evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
@@ -336,18 +336,15 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     errors: 'Monitor and debug errors in your LLM pipeline.',
     sessions: 'Analyze user sessions containing LLM interactions.',
     playground: 'Test and experiment with LLM prompts in a sandbox environment.',
-    evaluations: 'Configure and monitor automated LLM output evaluations.',
-    datasets: 'Manage datasets for testing and evaluation.',
-    clusters: 'Discover patterns and clusters in your LLM usage.',
-    prompts: 'Track and manage your LLM prompts.',
-    settings: 'Configure LLM analytics settings and API keys.',
 }
 
 export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+
     const { push } = useActions(router)
+    const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     // Tab switching shortcuts
     useAppShortcut({
@@ -477,15 +474,30 @@ export function LLMAnalyticsScene(): JSX.Element {
         'data-attr': 'playground-tab',
     })
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
-        tabs.push({
-            key: 'settings',
-            label: 'Settings',
-            content: <LLMProviderKeysSettings />,
-            link: combineUrl(urls.llmAnalyticsSettings(), searchParams).url,
-            'data-attr': 'settings-tab',
-        })
-    }
+    const availableItemsInSidebar = useMemo(() => {
+        return [
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
+                <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
+                    clusters
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
+                <Link to={urls.llmAnalyticsDatasets()} onClick={() => toggleProduct('Datasets', true)}>
+                    datasets
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
+                <Link to={urls.llmAnalyticsEvaluations()} onClick={() => toggleProduct('Evaluations', true)}>
+                    evaluations
+                </Link>
+            ) : null,
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
+                <Link to={urls.llmAnalyticsPrompts()} onClick={() => toggleProduct('Prompts', true)}>
+                    prompts
+                </Link>
+            ) : null,
+        ].filter(Boolean) as JSX.Element[]
+    }, [featureFlags])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -509,6 +521,24 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
+
+                {availableItemsInSidebar.length > 0 ? (
+                    <>
+                        <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
+                            We've moved{' '}
+                            {availableItemsInSidebar.map((el, i) => (
+                                <React.Fragment key={i}>
+                                    {i > 0 && ', '}
+                                    {el}
+                                </React.Fragment>
+                            ))}{' '}
+                            out of LLM Analytics and into their own apps. You can access them by clicking in the links
+                            above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
+                            <Link onClick={openEditCustomProductsModal}>here</Link>.
+                        </LemonBanner>
+                        <EditCustomProductsModal />
+                    </>
+                ) : null}
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

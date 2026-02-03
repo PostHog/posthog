@@ -13,10 +13,9 @@ import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
-// We're only introducing this to guarantee `Analytics` is ranked first, before `AI Analytics`
-const CATEGORY_ORDER: string[] = ['Analytics', 'AI Analytics']
+export const CATEGORY_ORDER = ['Analytics', 'AI Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
 
-function getCategoryOrder(category: string | undefined): number {
+export function getCategoryOrder(category: string | undefined): number {
     if (!category) {
         return CATEGORY_ORDER.length
     }
