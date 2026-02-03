@@ -303,13 +303,19 @@ export function LineGraph_({
         throw new Error('Use PieChart not LineGraph for this `GraphType`')
     }
 
-    const isShiftPressed = useKeyHeld('Shift', () => setHoveredDatasetIndex(null))
+    const isShiftPressed = useKeyHeld('Shift')
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
+
+    useEffect(() => {
+        if (!isShiftPressed) {
+            setHoveredDatasetIndex(null)
+        }
+    }, [isShiftPressed])
 
     // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {

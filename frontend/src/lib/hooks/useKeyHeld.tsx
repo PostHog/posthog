@@ -2,11 +2,9 @@ import { DependencyList, useEffect, useRef, useState } from 'react'
 
 import { useEventListener } from 'lib/hooks/useEventListener'
 
-export function useKeyHeld(key: string, onKeyUp?: () => void, deps?: DependencyList): boolean {
+export function useKeyHeld(key: string, deps?: DependencyList): boolean {
     const keysHeldRef = useRef(new Set<string>())
     const [keyHeld, setKeyHeld] = useState(false)
-    const onKeyUpRef = useRef(onKeyUp)
-    onKeyUpRef.current = onKeyUp
 
     const checkKeysHeld = (): void => {
         setKeyHeld(keysHeldRef.current.has(key))
@@ -48,7 +46,6 @@ export function useKeyHeld(key: string, onKeyUp?: () => void, deps?: DependencyL
                 keysHeldCopy.delete(eventKey)
                 keysHeldRef.current = keysHeldCopy
                 checkKeysHeld()
-                onKeyUpRef.current?.()
             }
         },
         undefined,

@@ -8,6 +8,7 @@ import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
@@ -129,7 +130,13 @@ export const LineGraph = ({
 
     const { hoveredDatasetIndex } = useValues(displayLogic)
     const { setHoveredDatasetIndex } = useActions(displayLogic)
-    const isShiftPressed = useKeyHeld('Shift', () => setHoveredDatasetIndex(null))
+    const isShiftPressed = useKeyHeld('Shift')
+
+    useEffect(() => {
+        if (!isShiftPressed) {
+            setHoveredDatasetIndex(null)
+        }
+    }, [isShiftPressed])
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
