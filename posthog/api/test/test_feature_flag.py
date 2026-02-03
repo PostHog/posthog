@@ -9019,4 +9019,3 @@ def test_get_flags_with_stale_filter_usage_and_config_based(self):
     assert result_keys == {"stale_by_usage_flag", "stale_by_config_flag"}
     for result in results:
         assert result["status"] == "STALE"
-
