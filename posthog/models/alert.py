@@ -102,6 +102,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
 
+    # Detector-based anomaly detection configuration (alternative to threshold)
+    detector_config = models.JSONField(null=True, blank=True)
+
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
     is_calculating = models.BooleanField(default=False, null=True, blank=True)
@@ -157,6 +160,12 @@ class AlertCheck(UUIDTModel):
     error = models.JSONField(null=True, blank=True)
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
+
+    # Detector-based anomaly detection results
+    anomaly_scores = models.JSONField(null=True, blank=True)  # Scores for each data point
+    triggered_points = models.JSONField(null=True, blank=True)  # Indices of detected anomalies
+    triggered_dates = models.JSONField(null=True, blank=True)  # Dates for chart alignment
+    interval = models.CharField(max_length=10, null=True, blank=True)  # Insight interval when check was created
 
     def __str__(self):
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"

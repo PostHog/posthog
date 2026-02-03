@@ -31,6 +31,7 @@ export type AlertFormType = Pick<
     | 'checks'
     | 'config'
     | 'skip_weekend'
+    | 'detector_config'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -106,6 +107,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     checks: [],
                     calculation_interval: AlertCalculationInterval.DAILY,
                     skip_weekend: false,
+                    detector_config: null,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
@@ -126,6 +128,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ...alert.config,
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
+                    detector_config: alert.detector_config ?? null,
                 }
 
                 // absolute value alert can only have absolute threshold
