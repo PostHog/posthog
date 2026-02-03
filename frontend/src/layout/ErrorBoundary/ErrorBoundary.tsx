@@ -54,24 +54,10 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
-                        <pre>
-                            <code>
-                                {stack || (
-                                    <>
-                                        {name}
-                                        <br />
-                                        {message}
-                                    </>
-                                )}
-                            </code>
-                        </pre>
-                        {exceptionEvent?.uuid && (
-                            <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
-                        )}
-                        {isBrowserExtensionError ? (
+                        {isBrowserExtensionError && (
                             <LemonBanner
                                 type="warning"
-                                className="mt-2"
+                                className="mb-2"
                                 action={{
                                     children: 'Email an engineer',
                                     onClick: () => {
@@ -87,7 +73,22 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                 extensions) that modify the page. Try disabling your browser extension(s) and reloading
                                 the page to avoid this error in the future.
                             </LemonBanner>
-                        ) : (
+                        )}
+                        <pre>
+                            <code>
+                                {stack || (
+                                    <>
+                                        {name}
+                                        <br />
+                                        {message}
+                                    </>
+                                )}
+                            </code>
+                        </pre>
+                        {exceptionEvent?.uuid && (
+                            <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
+                        )}
+                        {!isBrowserExtensionError && (
                             <>
                                 Please help us resolve the issue by sending a screenshot of this message.
                                 <LemonButton
