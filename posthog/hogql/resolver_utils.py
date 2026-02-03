@@ -1,10 +1,29 @@
+from __future__ import annotations
+
 from collections.abc import Generator
 from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import ResolutionError, SyntaxError
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    DecimalDatabaseField,
+    ExpressionField,
+    FieldOrTable,
+    FieldTraverser,
+    FloatDatabaseField,
+    IntegerDatabaseField,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+    UnknownDatabaseField,
+    UUIDDatabaseField,
+)
+from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
 
 from posthog import schema
 
@@ -109,6 +128,8 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
 
 
 def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
+    from posthog.hogql.visitor import clone_expr
+
     from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
 
@@ -131,3 +152,100 @@ def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Gene
         yield from extract_select_queries(select.initial_select_query)
         for select_query in select.subsequent_select_queries:
             yield from extract_select_queries(select_query.select_query)
+
+
+def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) -> DatabaseField:
+    nullable = const_type.nullable
+
+    if isinstance(const_type, ast.IntegerType):
+        return IntegerDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.FloatType):
+        return FloatDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.DecimalType):
+        return DecimalDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringType):
+        return StringDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.BooleanType):
+        return BooleanDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.DateType):
+        return DateDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.DateTimeType):
+        return DateTimeDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.UUIDType):
+        return UUIDDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringJSONType):
+        return StringJSONDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringArrayType):
+        return StringArrayDatabaseField(name=name, nullable=nullable)
+    else:
+        return UnknownDatabaseField(name=name, nullable=nullable)
+
+
+def _recursively_resolve_column(
+    name: str,
+    column: ast.Type,
+    fields: dict[str, FieldOrTable],
+    context: HogQLContext,
+) -> None:
+    if isinstance(column, ast.FieldAliasType):
+        return _recursively_resolve_column(name, column.type, fields, context)
+    elif isinstance(column, ast.FieldType):
+        db_field = column.resolve_database_field(context)
+        if db_field:
+            fields[name] = db_field
+        else:
+            const_type = column.resolve_constant_type(context)
+            fields[name] = _constant_type_to_database_field(name, const_type)
+    elif isinstance(column, ast.ExpressionFieldType):
+        fields[name] = ExpressionField(name=column.name, expr=column.expr, isolate_scope=column.isolate_scope)
+    elif isinstance(column, ast.FieldTraverserType):
+        fields[name] = FieldTraverser(chain=column.chain)
+    elif isinstance(column, ast.PropertyType):
+        if column.joined_subquery and column.joined_subquery_field_name:
+            select_type = column.joined_subquery.select_query_type
+            if isinstance(select_type, ast.SelectSetQueryType):
+                for t in select_type.types:
+                    if isinstance(t, ast.SelectQueryType):
+                        subquery_column = t.columns.get(column.joined_subquery_field_name)
+                        if subquery_column:
+                            return _recursively_resolve_column(name, subquery_column, fields, context)
+            else:
+                subquery_column = select_type.columns.get(column.joined_subquery_field_name)
+                if subquery_column:
+                    return _recursively_resolve_column(name, subquery_column, fields, context)
+
+        return _recursively_resolve_column(name, column.field_type, fields, context)
+    elif isinstance(column, ast.CallType):
+        fields[name] = _constant_type_to_database_field(name, column.return_type)
+    elif isinstance(column, ast.ConstantType):
+        fields[name] = _constant_type_to_database_field(name, column)
+    else:
+        raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")
+
+
+def resolve_cte_database_table(
+    select_query_type: ast.SelectQueryType | ast.SelectSetQueryType,
+    context: HogQLContext,
+) -> Table:
+    if isinstance(select_query_type, ast.SelectQueryType):
+        columns = select_query_type.columns
+    else:
+
+        def recursively_get_columns(
+            query_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
+        ) -> dict[str, ast.Type]:
+            for t in query_types:
+                if isinstance(t, ast.SelectQueryType):
+                    return t.columns
+                else:
+                    return recursively_get_columns(t.types)
+            raise QueryError("No select query type available")
+
+        columns = recursively_get_columns(select_query_type.types)
+
+    fields: dict[str, FieldOrTable] = {}
+
+    for name, column in columns.items():
+        _recursively_resolve_column(name, column, fields, context)
+
+    return Table(fields=fields)

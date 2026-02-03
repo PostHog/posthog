@@ -6,28 +6,21 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, cast, get_args
 
+import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    BooleanDatabaseField,
     DatabaseField,
-    DateDatabaseField,
-    DateTimeDatabaseField,
-    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
-    FloatDatabaseField,
-    IntegerDatabaseField,
     LazyJoin,
     LazyTable,
     StringArrayDatabaseField,
-    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
     UnknownDatabaseField,
-    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
@@ -344,92 +337,7 @@ class CTETableType(BaseTableType):
             return False
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
-        if isinstance(self.select_query_type, SelectQueryType):
-            columns = self.select_query_type.columns
-        else:
-
-            def recursively_get_columns(query_types: list[SelectQueryType | SelectSetQueryType]) -> dict[str, Type]:
-                for t in query_types:
-                    if isinstance(t, SelectQueryType):
-                        return t.columns
-                    else:
-                        return recursively_get_columns(t.types)
-                raise QueryError("No select query type available")
-
-            columns = recursively_get_columns(self.select_query_type.types)
-
-        fields: dict[str, FieldOrTable] = {}
-
-        def constant_type_to_database_field(name: str, const_type: ConstantType) -> DatabaseField:
-            nullable = const_type.nullable
-
-            if isinstance(const_type, IntegerType):
-                return IntegerDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, FloatType):
-                return FloatDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, DecimalType):
-                return DecimalDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, StringType):
-                return StringDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, BooleanType):
-                return BooleanDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, DateType):
-                return DateDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, DateTimeType):
-                return DateTimeDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, UUIDType):
-                return UUIDDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, StringJSONType):
-                return StringJSONDatabaseField(name=name, nullable=nullable)
-            elif isinstance(const_type, StringArrayType):
-                return StringArrayDatabaseField(name=name, nullable=nullable)
-            else:
-                return UnknownDatabaseField(name=name, nullable=nullable)
-
-        def recursively_resolve_column(name: str, column: Type) -> None:
-            if isinstance(column, FieldAliasType):
-                return recursively_resolve_column(name, column.type)
-            elif isinstance(column, FieldType):
-                db_field = column.resolve_database_field(context)
-                if db_field:
-                    fields[name] = db_field
-                else:
-                    # If resolve_database_field returns None (e.g., for SelectQueryType tables),
-                    # create a database field based on the constant type
-                    const_type = column.resolve_constant_type(context)
-                    fields[name] = constant_type_to_database_field(name, const_type)
-            elif isinstance(column, ExpressionFieldType):
-                fields[name] = ExpressionField(name=column.name, expr=column.expr, isolate_scope=column.isolate_scope)
-            elif isinstance(column, FieldTraverserType):
-                fields[name] = FieldTraverser(chain=column.chain)
-            elif isinstance(column, PropertyType):
-                # If this property has been resolved to a joined subquery field, look up that field
-                if column.joined_subquery and column.joined_subquery_field_name:
-                    select_type = column.joined_subquery.select_query_type
-                    if isinstance(select_type, SelectSetQueryType):
-                        for t in select_type.types:
-                            if isinstance(t, SelectQueryType):
-                                subquery_column = t.columns.get(column.joined_subquery_field_name)
-                                if subquery_column:
-                                    return recursively_resolve_column(name, subquery_column)
-                    else:
-                        subquery_column = select_type.columns.get(column.joined_subquery_field_name)
-                        if subquery_column:
-                            return recursively_resolve_column(name, subquery_column)
-
-                # Otherwise, resolve from the raw field_type
-                return recursively_resolve_column(name, column.field_type)
-            elif isinstance(column, CallType):
-                fields[name] = constant_type_to_database_field(name, column.return_type)
-            elif isinstance(column, ConstantType):
-                fields[name] = constant_type_to_database_field(name, column)
-            else:
-                raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")
-
-        for name, column in columns.items():
-            recursively_resolve_column(name, column)
-
-        return Table(fields=fields)
+        return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
