@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.models import FeatureFlag
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.surveys.survey import Survey
 
 
@@ -515,3 +516,59 @@ class TestSurveyFlagExclusionAPI(APIBaseTest):
         flag_keys = [f["key"] for f in data["flags"]]
 
         self.assertIn(user_linked_flag.key, flag_keys)
+
+
+class TestLocalEvaluationAuthentication(APIBaseTest):
+    """Test authentication methods for local_evaluation endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.logout()
+
+    def test_local_evaluation_with_temporary_token(self):
+        """Temporary token (via query param) authenticates successfully."""
+        self.user.temporary_token = "test_temp_token_12345"
+        self.user.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            {"temporary_token": self.user.temporary_token},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("flags", response.json())
+
+    def test_local_evaluation_with_personal_api_key_bearer(self):
+        """Personal API key (phx_*) via Bearer header authenticates successfully."""
+        raw_token = "phx_testPersonalApiKey12345abcdef"
+        secure_value = hash_key_value(raw_token, mode="sha256")
+
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test Key",
+            secure_value=secure_value,
+            mask_value=raw_token[-4:],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {raw_token}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("flags", response.json())
+
+    def test_local_evaluation_with_project_secret_api_key(self):
+        """Project secret API key (phs_*) via Bearer header authenticates successfully."""
+        self.team.secret_api_token = "phs_testProjectSecret12345abcdef"
+        self.team.save()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/local_evaluation",
+            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("flags", response.json())
+
+    def test_local_evaluation_unauthenticated_fails(self):
+        """Unauthenticated requests are rejected."""
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
