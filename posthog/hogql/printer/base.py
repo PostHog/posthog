@@ -107,31 +107,7 @@ class HogQLPrinter(Visitor[str]):
 
         return f"{self.visit(node.expr)} AS {node.name}"
 
-    def _collect_ctes_from_union(self, node: ast.SelectSetQuery | ast.SelectQuery) -> dict[str, ast.CTE]:
-        """Recursively collect all CTEs from a SelectSetQuery or SelectQuery."""
-        ctes: dict[str, ast.CTE] = {}
-        if isinstance(node, ast.SelectQuery):
-            if node.ctes:
-                ctes.update(node.ctes)
-        elif isinstance(node, ast.SelectSetQuery):
-            ctes.update(self._collect_ctes_from_union(node.initial_select_query))
-            for subsequent in node.subsequent_select_queries:
-                ctes.update(self._collect_ctes_from_union(subsequent.select_query))
-        return ctes
-
     def visit_select_set_query(self, node: ast.SelectSetQuery):
-        # Collect all CTEs from all branches of the UNION
-        all_ctes = self._collect_ctes_from_union(node)
-
-        space = f"\n{self.indent(1)}" if self.pretty else " "
-        comma = f",\n{self.indent(1)}" if self.pretty else ", "
-
-        # Print hoisted CTEs at the top
-        cte_prefix = ""
-        if all_ctes:
-            printed_ctes = [self.visit(cte) for cte in all_ctes.values()]
-            cte_prefix = f"WITH{space}{comma.join(printed_ctes)}{space}"
-
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
         if self.pretty:
@@ -147,11 +123,9 @@ class HogQLPrinter(Visitor[str]):
                     ret += f" {expr.set_operator} "
             ret += query
         self._indent += 1
-
-        result = cte_prefix + ret
         if len(self.stack) > 1:
-            return f"({result.strip()})"
-        return result
+            return f"({ret.strip()})"
+        return ret
 
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
@@ -199,8 +173,7 @@ class HogQLPrinter(Visitor[str]):
         else:
             columns = ["1"]
 
-        # Skip printing CTEs here if we're part of a UNION - the parent SelectSetQuery hoists them
-        ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes and not part_of_select_union else None
+        ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
 
         window = (
             ", ".join(
