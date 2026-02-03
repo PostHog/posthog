@@ -1342,10 +1342,26 @@ class FeatureFlagViewSet(
         for key in filters:
             if key == "active":
                 if filters[key] == "STALE":
-                    # Get flags that are at least 30 days old and active
-                    # This is an approximation - the serializer will compute the exact status
+                    # Get stale flags using the best available signal:
+                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
+                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
+                    stale_threshold = thirty_days_ago()
+
+                    # Usage-based staleness (has last_called_at but not called recently)
+                    # Only active flags can be stale - disabled flags should not be marked as stale
+                    # Note: We don't check created_at here because if we have usage data,
+                    # the flag's age doesn't matter - only when it was last called.
+                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
+
+                    # Config-based staleness (no last_called_at, so fall back to rollout config)
+                    # We require created_at < 30 days to give flags time to accumulate usage data.
+                    # This uses raw SQL for the complex JSON filter
                     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                    config_based_queryset = queryset.filter(
+                        last_called_at__isnull=True,
+                        active=True,
+                        created_at__lt=stale_threshold,
+                    ).extra(
                         # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         # Note: Must use fully qualified table name (posthog_featureflag.filters) to avoid
                         # ambiguity when Django joins other tables that also have a 'filters' column (e.g. Experiment)
@@ -1388,6 +1404,11 @@ class FeatureFlagViewSet(
                             """
                         ]
                     )
+
+                    # Combine both: usage-based OR config-based (for flags without usage data)
+                    # No distinct() needed since conditions are mutually exclusive
+                    # (last_called_at < threshold vs last_called_at IS NULL)
+                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
                 else:
                     queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
