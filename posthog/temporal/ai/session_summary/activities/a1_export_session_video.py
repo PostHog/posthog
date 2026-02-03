@@ -35,7 +35,7 @@ from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 logger = structlog.get_logger(__name__)
 
 # We can speed things up a bit right now - but not too much, as CSS animations are the same speed
-VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 1
 
 
 @temporalio.activity.defn
@@ -105,7 +105,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         created_at = now()
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            # TODO: Use constant
+            export_format="video/mp4",
             export_context={
                 "session_recording_id": inputs.session_id,
                 "timestamp": 0,  # Start from beginning
@@ -126,11 +127,13 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         try:
             await client.execute_workflow(
                 VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=True),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                # Keep hard limit to avoid hanging workflows
+                execution_timeout=timedelta(hours=3),
             )
         except WorkflowAlreadyStartedError:
             # Another request already started exporting this session - wait for it to complete

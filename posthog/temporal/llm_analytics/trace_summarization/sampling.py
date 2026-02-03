@@ -12,6 +12,7 @@ import temporalio
 from posthog.schema import DateRange, TracesQuery
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -58,7 +59,9 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             randomOrder=True,
         )
 
-        runner = TracesQueryRunner(team=team, query=query)
+        # Use QUERY_ASYNC limit context to get 600s timeout instead of default 60s
+        # This prevents timeouts for high-volume teams with many AI events
+        runner = TracesQueryRunner(team=team, query=query, limit_context=LimitContext.QUERY_ASYNC)
         response = runner.calculate()
 
         logger.debug(
