@@ -538,13 +538,11 @@
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
-    --color-skeleton-light: rgb(
-        190 190 190 / 20%
-    ); // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
+    // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
+    --color-skeleton-light: rgb(190 190 190 / 20%);
 
-    --color-skeleton-dark: rgb(
-        129 129 129 / 24%
-    ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+    --color-skeleton-dark: rgb(129 129 129 / 24%);
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
@@ -1109,9 +1107,7 @@
     }
 
     a:focus-visible,
-    button:focus-visible,
-    a[data-focused='true'],
-    button[data-focused='true'] {
+    button:focus-visible {
         outline: 2px solid var(--color-accent);
     }
 
