@@ -58,9 +58,9 @@
             },
             "backend:contract-check": {
                 "inputs": [
+                    "backend/api/api.py",
                     "backend/api/dtos.py",
-                    "backend/domain_types.py",
-                    "backend/models.py"
+                    "backend/domain_types.py"
                 ],
                 "outputs": [
                     ".turbo/contract-status.txt"

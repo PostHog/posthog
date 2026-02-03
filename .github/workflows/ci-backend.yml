@@ -227,6 +227,9 @@ jobs:
               with:
                   workspaces: rust
 
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
