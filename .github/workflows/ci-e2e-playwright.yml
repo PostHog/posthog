@@ -446,6 +446,53 @@ jobs:
                   set -e
                   echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
 
+            - name: Calculate total memory leaks
+              id: calculate-leaks
+              if: steps.memory-leak-test.outcome != 'skipped'
+              shell: bash
+              run: |
+                  RESULTS_DIR="playwright/memory-leak-results"
+                  TOTAL_LEAKS=0
+
+                  if [ -d "$RESULTS_DIR" ]; then
+                      # Find all JSON files and sum up leak counts, keeping only highest per test
+                      declare -A MAX_LEAKS
+
+                      for dir in "$RESULTS_DIR"/*; do
+                          if [ -d "$dir" ]; then
+                              JSON_FILE="$dir/memory-leak-report.json"
+                              if [ -f "$JSON_FILE" ]; then
+                                  # Extract test name from directory
+                                  TEST_NAME=$(basename "$dir" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9-]\+Z\?-\?//')
+
+                                  # Extract leak count from JSON
+                                  LEAK_COUNT=$(jq -r '.leakResults.leakedObjectCount // 0' "$JSON_FILE")
+
+                                  # Keep highest leak count for this test
+                                  if [ -z "${MAX_LEAKS[$TEST_NAME]}" ] || [ "$LEAK_COUNT" -gt "${MAX_LEAKS[$TEST_NAME]}" ]; then
+                                      MAX_LEAKS[$TEST_NAME]=$LEAK_COUNT
+                                  fi
+                              fi
+                          fi
+                      done
+
+                      # Sum up the max leaks for each test
+                      for count in "${MAX_LEAKS[@]}"; do
+                          TOTAL_LEAKS=$((TOTAL_LEAKS + count))
+                      done
+                  fi
+
+                  echo "total_leaks=$TOTAL_LEAKS" >> $GITHUB_OUTPUT
+                  echo "Total memory leaks detected: $TOTAL_LEAKS"
+
+            - name: Report memory leaks to PostHog
+              if: steps.memory-leak-test.outcome != 'skipped' && github.repository == 'PostHog/posthog'
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'posthog_ci_memory_leaks'
+                  properties: '{"total_potential_leaks_detected": ${{ steps.calculate-leaks.outputs.total_leaks }}}'
+
             - name: Post memory leak PR comment
               if: steps.memory-leak-test.outcome != 'skipped' && github.event_name == 'pull_request'
               uses: actions/github-script@v7
