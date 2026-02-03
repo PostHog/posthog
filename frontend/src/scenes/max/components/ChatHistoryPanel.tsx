@@ -1,7 +1,10 @@
+import { Autocomplete } from '@base-ui/react/autocomplete'
 import { BindLogic, useActions, useValues } from 'kea'
-import { memo, useRef, useState } from 'react'
+import { combineUrl } from 'kea-router'
+import { memo, useMemo, useRef, useState } from 'react'
 
-import { IconPlusSmall, IconSearch, IconSidebarClose, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconSearch, IconSidebarClose } from '@posthog/icons'
+import { LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
@@ -9,13 +12,15 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
-import { ConversationHistory } from '../ConversationHistory'
+import { ConversationDetail, ConversationStatus } from '~/types'
+
 import { maxLogic } from '../maxLogic'
 import { CHAT_HISTORY_COLLAPSE_THRESHOLD, maxPanelSizingLogic } from '../maxPanelSizingLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
+import { formatConversationDate } from '../utils'
 import { SuggestionsPanel } from './SuggestionsPanel'
-import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 
 interface ChatHistoryPanelProps {
     tabId: string
@@ -23,9 +28,22 @@ interface ChatHistoryPanelProps {
 
 export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHistoryPanelProps): JSX.Element {
     const chatHistoryPanelRef = useRef<HTMLDivElement>(null)
-    const { startNewConversation } = useActions(maxLogic({ tabId }))
+    const inputRef = useRef<HTMLInputElement>(null)
+    const { startNewConversation, openConversation } = useActions(maxLogic({ tabId }))
+    const { conversationHistory, conversationHistoryLoading, conversationId, threadLogicKey, conversation } = useValues(
+        maxLogic({ tabId })
+    )
     const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const [isSearching, setIsSearching] = useState<boolean>(false)
+    const [inputValue, setInputValue] = useState('')
+
+    const filteredConversations = useMemo(() => {
+        if (!inputValue.trim()) {
+            return conversationHistory
+        }
+        const searchLower = inputValue.toLowerCase()
+        return conversationHistory.filter((c) => (c.title || '').toLowerCase().includes(searchLower))
+    }, [conversationHistory, inputValue])
 
     const resizerProps: ResizerLogicProps = {
         containerRef: chatHistoryPanelRef,
@@ -49,6 +67,19 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
         })
     )
 
+    const threadProps: MaxThreadLogicProps = {
+        tabId,
+        conversationId: threadLogicKey,
+        conversation,
+    }
+
+    const handleToggleSearch = (): void => {
+        if (isSearching) {
+            setInputValue('')
+        }
+        setIsSearching(!isSearching)
+    }
+
     return (
         <div
             className={cn(
@@ -63,55 +94,135 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
             }
             ref={chatHistoryPanelRef}
         >
-            <div className="flex items-center gap-1 w-full p-2 pl-2">
-                {isSearching ? (
-                    <TextInputPrimitive
-                        type="search"
-                        placeholder="Search chats"
-                    // value={searchQuery}
-                    // onChange={(e) => setSearchQuery(e)}
-                    />
-                ) : (
-                    <>
+            <Autocomplete.Root
+                items={filteredConversations}
+                filter={null}
+                itemToStringValue={(item: ConversationDetail) => item?.title ?? ''}
+                inline
+                defaultOpen
+                autoHighlight={true}
+            >
+                <div className="flex items-center gap-1 p-2">
+                    <ButtonPrimitive
+                        onClick={toggleChatHistoryPanelCollapsed}
+                        tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
+                        className="h-[32px]"
+                        iconOnly
+                    >
+                        <IconSidebarClose
+                            className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
+                        />
+                    </ButtonPrimitive>
+                    <label
+                        htmlFor="search-chats"
+                        className="input-like flex items-center flex-1 px-1 gap-1 group h-[30px]"
+                    >
+                        <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
+                        <Autocomplete.Input
+                            ref={inputRef}
+                            id="search-chats"
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    handleToggleSearch()
+                                    e.currentTarget.blur()
+                                }
+                            }}
+                            placeholder="Chat history"
+                            aria-label="Chat history"
+                            className={cn(
+                                'w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]'
+                            )}
+                        />
+                    </label>
+                    {!isChatHistoryPanelCollapsed && (
                         <ButtonPrimitive
-                            onClick={toggleChatHistoryPanelCollapsed}
-                            tooltip={isChatHistoryPanelCollapsed ? 'Expand history' : 'Collapse history'}
-                            className="shrink-0 z-50 h-[32px]"
+                            variant="outline"
                             iconOnly
+                            onClick={() => startNewConversation()}
+                            tooltip="New chat"
                         >
-                            <IconSidebarClose
-                                className={cn('size-4 text-tertiary', !isChatHistoryPanelCollapsed && 'rotate-180')}
-                            />
+                            <IconPlusSmall />
                         </ButtonPrimitive>
-                        {!isChatHistoryPanelCollapsed && (
-                            <>
-                                <h3 className="text-sm font-semibold mb-0 flex-1">Chat history</h3>
-                                <ButtonPrimitive
-                                    variant="outline"
-                                    iconOnly
-                                    onClick={() => setIsSearching(!isSearching)}
-                                    tooltip="Search chats"
-                                >
-                                    {isSearching ? <IconX className="text-tertiary size-4" /> : <IconSearch className="text-tertiary size-4" />}
-                                </ButtonPrimitive>
-                                <ButtonPrimitive
-                                    variant="outline"
-                                    iconOnly
-                                    onClick={() => startNewConversation()}
-                                    tooltip="New chat"
-                                >
-                                    <IconPlusSmall />
-                                </ButtonPrimitive>
-                            </>
+                    )}
+                </div>
+
+                {!isChatHistoryPanelCollapsed && (
+                    <div className="flex flex-col z-20 h-full overflow-hidden">
+                        <ScrollableShadows
+                            direction="vertical"
+                            className="flex flex-col flex-1 min-h-0"
+                            innerClassName="flex flex-col px-2 h-full pb-10"
+                            styledScrollbars
+                        >
+                            {conversationHistoryLoading && conversationHistory.length === 0 ? (
+                                <div className="flex flex-col gap-1">
+                                    <LemonSkeleton className="h-8" />
+                                    <LemonSkeleton className="h-8 opacity-60" />
+                                    <LemonSkeleton className="h-8 opacity-30" />
+                                </div>
+                            ) : (
+                                <>
+                                    <Autocomplete.List className="flex flex-col gap-1">
+                                        <Autocomplete.Group items={filteredConversations}>
+                                            <Autocomplete.Collection>
+                                                {(conversation: ConversationDetail) => (
+                                                    <Autocomplete.Item
+                                                        key={conversation.id}
+                                                        value={conversation}
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            openConversation(conversation.id)
+                                                        }}
+                                                        render={
+                                                            <Link
+                                                                to={
+                                                                    combineUrl(urls.ai(conversation.id), {
+                                                                        from: 'history',
+                                                                    }).url
+                                                                }
+                                                                buttonProps={{
+                                                                    active: conversation.id === conversationId,
+                                                                    fullWidth: true,
+                                                                }}
+                                                                tooltip={conversation.title || 'view conversation'}
+                                                                tooltipPlacement="right"
+                                                            >
+                                                                <span className="flex-1 line-clamp-1 text-primary">
+                                                                    {conversation.title}
+                                                                </span>
+                                                                {conversation.status ===
+                                                                    ConversationStatus.InProgress && (
+                                                                    <Spinner className="h-3 w-3" />
+                                                                )}
+                                                                <span className="opacity-30 text-xs">
+                                                                    {formatConversationDate(conversation.updated_at)}
+                                                                </span>
+                                                            </Link>
+                                                        }
+                                                    />
+                                                )}
+                                            </Autocomplete.Collection>
+                                        </Autocomplete.Group>
+                                    </Autocomplete.List>
+                                    <Autocomplete.Empty className="flex flex-col items-center justify-center text-center py-8 text-muted empty:hidden">
+                                        <p className="text-sm mb-0">No chats found</p>
+                                    </Autocomplete.Empty>
+                                </>
+                            )}
+                        </ScrollableShadows>
+
+                        <div className="border-b border-primary h-px" />
+                        {isRemovingSidePanel && (
+                            <BindLogic logic={maxThreadLogic} props={threadProps}>
+                                <SuggestionsPanel />
+                            </BindLogic>
                         )}
-                    </>
+                    </div>
                 )}
-            </div>
-            {!isChatHistoryPanelCollapsed && (
-                <BindLogic logic={maxLogic} props={{ tabId }}>
-                    <ChatHistoryPanelContent isRemovingSidePanel={isRemovingSidePanel} tabId={tabId} />
-                </BindLogic>
-            )}
+            </Autocomplete.Root>
+
             <Resizer
                 containerRef={chatHistoryPanelRef}
                 logicKey="max-chat-history-panel"
@@ -123,39 +234,3 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
         </div>
     )
 })
-
-function ChatHistoryPanelContent({
-    isRemovingSidePanel,
-    tabId,
-}: {
-    isRemovingSidePanel: boolean
-    tabId: string
-}): JSX.Element {
-    const { threadLogicKey, conversation } = useValues(maxLogic)
-
-    const threadProps: MaxThreadLogicProps = {
-        tabId,
-        conversationId: threadLogicKey,
-        conversation,
-    }
-
-    return (
-        <div className="flex flex-col z-20 h-full overflow-hidden">
-            <ScrollableShadows
-                direction="vertical"
-                className="flex flex-col flex-1 min-h-0"
-                innerClassName="flex flex-col px-2 h-full pb-10"
-                styledScrollbars
-            >
-                <ConversationHistory compact />
-            </ScrollableShadows>
-
-            <div className="border-b border-primary h-px " />
-            {isRemovingSidePanel && (
-                <BindLogic logic={maxThreadLogic} props={threadProps}>
-                    <SuggestionsPanel />
-                </BindLogic>
-            )}
-        </div>
-    )
-}
