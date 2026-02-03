@@ -7,7 +7,7 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Group } from '~/types'
 
-import { DataSourceIcon, GroupInfo, LifetimeValue, MRR } from './NotebookNodeGroup'
+import { GroupInfo, LifetimeValue, MRR } from './NotebookNodeGroup'
 
 // Mock NodeWrapper to avoid circular dependencies
 jest.mock('./NodeWrapper', () => ({
@@ -41,34 +41,6 @@ jest.mock('./utils', () => ({
         return groupData.group_properties?.paid_products || []
     },
 }))
-
-describe('DataSourceIcon', () => {
-    afterEach(() => {
-        cleanup()
-    })
-
-    it('should render piggybank icon for revenue-analytics source', async () => {
-        render(<DataSourceIcon source="revenue-analytics" />)
-
-        expect(screen.getByTestId('piggybank-icon')).toHaveClass('w-3 h-3 text-muted')
-        expect(screen.getByTestId('piggybank-icon')).toBeInTheDocument()
-        expect(screen.getByTestId('From Revenue analytics')).toBeInTheDocument()
-    })
-
-    it('should render database icon for properties source', () => {
-        render(<DataSourceIcon source="properties" />)
-
-        expect(screen.getByTestId('database-icon')).toBeInTheDocument()
-        expect(screen.getByTestId('database-icon')).toHaveClass('w-3 h-3 text-muted')
-        expect(screen.getByTestId('From group properties')).toBeInTheDocument()
-    })
-
-    it('should render nothing for null source', () => {
-        const { container } = render(<DataSourceIcon source={null} />)
-
-        expect(container.firstChild).toBeNull()
-    })
-})
 
 describe('MRR Component', () => {
     afterEach(() => {
