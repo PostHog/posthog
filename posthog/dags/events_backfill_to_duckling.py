@@ -1316,114 +1316,133 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     )
 
 
+# Smaller batch size to avoid sensor timeout (60s limit in Dagster Cloud)
+BACKFILL_PARTITIONS_PER_TICK = 20
+
+
 @sensor(
     name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
+    minimum_interval_seconds=30,  # Run frequently to process backlog quickly
     job_name="duckling_events_backfill_job",
-    default_status=DefaultSensorStatus.RUNNING,  # Always on
+    default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical backfill sensor - runs once daily, can be triggered manually.
+    """Full historical backfill sensor - processes partitions in small batches.
 
-    This sensor runs once per day to backfill missing historical events data:
+    Uses a JSON cursor to track progress: {"team_id": X, "next_date": "YYYY-MM-DD", "earliest": "YYYY-MM-DD"}
+    This allows resuming from where we left off without re-querying ClickHouse.
 
-    1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
-    2. Create up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions (default 100)
-    3. Wait until tomorrow to process the next batch
+    Each tick creates up to BACKFILL_PARTITIONS_PER_TICK partitions (default 20)
+    to stay within the 60-second timeout limit.
 
     Manual trigger:
-        To run immediately, reset the cursor in Dagster UI:
+        To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_full_backfill_sensor -> Reset cursor
-
-    The daily `duckling_backfill_discovery_sensor` handles ongoing top-ups
-    for yesterday's data specifically.
     """
-    today = timezone.now().date().isoformat()
-
-    # Already ran today? Skip until tomorrow (or cursor reset)
-    last_completed_date = context.cursor
-    if last_completed_date == today:
-        context.log.debug("Full backfill: already ran today, skipping until tomorrow")
-        return SensorResult(run_requests=[], cursor=today)
+    import json
 
     yesterday = (timezone.now() - timedelta(days=1)).date()
-    existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+
+    # Parse cursor - tracks where we left off
+    cursor_data: dict = {}
+    if context.cursor:
+        try:
+            cursor_data = json.loads(context.cursor)
+        except json.JSONDecodeError:
+            cursor_data = {}
+
+    # Get list of teams to process
+    catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    if not catalogs:
+        context.log.info("No DuckLakeCatalog entries found")
+        return SensorResult(run_requests=[])
+
+    # Find where to resume from
+    resume_team_id = cursor_data.get("team_id")
+    resume_date_str = cursor_data.get("next_date")
+    cached_earliest = cursor_data.get("earliest")
+
+    # Find the catalog to resume from (or start from first)
+    start_idx = 0
+    if resume_team_id:
+        for i, cat in enumerate(catalogs):
+            if cat.team_id == resume_team_id:
+                start_idx = i
+                break
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
-    total_partitions_created = 0
 
-    for catalog in DuckLakeCatalog.objects.all():
-        # Stop if we've hit the batch limit
-        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-            context.log.info(
-                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue tomorrow"
-            )
+    # Process catalogs starting from where we left off
+    for catalog in catalogs[start_idx:]:
+        if len(new_partitions) >= BACKFILL_PARTITIONS_PER_TICK:
+            # Save progress and continue on next tick
+            context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
 
         team_id = catalog.team_id
 
-        # Query ClickHouse for the earliest event date
-        earliest_date = get_earliest_event_date_for_team(team_id)
-        if earliest_date is None:
-            context.log.info(f"No events found for team_id={team_id}, skipping")
-            continue
+        # Determine start date - use cached value if resuming same team
+        if team_id == resume_team_id and cached_earliest:
+            earliest = datetime.strptime(cached_earliest, "%Y-%m-%d").date()
+            current_date = datetime.strptime(resume_date_str, "%Y-%m-%d").date() if resume_date_str else earliest
+        else:
+            # Query ClickHouse for earliest date (only once per team)
+            earliest_dt = get_earliest_event_date_for_team(team_id)
+            if earliest_dt is None:
+                context.log.info(f"No events found for team_id={team_id}, skipping")
+                continue
+            earliest = earliest_dt.date()
+            current_date = earliest
 
-        earliest = earliest_date.date()
-        team_partition_count = 0
-
-        # Generate partitions from earliest date to yesterday
-        current_date = earliest
-        while current_date <= yesterday:
-            # Stop if we've hit the batch limit
-            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-                break
-
-            date_str = current_date.strftime("%Y-%m-%d")
-            partition_key = f"{team_id}_{date_str}"
-
-            if partition_key not in existing:
-                new_partitions.append(partition_key)
-                run_requests.append(
-                    RunRequest(
-                        partition_key=partition_key,
-                        run_key=f"{partition_key}_full_backfill",
-                    )
+        # Generate partitions for this team
+        while current_date <= yesterday and len(new_partitions) < BACKFILL_PARTITIONS_PER_TICK:
+            partition_key = f"{team_id}_{current_date.isoformat()}"
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_full_backfill",
                 )
-                team_partition_count += 1
-                total_partitions_created += 1
-
+            )
             current_date += timedelta(days=1)
 
-        if team_partition_count > 0:
-            context.log.info(f"Team {team_id}: created {team_partition_count} new partitions (earliest: {earliest})")
-            logger.info(
-                "duckling_full_backfill_team_partitions",
-                team_id=team_id,
-                partition_count=team_partition_count,
-                earliest_date=earliest.isoformat(),
-                latest_date=yesterday.isoformat(),
-            )
+        # Update cursor for next tick
+        if current_date <= yesterday:
+            # More dates to process for this team
+            cursor_data = {
+                "team_id": team_id,
+                "next_date": current_date.isoformat(),
+                "earliest": earliest.isoformat(),
+            }
+        else:
+            # Done with this team, move to next
+            next_idx = catalogs.index(catalog) + 1
+            if next_idx < len(catalogs):
+                cursor_data = {"team_id": catalogs[next_idx].team_id}
+            else:
+                # All teams done - reset cursor to check again tomorrow
+                cursor_data = {"completed": timezone.now().date().isoformat()}
+
+    # Check if we're in "completed" state and should skip until new data
+    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
+        context.log.debug("Full backfill complete for today")
+        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
 
     if new_partitions:
-        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions")
+        context.log.info(f"Creating {len(new_partitions)} partitions")
         logger.info(
-            "duckling_full_backfill_discovered",
+            "duckling_full_backfill_batch",
             partition_count=len(new_partitions),
-            run_count=len(run_requests),
-            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+            cursor=cursor_data,
         )
-    else:
-        context.log.info("Full backfill: no new partitions to create (all up to date)")
 
-    # Mark today as done - won't run again until tomorrow (or cursor reset)
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
-        cursor=today,
+        cursor=json.dumps(cursor_data),
     )
 
 
@@ -1524,108 +1543,127 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
+    minimum_interval_seconds=30,  # Run frequently to process backlog quickly
     job_name="duckling_persons_backfill_job",
-    default_status=DefaultSensorStatus.RUNNING,  # Always on
+    default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical persons backfill sensor - runs once daily, can be triggered manually.
+    """Full historical persons backfill sensor - processes partitions in small batches.
 
-    Similar to duckling_full_backfill_sensor but for persons data.
-    Queries min(_timestamp) from the person table to find the earliest date.
+    Uses a JSON cursor to track progress: {"team_id": X, "next_date": "YYYY-MM-DD", "earliest": "YYYY-MM-DD"}
+    This allows resuming from where we left off without re-querying ClickHouse.
 
-    Creates up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions per day.
+    Each tick creates up to BACKFILL_PARTITIONS_PER_TICK partitions (default 20)
+    to stay within the 60-second timeout limit.
 
     Manual trigger:
-        To run immediately, reset the cursor in Dagster UI:
+        To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    today = timezone.now().date().isoformat()
-
-    # Already ran today? Skip until tomorrow (or cursor reset)
-    last_completed_date = context.cursor
-    if last_completed_date == today:
-        context.log.debug("Persons full backfill: already ran today, skipping until tomorrow")
-        return SensorResult(run_requests=[], cursor=today)
+    import json
 
     yesterday = (timezone.now() - timedelta(days=1)).date()
-    existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+
+    # Parse cursor - tracks where we left off
+    cursor_data: dict = {}
+    if context.cursor:
+        try:
+            cursor_data = json.loads(context.cursor)
+        except json.JSONDecodeError:
+            cursor_data = {}
+
+    # Get list of teams to process
+    catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    if not catalogs:
+        context.log.info("No DuckLakeCatalog entries found")
+        return SensorResult(run_requests=[])
+
+    # Find where to resume from
+    resume_team_id = cursor_data.get("team_id")
+    resume_date_str = cursor_data.get("next_date")
+    cached_earliest = cursor_data.get("earliest")
+
+    # Find the catalog to resume from (or start from first)
+    start_idx = 0
+    if resume_team_id:
+        for i, cat in enumerate(catalogs):
+            if cat.team_id == resume_team_id:
+                start_idx = i
+                break
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
-    total_partitions_created = 0
 
-    for catalog in DuckLakeCatalog.objects.all():
-        # Stop if we've hit the batch limit
-        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-            context.log.info(
-                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue tomorrow"
-            )
+    # Process catalogs starting from where we left off
+    for catalog in catalogs[start_idx:]:
+        if len(new_partitions) >= BACKFILL_PARTITIONS_PER_TICK:
+            # Save progress and continue on next tick
+            context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
 
         team_id = catalog.team_id
 
-        earliest_date = get_earliest_person_date_for_team(team_id)
-        if earliest_date is None:
-            context.log.info(f"No persons found for team_id={team_id}, skipping")
-            continue
+        # Determine start date - use cached value if resuming same team
+        if team_id == resume_team_id and cached_earliest:
+            earliest = datetime.strptime(cached_earliest, "%Y-%m-%d").date()
+            current_date = datetime.strptime(resume_date_str, "%Y-%m-%d").date() if resume_date_str else earliest
+        else:
+            # Query ClickHouse for earliest date (only once per team)
+            earliest_dt = get_earliest_person_date_for_team(team_id)
+            if earliest_dt is None:
+                context.log.info(f"No persons found for team_id={team_id}, skipping")
+                continue
+            earliest = earliest_dt.date()
+            current_date = earliest
 
-        earliest = earliest_date.date()
-        team_partition_count = 0
-
-        current_date = earliest
-        while current_date <= yesterday:
-            # Stop if we've hit the batch limit
-            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-                break
-
-            date_str = current_date.strftime("%Y-%m-%d")
-            partition_key = f"{team_id}_{date_str}"
-
-            if partition_key not in existing:
-                new_partitions.append(partition_key)
-                run_requests.append(
-                    RunRequest(
-                        partition_key=partition_key,
-                        run_key=f"{partition_key}_persons_full_backfill",
-                    )
+        # Generate partitions for this team
+        while current_date <= yesterday and len(new_partitions) < BACKFILL_PARTITIONS_PER_TICK:
+            partition_key = f"{team_id}_{current_date.isoformat()}"
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_persons_full_backfill",
                 )
-                team_partition_count += 1
-                total_partitions_created += 1
-
+            )
             current_date += timedelta(days=1)
 
-        if team_partition_count > 0:
-            context.log.info(
-                f"Team {team_id}: created {team_partition_count} new persons partitions (earliest: {earliest})"
-            )
-            logger.info(
-                "duckling_persons_full_backfill_team_partitions",
-                team_id=team_id,
-                partition_count=team_partition_count,
-                earliest_date=earliest.isoformat(),
-                latest_date=yesterday.isoformat(),
-            )
+        # Update cursor for next tick
+        if current_date <= yesterday:
+            # More dates to process for this team
+            cursor_data = {
+                "team_id": team_id,
+                "next_date": current_date.isoformat(),
+                "earliest": earliest.isoformat(),
+            }
+        else:
+            # Done with this team, move to next
+            next_idx = catalogs.index(catalog) + 1
+            if next_idx < len(catalogs):
+                cursor_data = {"team_id": catalogs[next_idx].team_id}
+            else:
+                # All teams done - reset cursor to check again tomorrow
+                cursor_data = {"completed": timezone.now().date().isoformat()}
+
+    # Check if we're in "completed" state and should skip until new data
+    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
+        context.log.debug("Persons full backfill complete for today")
+        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
 
     if new_partitions:
-        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions")
+        context.log.info(f"Creating {len(new_partitions)} persons partitions")
         logger.info(
-            "duckling_persons_full_backfill_discovered",
+            "duckling_persons_full_backfill_batch",
             partition_count=len(new_partitions),
-            run_count=len(run_requests),
-            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+            cursor=cursor_data,
         )
-    else:
-        context.log.info("Persons full backfill: no new partitions to create (all up to date)")
 
-    # Mark today as done - won't run again until tomorrow (or cursor reset)
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
-        cursor=today,
+        cursor=json.dumps(cursor_data),
     )
 
 
