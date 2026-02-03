@@ -196,7 +196,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",  # window_end
                 "minimal",
                 "test_batch_run_id",
-                "openai",
+                "gpt-4.1-nano",
             )
 
             assert result.success is True
@@ -256,7 +256,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",
                 "minimal",
                 "batch_123",
-                "openai",
+                "gpt-4.1-nano",
             )
 
             assert result.embedding_requested is True
@@ -311,7 +311,7 @@ class TestGenerateSummaryActivity:
                 "2025-01-01T01:00:00Z",
                 "minimal",
                 "batch_123",
-                "openai",
+                "gpt-4.1-nano",
             )
 
             assert result.success is True  # Summary saved successfully
@@ -328,7 +328,7 @@ class TestBatchTraceSummarizationWorkflow:
 
         assert inputs.team_id == 123
         assert inputs.analysis_level == "trace"
-        assert inputs.max_items == 10
+        assert inputs.max_items == 15
         assert inputs.batch_size == 3
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 60

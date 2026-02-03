@@ -16,6 +16,7 @@ import eventDefinitionsTool from '@/tools/projects/eventDefinitions'
 import getProjectsTool from '@/tools/projects/getProjects'
 import propertyDefinitionsTool from '@/tools/projects/propertyDefinitions'
 import setActiveProjectTool from '@/tools/projects/setActive'
+import updateEventDefinitionTool from '@/tools/projects/updateEventDefinition'
 import type { Context } from '@/tools/types'
 
 describe('Projects', { concurrent: false }, () => {
@@ -255,6 +256,72 @@ describe('Projects', { concurrent: false }, () => {
             const result = await eventDefsTool.handler(context, {})
             const eventDefs = parseToolResponse(result)
             expect(eventDefs.length).toBeLessThanOrEqual(50)
+        })
+    })
+
+    describe('event-definition-update tool', () => {
+        const updateTool = updateEventDefinitionTool()
+
+        it('should update event definition description', async () => {
+            const testDescription = `Test description ${uuidv4()}`
+            const result = await updateTool.handler(context, {
+                eventName: '$pageview',
+                data: { description: testDescription },
+            })
+            const eventDef = parseToolResponse(result)
+
+            expect(eventDef.description).toBe(testDescription)
+            expect(eventDef.name).toBe('$pageview')
+            expect(eventDef.url).toContain('/data-management/events/')
+        })
+
+        it('should update event definition tags', async () => {
+            const testTag = `test-tag-${uuidv4().slice(0, 8)}`
+            const result = await updateTool.handler(context, {
+                eventName: '$pageview',
+                data: { tags: [testTag] },
+            })
+            const eventDef = parseToolResponse(result)
+
+            expect(eventDef.tags).toContain(testTag)
+        })
+
+        it('should update verified status', async () => {
+            const result = await updateTool.handler(context, {
+                eventName: '$pageview',
+                data: { verified: true },
+            })
+            const eventDef = parseToolResponse(result)
+
+            expect(eventDef.verified).toBe(true)
+        })
+
+        it('should update multiple fields at once', async () => {
+            const testDescription = `Multi-field test ${uuidv4()}`
+            const testTag = `multi-tag-${uuidv4().slice(0, 8)}`
+            const result = await updateTool.handler(context, {
+                eventName: '$pageview',
+                data: {
+                    description: testDescription,
+                    tags: [testTag],
+                    verified: true,
+                },
+            })
+            const eventDef = parseToolResponse(result)
+
+            expect(eventDef.description).toBe(testDescription)
+            expect(eventDef.tags).toContain(testTag)
+            expect(eventDef.verified).toBe(true)
+        })
+
+        it('should throw error for non-existent event', async () => {
+            const nonExistentEvent = `non-existent-event-${uuidv4()}`
+            await expect(
+                updateTool.handler(context, {
+                    eventName: nonExistentEvent,
+                    data: { description: 'test' },
+                })
+            ).rejects.toThrow()
         })
     })
 

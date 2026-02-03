@@ -42,6 +42,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    RESEARCH = "research"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -1604,6 +1605,7 @@ class ExternalDataSourceType(StrEnum):
     VITALLY = "Vitally"
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
+    CLERK = "Clerk"
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
@@ -1622,6 +1624,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
@@ -1739,6 +1742,9 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2261,7 +2267,7 @@ class MarketingIntegrationConfig1(BaseModel):
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2379,16 +2385,6 @@ class MatchingEventsResponse(BaseModel):
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
 
 
 class MaxAddonInfo(BaseModel):
@@ -2812,6 +2808,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    use_current_time: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
@@ -3177,6 +3174,17 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
+    ts_from_s: float
+    ts_to_s: float | None = None
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -5253,7 +5261,6 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
-    usePresortedEventsTable: bool | None = None
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
@@ -5412,6 +5419,16 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: str | None = None
+
+
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
 
 
 class MaxBillingContextBillingPeriod(BaseModel):
@@ -10389,6 +10406,10 @@ class EndpointRunRequest(BaseModel):
         description=(
             "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
         ),
+    )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
     )
     query_override: dict[str, Any] | None = Field(
         default=None,
@@ -16948,6 +16969,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
@@ -17992,6 +18014,10 @@ class EndpointRequest(BaseModel):
         default=None,
         description="How frequently should the underlying materialized view be updated",
     )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
+    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -18630,7 +18656,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"

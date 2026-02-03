@@ -1,3 +1,4 @@
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
     disable_evaluation_activity,

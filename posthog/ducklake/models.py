@@ -43,9 +43,9 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         max_length=255,
         help_text="ARN of the IAM role to assume for cross-account S3 access",
     )
-    cross_account_external_id = models.CharField(
-        max_length=255,
-        help_text="External ID for cross-account role assumption",
+    cross_account_external_id = EncryptedTextField(
+        max_length=500,
+        help_text="External ID for cross-account role assumption (encrypted)",
     )
 
     class Meta:

@@ -47,7 +47,7 @@ interface AccountMenuProps {
 export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
+    const { isCloudOrDev, isDev } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -57,6 +57,11 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+
+    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
+    const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
+        ? currentTeam?.name?.replace(/^\p{Emoji}/u, '').trimStart()
+        : currentTeam?.name
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -73,7 +78,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                     }
                     tooltipPlacement="right"
                     iconOnly={isLayoutNavCollapsed}
-                    className={cn('max-w-[175px]', {
+                    className={cn('flex-1', {
                         'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                     })}
                     variant="panel"
@@ -91,7 +96,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                             >
                                 {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                             </div>
-                            {!isLayoutNavCollapsed && <span className="truncate">{currentTeam.name ?? 'Project'}</span>}
+                            {!isLayoutNavCollapsed && (
+                                <span className="truncate">{projectNameWithoutFirstEmoji ?? 'Project'}</span>
+                            )}
                         </>
                     )}
                     {!isLayoutNavCollapsed && <MenuOpenIndicator />}
@@ -153,7 +160,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                                 </div>
                                 <span className="truncate font-semibold">
-                                    {currentTeam ? currentTeam.name : 'Select project'}
+                                    {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                 </span>
                                 {currentTeam && (
                                     <div className="ml-auto flex items-center gap-1">
@@ -266,42 +273,43 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
 
                     <DropdownMenuSeparator />
 
-                    {billing?.account_owner?.email && billing?.account_owner?.name && (
-                        <>
-                            <Label intent="menu" className="px-2 mt-2">
-                                YOUR POSTHOG HUMAN
-                            </Label>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive
-                                    menuItem
-                                    onClick={() => {
-                                        void copyToClipboard(billing?.account_owner?.email || '', 'email')
-                                        reportAccountOwnerClicked({
-                                            name: billing?.account_owner?.name || '',
-                                            email: billing?.account_owner?.email || '',
-                                        })
-                                    }}
-                                    tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
-                                    tooltipPlacement="right"
-                                    data-attr="top-menu-account-owner"
-                                >
-                                    <ProfilePicture
-                                        user={{
-                                            first_name: billing.account_owner.name,
-                                            email: billing.account_owner.email,
+                    {isDev ||
+                        (billing?.account_owner?.email && billing?.account_owner?.name && (
+                            <>
+                                <Label intent="menu" className="px-2 mt-2">
+                                    YOUR POSTHOG HUMAN
+                                </Label>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            void copyToClipboard(billing?.account_owner?.email || '', 'email')
+                                            reportAccountOwnerClicked({
+                                                name: billing?.account_owner?.name || '',
+                                                email: billing?.account_owner?.email || '',
+                                            })
                                         }}
-                                        size="xs"
-                                    />
-                                    <span className="truncate font-semibold">{billing.account_owner.name}</span>
-                                    <div className="ml-auto">
-                                        <IconCopy />
-                                    </div>
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                        </>
-                    )}
+                                        tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
+                                        tooltipPlacement="right"
+                                        data-attr="top-menu-account-owner"
+                                    >
+                                        <ProfilePicture
+                                            user={{
+                                                first_name: billing.account_owner.name,
+                                                email: billing.account_owner.email,
+                                            }}
+                                            size="xs"
+                                        />
+                                        <span className="truncate font-semibold">{billing.account_owner.name}</span>
+                                        <div className="ml-auto">
+                                            <IconCopy />
+                                        </div>
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                            </>
+                        ))}
 
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive menuItem onClick={logout} data-attr="top-menu-item-logout">

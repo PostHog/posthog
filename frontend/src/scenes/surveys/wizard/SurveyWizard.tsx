@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -51,15 +52,14 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         surveyLaunching,
         surveySaving,
         surveyLoading,
-        selectedTemplate,
         stepValidationErrors,
         currentStepHasErrors,
     } = useValues(surveyWizardLogic)
     const isEditing = id !== 'new'
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
-    // Survey form state from surveyLogic
     const { survey } = useValues(surveyLogic)
+    const { setSurveyValue } = useActions(surveyLogic)
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -67,13 +67,13 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
 
-    // Reset preview index if it's out of bounds (e.g., when disabling thank you message)
+    const maxPreviewIndex = survey.appearance?.displayThankYouMessage
+        ? survey.questions.length
+        : survey.questions.length - 1
+
     useEffect(() => {
-        const maxIndex = survey.appearance?.displayThankYouMessage
-            ? survey.questions.length
-            : survey.questions.length - 1
-        setPreviewPageIndex((current) => (current > maxIndex ? Math.max(0, maxIndex) : current))
-    }, [survey.appearance?.displayThankYouMessage, survey.questions.length])
+        setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
+    }, [maxPreviewIndex])
 
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
@@ -105,12 +105,10 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const previewSurvey: NewSurvey = {
         ...survey,
-        id: id,
+        id,
     } as NewSurvey
 
     const handleCustomizeMore = (): void => {
-        // Survey state is already in surveyLogic, just navigate
-        // For existing surveys use ?edit=true, for new surveys use #fromTemplate=true
         router.actions.push(urls.survey(id) + (isEditing ? '?edit=true' : '#fromTemplate=true'))
     }
 
@@ -175,10 +173,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const handleLaunchClick = (): void => {
-        const doLaunch = (): void => {
-            launchSurvey()
-        }
-
         if (!currentTeam?.surveys_opt_in) {
             LemonDialog.open({
                 title: 'Enable surveys?',
@@ -193,7 +187,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     type: 'primary',
                     onClick: () => {
                         updateCurrentTeam({ surveys_opt_in: true })
-                        showLaunchConfirmation(doLaunch)
+                        showLaunchConfirmation(launchSurvey)
                     },
                 },
                 secondaryButton: {
@@ -202,7 +196,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                 },
             })
         } else {
-            showLaunchConfirmation(doLaunch)
+            showLaunchConfirmation(launchSurvey)
         }
     }
 
@@ -224,24 +218,40 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         )
     }
 
-    // Back button destination with template indicator
+    // Navigation back button
     const backButton = isEditing ? (
         <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.survey(id)}>
             Survey
         </LemonButton>
     ) : (
-        <div className="flex items-center gap-2">
-            <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('template')}>
-                Templates
-            </LemonButton>
-            {selectedTemplate && <span className="text-muted text-sm">· {selectedTemplate.templateType}</span>}
-        </div>
+        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('template')}>
+            Templates
+        </LemonButton>
     )
 
     // Shared header for all main steps
     const header = (
         <div className="space-y-4">
-            {backButton}
+            <div className="space-y-1">
+                {backButton}
+                <div>
+                    <label htmlFor="survey-name" className="text-xs font-medium text-muted">
+                        Survey name
+                    </label>
+                    <EditableField
+                        name="survey-name"
+                        value={survey.name}
+                        onSave={(value) => setSurveyValue('name', value)}
+                        placeholder="Untitled survey"
+                        saveOnBlur
+                        clickToEdit
+                        compactIcon
+                        showEditIconOnHover
+                        className="text-xl font-semibold"
+                        editingIndication="underlined"
+                    />
+                </div>
+            </div>
             <div className="flex justify-center">
                 <WizardStepper currentStep={currentStep} onStepClick={setStep} stepErrors={stepValidationErrors} />
             </div>
@@ -390,26 +400,16 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                         disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
                                     />
                                     <span className="text-muted text-xs min-w-[60px] text-center">
-                                        {`${previewPageIndex + 1} / ${previewSurvey.questions.length + (previewSurvey.appearance?.displayThankYouMessage ? 1 : 0)}`}
+                                        {`${previewPageIndex + 1} / ${maxPreviewIndex + 1}`}
                                     </span>
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         icon={<IconChevronRight />}
-                                        onClick={() => {
-                                            const maxIndex = previewSurvey.appearance?.displayThankYouMessage
-                                                ? previewSurvey.questions.length
-                                                : previewSurvey.questions.length - 1
-                                            setPreviewPageIndex(Math.min(maxIndex, previewPageIndex + 1))
-                                        }}
-                                        disabledReason={
-                                            previewPageIndex >=
-                                            (previewSurvey.appearance?.displayThankYouMessage
-                                                ? previewSurvey.questions.length
-                                                : previewSurvey.questions.length - 1)
-                                                ? 'Last screen'
-                                                : undefined
+                                        onClick={() =>
+                                            setPreviewPageIndex(Math.min(maxPreviewIndex, previewPageIndex + 1))
                                         }
+                                        disabledReason={previewPageIndex >= maxPreviewIndex ? 'Last screen' : undefined}
                                     />
                                 </div>
                             )}
