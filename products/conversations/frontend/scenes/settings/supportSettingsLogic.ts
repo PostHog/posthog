@@ -155,46 +155,50 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setDomainInputValue(values.conversationsDomains[index])
         },
         saveGreetingText: () => {
-            if (!values.greetingInputValue?.trim()) {
+            const trimmedValue = values.greetingInputValue?.trim()
+            if (!trimmedValue) {
                 return
             }
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    widget_greeting_text: values.greetingInputValue,
+                    widget_greeting_text: trimmedValue,
                 },
             })
         },
         saveIdentificationFormTitle: () => {
-            if (!values.identificationFormTitleValue?.trim()) {
+            const trimmedValue = values.identificationFormTitleValue?.trim()
+            if (!trimmedValue) {
                 return
             }
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    widget_identification_form_title: values.identificationFormTitleValue,
+                    widget_identification_form_title: trimmedValue,
                 },
             })
         },
         saveIdentificationFormDescription: () => {
-            if (!values.identificationFormDescriptionValue?.trim()) {
+            const trimmedValue = values.identificationFormDescriptionValue?.trim()
+            if (!trimmedValue) {
                 return
             }
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    widget_identification_form_description: values.identificationFormDescriptionValue,
+                    widget_identification_form_description: trimmedValue,
                 },
             })
         },
         savePlaceholderText: () => {
-            if (!values.placeholderTextValue?.trim()) {
+            const trimmedValue = values.placeholderTextValue?.trim()
+            if (!trimmedValue) {
                 return
             }
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    widget_placeholder_text: values.placeholderTextValue,
+                    widget_placeholder_text: trimmedValue,
                 },
             })
         },
