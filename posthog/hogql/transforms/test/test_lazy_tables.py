@@ -78,6 +78,24 @@ class TestLazyJoins(BaseTest):
         )
         assert printed == self.snapshot
 
+    def test_resolve_lazy_table_as_table_in_join_reverse(self):
+        # Bug reproduction: when persons is the FROM table and events is joined,
+        # the join condition `events.person_id = persons.id` expands to reference
+        # events__override before it's defined in the query
+        printed = self._print_select(
+            "select persons.id, max(timestamp) from persons join events on events.person_id = persons.id where persons.properties.email like '%posthog.com'"
+        )
+        # The bug: events__override is referenced in the JOIN ON clause before it's defined
+        # This finds where events__override is first used vs where it's defined (AS events__override)
+        first_use = printed.find("events__override")
+        definition = printed.find("AS events__override")
+        assert definition != -1, "events__override should be defined in the query"
+        assert first_use != -1, "events__override should be used in the query"
+        assert first_use >= definition, (
+            f"events__override is referenced at position {first_use} before it's defined at position {definition}. "
+            f"This causes 'Unknown identifier' errors in ClickHouse."
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_select_count_from_lazy_table(self):
         printed = self._print_select("select count() from persons")
