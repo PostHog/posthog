@@ -29,5 +29,5 @@ class TestBasicCapture(AcceptanceTest):
 
         event_uuid = self.client.capture_event(event_name, distinct_id, properties)
         found_event = self.client.query_event_by_uuid(event_uuid)
-        self.assert_event(found_event, event_uuid, event_name, distinct_id)
+        found_event = self.assert_event(found_event, event_uuid, event_name, distinct_id)
         self.assert_properties_contain(found_event.properties, properties)

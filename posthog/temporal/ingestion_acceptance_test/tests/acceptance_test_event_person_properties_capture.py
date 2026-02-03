@@ -20,7 +20,7 @@ class TestPersonPropertiesCapture(AcceptanceTest):
             event_name, distinct_id, {"$set": {**expected_person_props, "$test_timestamp": timestamp}}
         )
         found_event = self.client.query_event_by_uuid(event_uuid)
-        self.assert_event(found_event, event_uuid, event_name, distinct_id)
+        found_event = self.assert_event(found_event, event_uuid, event_name, distinct_id)
 
         set_props = found_event.properties.get("$set")
         assert set_props is not None, "$set properties not found in event"
