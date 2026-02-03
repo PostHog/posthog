@@ -108,5 +108,13 @@ export function GlobalShortcuts(): null {
         callback: () => toggleAccountMenu(),
     })
 
+    useAppShortcut({
+        name: 'toggle-theme',
+        keybind: [keyBinds.theme],
+        intent: 'Theme settings',
+        interaction: 'function',
+        callback: () => router.actions.push(urls.settings('user-customization', 'theme')),
+    })
+
     return null
 }

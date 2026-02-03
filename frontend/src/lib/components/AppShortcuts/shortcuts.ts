@@ -36,4 +36,5 @@ export const keyBinds: Record<string, string[]> = {
     newChat: ['g', 'then', 'n'],
     allChats: ['g', 'then', '1'],
     allApps: ['g', 'then', '2'],
+    theme: ['g', 'then', 't'],
 }
