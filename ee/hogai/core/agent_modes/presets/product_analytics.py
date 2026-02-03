@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import posthoganalytics
@@ -82,3 +83,14 @@ product_analytics_agent = AgentModeDefinition(
     node_class=ChatAgentExecutable,
     tools_node_class=ChatAgentToolsExecutable,
 )
+
+
+class SubagentProductAnalyticsAgentToolkit(AgentToolkit):
+    """Product analytics toolkit for subagents — excludes UpsertDashboardTool (dangerous operation)."""
+
+    @property
+    def tools(self) -> list[type["MaxTool"]]:
+        return [CreateInsightTool]
+
+
+subagent_product_analytics_agent = replace(product_analytics_agent, toolkit_class=SubagentProductAnalyticsAgentToolkit)

@@ -44,7 +44,13 @@ export function ClusterCard({
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2 mb-2">
-                            <h3 className="font-semibold text-base truncate">{cluster.title}</h3>
+                            <Link
+                                to={urls.llmAnalyticsCluster(runId, cluster.cluster_id)}
+                                className="font-semibold text-base truncate hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {cluster.title}
+                            </Link>
                             <LemonTag type={isOutlierCluster ? 'caution' : 'muted'}>
                                 {cluster.size} {itemLabel} ({percentage}%)
                             </LemonTag>

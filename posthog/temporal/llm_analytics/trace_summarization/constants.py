@@ -7,7 +7,9 @@ from temporalio.common import RetryPolicy
 from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode
 
 # Window processing configuration
-DEFAULT_MAX_ITEMS_PER_WINDOW = 10  # Max items to process per window (conservative for worst-case 30s/item)
+DEFAULT_MAX_ITEMS_PER_WINDOW = (
+    15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
+)
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
@@ -22,7 +24,7 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Timeout configuration (in seconds)
-SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
+SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 
 # Workflow-level timeouts (in minutes)

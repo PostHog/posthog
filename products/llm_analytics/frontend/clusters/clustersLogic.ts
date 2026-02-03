@@ -12,7 +12,7 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
-import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID } from './constants'
+import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
@@ -24,9 +24,6 @@ import {
     getLevelFromRunId,
     getTimestampBoundsFromRunId,
 } from './types'
-
-// Special color for outliers cluster
-const OUTLIER_COLOR = '#888888'
 
 export interface ScatterDataset {
     label: string
@@ -401,6 +398,8 @@ export const clustersLogic = kea<clustersLogicType>([
             // This handles direct URL navigation to a run with a different level
             if (currentRun?.level && currentRun.level !== values.clusteringLevel) {
                 actions.syncClusteringLevelFromRun(currentRun.level)
+                // Reload runs for the correct level so the dropdown shows proper labels
+                actions.loadClusteringRuns()
             }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {

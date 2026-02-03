@@ -270,13 +270,16 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
+        useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
-    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
+    const effectiveCount = pagination.entryCount ?? 0
+    const endCount = page * FLAGS_PER_PAGE < effectiveCount ? page * FLAGS_PER_PAGE : effectiveCount
+    const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -470,17 +473,21 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div>
-                <span className="text-secondary">
-                    {featureFlagsLoading ? (
-                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
-                    ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
+                <span
+                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
+                    aria-busy={filtersChanged}
+                    aria-live="polite"
+                >
+                    {filtersChanged ? (
+                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+                    ) : effectiveCount > 0 ? (
+                        flagCountText
                     ) : null}
                 </span>
             </div>
 
             <LemonTable
-                dataSource={featureFlags.results}
+                dataSource={displayedFlags}
                 columns={columns}
                 rowKey="key"
                 defaultSorting={{
@@ -489,6 +496,7 @@ export function OverViewTab({
                 }}
                 noSortingCancellation
                 loading={featureFlagsLoading}
+                disableTableWhileLoading={false}
                 pagination={pagination}
                 nouns={nouns}
                 data-attr="feature-flag-table"

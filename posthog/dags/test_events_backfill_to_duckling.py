@@ -1,8 +1,23 @@
-import pytest
+from datetime import date, datetime
 
+import pytest
+from unittest.mock import patch
+
+import duckdb
 from parameterized import parameterized
 
-from posthog.dags.events_backfill_to_duckling import get_s3_url_for_clickhouse, parse_partition_key
+from posthog.dags.events_backfill_to_duckling import (
+    EVENTS_TABLE_DDL,
+    EXPECTED_DUCKLAKE_COLUMNS,
+    EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
+    PERSONS_TABLE_DDL,
+    _validate_identifier,
+    get_months_in_range,
+    get_s3_url_for_clickhouse,
+    parse_partition_key,
+    parse_partition_key_dates,
+    table_exists,
+)
 
 
 class TestParsePartitionKey:
@@ -11,6 +26,8 @@ class TestParsePartitionKey:
             ("12345_2024-01-15", (12345, "2024-01-15")),
             ("1_2020-12-31", (1, "2020-12-31")),
             ("999999_2025-06-01", (999999, "2025-06-01")),
+            ("12345_2024-01", (12345, "2024-01")),
+            ("1_2020-12", (1, "2020-12")),
         ]
     )
     def test_valid_partition_keys(self, input_key, expected):
@@ -52,3 +69,213 @@ class TestGetS3UrlForClickhouse:
     )
     def test_url_format(self, bucket, region, path, expected):
         assert get_s3_url_for_clickhouse(bucket, region, path) == expected
+
+
+class TestValidateIdentifier:
+    @parameterized.expand(
+        [
+            ("valid",),
+            ("valid_with_underscore",),
+            ("Valid123",),
+            ("_leading_underscore",),
+            ("main",),
+            ("duckling",),
+        ]
+    )
+    def test_valid_identifiers(self, identifier):
+        # Should not raise
+        _validate_identifier(identifier)
+
+    @parameterized.expand(
+        [
+            ("invalid-hyphen", "Invalid SQL identifier"),
+            ("invalid.dot", "Invalid SQL identifier"),
+            ("invalid;semicolon", "Invalid SQL identifier"),
+            ("invalid'quote", "Invalid SQL identifier"),
+            ('invalid"doublequote', "Invalid SQL identifier"),
+            ("invalid space", "Invalid SQL identifier"),
+            ("DROP TABLE users;--", "Invalid SQL identifier"),
+        ]
+    )
+    def test_invalid_identifiers(self, identifier, expected_error_substr):
+        with pytest.raises(ValueError) as exc_info:
+            _validate_identifier(identifier)
+        assert expected_error_substr in str(exc_info.value)
+
+
+class TestTableExists:
+    def test_returns_true_when_table_exists(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE TABLE test_table (id INTEGER)")
+        assert table_exists(conn, "memory", "main", "test_table") is True
+        conn.close()
+
+    def test_returns_false_when_table_does_not_exist(self):
+        conn = duckdb.connect()
+        assert table_exists(conn, "memory", "main", "nonexistent_table") is False
+        conn.close()
+
+    def test_rejects_invalid_catalog_alias(self):
+        conn = duckdb.connect()
+        with pytest.raises(ValueError) as exc_info:
+            table_exists(conn, "invalid;injection", "main", "test")
+        assert "Invalid SQL identifier" in str(exc_info.value)
+        conn.close()
+
+    def test_rejects_invalid_schema(self):
+        conn = duckdb.connect()
+        with pytest.raises(ValueError) as exc_info:
+            table_exists(conn, "memory", "DROP TABLE", "test")
+        assert "Invalid SQL identifier" in str(exc_info.value)
+        conn.close()
+
+    def test_rejects_invalid_table(self):
+        conn = duckdb.connect()
+        with pytest.raises(ValueError) as exc_info:
+            table_exists(conn, "memory", "main", "test'; DROP TABLE users;--")
+        assert "Invalid SQL identifier" in str(exc_info.value)
+        conn.close()
+
+
+class TestEventsDDL:
+    def test_events_ddl_is_valid_sql(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        conn.execute(ddl)
+
+        # Verify table was created with expected columns
+        result = conn.execute("DESCRIBE memory.posthog.events").fetchall()
+        column_names = {row[0] for row in result}
+
+        assert column_names == EXPECTED_DUCKLAKE_COLUMNS
+        conn.close()
+
+    def test_events_ddl_is_idempotent(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        # Should not raise on second execution
+        conn.execute(ddl)
+        conn.execute(ddl)
+        conn.close()
+
+
+class TestPersonsDDL:
+    def test_persons_ddl_is_valid_sql(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        conn.execute(ddl)
+
+        # Verify table was created with expected columns
+        result = conn.execute("DESCRIBE memory.posthog.persons").fetchall()
+        column_names = {row[0] for row in result}
+
+        assert column_names == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+        conn.close()
+
+    def test_persons_ddl_is_idempotent(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        # Should not raise on second execution
+        conn.execute(ddl)
+        conn.execute(ddl)
+        conn.close()
+
+
+class TestParsePartitionKeyDates:
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_daily_format_returns_single_date(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-01-15")
+        assert team_id == 12345
+        assert dates == [datetime(2024, 1, 15)]
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_daily_format_future_date_returns_empty(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-06-20")
+        assert team_id == 12345
+        assert dates == []
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_past_month_returns_all_days(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-01")
+        assert team_id == 12345
+        assert len(dates) == 31
+        assert dates[0] == datetime(2024, 1, 1)
+        assert dates[-1] == datetime(2024, 1, 31)
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_current_month_returns_up_to_yesterday(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-06")
+        assert team_id == 12345
+        assert len(dates) == 14
+        assert dates[0] == datetime(2024, 6, 1)
+        assert dates[-1] == datetime(2024, 6, 14)
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_future_month_returns_empty(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-07")
+        assert team_id == 12345
+        assert dates == []
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_leap_year_february(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-02")
+        assert team_id == 12345
+        assert len(dates) == 29
+        assert dates[-1] == datetime(2024, 2, 29)
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_non_leap_year_february(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2023-02")
+        assert team_id == 12345
+        assert len(dates) == 28
+        assert dates[-1] == datetime(2023, 2, 28)
+
+
+class TestGetMonthsInRange:
+    @parameterized.expand(
+        [
+            (date(2024, 1, 15), date(2024, 1, 20), ["2024-01"]),
+            (date(2024, 1, 1), date(2024, 3, 15), ["2024-01", "2024-02", "2024-03"]),
+            (date(2023, 11, 1), date(2024, 2, 15), ["2023-11", "2023-12", "2024-01", "2024-02"]),
+            (
+                date(2022, 6, 1),
+                date(2024, 2, 15),
+                [
+                    "2022-06",
+                    "2022-07",
+                    "2022-08",
+                    "2022-09",
+                    "2022-10",
+                    "2022-11",
+                    "2022-12",
+                    "2023-01",
+                    "2023-02",
+                    "2023-03",
+                    "2023-04",
+                    "2023-05",
+                    "2023-06",
+                    "2023-07",
+                    "2023-08",
+                    "2023-09",
+                    "2023-10",
+                    "2023-11",
+                    "2023-12",
+                    "2024-01",
+                    "2024-02",
+                ],
+            ),
+        ]
+    )
+    def test_returns_correct_months(self, start_date, end_date, expected):
+        assert get_months_in_range(start_date, end_date) == expected
