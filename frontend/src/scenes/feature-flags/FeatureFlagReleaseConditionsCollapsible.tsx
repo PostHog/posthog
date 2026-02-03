@@ -227,7 +227,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 if (panels && panels[panelIndex]) {
                     panels[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'start' })
                 }
-            }, 100)
+            }, 150)
         }
     }
 
