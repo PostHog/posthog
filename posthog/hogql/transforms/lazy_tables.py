@@ -454,23 +454,23 @@ class LazyTableResolver(TraversingVisitor):
                         references_lazy_join
                         and join_ptr.constraint is not None
                         and isinstance(join_ptr.constraint.expr, ast.CompareOperation)
+                        and isinstance(join_ptr.table, ast.Field)
                     ):
                         constraint_expr = join_ptr.constraint.expr
-                        original_alias = join_ptr.alias or (
-                            join_ptr.table.chain[0] if isinstance(join_ptr.table, ast.Field) else None
-                        )
+                        original_alias = join_ptr.alias or str(join_ptr.table.chain[0])
 
                         # Wrap table in subquery: SELECT *, <join_key_expr> AS __join_key FROM <table>
                         subquery = ast.SelectQuery(
                             select=[
-                                ast.Field(chain=[original_alias, "*"] if original_alias else ["*"]),
+                                ast.Field(chain=[original_alias, "*"]),
                                 ast.Alias(alias="__join_key", expr=clone_expr(constraint_expr.left, clear_types=True)),
                             ],
                             select_from=ast.JoinExpr(
-                                table=clone_expr(join_ptr.table, clear_types=True), alias=original_alias
+                                table=ast.Field(chain=list(join_ptr.table.chain)), alias=original_alias
                             ),
                         )
                         subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
+                        assert subquery.type is not None
 
                         join_ptr.table = subquery
                         join_ptr.alias = original_alias
