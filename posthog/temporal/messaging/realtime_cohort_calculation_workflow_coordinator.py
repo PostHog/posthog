@@ -92,8 +92,18 @@ async def check_running_child_workflows_activity() -> RunningChildWorkflowsCheck
     """Check if any child workflows from previous runs are still running."""
     client = await async_connect()
 
+    # Only check workflows started in the last 24 hours
+    # Realtime cohort calculations shouldn't run longer than this
+    since = dt.datetime.utcnow() - dt.timedelta(hours=24)
+    since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
     # Query for workflows that match our child workflow ID pattern and are running
-    query = 'WorkflowId STARTS_WITH "realtime-cohort-calculation-schedule" AND WorkflowId CONTAINS "-child-" AND ExecutionStatus="Running"'
+    query = (
+        'WorkflowId STARTS_WITH "realtime-cohort-calculation-schedule" '
+        'AND WorkflowId CONTAINS "-child-" '
+        'AND ExecutionStatus="Running" '
+        f'AND StartTime > "{since_str}"'
+    )
 
     running_count = 0
     async for _workflow in client.list_workflows(query=query):
