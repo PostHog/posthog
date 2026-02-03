@@ -296,7 +296,7 @@ function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
 /**
  * Shadow version of CyclotronJobQueuePostgres for dual-write testing.
  * Uses CyclotronShadowManager which connects to a separate static singleton in the Rust library,
- * allowing it to connect to a different database (e.g., PlanetScale) than the main manager.
+ * allowing it to connect to a different database than the main manager.
  *
  * Only supports producer functionality (queueInvocations) - not consumer functionality.
  */
