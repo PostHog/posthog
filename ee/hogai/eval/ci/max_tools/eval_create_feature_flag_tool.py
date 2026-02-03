@@ -8,12 +8,17 @@ from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
 from braintrust import EvalCase, Score
 
+from posthog.schema import FeatureFlagGroupType, PersonPropertyFilter, PropertyOperator
+
 from posthog.models import FeatureFlag
 
-from products.feature_flags.backend.max_tools import CreateFeatureFlagTool
+from products.feature_flags.backend.max_tools import (
+    CreateFeatureFlagTool,
+    FeatureFlagCreationSchema,
+    MultivariateVariant,
+)
 
 from ee.hogai.eval.base import MaxPublicEval
-from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
 
@@ -76,14 +81,10 @@ async def eval_create_feature_flag(pytestconfig, demo_org_team_user):
     duplicate_key = f"existing-flag-{uuid.uuid4().hex[:8]}"
     await FeatureFlag.objects.acreate(team=team, key=duplicate_key, name="Existing Flag", created_by=user)
 
-    # Generate unique keys for test cases
-    unique_suffix = uuid.uuid4().hex[:6]
-
     async def task_create_flag(test_case: dict):
-        tool = await CreateFeatureFlagTool.create_tool_class(
+        tool = CreateFeatureFlagTool(
             team=team,
             user=user,
-            state=AssistantState(messages=[]),
             config={
                 "configurable": {
                     "thread_id": conversation.id,
@@ -93,9 +94,18 @@ async def eval_create_feature_flag(pytestconfig, demo_org_team_user):
             },
         )
 
-        result_message, artifact = await tool._arun_impl(instructions=test_case["instructions"])
+        flag_schema = FeatureFlagCreationSchema(
+            key=test_case["key"],
+            name=test_case["name"],
+            description=test_case.get("description"),
+            active=test_case.get("active", True),
+            group_type=test_case.get("group_type"),
+            groups=test_case.get("groups", []),
+            tags=test_case.get("tags", []),
+            variants=test_case.get("variants"),
+        )
 
-        flag_key = artifact.get("flag_key")
+        result_message, artifact = await tool._arun_impl(feature_flag=flag_schema)
 
         # Initialize result dict
         result: dict = {
@@ -103,6 +113,7 @@ async def eval_create_feature_flag(pytestconfig, demo_org_team_user):
         }
 
         # Verify flag creation and properties based on test case expectations
+        flag_key = artifact.get("flag_key")
         if flag_key:
             try:
                 flag = await FeatureFlag.objects.aget(team=team, key=flag_key, deleted=False)
@@ -172,6 +183,8 @@ async def eval_create_feature_flag(pytestconfig, demo_org_team_user):
 
         return result
 
+    unique_suffix = uuid.uuid4().hex[:6]
+
     await MaxPublicEval(
         experiment_name="create_feature_flag",
         task=task_create_flag,  # type: ignore
@@ -180,219 +193,382 @@ async def eval_create_feature_flag(pytestconfig, demo_org_team_user):
             # Basic feature flag creation
             EvalCase(
                 input={
-                    "instructions": f"Create a feature flag called 'new-homepage-{unique_suffix}' for testing the new homepage design"
+                    "key": f"new-homepage-{unique_suffix}",
+                    "name": "New Homepage",
+                    "description": "Testing the new homepage design",
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'new-homepage-{unique_suffix}'",
-                    "flag_key": f"new-homepage-{unique_suffix}",
                     "created": True,
                 },
+                metadata={"test_type": "basic_flag"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create a feature flag called 'dark-mode-{unique_suffix}' that is inactive by default"
+                    "key": f"dark-mode-{unique_suffix}",
+                    "name": "Dark Mode",
+                    "active": False,
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'dark-mode-{unique_suffix}'",
-                    "flag_key": f"dark-mode-{unique_suffix}",
                     "created": True,
                 },
+                metadata={"test_type": "inactive_flag"},
             ),
             # Feature flags with rollout percentages
             EvalCase(
                 input={
-                    "instructions": f"Create a feature flag called 'new-dashboard-{unique_suffix}' with 10% rollout"
+                    "key": f"new-dashboard-{unique_suffix}",
+                    "name": "New Dashboard",
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[],
+                            rollout_percentage=10,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'new-dashboard-{unique_suffix}' with 10% rollout",
                     "rollout_percentage": 10,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "rollout_10_percent"},
             ),
             EvalCase(
-                input={"instructions": f"Create a flag called 'beta-features-{unique_suffix}' at 50% rollout"},
+                input={
+                    "key": f"beta-features-{unique_suffix}",
+                    "name": "Beta Features",
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[],
+                            rollout_percentage=50,
+                        )
+                    ],
+                },
                 expected={
-                    "message": f"Successfully created feature flag 'beta-features-{unique_suffix}' with 50% rollout",
                     "rollout_percentage": 50,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "rollout_50_percent"},
             ),
             EvalCase(
-                input={"instructions": f"Create a flag called 'new-api-{unique_suffix}' with 100% rollout"},
+                input={
+                    "key": f"new-api-{unique_suffix}",
+                    "name": "New API",
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[],
+                            rollout_percentage=100,
+                        )
+                    ],
+                },
                 expected={
-                    "message": f"Successfully created feature flag 'new-api-{unique_suffix}' with 100% rollout",
                     "rollout_percentage": 100,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "rollout_100_percent"},
             ),
             # Feature flags with property filters
             EvalCase(
                 input={
-                    "instructions": f"Create a flag called 'company-email-{unique_suffix}' for users where email contains @company.com"
+                    "key": f"company-email-{unique_suffix}",
+                    "name": "Company Email Users",
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="email",
+                                    value="@company.com",
+                                    operator=PropertyOperator.ICONTAINS,
+                                )
+                            ],
+                            rollout_percentage=None,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'company-email-{unique_suffix}' for users where email contains @company.com",
                     "has_properties": True,
                     "created": True,
                     "schema_valid": True,
                 },
-            ),
-            EvalCase(
-                input={"instructions": f"Create a flag called 'us-users-{unique_suffix}' targeting users in the US"},
-                expected={
-                    "message": f"Successfully created feature flag 'us-users-{unique_suffix}' targeting users in the US",
-                    "has_properties": True,
-                    "created": True,
-                    "schema_valid": True,
-                },
+                metadata={"test_type": "email_property_filter"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create a flag called 'test-email-{unique_suffix}' for 25% of users where email contains @test.com"
+                    "key": f"us-users-{unique_suffix}",
+                    "name": "US Users",
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="country",
+                                    value="US",
+                                    operator=PropertyOperator.EXACT,
+                                )
+                            ],
+                            rollout_percentage=None,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'test-email-{unique_suffix}' for 25% of users where email contains @test.com",
                     "has_properties": True,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "country_property_filter"},
+            ),
+            EvalCase(
+                input={
+                    "key": f"test-email-{unique_suffix}",
+                    "name": "Test Email Users",
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="email",
+                                    value="@test.com",
+                                    operator=PropertyOperator.ICONTAINS,
+                                )
+                            ],
+                            rollout_percentage=25,
+                        )
+                    ],
+                },
+                expected={
+                    "has_properties": True,
+                    "created": True,
+                    "schema_valid": True,
+                },
+                metadata={"test_type": "property_filter_with_rollout"},
             ),
             # Duplicate handling
             EvalCase(
-                input={"instructions": f"Create a flag with key {duplicate_key}"},
+                input={
+                    "key": duplicate_key,
+                    "name": "Duplicate Flag",
+                    "expected": {"is_duplicate_error": True},
+                },
                 expected={
-                    "message": f"Failed to create feature flag: Feature flag with key '{duplicate_key}' already exists",
                     "is_duplicate_error": True,
                 },
+                metadata={"test_type": "duplicate_key"},
             ),
             # Multivariate feature flags (A/B tests)
             EvalCase(
                 input={
-                    "instructions": f"Create an A/B test flag called 'ab-test-{unique_suffix}' with control and test variants"
+                    "key": f"ab-test-{unique_suffix}",
+                    "name": "A/B Test",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=50),
+                        MultivariateVariant(key="test", name="Test", rollout_percentage=50),
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'ab-test-{unique_suffix}' with A/B test",
                     "has_multivariate": True,
                     "variant_count": 2,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "ab_test"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create a multivariate flag called 'abc-test-{unique_suffix}' with 3 variants for testing"
+                    "key": f"abc-test-{unique_suffix}",
+                    "name": "A/B/C Test",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=33),
+                        MultivariateVariant(key="variant_a", name="Variant A", rollout_percentage=33),
+                        MultivariateVariant(key="variant_b", name="Variant B", rollout_percentage=34),
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'abc-test-{unique_suffix}' with multivariate",
                     "has_multivariate": True,
                     "variant_count": 3,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "abc_test"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create an A/B test flag called 'pricing-test-{unique_suffix}' for testing new pricing"
+                    "key": f"pricing-test-{unique_suffix}",
+                    "name": "Pricing Test",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Current Pricing", rollout_percentage=50),
+                        MultivariateVariant(key="test", name="New Pricing", rollout_percentage=50),
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'pricing-test-{unique_suffix}' with A/B test",
                     "has_multivariate": True,
                     "variant_count": 2,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "pricing_ab_test"},
             ),
             # Multivariate with rollout
             EvalCase(
                 input={
-                    "instructions": f"Create an A/B test flag called 'ab-rollout-{unique_suffix}' with control and test variants at 50% rollout"
+                    "key": f"ab-rollout-{unique_suffix}",
+                    "name": "A/B Test with Rollout",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=50),
+                        MultivariateVariant(key="test", name="Test", rollout_percentage=50),
+                    ],
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[],
+                            rollout_percentage=50,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'ab-rollout-{unique_suffix}' with A/B test and 50% rollout",
                     "has_multivariate": True,
                     "variant_count": 2,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "ab_test_with_rollout"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create a multivariate flag called 'experiment-{unique_suffix}' with 3 variants at 10% rollout"
+                    "key": f"experiment-{unique_suffix}",
+                    "name": "Experiment",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=33),
+                        MultivariateVariant(key="variant_a", name="Variant A", rollout_percentage=33),
+                        MultivariateVariant(key="variant_b", name="Variant B", rollout_percentage=34),
+                    ],
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[],
+                            rollout_percentage=10,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'experiment-{unique_suffix}' with multivariate and 10% rollout",
                     "has_multivariate": True,
                     "variant_count": 3,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "multivariate_with_rollout"},
             ),
             # Multivariate with property filters
             EvalCase(
                 input={
-                    "instructions": f"Create an A/B test flag called 'email-test-{unique_suffix}' for users where email contains @company.com with control and test variants"
+                    "key": f"email-test-{unique_suffix}",
+                    "name": "Email Test",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=50),
+                        MultivariateVariant(key="test", name="Test", rollout_percentage=50),
+                    ],
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="email",
+                                    value="@company.com",
+                                    operator=PropertyOperator.ICONTAINS,
+                                )
+                            ],
+                            rollout_percentage=None,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'email-test-{unique_suffix}' with A/B test for users where email contains @company.com",
                     "has_multivariate": True,
                     "has_properties": True,
                     "variant_count": 2,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "ab_test_with_property_filter"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create a multivariate flag called 'us-experiment-{unique_suffix}' with 3 variants targeting US users"
+                    "key": f"us-experiment-{unique_suffix}",
+                    "name": "US Experiment",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=33),
+                        MultivariateVariant(key="variant_a", name="Variant A", rollout_percentage=33),
+                        MultivariateVariant(key="variant_b", name="Variant B", rollout_percentage=34),
+                    ],
+                    "groups": [
+                        FeatureFlagGroupType(
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="country",
+                                    value="US",
+                                    operator=PropertyOperator.EXACT,
+                                )
+                            ],
+                            rollout_percentage=None,
+                        )
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'us-experiment-{unique_suffix}' with multivariate targeting US users",
                     "has_multivariate": True,
                     "has_properties": True,
                     "variant_count": 3,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "multivariate_with_property_filter"},
             ),
             # Multivariate with custom percentages
             EvalCase(
                 input={
-                    "instructions": f"Create an A/B test flag called 'uneven-test-{unique_suffix}' with control at 70% and test at 30%"
+                    "key": f"uneven-test-{unique_suffix}",
+                    "name": "Uneven Test",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=70),
+                        MultivariateVariant(key="test", name="Test", rollout_percentage=30),
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'uneven-test-{unique_suffix}' with A/B test",
                     "has_multivariate": True,
                     "variant_count": 2,
                     "percentages_valid": True,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "uneven_ab_test"},
             ),
             EvalCase(
                 input={
-                    "instructions": f"Create a multivariate flag called 'weighted-test-{unique_suffix}' with control (33%), variant_a (33%), variant_b (34%)"
+                    "key": f"weighted-test-{unique_suffix}",
+                    "name": "Weighted Test",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=33),
+                        MultivariateVariant(key="variant_a", name="Variant A", rollout_percentage=33),
+                        MultivariateVariant(key="variant_b", name="Variant B", rollout_percentage=34),
+                    ],
                 },
                 expected={
-                    "message": f"Successfully created feature flag 'weighted-test-{unique_suffix}' with multivariate",
                     "has_multivariate": True,
                     "variant_count": 3,
                     "percentages_valid": True,
                     "created": True,
                     "schema_valid": True,
                 },
+                metadata={"test_type": "weighted_multivariate"},
             ),
             # Error handling for invalid multivariate
             EvalCase(
                 input={
-                    "instructions": f"Create an A/B test flag called 'invalid-percentage-{unique_suffix}' with control at 60% and test at 50%"
+                    "key": f"invalid-percentage-{unique_suffix}",
+                    "name": "Invalid Percentage",
+                    "variants": [
+                        MultivariateVariant(key="control", name="Control", rollout_percentage=60),
+                        MultivariateVariant(key="test", name="Test", rollout_percentage=50),  # Sum is 110!
+                    ],
+                    "expected": {"has_error": True},
                 },
                 expected={
-                    "message": "The variant percentages you provided (control: 60%, test: 50%) sum to 110%, but they must sum to exactly 100%. Please adjust the percentages so they add up to 100.",
                     "has_error": True,
                 },
+                metadata={"test_type": "invalid_percentages"},
             ),
         ],
         pytestconfig=pytestconfig,
