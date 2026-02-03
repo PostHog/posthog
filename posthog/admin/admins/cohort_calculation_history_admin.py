@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 
 
 class CohortCalculationHistoryAdmin(admin.ModelAdmin):
@@ -69,7 +68,7 @@ class CohortCalculationHistoryAdmin(admin.ModelAdmin):
         if not obj.queries:
             return "No query information available"
 
-        output = []
+        query_htmls = []
         for i, query in enumerate(obj.queries):
             query_id = query.get("query_id", "N/A")
             duration = query.get("query_ms", "N/A")
@@ -77,17 +76,24 @@ class CohortCalculationHistoryAdmin(admin.ModelAdmin):
             read_rows = query.get("read_rows", "N/A")
             written_rows = query.get("written_rows", "N/A")
 
-            output.append(f"""
-                <div style="border: 1px solid #ddd; padding: 10px; margin: 5px 0; border-radius: 5px;">
-                    <strong>Query #{i + 1}</strong><br>
-                    <strong>ID:</strong> <code style="background: #f8f9fa; padding: 2px 4px; user-select: all;">{query_id}</code><br>
-                    <strong>Duration:</strong> {duration} ms<br>
-                    <strong>Memory:</strong> {memory} MB<br>
-                    <strong>Rows Read:</strong> {read_rows:,} | <strong>Written:</strong> {written_rows:,}
-                </div>
-            """)
+            query_html = format_html(
+                """<div style="border: 1px solid #ddd; padding: 10px; margin: 5px 0; border-radius: 5px;">
+                    <strong>Query #{}</strong><br>
+                    <strong>ID:</strong> <code style="background: #f8f9fa; padding: 2px 4px; user-select: all;">{}</code><br>
+                    <strong>Duration:</strong> {} ms<br>
+                    <strong>Memory:</strong> {} MB<br>
+                    <strong>Rows Read:</strong> {} | <strong>Written:</strong> {}
+                </div>""",
+                i + 1,
+                query_id,
+                duration,
+                memory,
+                f"{read_rows:,}" if isinstance(read_rows, int) else read_rows,
+                f"{written_rows:,}" if isinstance(written_rows, int) else written_rows,
+            )
+            query_htmls.append(query_html)
 
-        return mark_safe("".join(output))
+        return format_html("{}".join(["{}"] * len(query_htmls)), *query_htmls)
 
     def has_add_permission(self, request):
         return False
