@@ -1947,7 +1947,7 @@ class FeatureFlagViewSet(
             log_activity(
                 organization_id=flag.team.organization_id,
                 team_id=flag.team_id,
-                user=request.user,
+                user=request.user if request.user.is_authenticated else None,
                 was_impersonated=False,
                 item_id=flag.id,
                 scope="FeatureFlag",
