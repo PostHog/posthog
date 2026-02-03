@@ -14,6 +14,7 @@ import logging
 
 from django.db.models import F, Q
 
+import posthoganalytics
 from rest_framework import serializers, status
 from rest_framework.exceptions import UnsupportedMediaType, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -21,6 +22,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from statshog.defaults.django import statsd
 
 from posthog.api.uploaded_media import upload_image
 from posthog.auth import WidgetAuthentication
@@ -29,6 +31,7 @@ from posthog.models.comment import Comment
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUploadThrottle, WidgetUserBurstThrottle
 from posthog.tasks.email import send_new_ticket_notification
+from posthog.utils import get_ip_address
 
 from products.conversations.backend.api.serializers import (
     WidgetMarkReadSerializer,
@@ -455,21 +458,66 @@ class WidgetUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [WidgetUploadThrottle, WidgetTeamThrottle]
 
+    def _log_upload_attempt(
+        self,
+        request: Request,
+        result: str,
+        team_id: int | None = None,
+        widget_session_id: str | None = None,
+        file_size: int | None = None,
+    ) -> None:
+        """Log upload attempt for observability and incident response."""
+        ip = get_ip_address(request)
+        tags: dict[str, str | int] = {"result": result}
+        if team_id is not None:
+            tags["team_id"] = team_id
+
+        statsd.incr("widget_upload.request", tags=tags)
+        if file_size is not None and result == "success":
+            statsd.gauge("widget_upload.file_size_bytes", file_size, tags=tags)
+
+        logger.info(
+            "widget_upload.attempt",
+            extra={
+                "result": result,
+                "ip": ip,
+                "team_id": team_id,
+                "widget_session_id": widget_session_id,
+                "file_size": file_size,
+            },
+        )
+
     def post(self, request: Request) -> Response:
         """Handle image upload from widget."""
 
         team: Team | None = request.auth  # type: ignore[assignment]
         if not team:
+            self._log_upload_attempt(request, result="auth_failed")
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Circuit breaker: feature flag "disable-widget-uploads" can be toggled from PostHog dashboard
+        if posthoganalytics.feature_enabled(
+            "disable-widget-uploads",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            self._log_upload_attempt(request, result="disabled", team_id=team.pk)
+            return Response(
+                {"error": "Image uploads are temporarily disabled", "code": "uploads_disabled"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         # Validate origin
         if not validate_origin(request, team):
+            self._log_upload_attempt(request, result="origin_blocked", team_id=team.pk)
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
         # Validate widget_session_id (used for rate limiting and ticket validation)
         serializer = WidgetUploadSerializer(data=request.data)
         if not serializer.is_valid():
-            logger.warning("Validation error in WidgetUploadView", extra={"errors": serializer.errors})
+            self._log_upload_attempt(request, result="invalid_session_id", team_id=team.pk)
             return Response(
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -478,6 +526,7 @@ class WidgetUploadView(APIView):
 
         # Only allow uploads from sessions with existing tickets (prevents abuse)
         if not Ticket.objects.filter(team=team, widget_session_id=widget_session_id).exists():
+            self._log_upload_attempt(request, result="no_ticket", team_id=team.pk, widget_session_id=widget_session_id)
             return Response(
                 {"error": "Must have an active conversation to upload images", "code": "no_ticket"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -487,13 +536,19 @@ class WidgetUploadView(APIView):
         try:
             file = request.data["image"]
         except KeyError:
+            self._log_upload_attempt(request, result="no_image", team_id=team.pk, widget_session_id=widget_session_id)
             return Response(
                 {"error": "An image file must be provided", "code": "no-image-provided"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        file_size = file.size if hasattr(file, "size") else None
+
         try:
             uploaded_media = upload_image(team=team, file=file, created_by=None, size_limit=UPLOAD_LIMIT)
+            self._log_upload_attempt(
+                request, result="success", team_id=team.pk, widget_session_id=widget_session_id, file_size=file_size
+            )
             return Response(
                 {
                     "id": str(uploaded_media.id),
@@ -505,17 +560,34 @@ class WidgetUploadView(APIView):
         except ValidationError as e:
             # Extract code from ValidationError (get_codes() returns a list)
             codes = e.get_codes()
-            code = codes[0] if isinstance(codes, list) and codes else codes
+            code = codes[0] if isinstance(codes, list) and codes else (codes or "validation_error")
+            self._log_upload_attempt(
+                request, result=code, team_id=team.pk, widget_session_id=widget_session_id, file_size=file_size
+            )
             return Response(
                 {"error": str(e.detail), "code": code},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except UnsupportedMediaType as e:
+            self._log_upload_attempt(
+                request,
+                result="unsupported_media_type",
+                team_id=team.pk,
+                widget_session_id=widget_session_id,
+                file_size=file_size,
+            )
             return Response(
                 {"error": f"Unsupported media type: {e.detail}", "code": "unsupported_media_type"},
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             )
         except ObjectStorageUnavailable:
+            self._log_upload_attempt(
+                request,
+                result="object_storage_unavailable",
+                team_id=team.pk,
+                widget_session_id=widget_session_id,
+                file_size=file_size,
+            )
             return Response(
                 {
                     "error": "Object storage must be available to allow media uploads.",

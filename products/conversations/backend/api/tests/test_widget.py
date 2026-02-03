@@ -601,6 +601,19 @@ class TestWidgetUploadAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("products.conversations.backend.api.widget.posthoganalytics.feature_enabled", return_value=True)
+    def test_upload_circuit_breaker_disabled(self, mock_feature_flag):
+        """Circuit breaker: disable-widget-uploads feature flag stops all uploads."""
+        fake_image = SimpleUploadedFile("test.png", VALID_PNG, content_type="image/png")
+        response = self.client.post(
+            "/api/conversations/v1/widget/upload",
+            {"image": fake_image, "widget_session_id": self.widget_session_id},
+            format="multipart",
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "uploads_disabled")
+
     # === Authorization Tests ===
 
     def test_upload_requires_widget_session_id(self):
