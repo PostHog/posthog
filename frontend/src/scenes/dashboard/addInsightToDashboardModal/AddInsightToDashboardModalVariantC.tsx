@@ -69,7 +69,7 @@ export function AddInsightToDashboardModalVariantC(): JSX.Element {
                                         type="secondary"
                                         size="small"
                                         icon={<Icon />}
-                                        to={urls.insightNew({ insight: type, dashboardId: dashboard?.id })}
+                                        to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
                                         data-attr={`quick-create-${type.toLowerCase()}`}
                                     >
@@ -90,7 +90,7 @@ export function AddInsightToDashboardModalVariantC(): JSX.Element {
                                                         fullWidth
                                                         icon={Icon ? <Icon /> : undefined}
                                                         to={urls.insightNew({
-                                                            insight: type as InsightType,
+                                                            type: type as InsightType,
                                                             dashboardId: dashboard?.id,
                                                         })}
                                                         data-attr={`create-${type.toLowerCase()}`}

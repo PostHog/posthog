@@ -60,7 +60,7 @@ export function AddInsightToDashboardModalVariantB(): JSX.Element {
                                                 type={type}
                                                 metadata={metadata}
                                                 to={urls.insightNew({
-                                                    insight: type as InsightType,
+                                                    type: type as InsightType,
                                                     dashboardId: dashboard?.id,
                                                 })}
                                             />
