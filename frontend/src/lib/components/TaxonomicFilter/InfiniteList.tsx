@@ -337,11 +337,23 @@ const InfiniteListRow = ({
     }
 
     if (item && itemGroup) {
+        // Check if this item is disabled using the group's getIsDisabled function
+        const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
+
         return (
             <div
                 {...commonDivProps}
+                className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => {
+                role="button"
+                aria-disabled={isDisabledItem}
+                onClick={(event) => {
+                    // Prevent selection of disabled items
+                    if (isDisabledItem) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        return
+                    }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
                         selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
