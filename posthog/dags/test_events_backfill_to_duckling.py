@@ -1,4 +1,7 @@
+from datetime import date, datetime
+
 import pytest
+from unittest.mock import patch
 
 import duckdb
 from parameterized import parameterized
@@ -9,8 +12,10 @@ from posthog.dags.events_backfill_to_duckling import (
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
     _validate_identifier,
+    get_months_in_range,
     get_s3_url_for_clickhouse,
     parse_partition_key,
+    parse_partition_key_dates,
     table_exists,
 )
 
@@ -21,6 +26,8 @@ class TestParsePartitionKey:
             ("12345_2024-01-15", (12345, "2024-01-15")),
             ("1_2020-12-31", (1, "2020-12-31")),
             ("999999_2025-06-01", (999999, "2025-06-01")),
+            ("12345_2024-01", (12345, "2024-01")),
+            ("1_2020-12", (1, "2020-12")),
         ]
     )
     def test_valid_partition_keys(self, input_key, expected):
@@ -176,3 +183,99 @@ class TestPersonsDDL:
         conn.execute(ddl)
         conn.execute(ddl)
         conn.close()
+
+
+class TestParsePartitionKeyDates:
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_daily_format_returns_single_date(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-01-15")
+        assert team_id == 12345
+        assert dates == [datetime(2024, 1, 15)]
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_daily_format_future_date_returns_empty(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-06-20")
+        assert team_id == 12345
+        assert dates == []
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_past_month_returns_all_days(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-01")
+        assert team_id == 12345
+        assert len(dates) == 31
+        assert dates[0] == datetime(2024, 1, 1)
+        assert dates[-1] == datetime(2024, 1, 31)
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_current_month_returns_up_to_yesterday(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-06")
+        assert team_id == 12345
+        assert len(dates) == 14
+        assert dates[0] == datetime(2024, 6, 1)
+        assert dates[-1] == datetime(2024, 6, 14)
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_future_month_returns_empty(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-07")
+        assert team_id == 12345
+        assert dates == []
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_leap_year_february(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2024-02")
+        assert team_id == 12345
+        assert len(dates) == 29
+        assert dates[-1] == datetime(2024, 2, 29)
+
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_monthly_format_non_leap_year_february(self, mock_timezone):
+        mock_timezone.now.return_value = datetime(2024, 6, 15, 12, 0, 0)
+        team_id, dates = parse_partition_key_dates("12345_2023-02")
+        assert team_id == 12345
+        assert len(dates) == 28
+        assert dates[-1] == datetime(2023, 2, 28)
+
+
+class TestGetMonthsInRange:
+    @parameterized.expand(
+        [
+            (date(2024, 1, 15), date(2024, 1, 20), ["2024-01"]),
+            (date(2024, 1, 1), date(2024, 3, 15), ["2024-01", "2024-02", "2024-03"]),
+            (date(2023, 11, 1), date(2024, 2, 15), ["2023-11", "2023-12", "2024-01", "2024-02"]),
+            (
+                date(2022, 6, 1),
+                date(2024, 2, 15),
+                [
+                    "2022-06",
+                    "2022-07",
+                    "2022-08",
+                    "2022-09",
+                    "2022-10",
+                    "2022-11",
+                    "2022-12",
+                    "2023-01",
+                    "2023-02",
+                    "2023-03",
+                    "2023-04",
+                    "2023-05",
+                    "2023-06",
+                    "2023-07",
+                    "2023-08",
+                    "2023-09",
+                    "2023-10",
+                    "2023-11",
+                    "2023-12",
+                    "2024-01",
+                    "2024-02",
+                ],
+            ),
+        ]
+    )
+    def test_returns_correct_months(self, start_date, end_date, expected):
+        assert get_months_in_range(start_date, end_date) == expected

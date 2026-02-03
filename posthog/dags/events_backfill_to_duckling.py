@@ -30,6 +30,8 @@ Partition Strategy:
     - date is the partition date (YYYY-MM-DD)
 """
 
+import json
+import calendar
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -221,7 +223,7 @@ def parse_partition_key(key: str) -> tuple[int, str]:
 def parse_partition_key_dates(key: str) -> tuple[int, list[datetime]]:
     """Parse a partition key and return the list of dates to process.
 
-    For daily partitions (YYYY-MM-DD): returns a single date
+    For daily partitions (YYYY-MM-DD): returns a single date (or empty if future)
     For monthly partitions (YYYY-MM): returns all dates in that month up to yesterday
 
     Args:
@@ -230,8 +232,6 @@ def parse_partition_key_dates(key: str) -> tuple[int, list[datetime]]:
     Returns:
         Tuple of (team_id, list of datetime objects to process)
     """
-    import calendar
-
     team_id, date_str = parse_partition_key(key)
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
@@ -248,7 +248,11 @@ def parse_partition_key_dates(key: str) -> tuple[int, list[datetime]]:
                 dates.append(d)
         return team_id, dates
     else:  # YYYY-MM-DD format
-        return team_id, [datetime.strptime(date_str, "%Y-%m-%d")]
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        # Don't process future dates
+        if d.date() > yesterday:
+            return team_id, []
+        return team_id, [d]
 
 
 def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str) -> str:
@@ -1422,8 +1426,6 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_full_backfill_sensor -> Reset cursor
     """
-    import json
-
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
     # Parse cursor - tracks where we left off
@@ -1457,7 +1459,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
     run_requests: list[RunRequest] = []
 
     # Process catalogs starting from where we left off
-    for catalog in catalogs[start_idx:]:
+    for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
         if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
             context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
@@ -1513,7 +1515,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             }
         else:
             # Done with this team, move to next
-            next_idx = catalogs.index(catalog) + 1
+            next_idx = catalog_idx + 1
             if next_idx < len(catalogs):
                 cursor_data = {"team_id": catalogs[next_idx].team_id}
             else:
@@ -1658,8 +1660,6 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    import json
-
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
     # Parse cursor - tracks where we left off
@@ -1693,7 +1693,7 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
     run_requests: list[RunRequest] = []
 
     # Process catalogs starting from where we left off
-    for catalog in catalogs[start_idx:]:
+    for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
         if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
             context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
@@ -1748,7 +1748,7 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             }
         else:
             # Done with this team, move to next
-            next_idx = catalogs.index(catalog) + 1
+            next_idx = catalog_idx + 1
             if next_idx < len(catalogs):
                 cursor_data = {"team_id": catalogs[next_idx].team_id}
             else:
