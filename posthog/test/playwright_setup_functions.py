@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from django.utils import timezone
+
 from pydantic import BaseModel
 
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
@@ -32,12 +34,16 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     # Use the working generate_demo_data command to create workspace with demo data
     command = GenerateDemoDataCommand()
 
-    # Use fixed time for consistent test data: November 3, 2024 at noon UTC
+    # Determine the reference time for data generation
     fixed_now = datetime(2024, 11, 3, 12, 0, 0)
+    if data.use_current_time:
+        now = timezone.now()
+    else:
+        now = fixed_now
 
     options = {
         "seed": f"playwright_test",  # constant seed
-        "now": fixed_now,  # Fixed time for consistent data generation
+        "now": now,
         "days_past": 30,
         "days_future": 0,
         "n_clusters": 3,  # Reduced from 10 for faster test execution
@@ -68,6 +74,8 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         organization.name = org_name
         organization.save()
 
+    # Bypass billing quota limits so insights always compute on CI
+    organization.never_drop_data = True
     # Add advanced permissions feature for password-protected sharing
     organization.available_product_features = [
         {

@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+
 import { formatNumber } from '../utils'
 
 const BAR_HEIGHT = 32

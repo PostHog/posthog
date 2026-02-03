@@ -1,7 +1,9 @@
-import { createRoot } from 'react-dom/client'
-import { useToolResult } from '../../hooks/useToolResult'
-import { Component } from '../../components/Component'
 import '../../styles/base.css'
+
+import { createRoot } from 'react-dom/client'
+
+import { Component } from '../../components/Component'
+import { useToolResult } from '../../hooks/useToolResult'
 
 function QueryResultsApp(): JSX.Element {
     const { data, isConnected, error, openLink } = useToolResult({
