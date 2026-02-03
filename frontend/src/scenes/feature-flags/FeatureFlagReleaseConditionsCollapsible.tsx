@@ -28,6 +28,7 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
     highlightedFields?: ModifiedField[]
+    onClearHighlight?: (field: ModifiedField) => void
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -173,6 +174,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     readOnly,
     variants,
     highlightedFields = [],
+    onClearHighlight,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -381,38 +383,44 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     />
                                 </div>
 
-                                <div
-                                    className={
-                                        highlightedFields.includes('conditions')
-                                            ? 'template-highlight-pulse rounded'
-                                            : ''
-                                    }
-                                >
+                                <div>
                                     <LemonLabel className="mb-1">Match filters</LemonLabel>
-                                    <PropertyFilters
-                                        orFiltering={true}
-                                        pageKey={`feature-flag-workflow-${id}-${index}`}
-                                        propertyFilters={group?.properties}
-                                        logicalRowDivider
-                                        addText="Add filter"
-                                        onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
-                                        hasRowOperator={false}
-                                    />
+                                    <div
+                                        className={
+                                            highlightedFields.includes('conditions')
+                                                ? 'template-highlight-glow rounded p-1 -m-1'
+                                                : ''
+                                        }
+                                    >
+                                        <PropertyFilters
+                                            orFiltering={true}
+                                            pageKey={`feature-flag-workflow-${id}-${index}`}
+                                            propertyFilters={group?.properties}
+                                            logicalRowDivider
+                                            addText="Add filter"
+                                            onChange={(properties) => {
+                                                onClearHighlight?.('conditions')
+                                                updateConditionSet(index, undefined, properties)
+                                            }}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
+                                            hasRowOperator={false}
+                                        />
+                                    </div>
                                 </div>
 
-                                <div
-                                    className={
-                                        highlightedFields.includes('rollout') ? 'template-highlight-pulse rounded' : ''
-                                    }
-                                >
+                                <div>
                                     <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                    <div className="flex items-center gap-3">
+                                    <div
+                                        className={`flex items-center gap-3 ${highlightedFields.includes('rollout') ? 'template-highlight-glow rounded p-1 -m-1' : ''}`}
+                                    >
                                         <div className="flex-1">
                                             <LemonSlider
                                                 value={group.rollout_percentage ?? 100}
-                                                onChange={(value) => updateConditionSet(index, value)}
+                                                onChange={(value) => {
+                                                    onClearHighlight?.('rollout')
+                                                    updateConditionSet(index, value)
+                                                }}
                                                 min={0}
                                                 max={100}
                                                 step={1}
@@ -424,6 +432,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                             max={100}
                                             value={group.rollout_percentage ?? 100}
                                             onChange={(value) => {
+                                                onClearHighlight?.('rollout')
                                                 const numValue = value ? parseInt(value.toString()) : 0
                                                 updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
                                             }}

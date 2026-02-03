@@ -85,7 +85,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const handleTemplateApplied = (fields: ModifiedField[]): void => {
         setHighlightedFields(fields)
-        setTimeout(() => setHighlightedFields([]), 2000)
+    }
+
+    const clearHighlight = (field: ModifiedField): void => {
+        setHighlightedFields((prev) => prev.filter((f) => f !== field))
     }
 
     const handleShowImplementation = (): void => {
@@ -210,23 +213,28 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
                             <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
-                                <div className={highlightedFields.includes('key') ? 'template-highlight-pulse' : ''}>
-                                    <LemonField
-                                        name="key"
-                                        label="Flag key"
-                                        info="The key is used to identify the feature flag in the code. Must be unique."
-                                    >
+                                <LemonField
+                                    name="key"
+                                    label="Flag key"
+                                    info="The key is used to identify the feature flag in the code. Must be unique."
+                                >
+                                    {({ value, onChange }) => (
                                         <LemonInput
+                                            value={value}
+                                            onChange={(newValue) => {
+                                                clearHighlight('key')
+                                                onChange(newValue)
+                                            }}
                                             data-attr="feature-flag-key"
-                                            className="ph-ignore-input"
+                                            className={`ph-ignore-input ${highlightedFields.includes('key') ? 'template-highlight-glow' : ''}`}
                                             autoComplete="off"
                                             autoCapitalize="off"
                                             autoCorrect="off"
                                             spellCheck={false}
                                             placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
                                         />
-                                    </LemonField>
-                                </div>
+                                    )}
+                                </LemonField>
 
                                 <LemonField name="name" label="Description">
                                     <LemonTextArea
@@ -417,17 +425,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         {/* Right column */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
                             {/* Flag type card */}
-                            <div
-                                className={`rounded border p-3 bg-bg-light gap-4 flex flex-col ${
-                                    highlightedFields.includes('flagType') ? 'template-highlight-pulse' : ''
-                                }`}
-                            >
+                            <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel info="Changing flag type may clear existing configuration. Switching from Multivariate will remove all variants and their payloads. Switching from Remote config or Boolean will remove the payload.">
                                         Flag type
                                     </LemonLabel>
                                     <LemonSelect
                                         fullWidth
+                                        className={
+                                            highlightedFields.includes('flagType') ? 'template-highlight-glow' : ''
+                                        }
                                         value={
                                             featureFlag.is_remote_configuration
                                                 ? 'remote_config'
@@ -436,6 +443,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                   : 'boolean'
                                         }
                                         onChange={(value) => {
+                                            clearHighlight('flagType')
                                             if (value === 'remote_config') {
                                                 setFeatureFlag({
                                                     ...featureFlag,
@@ -681,6 +689,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         highlightedFields={highlightedFields}
+                                        onClearHighlight={clearHighlight}
                                     />
                                 </div>
                             )}
