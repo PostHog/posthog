@@ -32,7 +32,7 @@ build:ci --build_metadata=ROLE=CI
 build:ci --remote_timeout=300
 build:ci --bes_timeout=300s
 # Compress artifacts for faster uploads/downloads
-build:ci --experimental_remote_cache_compression
+build:ci --remote_cache_compression
 # Disable disk cache in CI to avoid interference with remote cache
 build:ci --disk_cache=
 
