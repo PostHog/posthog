@@ -887,11 +887,12 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         model_mock.return_value = RunnableLambda(memory_collector_side_effect)
 
         # First run - analyze and append memory
-        output, _ = await self._run_assistant_graph(
-            graph,
-            message="We use a subscription model",
-            is_new_conversation=True,
-        )
+        with patch("ee.hogai.chat_agent.memory.nodes.sync_memory_to_queryable"):
+            output, _ = await self._run_assistant_graph(
+                graph,
+                message="We use a subscription model",
+                is_new_conversation=True,
+            )
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="We use a subscription model")),
