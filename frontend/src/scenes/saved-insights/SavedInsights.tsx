@@ -5,7 +5,6 @@ import { useActions, useValues } from 'kea'
 import {
     IconAI,
     IconBrackets,
-    IconChevronDown,
     IconCorrelationAnalysis,
     IconCursor,
     IconFlask,
@@ -44,18 +43,16 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconAction, IconTableChart } from 'lib/lemon-ui/icons'
-import { dateMapping, fullName, isNonEmptyObject } from 'lib/utils'
+import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NewInsightShortcuts, OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
@@ -693,55 +690,7 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const { meFirstMembers, filteredMembers, search: memberSearch } = useValues(membersLogic)
-    const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
-
     const { tab } = filters
-
-    const handleMemberToggle = (userId: number): void => {
-        const currentUsers = filters.createdBy !== 'All users' ? (filters.createdBy as number[]) : []
-        const selected = new Set(currentUsers)
-        if (selected.has(userId)) {
-            selected.delete(userId)
-        } else {
-            selected.add(userId)
-        }
-        const newValue = Array.from(selected)
-        setSavedInsightsFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
-    }
-
-    const createDateFilterOverlay = (
-        dateFrom: string | dayjs.Dayjs | undefined | null,
-        dateTo: string | dayjs.Dayjs | undefined | null,
-        onChange: (fromDate: string | null, toDate: string | null) => void
-    ): JSX.Element => {
-        const relevantDateOptions = dateMapping.filter((dm) => dm.key !== 'Custom' && dm.key !== 'All time')
-        const isActive = (option: (typeof dateMapping)[0]): boolean =>
-            (dateFrom ?? null) === (option.values[0] ?? null) && (dateTo ?? null) === (option.values[1] ?? null)
-
-        return (
-            <div className="deprecated-space-y-px">
-                {relevantDateOptions.map((option) => (
-                    <LemonButton
-                        key={option.key}
-                        onClick={() => onChange(option.values[0] || null, option.values[1] || null)}
-                        active={isActive(option)}
-                        fullWidth
-                    >
-                        {option.key}
-                    </LemonButton>
-                ))}
-                {dateFrom && dateFrom !== 'all' && (
-                    <>
-                        <div className="my-1 border-t" />
-                        <LemonButton fullWidth onClick={() => onChange(null, null)} type="tertiary">
-                            Clear filter
-                        </LemonButton>
-                    </>
-                )}
-            </div>
-        )
-    }
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
@@ -818,73 +767,7 @@ export function SavedInsights(): JSX.Element {
                 (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
                     b.created_by?.first_name || b.created_by?.email || ''
                 ),
-            more: (
-                <div className="max-w-100 deprecated-space-y-2" onClick={() => ensureAllMembersLoaded()}>
-                    <LemonInput
-                        type="search"
-                        placeholder="Search"
-                        autoFocus
-                        value={memberSearch}
-                        onChange={setMemberSearch}
-                        fullWidth
-                    />
-                    <ul className="deprecated-space-y-px">
-                        {filteredMembers.map((member) => (
-                            <li key={member.user.uuid}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
-                                    onClick={() => handleMemberToggle(member.user.id)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={
-                                                    filters.createdBy !== 'All users' &&
-                                                    (filters.createdBy as number[]).includes(member.user.id)
-                                                }
-                                                readOnly
-                                            />
-                                            <span>{fullName(member.user)}</span>
-                                        </span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
-                        ))}
-                        {filteredMembers.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
-                                {memberSearch ? <span>No matches</span> : <span>No users</span>}
-                            </div>
-                        ) : null}
-                        {filters.createdBy !== 'All users' && (filters.createdBy as number[]).length > 0 && (
-                            <>
-                                <div className="my-1 border-t" />
-                                <li>
-                                    <LemonButton
-                                        fullWidth
-                                        role="menuitem"
-                                        size="small"
-                                        onClick={() => setSavedInsightsFilters({ createdBy: 'All users' })}
-                                        type="tertiary"
-                                    >
-                                        Clear selection
-                                    </LemonButton>
-                                </li>
-                            </>
-                        )}
-                    </ul>
-                </div>
-            ),
-            moreIcon: <IconChevronDown />,
-            moreFilterCount: filters.createdBy !== 'All users' ? (filters.createdBy as number[]).length : 0,
-        } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        },
         {
             title: 'Created',
             dataIndex: 'created_at',
@@ -899,12 +782,7 @@ export function SavedInsights(): JSX.Element {
             },
             align: 'right',
             sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
-            more: createDateFilterOverlay(filters.createdDateFrom, filters.createdDateTo, (fromDate, toDate) =>
-                setSavedInsightsFilters({ createdDateFrom: fromDate, createdDateTo: toDate })
-            ),
-            moreIcon: <IconChevronDown />,
-            moreFilterCount: filters.createdDateFrom && filters.createdDateFrom !== 'all' ? 1 : 0,
-        } as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        },
         {
             title: 'Last modified',
             sorter: true,
@@ -914,11 +792,6 @@ export function SavedInsights(): JSX.Element {
                     <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
                 )
             },
-            more: createDateFilterOverlay(filters.dateFrom, filters.dateTo, (fromDate, toDate) =>
-                setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-            ),
-            moreIcon: <IconChevronDown />,
-            moreFilterCount: filters.dateFrom && filters.dateFrom !== 'all' ? 1 : 0,
         },
         {
             title: 'Last viewed',
@@ -931,11 +804,6 @@ export function SavedInsights(): JSX.Element {
                     </div>
                 )
             },
-            more: createDateFilterOverlay(filters.lastViewedDateFrom, filters.lastViewedDateTo, (fromDate, toDate) =>
-                setSavedInsightsFilters({ lastViewedDateFrom: fromDate, lastViewedDateTo: toDate })
-            ),
-            moreIcon: <IconChevronDown />,
-            moreFilterCount: filters.lastViewedDateFrom && filters.lastViewedDateFrom !== 'all' ? 1 : 0,
         },
         {
             width: 0,
