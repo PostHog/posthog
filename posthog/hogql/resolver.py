@@ -390,98 +390,98 @@ class Resolver(CloningVisitor):
                 node.sample = self.visit(node.sample)
 
                 return node
+
+            database_table = self.database.get_table_node(table_name_chain).get()  # type: ignore
+
+            if isinstance(database_table, SavedQuery):
+                self.current_view_depth += 1
+
+                node.table = parse_select(str(database_table.query))
+
+                if isinstance(node.table, ast.SelectQuery):
+                    node.table.view_name = database_table.name
+
+                node.alias = table_alias or database_table.name
+                node = self.visit(node)
+
+                self.current_view_depth -= 1
+                return node
+
+            if isinstance(database_table, LazyTable):
+                if isinstance(database_table, PersonsTable):
+                    # Check for inlineable exprs in the join on the persons table
+                    database_table = database_table.create_new_table_with_filter(node)
+                node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
+
             else:
-                database_table = self.database.get_table_node(table_name_chain).get()  # type: ignore
+                assert isinstance(database_table, ast.Table)
+                node_table_type = ast.TableType(table=database_table)
 
-                if isinstance(database_table, SavedQuery):
-                    self.current_view_depth += 1
+            # Always add an alias for function call tables. This way `select table.* from table` is replaced with
+            # `select table.* from something() as table`, and not with `select something().* from something()`.
+            if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+                node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+            else:
+                node_type = node_table_type
 
-                    node.table = parse_select(str(database_table.query))
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
 
-                    if isinstance(node.table, ast.SelectQuery):
-                        node.table.view_name = database_table.name
+            scope.tables[table_alias] = node_type
 
-                    node.alias = table_alias or database_table.name
-                    node = self.visit(node)
+            # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+            node.type = node_type
+            assert node.table is not None
 
-                    self.current_view_depth -= 1
-                    return node
+            node.table = cast(ast.Field, clone_expr(node.table))
+            node.table.type = node_table_type
+            if node.table_args is not None:
+                node.table_args = [self.visit(arg) for arg in node.table_args]
+            node.next_join = self.visit(node.next_join)
 
-                if isinstance(database_table, LazyTable):
-                    if isinstance(database_table, PersonsTable):
-                        # Check for inlineable exprs in the join on the persons table
-                        database_table = database_table.create_new_table_with_filter(node)
-                    node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
+            # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+            if USE_GLOBAL_JOINS:
+                global_table: ast.TableType | None = None
 
-                else:
-                    assert isinstance(database_table, ast.Table)
-                    node_table_type = ast.TableType(table=database_table)
+                if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                    global_table = node.type.table_type
+                elif isinstance(node.type, ast.TableType):
+                    global_table = node.type
 
-                # Always add an alias for function call tables. This way `select table.* from table` is replaced with
-                # `select table.* from something() as table`, and not with `select something().* from something()`.
-                if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
-                    node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
-                else:
-                    node_type = node_table_type
+                if global_table and isinstance(global_table.table, EventsTable):
+                    next_join = node.next_join
+                    is_global = False
 
-                node = cast(ast.JoinExpr, clone_expr(node))
-                if node.constraint and node.constraint.constraint_type == "USING":
-                    # visit USING constraint before adding the table to avoid ambiguous names
-                    node.constraint = self.visit_join_constraint(node.constraint)
-
-                scope.tables[table_alias] = node_type
-
-                # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
-                node.type = node_type
-                assert node.table is not None
-
-                node.table = cast(ast.Field, clone_expr(node.table))
-                node.table.type = node_table_type
-                if node.table_args is not None:
-                    node.table_args = [self.visit(arg) for arg in node.table_args]
-                node.next_join = self.visit(node.next_join)
-
-                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-                if USE_GLOBAL_JOINS:
-                    global_table: ast.TableType | None = None
-
-                    if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
-                        global_table = node.type.table_type
-                    elif isinstance(node.type, ast.TableType):
-                        global_table = node.type
-
-                    if global_table and isinstance(global_table.table, EventsTable):
-                        next_join = node.next_join
-                        is_global = False
-
-                        while next_join:
-                            if self._is_next_s3(next_join):
+                    while next_join:
+                        if self._is_next_s3(next_join):
+                            is_global = True
+                        # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                        elif isinstance(next_join.type, ast.SelectQueryAliasType):
+                            select_query_type = next_join.type.select_query_type
+                            tables = self._extract_tables_from_query_type(select_query_type)
+                            if any(self._is_s3_table(table) for table in tables):
                                 is_global = True
-                            # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
-                            elif isinstance(next_join.type, ast.SelectQueryAliasType):
-                                select_query_type = next_join.type.select_query_type
-                                tables = self._extract_tables_from_query_type(select_query_type)
-                                if any(self._is_s3_table(table) for table in tables):
-                                    is_global = True
 
+                        next_join = next_join.next_join
+
+                    # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                    if is_global:
+                        next_join = node.next_join
+                        while next_join:
+                            next_join.join_type = f"GLOBAL {next_join.join_type}"
                             next_join = next_join.next_join
 
-                        # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
-                        if is_global:
-                            next_join = node.next_join
-                            while next_join:
-                                next_join.join_type = f"GLOBAL {next_join.join_type}"
-                                next_join = next_join.next_join
+            if node.constraint and node.constraint.constraint_type == "ON":
+                node.constraint = self.visit_join_constraint(node.constraint)
+            node.sample = self.visit(node.sample)
 
-                if node.constraint and node.constraint.constraint_type == "ON":
-                    node.constraint = self.visit_join_constraint(node.constraint)
-                node.sample = self.visit(node.sample)
+            # In case we had a function call table, and had to add an alias where none was present, mark it here
+            if isinstance(node_type, ast.TableAliasType) and node.alias is None:
+                node.alias = node_type.alias
 
-                # In case we had a function call table, and had to add an alias where none was present, mark it here
-                if isinstance(node_type, ast.TableAliasType) and node.alias is None:
-                    node.alias = node_type.alias
-
-                return node
+            return node
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
