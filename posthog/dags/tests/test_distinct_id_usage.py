@@ -175,16 +175,16 @@ def test_query_distinct_id_usage(cluster: ClickhouseCluster) -> None:
     # Insert test data directly into the sharded table
     cluster.any_host(
         Query(
-            f"INSERT INTO {DATA_TABLE_NAME} (team_id, distinct_id, minute, event_count, _timestamp, _offset, _partition) VALUES",
+            f"INSERT INTO {DATA_TABLE_NAME} (team_id, distinct_id, minute, event_count) VALUES",
             [
                 # High usage: one distinct_id with 80% of team's events
-                (1, "high_usage_user", now, 800, now, 0, 0),
-                (1, "normal_user_1", now, 100, now, 0, 0),
-                (1, "normal_user_2", now, 100, now, 0, 0),
+                (1, "high_usage_user", now, 800),
+                (1, "normal_user_1", now, 100),
+                (1, "normal_user_2", now, 100),
                 # High cardinality team: many unique distinct_ids
-                *[(2, f"user_{i}", now, 1, now, 0, 0) for i in range(100)],
+                *[(2, f"user_{i}", now, 1) for i in range(100)],
                 # Burst event: high events in single minute
-                (3, "burst_user", now, 15000, now, 0, 0),
+                (3, "burst_user", now, 15000),
             ],
         )
     ).result()
