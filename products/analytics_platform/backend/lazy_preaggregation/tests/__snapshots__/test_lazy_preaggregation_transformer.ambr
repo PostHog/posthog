@@ -4,7 +4,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start)
   '''
 # ---
@@ -13,7 +13,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start)
   '''
 # ---
@@ -22,7 +22,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start, arrayElement(breakdown_value, 1) AS browser, arrayElement(breakdown_value, 2) AS os)
   '''
 # ---
@@ -31,7 +31,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start)
   '''
 # ---
@@ -40,7 +40,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-06-15')), less(time_window_start, toDate('2024-07-20')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-06-15')), less(time_window_start, toDate('2024-07-20')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start)
   '''
 # ---
@@ -49,7 +49,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start, arrayElement(breakdown_value, 1), arrayElement(breakdown_value, 2))
   '''
 # ---
@@ -60,7 +60,7 @@
      FROM
        (SELECT uniqExactMerge(uniq_exact_state) AS unique_persons
         FROM preaggregation_results
-        WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+        WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
         GROUP BY time_window_start))
   '''
 # ---
@@ -69,7 +69,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state) AS unique_persons
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start)
   '''
 # ---
@@ -78,7 +78,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start
      LIMIT 10)
   '''
@@ -88,7 +88,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start
      ORDER BY toStartOfDay(timestamp) DESC)
   '''
@@ -98,7 +98,7 @@
   sql
     (SELECT uniqExactMerge(uniq_exact_state)
      FROM preaggregation_results
-     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')))
+     WHERE and(greaterOrEquals(time_window_start, toDate('2024-01-01')), less(time_window_start, toDate('2024-02-01')), in(job_id, [toUUID('00000000-0000-0000-0000-000000000000')]))
      GROUP BY time_window_start, arrayElement(breakdown_value, 1))
   '''
 # ---

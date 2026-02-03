@@ -15,10 +15,9 @@ import { useEffect, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
+import { dataModelingNodesLogic, parseSearchTerm } from '../dataModelingNodesLogic'
 import { DataModelingEditorPanel } from './DataModelingEditorPanel'
 import { REACT_FLOW_NODE_TYPES } from './Nodes'
-import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { ModelNode } from './types'
 
@@ -30,7 +29,7 @@ const FIT_VIEW_OPTIONS = {
 function DataModelingEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges } = useValues(dataModelingEditorLogic)
+    const { nodes, edges, highlightedNodeIds } = useValues(dataModelingEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -54,16 +53,28 @@ function DataModelingEditorContent(): JSX.Element {
 
     useEffect(() => {
         if (debouncedSearchTerm.length > 0 && nodes.length > 0) {
-            const matchingNode = nodes.find((node) =>
-                node.data.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-            )
-            if (matchingNode) {
-                const x = matchingNode.position.x + NODE_WIDTH / 2
-                const y = matchingNode.position.y + NODE_HEIGHT / 2
-                reactFlowInstance.setCenter(x, y, { duration: 300, zoom: 1 })
+            const { baseName, mode } = parseSearchTerm(debouncedSearchTerm)
+
+            let matchingNodes: ModelNode[]
+            if (mode !== 'search') {
+                // Lineage search: get all upstream/downstream nodes
+                const highlightedIds = highlightedNodeIds(baseName, mode)
+                matchingNodes = nodes.filter((n) => highlightedIds.has(n.id))
+            } else {
+                // Plain search: get all nodes matching the name
+                matchingNodes = nodes.filter((n) => n.data.name.toLowerCase().includes(baseName.toLowerCase()))
+            }
+
+            if (matchingNodes.length > 0) {
+                reactFlowInstance.fitView({
+                    nodes: matchingNodes,
+                    duration: 300,
+                    padding: 0.2,
+                    maxZoom: 1,
+                })
             }
         }
-    }, [debouncedSearchTerm, nodes, reactFlowInstance])
+    }, [debouncedSearchTerm, nodes, reactFlowInstance, highlightedNodeIds])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
