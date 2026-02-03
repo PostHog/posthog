@@ -65,15 +65,15 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                 "teams_processed": 0,
                 "teams_succeeded": 0,
                 "teams_failed": 0,
-                "total_tasks_created": 0,
-                "total_tasks_updated": 0,
+                "total_reports_created": 0,
+                "total_reports_updated": 0,
             }
 
         workflow.logger.debug(f"Processing {len(enabled_team_ids)} teams with proactive tasks enabled")
 
         # Track results
-        total_tasks_created = 0
-        total_tasks_updated = 0
+        total_reports_created = 0
+        total_reports_updated = 0
         failed_teams: set[int] = set()
         successful_teams: set[int] = set()
 
@@ -110,8 +110,8 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
                 try:
                     workflow_result = await handle
                     if workflow_result.success:
-                        total_tasks_created += workflow_result.tasks_created
-                        total_tasks_updated += workflow_result.tasks_updated
+                        total_reports_created += workflow_result.reports_created
+                        total_reports_updated += workflow_result.reports_updated
                         successful_teams.add(team_id)
                     else:
                         workflow.logger.error(
@@ -131,8 +131,8 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": list(failed_teams),
-            "total_tasks_created": total_tasks_created,
-            "total_tasks_updated": total_tasks_updated,
+            "total_reports_created": total_reports_created,
+            "total_reports_updated": total_reports_updated,
         }
 
 
