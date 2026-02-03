@@ -3,7 +3,10 @@
 import json
 import datetime as dt
 from time import sleep
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.models import User as UserType
 
 from django.conf import settings
 from django.core import exceptions
@@ -90,7 +93,7 @@ class MatrixManager:
                     theme_mode="system",
                     role_at_organization="engineering",
                 )
-                team = self.create_team(organization)
+                team = self.create_team(organization, initiating_user=new_user)
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
@@ -116,9 +119,10 @@ class MatrixManager:
         self._save_analytics_data(master_team)
 
     @staticmethod
-    def create_team(organization: Organization, **kwargs) -> Team:
-        team = Team.objects.create(
+    def create_team(organization: Organization, initiating_user: Optional["UserType"] = None, **kwargs) -> Team:
+        team = Team.objects.create_with_data(
             organization=organization,
+            initiating_user=initiating_user,
             ingested_event=True,
             completed_snippet_onboarding=True,
             is_demo=True,
@@ -203,7 +207,13 @@ class MatrixManager:
     @classmethod
     def _create_master_team(cls) -> Team:
         organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
-        return cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
+        # Master team is only used for pre-saving demo data, not for actual users
+        # Bypass create_with_data since we don't need dashboards, cohorts, or demo data generation
+        return Team.objects.create(
+            organization=organization,
+            id=cls.MASTER_TEAM_ID,
+            name="Master",
+        )
 
     @classmethod
     def _erase_master_team_data(cls):
