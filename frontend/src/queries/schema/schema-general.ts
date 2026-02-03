@@ -1474,6 +1474,8 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** @default false */
     showValuesOnSeries?: boolean
+    /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
+    breakdownSorting?: string
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -5394,14 +5396,4 @@ export interface ReplayInactivityPeriod {
     active: boolean
     recording_ts_from_s?: number
     recording_ts_to_s?: number
-}
-export interface ProjectSecretAPIKeyRequest {
-    label?: string
-    scopes?: ProjectSecretAPIKeyAllowedScope[]
-}
-
-export enum ProjectSecretAPIKeyAllowedScope {
-    FeatureFlagRead = 'feature_flag:read',
-    // Placeholder to keep this as an enum (remove once a second real scope is added)
-    _Placeholder = 'PLACEHOLDER',
 }

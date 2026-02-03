@@ -16363,6 +16363,10 @@
                 "breakdownAttributionValue": {
                     "$ref": "#/definitions/integer"
                 },
+                "breakdownSorting": {
+                    "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
+                    "type": "string"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
@@ -22640,25 +22644,6 @@
                 }
             },
             "required": ["products", "games", "metadata"],
-            "type": "object"
-        },
-        "ProjectSecretAPIKeyAllowedScope": {
-            "enum": ["feature_flag:read", "PLACEHOLDER"],
-            "type": "string"
-        },
-        "ProjectSecretAPIKeyRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "label": {
-                    "type": "string"
-                },
-                "scopes": {
-                    "items": {
-                        "$ref": "#/definitions/ProjectSecretAPIKeyAllowedScope"
-                    },
-                    "type": "array"
-                }
-            },
             "type": "object"
         },
         "PropertyFilterBaseValue": {

@@ -16,9 +16,9 @@ import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
 import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { useOpenLogsSettingsPanel } from '../../hooks/useOpenLogsSettingsPanel'
 import { logsIngestionLogic } from './logsIngestionLogic'
 
 const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
@@ -66,7 +66,7 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
     const { addProductIntent } = useActions(teamLogic)
     const { hasLogs } = useValues(logsIngestionLogic)
     const { loadTeamHasLogs } = useActions(logsIngestionLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const openLogsSettings = useOpenLogsSettingsPanel()
     const hasLogsSettings = useFeatureFlag('LOGS_SETTINGS')
 
     useEffect(() => {
@@ -136,21 +136,7 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                     {hasLogsSettings && (
                         <p className="text-sm text-secondary m-0">
                             Already using <code>posthog-js</code>?{' '}
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                icon={<IconGear />}
-                                onClick={() => {
-                                    addProductIntent({
-                                        product_type: ProductKey.LOGS,
-                                        intent_context: ProductIntentContext.LOGS_SETTINGS_OPENED,
-                                    })
-                                    openSettingsPanel({
-                                        sectionId: 'environment-logs',
-                                        settingId: 'logs',
-                                    })
-                                }}
-                            >
+                            <LemonButton type="tertiary" size="xsmall" icon={<IconGear />} onClick={openLogsSettings}>
                                 Enable console log capture
                             </LemonButton>
                         </p>

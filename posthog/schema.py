@@ -2951,19 +2951,6 @@ class ProductKey(StrEnum):
     WORKFLOWS = "workflows"
 
 
-class ProjectSecretAPIKeyAllowedScope(StrEnum):
-    FEATURE_FLAG_READ = "feature_flag:read"
-    PLACEHOLDER = "PLACEHOLDER"
-
-
-class ProjectSecretAPIKeyRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    label: str | None = None
-    scopes: list[ProjectSecretAPIKeyAllowedScope] | None = None
-
-
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
@@ -15322,6 +15309,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None

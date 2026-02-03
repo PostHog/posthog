@@ -612,6 +612,9 @@ importers:
       '@tiptap/extension-list':
         specifier: ^3.11.1
         version: 3.13.0(@tiptap/core@3.13.0(@tiptap/pm@3.13.0))(@tiptap/pm@3.13.0)
+      '@tiptap/extension-paragraph':
+        specifier: ^3.13.0
+        version: 3.13.0(@tiptap/core@3.13.0(@tiptap/pm@3.13.0))
       '@tiptap/extension-placeholder':
         specifier: ^3.14.0
         version: 3.14.0(@tiptap/extensions@3.13.0(@tiptap/core@3.13.0(@tiptap/pm@3.13.0))(@tiptap/pm@3.13.0))
@@ -1253,6 +1256,9 @@ importers:
       '@maxmind/geoip2-node':
         specifier: ^3.4.0
         version: 3.5.0
+      '@mongodb-js/zstd':
+        specifier: ^1.2.0
+        version: 1.2.2
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.0
@@ -1307,6 +1313,9 @@ importers:
       '@types/tail':
         specifier: ^2.2.1
         version: 2.2.1
+      avsc:
+        specifier: ^5.7.9
+        version: 5.7.9
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
@@ -5876,6 +5885,62 @@ packages:
       monaco-editor: '>= 0.25.0 < 1'
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@mongodb-js/zstd-darwin-arm64@1.2.2':
+    resolution: {integrity: sha512-hjQgub8fhn3itewwRSCSe3sl8rmnbZOFwuBHOZj4j4xu1Hde7xs+ACkfeEvvmNjUuxAzvc1MnDjHX2UwUlA7qA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  '@mongodb-js/zstd-darwin-x64@1.2.2':
+    resolution: {integrity: sha512-gHSxcWgAdED/bDKyOqLhiwC0VYlhkhSyQuR0Fqcrl1CMpWSJAfu0jxhaEvM4Ncs6yH0+BPVwTp8xtHW2iJ5DuQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  '@mongodb-js/zstd-linux-arm64-gnu@1.2.2':
+    resolution: {integrity: sha512-DJVSC5IU/GlY9lY4qpKML/655OstZvueN/WZeuO8hyYJ5115x/usUM1pHpp7dbZWyUUhTlRIU4peR62Tk1H3lQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  '@mongodb-js/zstd-linux-arm64-musl@1.2.2':
+    resolution: {integrity: sha512-rxTmMF2NGLLijnw+MZCs0ixiE+NylpDYvUUkJemqjyHstlmYG0Ku6i3+SzViB6L0kkktwYSRpaI4y7OG+SFt3w==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  '@mongodb-js/zstd-linux-x64-gnu@1.2.2':
+    resolution: {integrity: sha512-ctz/XY6aX2THxkTjAygOYbyFp2/UYbqZIF3sB1F5Cjcbus9wfD3vPbaDegqRjQhlHBvKia3IjqJDUiC+aZxmww==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  '@mongodb-js/zstd-linux-x64-musl@1.2.2':
+    resolution: {integrity: sha512-EqD271yPIRBGbkMtBJSVTLlUrukTsmi7qt1G3dh+Z9RWVXn5MXnlnEn4znfBXoaVqlniUNZhmzDEaATNIktJpw==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  '@mongodb-js/zstd-win32-x64-msvc@1.2.2':
+    resolution: {integrity: sha512-h3O9NGOrGtfQ7g+rFqs5Hn+GSmgF2ik+xg0/1crNUXWthcBsxcCK5woawHfDcJxWkaiijJe5PVo6/fo8Jm7qCg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+    deprecated: This package is no longer maintained.  Please use @mongodb-js/zstd@2.x instead.
+
+  '@mongodb-js/zstd@1.2.2':
+    resolution: {integrity: sha512-NRXiFhk2Nl8UMuIZ4pviKkGVZY/e5P37Opam1u0OtgXjEE0kO1HLapA9heTcZ1PUomArnKS426XbiRFr5iaWvw==}
+    engines: {node: '>= 10'}
+    deprecated: 1.x versions of this package are deprecated, please use 2.x instead
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3':
     resolution: {integrity: sha512-QZHtlVgbAdy2zAqNA9Gu1UpIuI8Xvsd1v8ic6B2pZmeFnFcMWiPLfWXh7TVw4eGEZ/C9TH281KwhVoeQUKbyjw==}
@@ -11187,6 +11252,10 @@ packages:
   available-typed-arrays@1.0.7:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
+
+  avsc@5.7.9:
+    resolution: {integrity: sha512-yOA4wFeI7ET3v32Di/sUybQ+ttP20JHSW3mxLuNGeO0uD6PPcvLrIQXSvy/rhJOWU5JrYh7U4OHplWMmtAtjMg==}
+    engines: {node: '>=0.11'}
 
   aws-sdk@2.1366.0:
     resolution: {integrity: sha512-tS7y18KHH0eq43I8WJsxVBpwOMY45FSsu6a+A/6k0bMrE4zhd1fzhPN+5coNIODaGxnqVvgw9guLg3AOe4SpaA==}
@@ -25429,6 +25498,37 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
+  '@mongodb-js/zstd-darwin-arm64@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd-darwin-x64@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd-linux-arm64-gnu@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd-linux-arm64-musl@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd-linux-x64-gnu@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd-linux-x64-musl@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd-win32-x64-msvc@1.2.2':
+    optional: true
+
+  '@mongodb-js/zstd@1.2.2':
+    optionalDependencies:
+      '@mongodb-js/zstd-darwin-arm64': 1.2.2
+      '@mongodb-js/zstd-darwin-x64': 1.2.2
+      '@mongodb-js/zstd-linux-arm64-gnu': 1.2.2
+      '@mongodb-js/zstd-linux-arm64-musl': 1.2.2
+      '@mongodb-js/zstd-linux-x64-gnu': 1.2.2
+      '@mongodb-js/zstd-linux-x64-musl': 1.2.2
+      '@mongodb-js/zstd-win32-x64-msvc': 1.2.2
+
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3':
     optional: true
 
@@ -32267,6 +32367,8 @@ snapshots:
   available-typed-arrays@1.0.7:
     dependencies:
       possible-typed-array-names: 1.0.0
+
+  avsc@5.7.9: {}
 
   aws-sdk@2.1366.0:
     dependencies:
