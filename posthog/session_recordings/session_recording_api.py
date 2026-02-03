@@ -17,6 +17,7 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 import requests
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -1162,13 +1163,11 @@ class SessionRecordingViewSet(
         """Execute video-based summarization and yield result as SSE event."""
 
         try:
-            summary_result = asyncio.run(
-                execute_summarize_session(
-                    session_id=session_id,
-                    user=user,
-                    team=self.team,
-                    video_validation_enabled="full",
-                )
+            summary_result = async_to_sync(execute_summarize_session)(
+                session_id=session_id,
+                user=user,
+                team=self.team,
+                video_validation_enabled="full",
             )
             yield serialize_to_sse_event(
                 event_label="session-summary-stream",
@@ -1183,7 +1182,6 @@ class SessionRecordingViewSet(
                 event_label="session-summary-error",
                 event_data=json.dumps(error_payload),
             )
-
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
