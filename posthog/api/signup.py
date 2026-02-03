@@ -80,7 +80,7 @@ class SignupSerializer(serializers.Serializer):
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField(allow_null=True, required=False, allow_blank=True)
-    organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    organization_name: serializers.Field = serializers.CharField(max_length=64, required=False, allow_blank=True)
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
@@ -163,7 +163,8 @@ class SignupSerializer(serializers.Serializer):
 
         is_instance_first_user: bool = not User.objects.exists()
 
-        organization_name = validated_data.pop("organization_name", f"{validated_data['first_name']}'s Organization")
+        default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
+        organization_name = validated_data.pop("organization_name", default_org_name)
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
 
@@ -511,7 +512,7 @@ class SocialSignupSerializer(serializers.Serializer):
     Pre-processes information not obtained from SSO provider to create organization.
     """
 
-    organization_name: serializers.Field = serializers.CharField(max_length=128)
+    organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
 
