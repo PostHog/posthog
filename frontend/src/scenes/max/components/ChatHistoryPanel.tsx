@@ -152,7 +152,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                     <ScrollableShadows
                         direction="vertical"
                         className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                        innerClassName="flex flex-col px-2 pb-4"
+                        innerClassName="flex flex-col px-2 pt-2 pb-4"
                         styledScrollbars
                     >
                         {conversationHistoryLoading && conversationHistory.length === 0 ? (
