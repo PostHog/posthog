@@ -460,7 +460,7 @@ def api_key_search_view(request: HttpRequest):
     return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
@@ -477,7 +477,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    if request.GET.get("one_click_unsubscribe") == "1":
+    if request.POST.get("one_click_unsubscribe") == "1":
         # If one-click unsubscribe, set all preferences to opted out
         recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
         categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing")
