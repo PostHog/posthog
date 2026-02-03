@@ -1388,7 +1388,10 @@
                     "type": "number"
                   },
                   "variant": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "description": "Variant key to serve for this condition (for multivariate flags)"
                   }
                 },
@@ -1598,7 +1601,10 @@
                         "type": "number"
                       },
                       "variant": {
-                        "type": "string",
+                        "type": [
+                          "string",
+                          "null"
+                        ],
                         "description": "Variant key to serve for this condition (for multivariate flags)"
                       }
                     },
@@ -4279,7 +4285,10 @@
                     "type": "number"
                   },
                   "variant": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "description": "Variant key to serve for this condition (for multivariate flags)"
                   }
                 },
@@ -5315,7 +5324,10 @@
                     "type": "number"
                   },
                   "variant": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "description": "Variant key to serve for this condition (for multivariate flags)"
                   }
                 },

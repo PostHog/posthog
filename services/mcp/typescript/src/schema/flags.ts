@@ -72,7 +72,7 @@ export type PersonPropertyFilter = z.infer<typeof PersonPropertyFilterSchema>
 export const FiltersSchema = z.object({
     properties: z.array(PersonPropertyFilterSchema),
     rollout_percentage: z.number(),
-    variant: z.string().optional().describe('Variant key to serve for this condition (for multivariate flags)'),
+    variant: z.string().nullish().describe('Variant key to serve for this condition (for multivariate flags)'),
 })
 
 export type Filters = z.infer<typeof FiltersSchema>
