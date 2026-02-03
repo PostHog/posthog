@@ -712,6 +712,20 @@ export function LineGraph_({
                                 },
                                 borderWidth: 1,
                                 borderDash: [5, 8],
+                                enter: () => {
+                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
+                                    if (tooltipEl) {
+                                        tooltipEl.style.opacity = '0'
+                                        tooltipEl.style.pointerEvents = 'none'
+                                    }
+                                },
+                                leave: () => {
+                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
+                                    if (tooltipEl) {
+                                        tooltipEl.style.opacity = ''
+                                        tooltipEl.style.pointerEvents = ''
+                                    }
+                                },
                             }
 
                             return acc

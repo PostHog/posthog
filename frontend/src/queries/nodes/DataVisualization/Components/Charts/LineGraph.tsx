@@ -231,10 +231,11 @@ export const LineGraph = ({
                                     annotationsList[`line${curIndex}`].label.content = `${
                                         cur.label
                                     }: ${cur.value.toLocaleString()}`
-                                    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
 
                                     if (tooltipEl) {
-                                        tooltipEl.style.display = 'none'
+                                        tooltipEl.style.opacity = '0'
+                                        tooltipEl.style.pointerEvents = 'none'
                                     }
 
                                     ctx.chart.update()
@@ -250,9 +251,10 @@ export const LineGraph = ({
                                 if (annotationsList[`line${curIndex}`]) {
                                     annotationsList[`line${curIndex}`].label.content = cur.label
 
-                                    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
                                     if (tooltipEl) {
-                                        tooltipEl.style.display = 'block'
+                                        tooltipEl.style.opacity = ''
+                                        tooltipEl.style.pointerEvents = ''
                                     }
 
                                     ctx.chart.update()
