@@ -180,7 +180,9 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
                 pdi.distinct_id,
                 COALESCE(pdi.version, 0) as version
             FROM posthog_person p
-            JOIN posthog_persondistinctid pdi ON pdi.person_id = p.id
+            JOIN posthog_persondistinctid pdi
+                ON pdi.person_id = p.id
+                AND pdi.team_id = p.team_id
             WHERE p.team_id = %s
               AND p.uuid IN (SELECT unnest(%s::uuid[]))
             ORDER BY p.uuid, pdi.id
