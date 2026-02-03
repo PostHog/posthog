@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -203,34 +202,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
         moveConditionSetUp,
         moveConditionSetDown,
         setAggregationGroupTypeIndex,
-        setOpenConditions,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
         addConditionSet(uuidv4())
-    }
-
-    const collapseRef = useRef<HTMLDivElement>(null)
-
-    const handleOpenConditionsChange = (newKeys: string[]): void => {
-        // Find newly opened panels
-        const newlyOpened = newKeys.filter((key) => !openConditions.includes(key))
-        setOpenConditions(newKeys)
-
-        // Scroll to first newly opened panel after it expands
-        if (newlyOpened.length > 0 && collapseRef.current) {
-            // Extract the index from the key (format: "condition-{sort_key}")
-            const openedKey = newlyOpened[0]
-            const panelIndex = filterGroups.findIndex((g, i) => `condition-${g.sort_key ?? i}` === openedKey)
-
-            setTimeout(() => {
-                // Find the panel by its position in the collapse
-                const panels = collapseRef.current?.querySelectorAll('.LemonCollapse__panel')
-                if (panels && panels[panelIndex]) {
-                    panels[panelIndex].scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-            }, 150)
-        }
     }
 
     if (readOnly) {
