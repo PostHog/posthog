@@ -248,20 +248,12 @@ export class CyclotronJobQueue {
 
         if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
             const hogInvocations = invocations.filter((x) => x.queue === 'hog')
-            const allQueues = [...new Set(invocations.map((x) => x.queue))]
-            logger.info('Shadow write check', {
-                totalInvocations: invocations.length,
-                hogInvocations: hogInvocations.length,
-                allQueues,
-            })
             if (!hogInvocations.length) {
-                logger.info('Shadow write skipped - no hog invocations', { allQueues })
                 return
             }
             void this.shadowPostgres
                 .queueInvocations(hogInvocations)
                 .then(() => {
-                    logger.info('Shadow write succeeded', { count: hogInvocations.length })
                     this.shadowFailures = 0
                 })
                 .catch((err) => {
