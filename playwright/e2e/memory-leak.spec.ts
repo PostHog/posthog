@@ -217,11 +217,7 @@ test.describe('Memory Leak Detection', () => {
         await waitForPageStable(page)
         ctx.pagesTraversed.push('Dashboards list')
 
-        const dashboardOpened = await openFirstDashboard(page, ctx)
-        if (!dashboardOpened) {
-            log('No dashboard found, skipping test')
-            return
-        }
+        await openFirstDashboard(page, ctx)
 
         const snapshots = await takeThreeSnapshots(ctx, async () => {
             const filterToggleIterations = 200
@@ -253,7 +249,10 @@ test.describe('Memory Leak Detection', () => {
     })
 })
 
-async function openFirstDashboard(page: Page, ctx: MemoryLeakTestContext): Promise<boolean> {
+async function openFirstDashboard(page: Page, ctx: MemoryLeakTestContext): Promise<void> {
+    // Wait for dashboard links to appear
+    await page.locator('a[href*="/dashboard/"]').first().waitFor({ timeout: 10000 })
+    
     const dashboardLinks = await page.locator('a[href*="/dashboard/"]').all()
     log(`Found ${dashboardLinks.length} dashboard links`)
 
@@ -265,10 +264,11 @@ async function openFirstDashboard(page: Page, ctx: MemoryLeakTestContext): Promi
             await waitForPageStable(page)
             await page.waitForTimeout(4000)
             ctx.pagesTraversed.push(`Dashboard: ${href}`)
-            return true
+            return
         }
     }
-    return false
+    
+    throw new Error('No valid dashboard found - test environment may not be properly initialized')
 }
 
 async function navigateToSqlEditor(page: Page, ctx: MemoryLeakTestContext): Promise<void> {
