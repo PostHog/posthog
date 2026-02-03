@@ -273,7 +273,13 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
     Returns:
         The date of the earliest event, or None if no events exist for this team.
     """
+    import time
+
+    t_cluster_start = time.time()
     cluster = get_cluster()
+    t_cluster_end = time.time()
+    logger.info("get_earliest_event_date_timing", phase="get_cluster", duration_s=t_cluster_end - t_cluster_start)
+
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
@@ -1426,6 +1432,9 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_full_backfill_sensor -> Reset cursor
     """
+    import time
+
+    t0 = time.time()
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
     # Parse cursor - tracks where we left off
@@ -1436,8 +1445,14 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         except json.JSONDecodeError:
             cursor_data = {}
 
+    t1 = time.time()
+    context.log.info(f"[TIMING] Cursor parsing took {t1 - t0:.2f}s")
+
     # Get list of teams to process
     catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    t2 = time.time()
+    context.log.info(f"[TIMING] Django ORM query took {t2 - t1:.2f}s, found {len(catalogs)} catalogs")
+
     if not catalogs:
         context.log.info("No DuckLakeCatalog entries found")
         return SensorResult(run_requests=[])
@@ -1472,7 +1487,10 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             current_month = resume_month if resume_month else earliest_month
         else:
             # Query ClickHouse for earliest date (only once per team)
+            t_ch_start = time.time()
             earliest_dt = get_earliest_event_date_for_team(team_id)
+            t_ch_end = time.time()
+            context.log.info(f"[TIMING] ClickHouse query for team {team_id} took {t_ch_end - t_ch_start:.2f}s")
             if earliest_dt is None:
                 context.log.info(f"No events found for team_id={team_id}, skipping")
                 continue
