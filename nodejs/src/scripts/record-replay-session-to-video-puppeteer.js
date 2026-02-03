@@ -102,15 +102,9 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
                     }
                     const counter = window.__POSTHOG_SEGMENT_COUNTER__ || 0
                     if (counter > lastCounterVal) {
-                        const playbackStartedAt = window.__POSTHOG_PLAYBACK_STARTED_AT__
-                        const videoTime =
-                            typeof playbackStartedAt === 'number'
-                                ? (performance.now() - playbackStartedAt) / 1000
-                                : null
                         return {
                             counter: counter,
                             segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__,
-                            video_time_s: videoTime,
                         }
                     }
                     return false
@@ -126,10 +120,7 @@ async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
             const segmentStartTs = result.segment_start_ts
             const newCounter = result.counter || 0
             if (segmentStartTs !== undefined && newCounter > lastCounter) {
-                const videoTime =
-                    typeof result.video_time_s === 'number'
-                        ? result.video_time_s
-                        : (Date.now() - playbackStarted) / 1000
+                const videoTime = (Date.now() - playbackStarted) / 1000
                 segmentStartTimestamps[segmentStartTs] = videoTime
                 log('Segment change detected:', segmentStartTs, 'at video time:', videoTime)
                 lastCounter = newCounter
@@ -168,7 +159,7 @@ async function detectInactivityPeriods(page, playbackSpeed, segmentStartTimestam
                     // We played video sped up, so need to multiply by playback speed to know where this moment is in the final video
                     period.recording_ts_from_s = rawTimestamp * playbackSpeed
                     const tsToS = period.ts_to_s
-                    if (typeof tsToS === 'number') {
+                    if (tsToS !== undefined) {
                         const segmentDuration = tsToS - tsFromS
                         // As the final video is always slowed down to 1x, to get the end of the segment we just need to add the duration
                         period.recording_ts_to_s = period.recording_ts_from_s + segmentDuration
@@ -284,9 +275,6 @@ async function main() {
         // Navigate and wait for page ready
         await waitForPageReady(page, urlWithSpeed, waitForCssSelector)
         const readyAt = Date.now()
-        await page.evaluate(() => {
-            window.__POSTHOG_PLAYBACK_STARTED_AT__ = performance.now()
-        })
         await new Promise((r) => setTimeout(r, 500))
         // Wait for recording to complete while tracking segments, with buffer for rendering
         const maxWaitMs = Math.floor((recordingDuration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
