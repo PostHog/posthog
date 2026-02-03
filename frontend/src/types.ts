@@ -3629,6 +3629,9 @@ export interface SurveyAppearance {
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
+    // supported in the js sdk, NOT user-configurable.
+    // only used for survey branching display.
+    hideCancelButton?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -6227,6 +6230,22 @@ export interface PendingApproval {
     payload: Record<string, unknown>
     original_tool_call_id?: string
     message_id?: string
+}
+
+export interface ConversationQueueMessage {
+    id: string
+    content: string
+    created_at: string
+    contextual_tools?: Record<string, any> | null
+    ui_context?: Record<string, any> | null
+    billing_context?: Record<string, any> | null
+    agent_mode?: string | null
+    session_id?: string | null
+}
+
+export interface ConversationQueueResponse {
+    messages: ConversationQueueMessage[]
+    max_queue_messages: number
 }
 
 export interface Conversation {

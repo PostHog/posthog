@@ -63,8 +63,8 @@ import {
     PlanningStep,
     PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { isDataTableNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
 import { ContextSummary } from './Context'
@@ -302,7 +302,13 @@ interface MessageProps {
     isSlashCommandResponse?: boolean
 }
 
-function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
+function Message({
+    message,
+    nextMessage,
+    isLastInGroup,
+    isFinal,
+    isSlashCommandResponse,
+}: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
@@ -347,6 +353,22 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
         ))
     }, [conversationId, message, pendingApprovalsData, resolvedApprovalStatuses])
 
+    // Skip rendering messages that produce no visible content.
+    // This prevents empty MessageContainers from creating uneven gaps in the thread.
+    const rendersContent =
+        isHumanMessage(message) ||
+        isAssistantMessage(message) ||
+        isFailureMessage(message) ||
+        (isAssistantToolCallMessage(message) &&
+            ((message.ui_payload && Object.values(message.ui_payload).filter((value) => value != null).length > 0) ||
+                isDev)) ||
+        (isArtifactMessage(message) &&
+            (isVisualizationArtifactContent(message.content) || isNotebookArtifactContent(message.content))) ||
+        isMultiVisualizationMessage(message)
+
+    if (!rendersContent && !(isLastInGroup && message.status === 'error')) {
+        return null
+    }
     return (
         <MessageContainer groupType={groupType}>
             <div className={clsx('flex flex-col min-w-0 w-full', groupType === 'human' ? 'items-end' : 'items-start')}>
@@ -1123,7 +1145,7 @@ const Visualization = React.memo(function Visualization({
     collapsed,
     editingChildren,
 }: {
-    query: InsightVizNode | DataVisualizationNode
+    query: InsightVizNode | DataVisualizationNode | DataTableNode
     collapsed?: boolean
     editingChildren?: React.ReactNode
 }): JSX.Element | null {
@@ -1162,7 +1184,7 @@ const Visualization = React.memo(function Visualization({
                     />
                 </div>
             </div>
-            {isSummaryShown && (
+            {isSummaryShown && !isDataTableNode(query) && (
                 <>
                     <SeriesSummary query={query.source} heading={null} />
                     {!isHogQLQuery(query.source) && (
@@ -1193,7 +1215,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
                 }
                 return null
             })
-            .filter(Boolean) as Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+            .filter(Boolean) as Array<{ query: InsightVizNode | DataVisualizationNode | DataTableNode; title: string }>
     }, [visualizations])
 
     const openModal = (): void => {
@@ -1274,7 +1296,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
 
 // Modal for detailed view
 interface MultiVisualizationModalProps {
-    insights: Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+    insights: Array<{ query: InsightVizNode | DataVisualizationNode | DataTableNode; title: string }>
 }
 
 function MultiVisualizationModal({ insights: messages }: MultiVisualizationModalProps): JSX.Element {

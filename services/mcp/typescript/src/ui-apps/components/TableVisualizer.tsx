@@ -1,16 +1,21 @@
 import type { ReactElement } from 'react'
-import type { TableVisualizerProps } from './types'
+
 import { BigNumber, DataTable, LineChart, type Series } from './charts'
+import type { TableVisualizerProps } from './types'
+
+const DATE_PATTERNS = [
+    /^\d{4}-\d{2}-\d{2}/, // 2024-01-15 or 2024-01-15T...
+    /^\d{4}\/\d{2}\/\d{2}/, // 2024/01/15
+    /^\d{2}\/\d{2}\/\d{4}/, // 01/15/2024
+    /^\d{2}-\d{2}-\d{4}/, // 15-01-2024
+]
 
 function isTimestampLike(value: unknown): boolean {
-    if (typeof value !== 'string') return false
-    const datePatterns = [
-        /^\d{4}-\d{2}-\d{2}/, // 2024-01-15 or 2024-01-15T...
-        /^\d{4}\/\d{2}\/\d{2}/, // 2024/01/15
-        /^\d{2}\/\d{2}\/\d{4}/, // 01/15/2024
-        /^\d{2}-\d{2}-\d{4}/, // 15-01-2024
-    ]
-    return datePatterns.some((pattern) => pattern.test(value))
+    if (typeof value !== 'string') {
+        return false
+    }
+
+    return DATE_PATTERNS.some((pattern) => pattern.test(value))
 }
 
 function isNumeric(value: unknown): boolean {
@@ -111,7 +116,11 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         return <BigNumber value={format.value} label={format.label} />
     }
 
-    if (format.type === 'time-series' && format.timeColumnIndex !== undefined && format.valueColumnIndex !== undefined) {
+    if (
+        format.type === 'time-series' &&
+        format.timeColumnIndex !== undefined &&
+        format.valueColumnIndex !== undefined
+    ) {
         const valueLabel = columns[format.valueColumnIndex] || 'Value'
         const { series, labels, maxValue } = transformToSeries(
             rows,
