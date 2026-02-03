@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingJobStatus, DataModelingNodeType } from '~/types'
 
 import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
+import { ElkDirection } from './autolayout'
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { ModelNodeProps } from './types'
@@ -51,6 +52,7 @@ interface ModelNodeInnerProps {
     isSearchMatch: boolean
     isTypeHighlighted: boolean
     lastJobStatus: DataModelingJobStatus | undefined
+    layoutDirection: ElkDirection
     onRunUpstream: (e: React.MouseEvent) => void
     onRunDownstream: (e: React.MouseEvent) => void
     onMaterialize: (e: React.MouseEvent) => void
@@ -64,6 +66,7 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
     isSearchMatch,
     isTypeHighlighted,
     lastJobStatus,
+    layoutDirection,
     onRunUpstream,
     onRunDownstream,
     onMaterialize,
@@ -123,9 +126,19 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
                             <button
                                 type="button"
                                 onClick={onRunUpstream}
-                                className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
+                                className={clsx(
+                                    'absolute w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400',
+                                    layoutDirection === 'DOWN'
+                                        ? 'left-1/2 -translate-x-1/2 -top-3'
+                                        : 'top-1/2 -translate-y-1/2 -left-3'
+                                )}
                             >
-                                <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
+                                <IconPlayFilled
+                                    className={clsx(
+                                        'w-2.5 h-2.5 text-white dark:text-gray-900',
+                                        layoutDirection === 'DOWN' ? '-rotate-90' : 'rotate-180'
+                                    )}
+                                />
                             </button>
                         </Tooltip>
                     )}
@@ -134,16 +147,26 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
                             <button
                                 type="button"
                                 onClick={onRunDownstream}
-                                className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
+                                className={clsx(
+                                    'absolute w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400',
+                                    layoutDirection === 'DOWN'
+                                        ? 'left-1/2 -translate-x-1/2 -bottom-3'
+                                        : 'top-1/2 -translate-y-1/2 -right-3'
+                                )}
                             >
-                                <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
+                                <IconPlayFilled
+                                    className={clsx(
+                                        'w-2.5 h-2.5 text-white dark:text-gray-900',
+                                        layoutDirection === 'DOWN' ? 'rotate-90' : ''
+                                    )}
+                                />
                             </button>
                         </Tooltip>
                     )}
                 </>
             )}
 
-            <div className="flex flex-col justify-between p-2 h-full">
+            <div className="flex flex-col justify-between px-2.5 py-2 h-full">
                 <div className="flex justify-between items-start">
                     <span
                         className="text-[10px] lowercase tracking-wide px-1 rounded"
@@ -185,6 +208,7 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
 
 const ModelNodeComponent = React.memo(function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
+    const { layoutDirection } = useValues(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
     const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
 
@@ -232,6 +256,7 @@ const ModelNodeComponent = React.memo(function ModelNodeComponent(props: ModelNo
             isSearchMatch={isSearchMatch ?? false}
             isTypeHighlighted={isTypeHighlighted ?? false}
             lastJobStatus={lastJobStatus}
+            layoutDirection={layoutDirection}
             onRunUpstream={handleRunUpstream}
             onRunDownstream={handleRunDownstream}
             onMaterialize={handleMaterialize}

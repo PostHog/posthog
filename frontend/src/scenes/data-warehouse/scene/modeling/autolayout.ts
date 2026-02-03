@@ -17,7 +17,7 @@ const getElkPortSide = (position: Position): string => {
     }
 }
 
-type ElkDirection = 'DOWN' | 'RIGHT'
+export type ElkDirection = 'DOWN' | 'RIGHT'
 const elk = new ELK()
 
 export const getFormattedNodes = async (

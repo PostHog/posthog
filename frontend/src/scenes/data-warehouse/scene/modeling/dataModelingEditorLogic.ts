@@ -24,8 +24,8 @@ import {
     DataModelingNodeType,
 } from '~/types'
 
-import { getFormattedNodes } from './autolayout'
-import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
+import { ElkDirection, getFormattedNodes } from './autolayout'
+import { BOTTOM_HANDLE_POSITION, LEFT_HANDLE_POSITION, RIGHT_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
 import type { dataModelingEditorLogicType } from './dataModelingEditorLogicType'
 import { ModelNode, ModelNodeHandle } from './types'
 
@@ -43,7 +43,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         onEdgesChange: (edges: EdgeChange<Edge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<ModelNode>[]) => ({ nodes }),
         onNodesDelete: (deleted: ModelNode[]) => ({ deleted }),
-        setNodes: (nodes: ModelNode[]) => ({ nodes }),
+        setNodes: (nodes: ModelNode[], fitViewAfter?: boolean) => ({ nodes, fitViewAfter }),
         setNodesRaw: (nodes: ModelNode[]) => ({ nodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
@@ -52,9 +52,14 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         }),
         setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         setHighlightedNodeType: (highlightedNodeType: DataModelingNodeType | null) => ({ highlightedNodeType }),
-        resetGraph: (dataModelingNodes: DataModelingNode[], dataModelingEdges: DataModelingEdge[]) => ({
+        resetGraph: (
+            dataModelingNodes: DataModelingNode[],
+            dataModelingEdges: DataModelingEdge[],
+            fitViewAfter?: boolean
+        ) => ({
             dataModelingNodes,
             dataModelingEdges,
+            fitViewAfter,
         }),
         runNode: (nodeId: string, direction: 'upstream' | 'downstream') => ({ nodeId, direction }),
         runNodeSuccess: (nodeId: string, direction: 'upstream' | 'downstream', runningNodeIds: string[]) => ({
@@ -77,6 +82,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         pollRunningJobsSuccess: (runningJobs: DataModelingJob[]) => ({ runningJobs }),
         loadRecentJobs: true,
         loadRecentJobsSuccess: (recentJobs: DataModelingJob[]) => ({ recentJobs }),
+        setLayoutDirection: (layoutDirection: ElkDirection) => ({ layoutDirection }),
     }),
     loaders({
         dataModelingNodes: [
@@ -175,6 +181,19 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     }
                     return statusMap
                 },
+            },
+        ],
+        layoutDirection: [
+            'DOWN' as ElkDirection,
+            {
+                setLayoutDirection: (_, { layoutDirection }) => layoutDirection,
+            },
+        ],
+        layoutChanging: [
+            false,
+            {
+                setLayoutDirection: () => true,
+                setNodesRaw: () => false,
             },
         ],
     })),
@@ -282,8 +301,9 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             }
         },
 
-        resetGraph: async ({ dataModelingNodes, dataModelingEdges }) => {
+        resetGraph: async ({ dataModelingNodes, dataModelingEdges, fitViewAfter }) => {
             const nodeIds = new Set(dataModelingNodes.map((n) => n.id))
+            const isHorizontal = values.layoutDirection === 'RIGHT'
 
             const handlesByNodeId: Record<string, Record<string, ModelNodeHandle>> = {}
 
@@ -292,14 +312,14 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     [`target_${node.id}`]: {
                         id: `target_${node.id}`,
                         type: 'target',
-                        position: Position.Top,
-                        ...TOP_HANDLE_POSITION,
+                        position: isHorizontal ? Position.Left : Position.Top,
+                        ...(isHorizontal ? LEFT_HANDLE_POSITION : TOP_HANDLE_POSITION),
                     },
                     [`source_${node.id}`]: {
                         id: `source_${node.id}`,
                         type: 'source',
-                        position: Position.Bottom,
-                        ...BOTTOM_HANDLE_POSITION,
+                        position: isHorizontal ? Position.Right : Position.Bottom,
+                        ...(isHorizontal ? RIGHT_HANDLE_POSITION : BOTTOM_HANDLE_POSITION),
                     },
                 }
             })
@@ -346,21 +366,30 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 }))
 
             actions.setEdges(edges)
-            actions.setNodes(nodes)
+            actions.setNodes(nodes, fitViewAfter)
         },
 
-        setNodes: async ({ nodes }) => {
+        setNodes: async ({ nodes, fitViewAfter }) => {
             if (nodes.length === 0) {
                 actions.setNodesRaw([])
                 return
             }
-            const formattedNodes = await getFormattedNodes(nodes, values.edges)
+            const formattedNodes = await getFormattedNodes(nodes, values.edges, values.layoutDirection)
             actions.setNodesRaw(formattedNodes)
+            if (fitViewAfter) {
+                values.reactFlowInstance?.fitView({ padding: 0.2, maxZoom: 1 })
+            }
         },
 
         onNodesDelete: ({ deleted }) => {
             if (deleted.some((node) => node.id === values.selectedNodeId)) {
                 actions.setSelectedNodeId(null)
+            }
+        },
+
+        setLayoutDirection: () => {
+            if (values.dataModelingNodes.length > 0) {
+                actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges, true)
             }
         },
 
