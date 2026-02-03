@@ -167,7 +167,7 @@ function GroupedAccessControlRuleModalContent(props: {
         if (props.memberHasAdminAccess || props.roleHasAdminAccess) {
             return 'Feature overrides do not apply to admins'
         }
-    }, [props.loading, props.canEdit, props.memberHasAdminAccess, props.roleHasAdminAccess])
+    }, [props.loading, props.canEdit, props.memberHasAdminAccess])
 
     const disabledReasonForProject = useMemo(() => {
         if (props.loading) {

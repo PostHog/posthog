@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
-import { formatNumber, formatDate } from '../utils'
+
+import { formatDate, formatNumber } from '../utils'
 
 const CHART_HEIGHT = 200
 const CHART_WIDTH = 400
@@ -43,10 +44,7 @@ export function BarChart({ series, labels, maxValue, showLegend = true }: BarCha
 
     return (
         <div>
-            <svg
-                viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-                style={{ width: '100%', height: '400px' }}
-            >
+            <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '400px' }}>
                 {/* Y-axis labels */}
                 {[0, 0.5, 1].map((ratio) => {
                     const value = maxValue * ratio
@@ -76,7 +74,9 @@ export function BarChart({ series, labels, maxValue, showLegend = true }: BarCha
 
                 {/* X-axis labels */}
                 {labels.map((label, i) => {
-                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {return null}
+                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {
+                        return null
+                    }
                     const x = PADDING.left + (i + 0.5) * barGroupWidth
                     return (
                         <text

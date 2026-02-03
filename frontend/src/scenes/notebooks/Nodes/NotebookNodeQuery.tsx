@@ -114,7 +114,7 @@ const Component = ({
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride, updateAttributes, attributes])
+    }, [query])
 
     if (!expanded) {
         return null

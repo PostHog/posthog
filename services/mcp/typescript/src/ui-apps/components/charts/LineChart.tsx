@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
-import { formatNumber, formatDate } from '../utils'
+
+import { formatDate, formatNumber } from '../utils'
 
 const CHART_HEIGHT = 200
 const CHART_WIDTH = 400
@@ -40,10 +41,7 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
 
     return (
         <div>
-            <svg
-                viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-                style={{ width: '100%', height: '400px' }}
-            >
+            <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '400px' }}>
                 {/* Y-axis labels */}
                 {[0, 0.5, 1].map((ratio) => {
                     const value = maxValue * ratio
@@ -73,7 +71,9 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
 
                 {/* X-axis labels */}
                 {labels.map((label, i) => {
-                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {return null}
+                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {
+                        return null
+                    }
                     return (
                         <text
                             key={i}
@@ -90,7 +90,9 @@ export function LineChart({ series, labels, maxValue, showLegend = true }: LineC
 
                 {/* Lines */}
                 {series.map((s, seriesIndex) => {
-                    if (s.points.length === 0) {return null}
+                    if (s.points.length === 0) {
+                        return null
+                    }
 
                     const pathD = s.points
                         .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.x)} ${yScale(p.y)}`)

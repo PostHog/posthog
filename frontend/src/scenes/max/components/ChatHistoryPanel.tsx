@@ -1,16 +1,24 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { memo, useMemo, useRef, useState } from 'react'
 
-import { IconPlusSmall, IconSearch, IconSidebarClose } from '@posthog/icons'
+import { IconEllipsis, IconPlusSmall, IconSearch, IconShare, IconSidebarClose } from '@posthog/icons'
 import { LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -18,9 +26,7 @@ import { ConversationDetail, ConversationStatus } from '~/types'
 
 import { maxLogic } from '../maxLogic'
 import { CHAT_HISTORY_COLLAPSE_THRESHOLD, maxPanelSizingLogic } from '../maxPanelSizingLogic'
-import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { formatConversationDate } from '../utils'
-import { SuggestionsPanel } from './SuggestionsPanel'
 
 interface ChatHistoryPanelProps {
     tabId: string
@@ -30,10 +36,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
     const chatHistoryPanelRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
     const { startNewConversation, openConversation } = useActions(maxLogic({ tabId }))
-    const { conversationHistory, conversationHistoryLoading, conversationId, threadLogicKey, conversation } = useValues(
-        maxLogic({ tabId })
-    )
-    const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { conversationHistory, conversationHistoryLoading, conversationId } = useValues(maxLogic({ tabId }))
     const [isSearching, setIsSearching] = useState<boolean>(false)
     const [inputValue, setInputValue] = useState('')
 
@@ -66,12 +69,6 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
             chatHistoryPanelResizerProps: resizerProps,
         })
     )
-
-    const threadProps: MaxThreadLogicProps = {
-        tabId,
-        conversationId: threadLogicKey,
-        conversation,
-    }
 
     const handleToggleSearch = (): void => {
         if (isSearching) {
@@ -164,7 +161,7 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                 </div>
                             ) : (
                                 <>
-                                    <Autocomplete.List className="flex flex-col gap-1">
+                                    <Autocomplete.List className="flex flex-col gap-1 -mx-1">
                                         <Autocomplete.Group items={filteredConversations}>
                                             <Autocomplete.Collection>
                                                 {(conversation: ConversationDetail) => (
@@ -176,30 +173,98 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                                             openConversation(conversation.id)
                                                         }}
                                                         render={
-                                                            <Link
-                                                                to={
-                                                                    combineUrl(urls.ai(conversation.id), {
-                                                                        from: 'history',
-                                                                    }).url
-                                                                }
-                                                                buttonProps={{
-                                                                    active: conversation.id === conversationId,
-                                                                    fullWidth: true,
-                                                                }}
-                                                                tooltip={conversation.title || 'view conversation'}
-                                                                tooltipPlacement="right"
-                                                            >
-                                                                <span className="flex-1 line-clamp-1 text-primary">
-                                                                    {conversation.title}
-                                                                </span>
-                                                                {conversation.status ===
-                                                                    ConversationStatus.InProgress && (
-                                                                    <Spinner className="h-3 w-3" />
-                                                                )}
-                                                                <span className="opacity-30 text-xs">
-                                                                    {formatConversationDate(conversation.updated_at)}
-                                                                </span>
-                                                            </Link>
+                                                            <DropdownMenu>
+                                                                <ButtonGroupPrimitive fullWidth className="group">
+                                                                    <Link
+                                                                        to={
+                                                                            combineUrl(urls.ai(conversation.id), {
+                                                                                from: 'history',
+                                                                            }).url
+                                                                        }
+                                                                        buttonProps={{
+                                                                            active: conversation.id === conversationId,
+                                                                            fullWidth: true,
+                                                                            className: 'pr-0',
+                                                                        }}
+                                                                        tooltip={
+                                                                            conversation.title || 'view conversation'
+                                                                        }
+                                                                        tooltipPlacement="right"
+                                                                        extraContextMenuItems={
+                                                                            <ContextMenuItem asChild>
+                                                                                <ButtonPrimitive
+                                                                                    menuItem
+                                                                                    onClick={() => {
+                                                                                        copyToClipboard(
+                                                                                            urls.absolute(
+                                                                                                urls.currentProject(
+                                                                                                    urls.ai(
+                                                                                                        conversation.id
+                                                                                                    )
+                                                                                                )
+                                                                                            ),
+                                                                                            'conversation sharing link'
+                                                                                        )
+                                                                                    }}
+                                                                                >
+                                                                                    <IconShare className="size-4 text-tertiary" />
+                                                                                    Copy link to chat
+                                                                                </ButtonPrimitive>
+                                                                            </ContextMenuItem>
+                                                                        }
+                                                                    >
+                                                                        <span className="flex-1 line-clamp-1 text-primary">
+                                                                            {conversation.title}
+                                                                        </span>
+                                                                        {conversation.status ===
+                                                                            ConversationStatus.InProgress && (
+                                                                            <Spinner className="h-3 w-3" />
+                                                                        )}
+                                                                        <span className="opacity-30 text-xs pr-1.5 group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0 transition-opacity duration-100">
+                                                                            {formatConversationDate(
+                                                                                conversation.updated_at
+                                                                            )}
+                                                                        </span>
+                                                                    </Link>
+                                                                    <DropdownMenuTrigger asChild>
+                                                                        <ButtonPrimitive
+                                                                            iconOnly
+                                                                            className="
+                                                                                absolute right-0
+                                                                                translate-x-full opacity-0
+                                                                                group-hover:translate-x-0 group-hover:opacity-100
+                                                                                data-[state=open]:translate-x-0
+                                                                                data-[state=open]:opacity-100
+                                                                                transition-[opacity] duration-100 ease-initial
+                                                                            "
+                                                                        >
+                                                                            <IconEllipsis className="text-tertiary size-3 group-hover:text-primary z-10" />
+                                                                        </ButtonPrimitive>
+                                                                    </DropdownMenuTrigger>
+                                                                </ButtonGroupPrimitive>
+                                                                <DropdownMenuContent>
+                                                                    <DropdownMenuGroup>
+                                                                        <DropdownMenuItem asChild>
+                                                                            <ButtonPrimitive
+                                                                                menuItem
+                                                                                onClick={() => {
+                                                                                    copyToClipboard(
+                                                                                        urls.absolute(
+                                                                                            urls.currentProject(
+                                                                                                urls.ai(conversation.id)
+                                                                                            )
+                                                                                        ),
+                                                                                        'conversation sharing link'
+                                                                                    )
+                                                                                }}
+                                                                            >
+                                                                                <IconShare className="size-4 text-tertiary" />
+                                                                                Copy link to chat
+                                                                            </ButtonPrimitive>
+                                                                        </DropdownMenuItem>
+                                                                    </DropdownMenuGroup>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
                                                         }
                                                     />
                                                 )}
@@ -212,13 +277,6 @@ export const ChatHistoryPanel = memo(function ChatHistoryPanel({ tabId }: ChatHi
                                 </>
                             )}
                         </ScrollableShadows>
-
-                        <div className="border-b border-primary h-px" />
-                        {isRemovingSidePanel && (
-                            <BindLogic logic={maxThreadLogic} props={threadProps}>
-                                <SuggestionsPanel />
-                            </BindLogic>
-                        )}
                     </div>
                 )}
             </Autocomplete.Root>
