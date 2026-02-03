@@ -19,7 +19,7 @@ import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
-import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { AIEventExpanded } from './AIEventItems'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -82,10 +82,6 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
             <AutocapturePreviewImage elements={item.data.elements} properties={item.data.properties} />
-        ) : item.data.event === '$ai_generation' ||
-          item.data.event === '$ai_span' ||
-          item.data.event === '$ai_trace' ? (
-            <AIEventSummary event={item.data} />
         ) : item.data.event === '$exception' ? (
             <ExceptionTitlePill event={item.data} />
         ) : null
