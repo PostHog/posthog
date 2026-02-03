@@ -38,6 +38,9 @@
         "clean": {
             "dependsOn": ["^clean"],
             "cache": false
+        },
+        "openapi:types": {
+            "inputs": ["$TURBO_DEFAULT$", "tmp/openapi.json"]
         }
     }
 }

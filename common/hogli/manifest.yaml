@@ -309,7 +309,7 @@ build:
             - clickhouse
             - django
     build:openapi-types:
-        cmd: pnpm --filter=@posthog/frontend run openapi:types
+        cmd: bin/turbo --filter=@posthog/frontend openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
     build:openapi:
         steps:
