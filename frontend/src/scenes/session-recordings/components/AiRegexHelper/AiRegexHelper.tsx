@@ -1,5 +1,5 @@
 /**
- * @fileoverview A component that helps you to generate regex for your settings using Max AI
+ * @fileoverview A component that helps you to generate regex for your settings using PostHog AI
  */
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -37,7 +37,7 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
 
     return (
         <>
-            <LemonModal isOpen={isOpen} onClose={onClose} title="Max AI Regex Helper">
+            <LemonModal isOpen={isOpen} onClose={onClose} title="PostHog AI Regex Helper">
                 Explain your regex in natural language:
                 <LemonTextArea
                     placeholder="I want a regex that covers all urls that include 'app.posthog.com/auth/*'"
