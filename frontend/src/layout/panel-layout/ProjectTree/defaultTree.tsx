@@ -6,6 +6,7 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconCode,
     IconCode2,
     IconDashboard,
     IconDatabase,
@@ -38,6 +39,7 @@ import {
     IconSearch,
     IconServer,
     IconSpotlight,
+    IconStethoscope,
     IconStickiness,
     IconSupport,
     IconToggle,
@@ -276,6 +278,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     settings: {
         icon: <IconGear />,
+    },
+    health: {
+        icon: <IconStethoscope />,
+    },
+    sdk_doctor: {
+        icon: <IconCode />,
+    },
+    pipeline_status: {
+        icon: <IconDatabase />,
     },
 }
 

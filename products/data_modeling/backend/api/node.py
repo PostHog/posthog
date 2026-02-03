@@ -135,7 +135,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).order_by(self.ordering)
+        return queryset.filter(team_id=self.team_id, dag_id=f"posthog_{self.team_id}").order_by(self.ordering)
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:

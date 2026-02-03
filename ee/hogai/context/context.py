@@ -106,6 +106,10 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
+    @property
+    def is_subagent(self) -> bool:
+        return (self._config.get("configurable") or {}).get("is_subagent", False)
+
     def get_billing_context(self) -> MaxBillingContext | None:
         """
         Extracts the billing context from the runnable config.

@@ -15668,7 +15668,10 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status"
             ],
             "type": "string"
         },
@@ -17476,9 +17479,6 @@
                 },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
-                    "type": "boolean"
-                },
-                "usePresortedEventsTable": {
                     "type": "boolean"
                 },
                 "useWebAnalyticsPreAggregatedTables": {
@@ -27875,11 +27875,17 @@
                 "active": {
                     "type": "boolean"
                 },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
                 "ts_from_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 },
                 "ts_to_s": {
-                    "$ref": "#/definitions/integer"
+                    "type": "number"
                 }
             },
             "required": ["ts_from_s", "active"],
