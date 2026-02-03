@@ -30,7 +30,7 @@ class CustomEnvironment extends PlaywrightEnvironment {
 
     async teardown() {
         // Stop webkit tracing and save if there were failures
-        if (this._webkitTracingEnabled && this._hasTestFailures) {
+        if (this._webkitTracingEnabled && this._hasTestFailures === true) {
             try {
                 const traceDir = 'frontend/__snapshots__/__failures__'
                 if (!fs.existsSync(traceDir)) {

@@ -103,8 +103,10 @@ module.exports = {
         const browserName = browserContext.browser()?.browserType().name()
         if (browserName === 'webkit' && process.env.CI) {
             const pageLoadStart = Date.now()
+            let loadEventFired = false
             // Listen for load event to measure actual load time
             page.once('load', () => {
+                loadEventFired = true
                 const loadTime = Date.now() - pageLoadStart
                 if (loadTime > 15000) {
                     // eslint-disable-next-line no-console
@@ -116,6 +118,15 @@ module.exports = {
                     console.log(`[webkit-diagnostics] Page load: ${loadTime}ms for ${context.id}`)
                 }
             })
+            // Add timeout warning if load event doesn't fire within 25s (page.goto timeout is 30s)
+            setTimeout(() => {
+                if (!loadEventFired) {
+                    // eslint-disable-next-line no-console
+                    console.error(
+                        `[webkit-diagnostics] page.goto likely timing out - load event not fired after 25s for ${context.id}`
+                    )
+                }
+            }, 25000)
         }
     },
 
