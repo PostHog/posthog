@@ -398,6 +398,8 @@ export const clustersLogic = kea<clustersLogicType>([
             // This handles direct URL navigation to a run with a different level
             if (currentRun?.level && currentRun.level !== values.clusteringLevel) {
                 actions.syncClusteringLevelFromRun(currentRun.level)
+                // Reload runs for the correct level so the dropdown shows proper labels
+                actions.loadClusteringRuns()
             }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
