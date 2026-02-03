@@ -231,7 +231,7 @@ export function Billing(): JSX.Element {
                 <h2>Products</h2>
             </div>
 
-            {(featureFlags[FEATURE_FLAGS.REORDER_PLATFORM_ADDON_BILLING_SECTION]
+            {(featureFlags[FEATURE_FLAGS.REORDER_PLATFORM_ADDON_BILLING_SECTION] === 'test-top-of-page'
                 ? [
                       platformAndSupportProduct,
                       ...(products?.filter((product) => product.type !== ProductKey.PLATFORM_AND_SUPPORT) ?? []),
