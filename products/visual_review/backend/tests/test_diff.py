@@ -103,3 +103,7 @@ class TestComputeDiff:
         diff_img = Image.open(io.BytesIO(result.diff_image))
         assert diff_img.size == (10, 10)
         assert diff_img.mode == "RGBA"
+
+    def test_intentional_failure_to_verify_ci_runs_tests(self):
+        """This test intentionally fails to verify CI is running visual_review tests."""
+        raise AssertionError("SUCCESS: CI is running visual_review tests! Remove this test.")
