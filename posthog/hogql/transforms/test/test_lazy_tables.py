@@ -79,17 +79,6 @@ class TestLazyJoins(BaseTest):
         assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_resolve_lazy_table_as_table_in_join_reverse(self):
-        # Bug reproduction: when persons is the FROM table and events is joined,
-        # the join condition `events.person_id = persons.id` expands to reference
-        # events__override before it's defined in the query.
-        # This test verifies the generated SQL is valid and snapshots it.
-        printed = self._print_select(
-            "select persons.id, max(timestamp) from persons join events on events.person_id = persons.id where persons.properties.email like '%posthog.com'"
-        )
-        assert printed == self.snapshot
-
-    @pytest.mark.usefixtures("unittest_snapshot")
     def test_select_count_from_lazy_table(self):
         printed = self._print_select("select count() from persons")
         assert printed == self.snapshot

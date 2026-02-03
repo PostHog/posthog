@@ -43,19 +43,6 @@ class FieldChainReplacer(TraversingVisitor):
                 node.chain = [constraint.table_name, constraint.alias]
 
 
-class FieldChainPrefixReplacer(TraversingVisitor):
-    """Replaces the first element of field chains that match a given prefix."""
-
-    def __init__(self, old_prefix: str | int, new_prefix: str | int) -> None:
-        super().__init__()
-        self.old_prefix = old_prefix
-        self.new_prefix = new_prefix
-
-    def visit_field(self, node: ast.Field):
-        if len(node.chain) > 0 and node.chain[0] == self.old_prefix:
-            node.chain = [self.new_prefix, *node.chain[1:]]
-
-
 class FieldFinder(TraversingVisitor):
     field_chains: list[list[str | int]] = []
 
@@ -68,15 +55,11 @@ class FieldFinder(TraversingVisitor):
 
 
 def constraint_references_table(constraint: ast.JoinConstraint | None, table_alias: str) -> bool:
-    """Check if a join constraint references a specific table alias."""
     if constraint is None:
         return False
     finder = FieldFinder()
     finder.visit(constraint)
-    for chain in finder.field_chains:
-        if len(chain) > 0 and chain[0] == table_alias:
-            return True
-    return False
+    return any(chain and chain[0] == table_alias for chain in finder.field_chains)
 
 
 class LazyFinder(TraversingVisitor):
@@ -461,102 +444,51 @@ class LazyTableResolver(TraversingVisitor):
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
-                    # Check if this join's constraint references the lazy join we're about to add
-                    # If so, we need to wrap the table and lazy join in a subquery to avoid forward references
+                    # Check if join constraint references the lazy join - if so, wrap in subquery to avoid forward reference
                     lazy_field_name = join_scope.lazy_join_type.field if join_scope.lazy_join_type else None
                     references_lazy_join = constraint_references_table(join_ptr.constraint, to_table) or (
                         lazy_field_name and constraint_references_table(join_ptr.constraint, lazy_field_name)
                     )
 
-                    if references_lazy_join and join_ptr.constraint is not None:
-                        # The constraint references the lazy join we're adding.
-                        # We need to wrap the table and lazy join in a subquery.
-                        #
-                        # Example: FROM persons JOIN events ON events.person_id = persons.id
-                        # where events.person_id expands to if(not(empty(override.distinct_id)), override.person_id, events.person_id)
-                        #
-                        # We transform to:
-                        # FROM persons JOIN (
-                        #     SELECT events.*, if(...) as __join_key
-                        #     FROM events LEFT JOIN override ON ...
-                        # ) AS events ON events.__join_key = persons.id
-
-                        # Extract the left and right sides of the join constraint
-                        # The left side references the lazy join, the right side references the other table
+                    if (
+                        references_lazy_join
+                        and join_ptr.constraint is not None
+                        and isinstance(join_ptr.constraint.expr, ast.CompareOperation)
+                    ):
                         constraint_expr = join_ptr.constraint.expr
-                        if not isinstance(constraint_expr, ast.CompareOperation):
-                            # Can only handle simple comparisons for now
-                            # Fall through to the normal join logic
-                            pass
-                        else:
-                            join_key_alias = "__join_key"
-                            constraint_left = constraint_expr.left
-                            constraint_right = constraint_expr.right
-                            constraint_op = constraint_expr.op
+                        original_alias = join_ptr.alias or (
+                            join_ptr.table.chain[0] if isinstance(join_ptr.table, ast.Field) else None
+                        )
 
-                            # The original table becomes the FROM of our subquery
-                            original_table = join_ptr.table
-                            original_alias = join_ptr.alias or (
-                                join_ptr.table.chain[0] if isinstance(join_ptr.table, ast.Field) else None
-                            )
+                        # Wrap table in subquery: SELECT *, <join_key_expr> AS __join_key FROM <table>
+                        subquery = ast.SelectQuery(
+                            select=[
+                                ast.Field(chain=[original_alias, "*"] if original_alias else ["*"]),
+                                ast.Alias(alias="__join_key", expr=clone_expr(constraint_expr.left, clear_types=True)),
+                            ],
+                            select_from=ast.JoinExpr(
+                                table=clone_expr(join_ptr.table, clear_types=True), alias=original_alias
+                            ),
+                        )
+                        subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
 
-                            # Create inner FROM - just the original table
-                            # The lazy join will be added by normal lazy join resolution inside the subquery
-                            inner_from = ast.JoinExpr(
-                                table=clone_expr(original_table, clear_locations=True, clear_types=True),
-                                alias=original_alias,
-                            )
+                        join_ptr.table = subquery
+                        join_ptr.alias = original_alias
+                        join_ptr.type = ast.SelectQueryAliasType(alias=original_alias, select_query_type=subquery.type)
+                        select_type.tables[original_alias] = join_ptr.type
 
-                            # Clone the constraint left side (the expression that references the lazy join)
-                            cloned_constraint_left = clone_expr(constraint_left, clear_locations=True, clear_types=True)
-
-                            # Create the subquery selecting all fields plus the join key expression
-                            subquery = ast.SelectQuery(
-                                select=[
-                                    ast.Field(chain=[original_alias, "*"])
-                                    if original_alias
-                                    else ast.Field(chain=["*"]),
-                                    ast.Alias(
-                                        alias=join_key_alias,
-                                        expr=cloned_constraint_left,
-                                    ),
-                                ],
-                                select_from=inner_from,
-                            )
-
-                            # Resolve types for the subquery (use empty parent scope to avoid conflicts)
-                            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
-
-                            # Replace the join's table with the subquery
-                            subquery_alias = original_alias or to_table
-                            join_ptr.table = subquery
-                            join_ptr.alias = subquery_alias
-                            join_ptr.type = ast.SelectQueryAliasType(
-                                alias=subquery_alias, select_query_type=subquery.type
-                            )
-
-                            # Update the select_type tables
-                            select_type.tables[subquery_alias] = join_ptr.type
-
-                            # Create the new constraint with types already set
-                            # The left side references the join key from the subquery
-                            new_left = ast.Field(chain=[subquery_alias, join_key_alias])
-                            new_left.type = ast.FieldType(name=join_key_alias, table_type=join_ptr.type)
-
-                            # Clone the right side and keep its original type if it exists
-                            new_right = clone_expr(constraint_right, clear_locations=True)
-
-                            join_ptr.constraint = ast.JoinConstraint(
-                                expr=ast.CompareOperation(
-                                    op=constraint_op,
-                                    left=new_left,
-                                    right=new_right,
-                                ),
-                                constraint_type="ON",
-                            )
-
-                            added = True
-                            break
+                        new_constraint_left = ast.Field(chain=[original_alias, "__join_key"])
+                        new_constraint_left.type = ast.FieldType(name="__join_key", table_type=join_ptr.type)
+                        join_ptr.constraint = ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=constraint_expr.op,
+                                left=new_constraint_left,
+                                right=clone_expr(constraint_expr.right),
+                            ),
+                            constraint_type="ON",
+                        )
+                        added = True
+                        break
 
                     # If the `join_to_add` is reliant on the existing `next_join`, then just append after instead of before
                     if join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
