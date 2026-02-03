@@ -426,7 +426,7 @@
         "summary": "Get the details of the active organization.",
         "title": "Get organization details",
         "required_scopes": ["organization:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -441,7 +441,7 @@
         "summary": "Get the organizations the user has access to.",
         "title": "Get organizations",
         "required_scopes": ["user:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -471,7 +471,7 @@
         "summary": "Fetches projects that the user has access to in the current organization.",
         "title": "Get projects",
         "required_scopes": ["organization:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -665,7 +665,7 @@
         "summary": "Search and query logs in the project.",
         "title": "Query logs",
         "required_scopes": ["logs:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -680,7 +680,7 @@
         "summary": "List available log attributes.",
         "title": "List log attributes",
         "required_scopes": ["logs:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -695,7 +695,7 @@
         "summary": "Get values for a log attribute.",
         "title": "List attribute values",
         "required_scopes": ["logs:read"],
-        "new_mcp": false,
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
