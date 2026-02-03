@@ -181,6 +181,9 @@ export enum TaxonomicFilterGroupType {
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
     Empty = 'empty',
+    // Recent items
+    RecentEvents = 'recent_events',
+    RecentProperties = 'recent_properties',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

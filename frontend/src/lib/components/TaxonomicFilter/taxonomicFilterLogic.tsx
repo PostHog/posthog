@@ -8,6 +8,12 @@ import { IconFlag, IconServer } from '@posthog/icons'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import {
+    EVENT_GROUP_TYPES,
+    PROPERTY_GROUP_TYPES,
+    RecentItem,
+    recentItemsLogic,
+} from 'lib/components/TaxonomicFilter/recentItemsLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
@@ -136,7 +142,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataPropertyDefinitions'],
             taxonomicFilterPreferencesLogic,
             ['eventOrdering'],
+            recentItemsLogic,
+            ['recentEventOptions', 'recentPropertyOptions'],
         ],
+        actions: [recentItemsLogic, ['addRecentEvent', 'addRecentProperty']],
     })),
     actions(() => ({
         moveUp: true,
@@ -253,6 +262,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
+                s.recentEventOptions,
+                s.recentPropertyOptions,
             ],
             (
                 currentTeam: TeamType,
@@ -267,11 +278,41 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
-                endpointFilters: Record<string, any> | undefined
+                endpointFilters: Record<string, any> | undefined,
+                recentEventOptions: RecentItem[],
+                recentPropertyOptions: RecentItem[]
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
+                    {
+                        name: 'Recent events',
+                        searchPlaceholder: 'recent events',
+                        type: TaxonomicFilterGroupType.RecentEvents,
+                        options: recentEventOptions.map((item) => ({
+                            name: item.name,
+                            value: item.value,
+                            originalType: item.type,
+                        })),
+                        getName: (option: { name: string }) => option.name,
+                        getValue: (option: { value: TaxonomicFilterValue }) => option.value,
+                        getPopoverHeader: () => 'Recent event',
+                        getIcon: getEventDefinitionIcon,
+                    },
+                    {
+                        name: 'Recent properties',
+                        searchPlaceholder: 'recent properties',
+                        type: TaxonomicFilterGroupType.RecentProperties,
+                        options: recentPropertyOptions.map((item) => ({
+                            name: item.name,
+                            value: item.value,
+                            originalType: item.type,
+                        })),
+                        getName: (option: { name: string }) => option.name,
+                        getValue: (option: { value: TaxonomicFilterValue }) => option.value,
+                        getPopoverHeader: () => 'Recent property',
+                        getIcon: getPropertyDefinitionIcon,
+                    },
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
@@ -1041,6 +1082,27 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 } catch (e) {
                     posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
                 }
+
+                // Track recent items (but don't track when selecting from recent lists)
+                if (
+                    value !== null &&
+                    group.type !== TaxonomicFilterGroupType.RecentEvents &&
+                    group.type !== TaxonomicFilterGroupType.RecentProperties
+                ) {
+                    const recentItem: RecentItem = {
+                        type: group.type,
+                        value,
+                        name: group.getName?.(item) || String(value),
+                        timestamp: Date.now(),
+                    }
+
+                    if (EVENT_GROUP_TYPES.includes(group.type)) {
+                        actions.addRecentEvent(recentItem)
+                    } else if (PROPERTY_GROUP_TYPES.includes(group.type)) {
+                        actions.addRecentProperty(recentItem)
+                    }
+                }
+
                 props.onChange?.(group, value, item, originalQuery)
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
                 props.onChange?.(group, value, item, originalQuery)

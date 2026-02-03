@@ -11,6 +11,7 @@ import { AvailableFeature } from '~/types'
 
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { infiniteListLogic } from './infiniteListLogic'
+import { recentItemsLogic } from './recentItemsLogic'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -270,6 +271,221 @@ ForceNonColumnar.parameters = {
     docs: {
         description: {
             story: 'Forces horizontal layout even with 6 group types by setting useVerticalLayout to false.',
+        },
+    },
+}
+
+/**
+ * This story demonstrates the RecentEvents tab in event picker mode with some recent events.
+ */
+export const RecentEventsWithItems: StoryFn<typeof TaxonomicFilter> = (args) => {
+    const logic = useMountedLogic(recentItemsLogic)
+    useMountedLogic(actionsModel)
+
+    useDelayedOnMountEffect(() => {
+        // Clear and add some recent events
+        logic.actions.clearRecentEvents()
+        logic.actions.addRecentEvent({
+            type: TaxonomicFilterGroupType.Events,
+            value: '$pageview',
+            name: '$pageview',
+            timestamp: Date.now() - 10000,
+        })
+        logic.actions.addRecentEvent({
+            type: TaxonomicFilterGroupType.Events,
+            value: '$autocapture',
+            name: '$autocapture',
+            timestamp: Date.now() - 5000,
+        })
+        logic.actions.addRecentEvent({
+            type: TaxonomicFilterGroupType.Events,
+            value: 'user_signed_up',
+            name: 'user_signed_up',
+            timestamp: Date.now(),
+        })
+    })
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+RecentEventsWithItems.args = {
+    taxonomicFilterLogicKey: 'recent-events-with-items',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.RecentEvents,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+    ],
+}
+RecentEventsWithItems.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter in event picker mode showing the Recent events tab with previously selected events.',
+        },
+    },
+}
+
+/**
+ * This story demonstrates the RecentEvents tab in event picker mode with no recent events.
+ */
+export const RecentEventsEmpty: StoryFn<typeof TaxonomicFilter> = (args) => {
+    const logic = useMountedLogic(recentItemsLogic)
+    useMountedLogic(actionsModel)
+
+    useDelayedOnMountEffect(() => {
+        logic.actions.clearRecentEvents()
+    })
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+RecentEventsEmpty.args = {
+    taxonomicFilterLogicKey: 'recent-events-empty',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.RecentEvents,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+    ],
+}
+RecentEventsEmpty.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter in event picker mode showing the Recent events tab with no recent events.',
+        },
+    },
+}
+
+/**
+ * This story demonstrates the RecentProperties tab in property picker mode with some recent properties.
+ */
+export const RecentPropertiesWithItems: StoryFn<typeof TaxonomicFilter> = (args) => {
+    const logic = useMountedLogic(recentItemsLogic)
+
+    useDelayedOnMountEffect(() => {
+        // Clear and add some recent properties
+        logic.actions.clearRecentProperties()
+        logic.actions.addRecentProperty({
+            type: TaxonomicFilterGroupType.EventProperties,
+            value: '$browser',
+            name: '$browser',
+            timestamp: Date.now() - 10000,
+        })
+        logic.actions.addRecentProperty({
+            type: TaxonomicFilterGroupType.PersonProperties,
+            value: 'email',
+            name: 'email',
+            timestamp: Date.now() - 5000,
+        })
+        logic.actions.addRecentProperty({
+            type: TaxonomicFilterGroupType.EventProperties,
+            value: '$current_url',
+            name: '$current_url',
+            timestamp: Date.now(),
+        })
+    })
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+RecentPropertiesWithItems.args = {
+    taxonomicFilterLogicKey: 'recent-properties-with-items',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.RecentProperties,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+    ],
+}
+RecentPropertiesWithItems.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter in property picker mode showing the Recent properties tab with previously selected properties.',
+        },
+    },
+}
+
+/**
+ * This story demonstrates the RecentProperties tab in property picker mode with no recent properties.
+ */
+export const RecentPropertiesEmpty: StoryFn<typeof TaxonomicFilter> = (args) => {
+    const logic = useMountedLogic(recentItemsLogic)
+
+    useDelayedOnMountEffect(() => {
+        logic.actions.clearRecentProperties()
+    })
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+RecentPropertiesEmpty.args = {
+    taxonomicFilterLogicKey: 'recent-properties-empty',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.RecentProperties,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+    ],
+}
+RecentPropertiesEmpty.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter in property picker mode showing the Recent properties tab with no recent properties.',
+        },
+    },
+}
+
+/**
+ * This story demonstrates recent tabs with the columnar layout.
+ */
+export const RecentEventsColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
+    const logic = useMountedLogic(recentItemsLogic)
+    useMountedLogic(actionsModel)
+
+    useDelayedOnMountEffect(() => {
+        logic.actions.clearRecentEvents()
+        logic.actions.addRecentEvent({
+            type: TaxonomicFilterGroupType.Events,
+            value: '$pageview',
+            name: '$pageview',
+            timestamp: Date.now(),
+        })
+        logic.actions.addRecentEvent({
+            type: TaxonomicFilterGroupType.Events,
+            value: '$autocapture',
+            name: '$autocapture',
+            timestamp: Date.now() + 100,
+        })
+    })
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+RecentEventsColumnar.args = {
+    taxonomicFilterLogicKey: 'recent-events-columnar',
+    taxonomicGroupTypes: [
+        TaxonomicFilterGroupType.RecentEvents,
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+    ],
+}
+RecentEventsColumnar.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter with Recent events tab in columnar layout (5+ groups).',
         },
     },
 }
