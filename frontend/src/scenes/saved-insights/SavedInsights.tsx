@@ -40,7 +40,6 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { tagSelectLogic } from 'lib/components/tagSelectLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -695,23 +694,10 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const { filteredTags, search: tagSearch } = useValues(tagSelectLogic)
-    const { setSearch: setTagSearch } = useActions(tagSelectLogic)
-
     const { meFirstMembers, filteredMembers, search: memberSearch } = useValues(membersLogic)
     const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
 
     const { tab } = filters
-
-    const handleTagToggle = (tag: string): void => {
-        const selected = new Set(filters.tags || [])
-        if (selected.has(tag)) {
-            selected.delete(tag)
-        } else {
-            selected.add(tag)
-        }
-        setSavedInsightsFilters({ tags: Array.from(selected) })
-    }
 
     const handleMemberToggle = (userId: number): void => {
         const currentUsers = filters.createdBy !== 'All users' ? (filters.createdBy as number[]) : []
@@ -850,66 +836,6 @@ export function SavedInsights(): JSX.Element {
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={tags} staticOnly />
             },
-            more: (
-                <div className="max-w-100 deprecated-space-y-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search tags"
-                        autoFocus
-                        value={tagSearch}
-                        onChange={setTagSearch}
-                        fullWidth
-                        className="max-w-full"
-                    />
-                    <ul className="deprecated-space-y-px">
-                        {filteredTags.map((tag: string) => (
-                            <li key={tag}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    onClick={() => handleTagToggle(tag)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={filters.tags?.includes(tag) || false}
-                                                readOnly
-                                            />
-                                            <span>{tag}</span>
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
-                        ))}
-                        {filteredTags.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
-                                {tagSearch ? <span>No matching tags</span> : <span>No tags</span>}
-                            </div>
-                        ) : null}
-                        {(filters.tags?.length || 0) > 0 && (
-                            <>
-                                <div className="my-1 border-t" />
-                                <li>
-                                    <LemonButton
-                                        fullWidth
-                                        role="menuitem"
-                                        size="small"
-                                        onClick={() => setSavedInsightsFilters({ tags: [] })}
-                                        type="tertiary"
-                                    >
-                                        Clear selection
-                                    </LemonButton>
-                                </li>
-                            </>
-                        )}
-                    </ul>
-                </div>
-            ),
-            moreIcon: <IconChevronDown />,
-            moreFilterCount: filters.tags?.length || 0,
         },
         {
             title: 'Created by',

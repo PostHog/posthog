@@ -1,7 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconFlag, IconStar } from '@posthog/icons'
+import { IconChevronDown, IconFlag, IconStar } from '@posthog/icons'
 
+import { tagSelectLogic } from 'lib/components/tagSelectLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -20,7 +21,20 @@ export function SavedInsightsFilters({
     showQuickFilters?: boolean
 }): JSX.Element {
     const { user } = useValues(userLogic)
-    const { search, hideFeatureFlagInsights, createdBy, favorited } = filters
+    const { search, hideFeatureFlagInsights, createdBy, favorited, tags } = filters
+
+    const { filteredTags, search: tagSearch } = useValues(tagSelectLogic)
+    const { setSearch: setTagSearch } = useActions(tagSelectLogic)
+
+    const handleTagToggle = (tag: string): void => {
+        const selected = new Set(tags || [])
+        if (selected.has(tag)) {
+            selected.delete(tag)
+        } else {
+            selected.add(tag)
+        }
+        setFilters({ tags: Array.from(selected) })
+    }
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -53,6 +67,82 @@ export function SavedInsightsFilters({
                             size="small"
                         >
                             Created by me
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-end',
+                                    actionable: true,
+                                    overlay: (
+                                        <div className="max-w-100 deprecated-space-y-2">
+                                            <LemonInput
+                                                type="search"
+                                                placeholder="Search tags"
+                                                autoFocus
+                                                value={tagSearch}
+                                                onChange={setTagSearch}
+                                                fullWidth
+                                                className="max-w-full"
+                                            />
+                                            <ul className="deprecated-space-y-px">
+                                                {filteredTags.map((tag: string) => (
+                                                    <li key={tag}>
+                                                        <LemonButton
+                                                            fullWidth
+                                                            role="menuitem"
+                                                            size="small"
+                                                            onClick={() => handleTagToggle(tag)}
+                                                        >
+                                                            <span className="flex items-center justify-between gap-2 flex-1">
+                                                                <span className="flex items-center gap-2 max-w-full">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        className="cursor-pointer"
+                                                                        checked={tags?.includes(tag) || false}
+                                                                        readOnly
+                                                                    />
+                                                                    <span>{tag}</span>
+                                                                </span>
+                                                            </span>
+                                                        </LemonButton>
+                                                    </li>
+                                                ))}
+                                                {filteredTags.length === 0 ? (
+                                                    <div className="p-2 text-secondary italic truncate border-t">
+                                                        {tagSearch ? (
+                                                            <span>No matching tags</span>
+                                                        ) : (
+                                                            <span>No tags</span>
+                                                        )}
+                                                    </div>
+                                                ) : null}
+                                                {(tags?.length || 0) > 0 && (
+                                                    <>
+                                                        <div className="my-1 border-t" />
+                                                        <li>
+                                                            <LemonButton
+                                                                fullWidth
+                                                                role="menuitem"
+                                                                size="small"
+                                                                onClick={() => setFilters({ tags: [] })}
+                                                                type="tertiary"
+                                                            >
+                                                                Clear selection
+                                                            </LemonButton>
+                                                        </li>
+                                                    </>
+                                                )}
+                                            </ul>
+                                        </div>
+                                    ),
+                                },
+                                icon: <IconChevronDown />,
+                            }}
+                            active={(tags?.length || 0) > 0}
+                            size="small"
+                        >
+                            Tags{(tags?.length || 0) > 0 ? `: ${tags?.length}` : ''}
                         </LemonButton>
                         <LemonButton
                             type="secondary"
