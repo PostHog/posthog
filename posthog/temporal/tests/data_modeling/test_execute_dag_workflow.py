@@ -368,7 +368,7 @@ _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
 
 
-@temporal_workflow.defn(name="materialize-view")
+@temporal_workflow.defn(name="data-modeling-materialize-view")
 class MockMaterializeViewWorkflow:
     @temporal_workflow.run
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:

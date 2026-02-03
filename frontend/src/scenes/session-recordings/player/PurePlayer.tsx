@@ -267,7 +267,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                     </div>
                                     <div
                                         className="SessionRecordingPlayer__body"
-                                        draggable={draggable}
+                                        draggable={draggable && !isCommenting}
                                         {...elementProps}
                                     >
                                         <PlayerFrame />

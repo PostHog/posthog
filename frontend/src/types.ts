@@ -3629,6 +3629,9 @@ export interface SurveyAppearance {
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
+    // supported in the js sdk, NOT user-configurable.
+    // only used for survey branching display.
+    hideCancelButton?: boolean
 }
 
 export interface SurveyQuestionBase {
