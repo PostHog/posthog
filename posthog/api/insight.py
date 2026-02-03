@@ -1115,6 +1115,9 @@ class InsightViewSet(
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
+                    queryset = queryset.exclude(
+                        query__kind__in=WRAPPER_NODE_KINDS, query__source__kind__in=legacy_to_hogql_mapping.values()
+                    )
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
