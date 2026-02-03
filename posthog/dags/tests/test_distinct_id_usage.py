@@ -192,6 +192,7 @@ def test_query_distinct_id_usage(cluster: ClickhouseCluster) -> None:
     # Create config with thresholds that will match our test data
     config = DistinctIdUsageMonitoringConfig(
         high_usage_percentage_threshold=70,  # 80% > 70%
+        high_usage_min_events_threshold=500,  # 1000 total events > 500
         high_cardinality_threshold=50,  # 100 > 50
         burst_threshold=10000,  # 15000 > 10000
         default_lookback_hours=2,

@@ -247,24 +247,32 @@ def generate_csv_report(results: MonitoringResults) -> str:
     # High usage section
     writer.writerow(["=== HIGH USAGE DISTINCT IDS ==="])
     writer.writerow(["team_id", "distinct_id", "event_count", "total_team_events", "percentage"])
-    for item in results.high_usage:
-        writer.writerow([item.team_id, item.distinct_id, item.event_count, item.total_team_events, item.percentage])
+    for high_usage_item in results.high_usage:
+        writer.writerow(
+            [
+                high_usage_item.team_id,
+                high_usage_item.distinct_id,
+                high_usage_item.event_count,
+                high_usage_item.total_team_events,
+                high_usage_item.percentage,
+            ]
+        )
 
     writer.writerow([])
 
     # High cardinality section
     writer.writerow(["=== HIGH CARDINALITY TEAMS ==="])
     writer.writerow(["team_id", "distinct_id_count"])
-    for item in results.high_cardinality:
-        writer.writerow([item.team_id, item.distinct_id_count])
+    for cardinality_item in results.high_cardinality:
+        writer.writerow([cardinality_item.team_id, cardinality_item.distinct_id_count])
 
     writer.writerow([])
 
     # Bursts section
     writer.writerow(["=== BURST EVENTS ==="])
     writer.writerow(["team_id", "distinct_id", "minute", "event_count"])
-    for item in results.bursts:
-        writer.writerow([item.team_id, item.distinct_id, item.minute, item.event_count])
+    for burst_item in results.bursts:
+        writer.writerow([burst_item.team_id, burst_item.distinct_id, burst_item.minute, burst_item.event_count])
 
     return output.getvalue()
 
@@ -295,7 +303,7 @@ def send_alerts(
     total_issues = len(results.high_usage) + len(results.high_cardinality) + len(results.bursts)
     lookback_info = f"Since: {results.lookback_start.strftime('%Y-%m-%d %H:%M:%S')} UTC"
 
-    blocks = [
+    blocks: list[dict[str, object]] = [
         {
             "type": "header",
             "text": {"type": "plain_text", "text": "Distinct ID Usage Alert", "emoji": True},
@@ -314,24 +322,26 @@ def send_alerts(
     # Show top 3 for each category
     if results.high_usage:
         high_usage_text = f"*High Usage Distinct IDs* ({len(results.high_usage)} found):\n"
-        for item in results.high_usage[:3]:
-            high_usage_text += f"• Team `{item.team_id}`: `{truncate_distinct_id(item.distinct_id)}` - {item.percentage}% ({item.event_count:,} events)\n"
+        for high_usage_item in results.high_usage[:3]:
+            high_usage_text += f"• Team `{high_usage_item.team_id}`: `{truncate_distinct_id(high_usage_item.distinct_id)}` - {high_usage_item.percentage}% ({high_usage_item.event_count:,} events)\n"
         if len(results.high_usage) > 3:
             high_usage_text += f"_...and {len(results.high_usage) - 3} more in attached report_\n"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": high_usage_text}})
 
     if results.high_cardinality:
         cardinality_text = f"*High Cardinality Teams* ({len(results.high_cardinality)} found):\n"
-        for item in results.high_cardinality[:3]:
-            cardinality_text += f"• Team `{item.team_id}`: {item.distinct_id_count:,} unique distinct_ids\n"
+        for cardinality_item in results.high_cardinality[:3]:
+            cardinality_text += (
+                f"• Team `{cardinality_item.team_id}`: {cardinality_item.distinct_id_count:,} unique distinct_ids\n"
+            )
         if len(results.high_cardinality) > 3:
             cardinality_text += f"_...and {len(results.high_cardinality) - 3} more in attached report_\n"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": cardinality_text}})
 
     if results.bursts:
         burst_text = f"*Burst Events* ({len(results.bursts)} found):\n"
-        for item in results.bursts[:3]:
-            burst_text += f"• Team `{item.team_id}`: `{truncate_distinct_id(item.distinct_id)}` at {item.minute} - {item.event_count:,} events/min\n"
+        for burst_item in results.bursts[:3]:
+            burst_text += f"• Team `{burst_item.team_id}`: `{truncate_distinct_id(burst_item.distinct_id)}` at {burst_item.minute} - {burst_item.event_count:,} events/min\n"
         if len(results.bursts) > 3:
             burst_text += f"_...and {len(results.bursts) - 3} more in attached report_\n"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": burst_text}})
@@ -346,7 +356,7 @@ def send_alerts(
         # Upload detailed report as a file
         csv_report = generate_csv_report(results)
         timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
-        slack_client.files_upload_v2(
+        slack_client.files_upload_v2(  # type: ignore[attr-defined]
             channel=channel,
             content=csv_report,
             filename=f"distinct_id_usage_report_{timestamp}.csv",
