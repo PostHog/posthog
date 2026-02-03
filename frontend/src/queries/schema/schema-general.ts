@@ -1890,6 +1890,8 @@ export type QueryStatus = {
     complete: boolean
     /**  @default null */
     error_message: string | null
+    /**  @default null */
+    error_detail?: Record<string, any> | null
     results?: any
     /**
      * When was the query execution task picked up by a worker.

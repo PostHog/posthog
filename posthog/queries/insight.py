@@ -4,7 +4,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, get_exposed_error_detail
 from posthog.types import FilterType
 
 
@@ -23,7 +23,7 @@ def insight_sync_execute(
     try:
         return sync_execute(query, args=args, team_id=team_id, **kwargs)
     except ExposedCHQueryError as e:
-        raise ValidationError(str(e), e.code_name)
+        raise ValidationError(get_exposed_error_detail(e), e.code_name)
 
 
 # Wrapper around `query_with_columns`

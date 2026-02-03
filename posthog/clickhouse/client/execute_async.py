@@ -17,7 +17,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError, get_exposed_error_detail
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.tasks import process_query_task
@@ -240,6 +240,10 @@ def execute_process_query(
         ):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
+            if isinstance(err, ExposedCHQueryError):
+                detail = get_exposed_error_detail(err)
+                if isinstance(detail, dict):
+                    query_status.error_detail = detail
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
