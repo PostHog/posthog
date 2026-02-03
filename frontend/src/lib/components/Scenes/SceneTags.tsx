@@ -35,8 +35,10 @@ export const SceneTags = ({
     }
 
     useEffect(() => {
-        setLocalTags(tags)
-    }, [tags])
+        if (!localIsEditing) {
+            setLocalTags(tags)
+        }
+    }, [tags, localIsEditing])
 
     const label = (
         <span className="flex items-center gap-1.5">
