@@ -1,15 +1,10 @@
-import type { ReactElement, CSSProperties } from 'react'
-import type {
-    TrendsResult,
-    FunnelResult,
-    HogQLResult,
-    TrendsQuery,
-    FunnelsQuery,
-} from './types'
-import { TrendsVisualizer } from './TrendsVisualizer'
+import type { CSSProperties, ReactElement } from 'react'
+
 import { FunnelVisualizer } from './FunnelVisualizer'
-import { TableVisualizer } from './TableVisualizer'
 import { PostHogLink } from './PostHogLink'
+import { TableVisualizer } from './TableVisualizer'
+import { TrendsVisualizer } from './TrendsVisualizer'
+import type { FunnelResult, FunnelsQuery, HogQLResult, TrendsQuery, TrendsResult } from './types'
 
 type VisualizationType = 'trends' | 'funnel' | 'table'
 
@@ -17,9 +12,12 @@ type VisualizationType = 'trends' | 'funnel' | 'table'
  * Check if results look like TrendsResult (array of items with data/labels arrays).
  */
 function isTrendsResult(results: unknown): results is TrendsResult {
-    if (!Array.isArray(results) || results.length === 0) return false
-    const first = results[0] as Record<string, unknown>
+    if (!Array.isArray(results) || results.length === 0) {
+        return false
+    }
+
     // TrendsResult items have: data (number[]), labels or days (string[])
+    const first = results[0] as Record<string, unknown>
     return (
         typeof first === 'object' &&
         first !== null &&
@@ -31,12 +29,18 @@ function isTrendsResult(results: unknown): results is TrendsResult {
  * Check if results look like FunnelResult (array of steps with count/order/name).
  */
 function isFunnelResult(results: unknown): results is FunnelResult {
-    if (!Array.isArray(results) || results.length === 0) return false
+    if (!Array.isArray(results) || results.length === 0) {
+        return false
+    }
+
     // Handle both flat array and nested array formats
     const items = Array.isArray(results[0]) ? (results[0] as unknown[]) : results
-    if (items.length === 0) return false
-    const first = items[0] as Record<string, unknown>
+    if (items.length === 0) {
+        return false
+    }
+
     // FunnelResult items have: name, count, order
+    const first = items[0] as Record<string, unknown>
     return (
         typeof first === 'object' &&
         first !== null &&
@@ -49,7 +53,10 @@ function isFunnelResult(results: unknown): results is FunnelResult {
  * Check if results look like HogQLResult (object with columns and results arrays).
  */
 function isHogQLResult(results: unknown): results is HogQLResult {
-    if (typeof results !== 'object' || results === null) return false
+    if (typeof results !== 'object' || results === null) {
+        return false
+    }
+
     const r = results as Record<string, unknown>
     return 'columns' in r && 'results' in r && Array.isArray(r.columns) && Array.isArray(r.results)
 }
@@ -59,9 +66,11 @@ function isHogQLResult(results: unknown): results is HogQLResult {
  * This mimics how the main PostHog app determines visualization from query/results.
  */
 function inferVisualizationType(data: unknown): VisualizationType | null {
-    if (typeof data !== 'object' || data === null) return null
-    const d = data as Record<string, unknown>
+    if (typeof data !== 'object' || data === null) {
+        return null
+    }
 
+    const d = data as Record<string, unknown>
     const results = d.results
 
     // Infer from results structure first (most reliable)
@@ -77,9 +86,15 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 
     // Infer from query kind as fallback
     const query = d.query as Record<string, unknown> | undefined
-    if (query?.kind === 'TrendsQuery') return 'trends'
-    if (query?.kind === 'FunnelsQuery') return 'funnel'
-    if (query?.kind === 'HogQLQuery') return 'table'
+    if (query?.kind === 'TrendsQuery') {
+        return 'trends'
+    }
+    if (query?.kind === 'FunnelsQuery') {
+        return 'funnel'
+    }
+    if (query?.kind === 'HogQLQuery') {
+        return 'table'
+    }
 
     return null
 }
@@ -98,7 +113,8 @@ export interface ComponentProps {
 
 export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
     const containerStyle: CSSProperties = {
-        fontFamily: 'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)',
+        fontFamily:
+            'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)',
         color: 'var(--color-text-primary, #101828)',
         backgroundColor: 'var(--color-background-primary, #fff)',
         padding: '1rem',
@@ -132,9 +148,7 @@ export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
                     <div style={{ marginBottom: '0.5rem' }}>
                         This visualization type isn't supported in this view yet.
                     </div>
-                    {payload._posthogUrl && (
-                        <PostHogLink url={payload._posthogUrl} onOpen={onOpenLink} />
-                    )}
+                    {payload._posthogUrl && <PostHogLink url={payload._posthogUrl} onOpen={onOpenLink} />}
                 </div>
             </div>
         )
@@ -144,18 +158,12 @@ export function Component({ data, onOpenLink }: ComponentProps): ReactElement {
         switch (visualizationType) {
             case 'trends':
                 return (
-                    <TrendsVisualizer
-                        query={payload.query as TrendsQuery}
-                        results={payload.results as TrendsResult}
-                    />
+                    <TrendsVisualizer query={payload.query as TrendsQuery} results={payload.results as TrendsResult} />
                 )
 
             case 'funnel':
                 return (
-                    <FunnelVisualizer
-                        query={payload.query as FunnelsQuery}
-                        results={payload.results as FunnelResult}
-                    />
+                    <FunnelVisualizer query={payload.query as FunnelsQuery} results={payload.results as FunnelResult} />
                 )
 
             case 'table':

@@ -138,10 +138,3 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
         if self.queries:
             return self.queries[0].get("query_id")
         return None
-
-    @property
-    def all_query_ids(self) -> list[str]:
-        """Get all query IDs from the queries array"""
-        if not self.queries:
-            return []
-        return [q.get("query_id") for q in self.queries if q.get("query_id")]
