@@ -506,9 +506,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
+            text, _ = Text.objects.update_or_create(
+                id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
+            )
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif (
@@ -516,8 +520,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "dashboard": instance},
             )
 
