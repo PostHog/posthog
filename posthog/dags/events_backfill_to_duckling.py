@@ -121,6 +121,54 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
 
+# SQL for creating the events table in DuckLake if it doesn't exist
+# Types are chosen to match the Parquet output from ClickHouse
+EVENTS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
+    uuid VARCHAR,
+    event VARCHAR,
+    properties VARCHAR,
+    timestamp TIMESTAMP,
+    team_id BIGINT,
+    project_id BIGINT,
+    distinct_id VARCHAR,
+    elements_chain VARCHAR,
+    created_at TIMESTAMP,
+    person_id VARCHAR,
+    person_created_at TIMESTAMP,
+    person_properties VARCHAR,
+    group0_properties VARCHAR,
+    group1_properties VARCHAR,
+    group2_properties VARCHAR,
+    group3_properties VARCHAR,
+    group4_properties VARCHAR,
+    group0_created_at TIMESTAMP,
+    group1_created_at TIMESTAMP,
+    group2_created_at TIMESTAMP,
+    group3_created_at TIMESTAMP,
+    group4_created_at TIMESTAMP,
+    person_mode VARCHAR,
+    historical_migration VARCHAR,
+    _inserted_at TIMESTAMP
+)
+"""
+
+# SQL for creating the persons table in DuckLake if it doesn't exist
+PERSONS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
+    team_id BIGINT,
+    distinct_id VARCHAR,
+    id VARCHAR,
+    properties VARCHAR,
+    created_at TIMESTAMP,
+    is_identified BOOLEAN,
+    person_distinct_id_version BIGINT,
+    person_version BIGINT,
+    _timestamp TIMESTAMP,
+    _inserted_at TIMESTAMP
+)
+"""
+
 
 class DucklingBackfillConfig(Config):
     """Config for duckling events backfill job."""
@@ -129,6 +177,8 @@ class DucklingBackfillConfig(Config):
     skip_ducklake_registration: bool = False
     skip_schema_validation: bool = False
     cleanup_prior_run_files: bool = True
+    create_tables_if_missing: bool = True
+    delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
 
 
@@ -243,6 +293,226 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     ).result()
 
 
+def _validate_identifier(identifier: str) -> None:
+    """Validate that an identifier is safe for SQL interpolation.
+
+    Only allows alphanumeric characters and underscores to prevent SQL injection.
+    """
+    if not identifier.replace("_", "").isalnum():
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+
+
+def table_exists(
+    conn: duckdb.DuckDBPyConnection,
+    catalog_alias: str,
+    schema: str,
+    table: str,
+) -> bool:
+    """Check if a table exists in the DuckLake catalog.
+
+    Args:
+        conn: DuckDB connection with catalog already attached
+        catalog_alias: Catalog alias (must be alphanumeric/underscore only)
+        schema: Schema name (must be alphanumeric/underscore only)
+        table: Table name (must be alphanumeric/underscore only)
+
+    Returns:
+        True if the table exists, False otherwise.
+
+    Raises:
+        ValueError: If any identifier contains invalid characters.
+    """
+    _validate_identifier(catalog_alias)
+    _validate_identifier(schema)
+    _validate_identifier(table)
+
+    try:
+        conn.execute(f"DESCRIBE {catalog_alias}.{schema}.{table}")
+        return True
+    except duckdb.CatalogException:
+        return False
+
+
+def ensure_events_table_exists(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Create the events table in the duckling's DuckLake catalog if it doesn't exist.
+
+    Returns True if the table was created, False if it already existed.
+
+    Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
+    is idempotent and handles race conditions gracefully.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if table_exists(conn, alias, "posthog", "events"):
+            context.log.info("Events table already exists in duckling catalog")
+            return False
+
+        context.log.info("Creating posthog schema if it doesn't exist...")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
+
+        context.log.info("Creating events table in duckling catalog...")
+        ddl = EVENTS_TABLE_DDL.format(catalog=alias)
+        try:
+            conn.execute(ddl)
+        except duckdb.CatalogException as exc:
+            # Check if this was a race condition (another worker created the table)
+            if table_exists(conn, alias, "posthog", "events"):
+                context.log.info("Events table was created by another worker")
+                return False
+            # Real error - log and re-raise
+            context.log.exception(f"Failed to create events table: {exc}")
+            raise
+
+        context.log.info("Successfully created events table")
+        logger.info(
+            "duckling_events_table_created",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def ensure_persons_table_exists(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Create the persons table in the duckling's DuckLake catalog if it doesn't exist.
+
+    Returns True if the table was created, False if it already existed.
+
+    Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
+    is idempotent and handles race conditions gracefully.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if table_exists(conn, alias, "posthog", "persons"):
+            context.log.info("Persons table already exists in duckling catalog")
+            return False
+
+        context.log.info("Creating posthog schema if it doesn't exist...")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
+
+        context.log.info("Creating persons table in duckling catalog...")
+        ddl = PERSONS_TABLE_DDL.format(catalog=alias)
+        try:
+            conn.execute(ddl)
+        except duckdb.CatalogException as exc:
+            # Check if this was a race condition (another worker created the table)
+            if table_exists(conn, alias, "posthog", "persons"):
+                context.log.info("Persons table was created by another worker")
+                return False
+            # Real error - log and re-raise
+            context.log.exception(f"Failed to create persons table: {exc}")
+            raise
+
+        context.log.info("Successfully created persons table")
+        logger.info(
+            "duckling_persons_table_created",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def delete_events_table(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Delete the events table from the duckling's DuckLake catalog.
+
+    WARNING: This will permanently delete all events data in the duckling.
+
+    Returns True if the table was deleted, False if it didn't exist.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if not table_exists(conn, alias, "posthog", "events"):
+            context.log.info("Events table does not exist, nothing to delete")
+            return False
+
+        context.log.warning("Deleting events table from duckling catalog...")
+        _validate_identifier(alias)
+        conn.execute(f"DROP TABLE {alias}.posthog.events")
+        context.log.warning("Successfully deleted events table")
+        logger.warning(
+            "duckling_events_table_deleted",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def delete_persons_table(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Delete the persons table from the duckling's DuckLake catalog.
+
+    WARNING: This will permanently delete all persons data in the duckling.
+
+    Returns True if the table was deleted, False if it didn't exist.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if not table_exists(conn, alias, "posthog", "persons"):
+            context.log.info("Persons table does not exist, nothing to delete")
+            return False
+
+        context.log.warning("Deleting persons table from duckling catalog...")
+        _validate_identifier(alias)
+        conn.execute(f"DROP TABLE {alias}.posthog.persons")
+        context.log.warning("Successfully deleted persons table")
+        logger.warning(
+            "duckling_persons_table_deleted",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
 def validate_duckling_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -254,19 +524,14 @@ def validate_duckling_schema(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
 
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
-
-        result = conn.execute(f"DESCRIBE {alias}.main.events").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.events").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
@@ -308,19 +573,14 @@ def validate_duckling_persons_schema(
     """Validate that the duckling's persons table schema matches our export columns."""
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
 
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
-
-        result = conn.execute(f"DESCRIBE {alias}.main.persons").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.persons").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
@@ -575,7 +835,7 @@ def register_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -595,7 +855,7 @@ def register_file_with_duckling(
 
         # Register the file
         context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.events', '{escape(s3_path)}')")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
 
         context.log.info(f"Successfully registered: {s3_path}")
         logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -704,7 +964,7 @@ def register_persons_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -718,7 +978,7 @@ def register_persons_file_with_duckling(
         attach_catalog(conn, catalog_config, alias=alias)
 
         context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.persons', '{escape(s3_path)}')")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')")
 
         context.log.info(f"Successfully registered persons: {s3_path}")
         logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -744,10 +1004,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     This asset:
     1. Parses the partition key to get team_id and date
     2. Looks up the DuckLakeCatalog for the team
-    3. Validates the duckling's schema compatibility (optional)
-    4. Cleans up orphaned files from prior failed runs (optional)
-    5. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
-    6. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
+    3. Creates the events table if it doesn't exist (optional, enabled by default)
+    4. Validates the duckling's schema compatibility (optional)
+    5. Cleans up orphaned files from prior failed runs (optional)
+    6. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
+    7. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
     team_id, date_str = parse_partition_key(context.partition_key)
     partition_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -767,6 +1028,16 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Delete events table if requested (dangerous - loses all data)
+    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.warning("delete_tables=True: Deleting events table...")
+        delete_events_table(context, catalog)
+
+    # Create events table if it doesn't exist
+    if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.info("Ensuring events table exists in duckling catalog...")
+        ensure_events_table_exists(context, catalog)
 
     # Validate schema before starting export (skip if dry_run or skip_ducklake_registration)
     if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
@@ -851,10 +1122,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     Steps:
     1. Parses the partition key to get team_id and date
     2. Looks up the DuckLakeCatalog for the team
-    3. Validates the duckling's persons schema compatibility (optional)
-    4. Cleans up orphaned files from prior failed runs (optional)
-    5. Exports persons+distinct_ids to the duckling's S3 bucket
-    6. Registers the Parquet file with the duckling's DuckLake catalog
+    3. Creates the persons table if it doesn't exist (optional, enabled by default)
+    4. Validates the duckling's persons schema compatibility (optional)
+    5. Cleans up orphaned files from prior failed runs (optional)
+    6. Exports persons+distinct_ids to the duckling's S3 bucket
+    7. Registers the Parquet file with the duckling's DuckLake catalog
     """
     team_id, date_str = parse_partition_key(context.partition_key)
     partition_date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -873,6 +1145,16 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Delete persons table if requested (dangerous - loses all data)
+    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.warning("delete_tables=True: Deleting persons table...")
+        delete_persons_table(context, catalog)
+
+    # Create persons table if it doesn't exist
+    if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.info("Ensuring persons table exists in duckling catalog...")
+        ensure_persons_table_exists(context, catalog)
 
     if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
         context.log.info("Validating duckling persons schema compatibility...")
@@ -1036,33 +1318,34 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
 
 @sensor(
     name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=86400,  # Run daily when enabled
+    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
     job_name="duckling_events_backfill_job",
-    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+    default_status=DefaultSensorStatus.RUNNING,  # Always on
 )
 def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical backfill sensor - disabled by default.
+    """Full historical backfill sensor - runs once daily, can be triggered manually.
 
-    This sensor is meant to be manually enabled via the Dagster UI when you need
-    to do a full historical backfill for a new customer. It will:
+    This sensor runs once per day to backfill missing historical events data:
 
     1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
-    2. Create partitions for dates from earliest event to yesterday (batched)
-    3. Trigger backfill runs for historical partitions
+    2. Create up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions (default 100)
+    3. Wait until tomorrow to process the next batch
 
-    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation to avoid OOM/timeout issues. Keep the sensor enabled until all
-    partitions are created, then disable it.
+    Manual trigger:
+        To run immediately, reset the cursor in Dagster UI:
+        Sensors -> duckling_full_backfill_sensor -> Reset cursor
 
-    After the full backfill completes, you should disable this sensor and let
-    the daily `duckling_backfill_discovery_sensor` handle ongoing daily top-ups.
-
-    Usage:
-        1. Create a DuckLakeCatalog entry for the customer in Django admin
-        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
-        3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete (when no new partitions are created)
+    The daily `duckling_backfill_discovery_sensor` handles ongoing top-ups
+    for yesterday's data specifically.
     """
+    today = timezone.now().date().isoformat()
+
+    # Already ran today? Skip until tomorrow (or cursor reset)
+    last_completed_date = context.cursor
+    if last_completed_date == today:
+        context.log.debug("Full backfill: already ran today, skipping until tomorrow")
+        return SensorResult(run_requests=[], cursor=today)
+
     yesterday = (timezone.now() - timedelta(days=1)).date()
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
@@ -1075,7 +1358,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
         if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
             context.log.info(
                 f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue in next sensor evaluation"
+                "will continue tomorrow"
             )
             break
 
@@ -1124,7 +1407,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             )
 
     if new_partitions:
-        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions this evaluation")
+        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions")
         logger.info(
             "duckling_full_backfill_discovered",
             partition_count=len(new_partitions),
@@ -1134,11 +1417,13 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
     else:
         context.log.info("Full backfill: no new partitions to create (all up to date)")
 
+    # Mark today as done - won't run again until tomorrow (or cursor reset)
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
+        cursor=today,
     )
 
 
@@ -1239,25 +1524,30 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=86400,  # Run daily when enabled
+    minimum_interval_seconds=60,  # Check frequently, but cursor limits to daily
     job_name="duckling_persons_backfill_job",
-    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+    default_status=DefaultSensorStatus.RUNNING,  # Always on
 )
 def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical persons backfill sensor - disabled by default.
+    """Full historical persons backfill sensor - runs once daily, can be triggered manually.
 
     Similar to duckling_full_backfill_sensor but for persons data.
     Queries min(_timestamp) from the person table to find the earliest date.
 
-    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation to avoid OOM/timeout issues.
+    Creates up to MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions per day.
 
-    Usage:
-        1. Create a DuckLakeCatalog entry for the customer in Django admin
-        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
-        3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete (when no new partitions are created)
+    Manual trigger:
+        To run immediately, reset the cursor in Dagster UI:
+        Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
+    today = timezone.now().date().isoformat()
+
+    # Already ran today? Skip until tomorrow (or cursor reset)
+    last_completed_date = context.cursor
+    if last_completed_date == today:
+        context.log.debug("Persons full backfill: already ran today, skipping until tomorrow")
+        return SensorResult(run_requests=[], cursor=today)
+
     yesterday = (timezone.now() - timedelta(days=1)).date()
     existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
 
@@ -1270,7 +1560,7 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
         if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
             context.log.info(
                 f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue in next sensor evaluation"
+                "will continue tomorrow"
             )
             break
 
@@ -1319,7 +1609,7 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             )
 
     if new_partitions:
-        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions this evaluation")
+        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions")
         logger.info(
             "duckling_persons_full_backfill_discovered",
             partition_count=len(new_partitions),
@@ -1329,11 +1619,13 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
     else:
         context.log.info("Persons full backfill: no new partitions to create (all up to date)")
 
+    # Mark today as done - won't run again until tomorrow (or cursor reset)
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
+        cursor=today,
     )
 
 

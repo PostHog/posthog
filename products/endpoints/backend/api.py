@@ -984,6 +984,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)
         data = self.get_model(request.data, EndpointRunRequest)
 
+        # Track endpoint execution for deprecation monitoring
+        report_user_action(
+            user=cast(User, request.user),
+            event="endpoint executed",
+            properties={
+                "endpoint_id": str(endpoint.id),
+                "endpoint_name": endpoint.name,
+                "has_query_override": bool(data.query_override),
+                "has_filters_override": bool(data.filters_override),
+                "has_variables": bool(data.variables),
+                "has_limit": data.limit is not None,
+                "refresh_mode": data.refresh.value if data.refresh else None,
+            },
+            team=self.team,
+        )
         # Track deprecated parameter usage before introducing breaking changes
         if data.query_override:
             TOMBSTONE_COUNTER.labels(

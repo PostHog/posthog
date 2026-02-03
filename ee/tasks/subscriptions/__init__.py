@@ -99,14 +99,14 @@ async def deliver_subscription_report_async(
         has_insight=bool(subscription.insight_id),
     )
 
-    # Fail fast: validate target type before generating assets
+    # Skip unsupported target types before generating assets
     if subscription.target_type not in SUPPORTED_TARGET_TYPES:
         logger.error(
             "deliver_subscription_report_async.unsupported_target",
             subscription_id=subscription_id,
             target_type=subscription.target_type,
         )
-        raise NotImplementedError(f"{subscription.target_type} is not supported")
+        return
 
     is_new_subscription_target = False
     if previous_value is not None:

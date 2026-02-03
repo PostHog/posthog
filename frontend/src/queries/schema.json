@@ -15412,6 +15412,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
@@ -15667,7 +15668,10 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status"
             ],
             "type": "string"
         },
@@ -19274,6 +19278,9 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "resourceFingerprint": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
@@ -19934,7 +19941,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_overview_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20491,7 +20498,7 @@
                     "type": ["string", "null"]
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "name": {
                     "type": "string"
@@ -20770,7 +20777,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "insights": {
                     "items": {
@@ -22392,6 +22399,9 @@
             "properties": {
                 "organization_name": {
                     "type": "string"
+                },
+                "use_current_time": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -27861,6 +27871,28 @@
                 "lazy_async"
             ],
             "type": "string"
+        },
+        "ReplayInactivityPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
+                "ts_from_s": {
+                    "type": "number"
+                },
+                "ts_to_s": {
+                    "type": "number"
+                }
+            },
+            "required": ["ts_from_s", "active"],
+            "type": "object"
         },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
