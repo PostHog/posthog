@@ -17,14 +17,19 @@ export class DashboardPage {
         this.items = page.locator('.dashboard-items-wrapper')
     }
 
-    async createNew(dashboardName: string = randomString('dashboard')): Promise<DashboardPage> {
+    async createNew(dashboardName?: string): Promise<DashboardPage> {
         await this.page.goto(urls.dashboards())
         await this.page.getByTestId('new-dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
         await expect(this.page.locator('.dashboard')).toBeVisible()
         await this.dismissQuickStartIfVisible()
 
-        await this.editName(dashboardName)
+        if (dashboardName) {
+            await this.page.locator('.scene-title-section').click()
+            await this.page.locator('.scene-title-section textarea').fill(dashboardName)
+            await this.page.keyboard.press('Enter')
+        }
+
         return this
     }
 
@@ -34,15 +39,21 @@ export class DashboardPage {
         await this.page.locator('.LemonModal').getByText('Add to a new dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
         await this.page.waitForURL(/\/dashboard\/\d+/)
-        await this.dismissQuickStartIfVisible()
+        await this.closeSidePanels()
         await expect(this.items).toBeVisible()
     }
 
-    async dismissQuickStartIfVisible(): Promise<void> {
-        const skipAllButton = this.page.getByText('Skip all')
-        if (await skipAllButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await skipAllButton.click()
+    async closeSidePanels(): Promise<void> {
+        await this.page.keyboard.press('Escape')
+
+        const closePanelX = this.page.locator('.scene-layout__content-panel button:has(svg)').first()
+        if (await closePanelX.isVisible({ timeout: 1000 }).catch(() => false)) {
+            await closePanelX.click()
         }
+    }
+
+    async dismissQuickStartIfVisible(): Promise<void> {
+        await this.page.keyboard.press('Escape')
     }
 
     async withReload(callback: () => Promise<void>, beforeFn?: () => Promise<void>): Promise<void> {
