@@ -201,7 +201,6 @@ PlaylistWide.parameters = {
         viewport: { width: 1300, height: 720 },
     },
 }
-PlaylistWide.tags = ['test-skip']
 
 export const PlaylistNarrow: StoryFn = () => {
     router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
@@ -213,7 +212,6 @@ PlaylistNarrow.parameters = {
         viewport: { width: 568, height: 1024 },
     },
 }
-PlaylistNarrow.tags = ['test-skip']
 
 const PlaylistCollapsedInner = (): JSX.Element => {
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -236,4 +234,3 @@ PlaylistCollapsed.parameters = {
         viewport: { width: 1300, height: 720 },
     },
 }
-PlaylistCollapsed.tags = ['test-skip']
