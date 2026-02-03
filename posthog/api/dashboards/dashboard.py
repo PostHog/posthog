@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -15,6 +16,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
+from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -22,11 +24,17 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.utils.serializer_helpers import ReturnDict
 
+from posthog.schema import InsightVizNode
+
+from posthog.hogql.ai import hit_openai
+
 from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
+from posthog.api.insight_suggestions import summarize_insight_result
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -35,6 +43,7 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
@@ -247,7 +256,12 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     class Meta:
         model = Dashboard
         fields = DASHBOARD_SHARED_FIELDS
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+        ]
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -281,7 +295,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "delete_insights",
             "_create_in_folder",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+        ]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
@@ -312,7 +331,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                    id=use_dashboard,
+                    team__project_id=self.context["get_team"]().project_id,
                 )
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
@@ -388,7 +408,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
                 "id": None,  # to create a new Insight
                 "last_refresh": now(),
-                "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
+                "name": ((existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None),
             }
             new_data.pop("dashboards", None)
             new_tags = new_data.pop("tags", None)
@@ -444,7 +464,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
+                team=instance.team,
+                project_id=instance.team.project_id,
+                detail_dashboard_id=instance.id,
             ).first()
             if group_type_mapping:
                 group_type_mapping.detail_dashboard_id = None
@@ -728,14 +750,161 @@ class DashboardsViewSet(
 
         return queryset
 
+    def _get_cached_results_for_analysis(self, dashboard: Dashboard, request: Request) -> dict[int, Any]:
+        """
+        Fetch currently cached results for all insight tiles on the dashboard.
+        Uses CACHE_ONLY_NEVER_CALCULATE to ensure we get the 'before' state without triggering recalc.
+        Returns dict mapping tile_id to summarized result data.
+        """
+        results = {}
+        tiles = dashboard.tiles.filter(insight__isnull=False).select_related("insight")
+
+        for tile in tiles:
+            insight = tile.insight
+            if not insight or not insight.query:
+                continue
+
+            try:
+                query = InsightVizNode.model_validate(insight.query)
+            except Exception:
+                continue
+
+            try:
+                result_ctx = process_query_model(
+                    self.team,
+                    query,
+                    execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                    user=request.user if request.user.is_authenticated else None,
+                )
+
+                result_data = None
+                if isinstance(result_ctx, BaseModel):
+                    result_dict = result_ctx.model_dump()
+                    result_data = result_dict.get("results") or result_dict.get("result")
+                elif isinstance(result_ctx, dict):
+                    result_data = result_ctx.get("results") or result_ctx.get("result")
+
+                if result_data:
+                    results[tile.id] = {
+                        "insight_name": insight.name or insight.derived_name,
+                        "data": summarize_insight_result(result_data),
+                    }
+            except Exception:
+                continue
+
+        return results
+
+    def _generate_refresh_analysis(self, before_results: dict, after_results: dict) -> Optional[str]:
+        """
+        Compare before and after results and generate AI analysis of changes.
+        Returns AI summary string or None if no significant changes.
+        """
+        changes = []
+
+        for tile_id, before in before_results.items():
+            after = after_results.get(tile_id)
+            if not after:
+                continue
+
+            # Skip if data is identical (using default=str to handle datetime and other non-serializable types)
+            if json.dumps(before["data"], sort_keys=True, default=str) == json.dumps(
+                after["data"], sort_keys=True, default=str
+            ):
+                continue
+
+            changes.append(
+                {
+                    "insight_name": before.get("insight_name", f"Tile {tile_id}"),
+                    "before": before["data"],
+                    "after": after["data"],
+                }
+            )
+
+        if not changes:
+            return None
+
+        prompt = (
+            "You are a product data analyst. A user just refreshed their dashboard. "
+            "Compare the 'before' and 'after' data for the following insights and summarize what changed.\n\n"
+            "Style Rules:\n"
+            "- Focus ONLY on significant changes (drops, spikes, trend reversals).\n"
+            "- If nothing significant changed, say so.\n"
+            "- Group related findings.\n"
+            "- Use concise bullet points.\n"
+            "- Be direct and quantify changes when possible (e.g., '+15%', 'dropped by 30%').\n\n"
+            f"Changes:\n{json.dumps(changes, default=str)}"
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+        try:
+            content, _, _ = hit_openai(
+                messages,
+                f"team/{self.team.id}/dashboard_refresh",
+                posthog_properties={
+                    "ai_product": "product-analytics",
+                    "ai_feature": "dashboard-refresh-analysis",
+                },
+            )
+            return content
+        except Exception:
+            logger.exception("dashboard_refresh_analysis_failed")
+            return None
+
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
+
+        # Capture 'before' state if analysis is requested
+        analyze_refresh = str_to_bool(request.query_params.get("analyze_refresh", "false"))
+        cache_key = None
+
+        if analyze_refresh:
+            before_results = self._get_cached_results_for_analysis(dashboard, request)
+            cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}"
+            cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
+
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
-        response = Response(serializer.data)
+        data = serializer.data
+
+        # Add cache key to response if analysis was requested
+        if cache_key:
+            data["analysis_cache_key"] = cache_key
+
+        response = Response(data)
         return response
+
+    @action(methods=["POST"], detail=True)
+    def analyze_refresh_result(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Generate AI analysis comparing before/after dashboard refresh.
+        Expects cache_key in request body pointing to the stored 'before' state.
+        """
+        dashboard = self.get_object()
+        cache_key = request.data.get("cache_key")
+
+        if not cache_key:
+            return Response({"error": "cache_key is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get 'before' state from cache
+        before_results = cache.get(cache_key)
+        if not before_results:
+            return Response(
+                {"error": "Analysis context expired or not found. Please refresh the dashboard again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get 'after' state (should be fresh in cache now)
+        after_results = self._get_cached_results_for_analysis(dashboard, request)
+
+        # Generate AI analysis
+        analysis = self._generate_refresh_analysis(before_results, after_results)
+
+        if not analysis:
+            return Response({"result": "No significant changes detected in the dashboard data."})
+
+        return Response({"result": analysis})
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
@@ -937,7 +1106,10 @@ class DashboardsViewSet(
             Team.objects.select_for_update().filter(id=self.team_id).first()
 
             existing = Dashboard.objects.filter(
-                team=self.team, deleted=False, creation_mode="unlisted", tagged_items__tag__name=tag
+                team=self.team,
+                deleted=False,
+                creation_mode="unlisted",
+                tagged_items__tag__name=tag,
             ).first()
 
             if existing:
@@ -979,7 +1151,14 @@ class LegacyInsightViewSet(InsightViewSet):
 
 @mutable_receiver(model_activity_signal, sender=Dashboard)
 def handle_dashboard_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+    sender,
+    scope,
+    before_update,
+    after_update,
+    activity,
+    user,
+    was_impersonated=False,
+    **kwargs,
 ):
     if before_update and after_update:
         before_deleted = getattr(before_update, "deleted", None)
