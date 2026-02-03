@@ -20,7 +20,8 @@ runs:
           shell: bash
           run: |
               # Check if turbo will need to build hogql-parser or serve from cache
-              if pnpm turbo build --filter=@posthog/hogql-parser --dry=json 2>/dev/null | grep -q '"cache":{"local":true\|"remote":true'; then
+              # Look for cache.local or cache.remote being true in the dry-run output
+              if pnpm turbo build --filter=@posthog/hogql-parser --dry=json 2>/dev/null | grep -qE '"(local|remote)":true'; then
                 echo "cache_hit=true" >> $GITHUB_OUTPUT
                 echo "Turbo cache hit - skipping emsdk/ninja setup"
               else
