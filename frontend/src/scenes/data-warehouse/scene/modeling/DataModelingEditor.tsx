@@ -65,12 +65,12 @@ function DataModelingEditorContent(): JSX.Element {
                 matchingNodes = enrichedNodes.filter((n) => n.data.name.toLowerCase().includes(baseName.toLowerCase()))
             }
             if (matchingNodes.length > 0) {
-                const centroidX = matchingNodes.reduce((acc, node) => {
-                    return acc + node.position.x + NODE_WIDTH / 2
-                }, 0)
-                const centroidY = matchingNodes.reduce((acc, node) => {
-                    return acc + node.position.y + NODE_HEIGHT / 2
-                }, 0)
+                const centroidX =
+                    matchingNodes.reduce((acc, node) => acc + node.position.x + NODE_WIDTH / 2, 0) /
+                    matchingNodes.length
+                const centroidY =
+                    matchingNodes.reduce((acc, node) => acc + node.position.y + NODE_HEIGHT / 2, 0) /
+                    matchingNodes.length
                 const viewport = reactFlowInstance.getViewport()
                 const wrapper = reactFlowWrapper.current
                 if (wrapper) {

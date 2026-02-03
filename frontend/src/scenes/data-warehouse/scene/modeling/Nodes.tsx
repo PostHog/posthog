@@ -49,7 +49,7 @@ interface ModelNodeInnerProps {
     data: ModelNodeProps['data']
     isSelected: boolean
     isRunning: boolean
-    isSearchMatch: boolean
+    isSearchMatch: boolean | undefined
     isTypeHighlighted: boolean
     lastJobStatus: DataModelingJobStatus | undefined
     layoutDirection: ElkDirection
@@ -265,7 +265,7 @@ const ModelNodeComponent = React.memo(function ModelNodeComponent(props: ModelNo
             data={data}
             isSelected={isSelected ?? false}
             isRunning={isRunning ?? false}
-            isSearchMatch={isSearchMatch ?? false}
+            isSearchMatch={isSearchMatch}
             isTypeHighlighted={isTypeHighlighted ?? false}
             lastJobStatus={lastJobStatus}
             layoutDirection={layoutDirection}
