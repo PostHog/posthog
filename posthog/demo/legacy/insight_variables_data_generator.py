@@ -119,8 +119,29 @@ class InsightVariablesDataGenerator(DataGenerator):
                 "display": "BoldNumber",
             },
         )
+        insight5 = Insight.objects.create(
+            team=self.team,
+            name="Missing variable",
+            description="Shows a validation error for a missing variable.",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.var_missing}",
+                    "variables": {
+                        "missing_variable_id": {
+                            "code_name": "var_missing",
+                            "variableId": "missing_variable_id",
+                        }
+                    },
+                },
+                "display": "BoldNumber",
+            },
+        )
+
         DashboardTile.objects.create(insight=insight1, dashboard=dashboard)
         DashboardTile.objects.create(insight=insight2, dashboard=dashboard)
         DashboardTile.objects.create(insight=insight3, dashboard=dashboard)
         DashboardTile.objects.create(insight=insight4, dashboard=dashboard)
+        DashboardTile.objects.create(insight=insight5, dashboard=dashboard)
         dashboard.save()
