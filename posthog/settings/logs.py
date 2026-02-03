@@ -101,5 +101,11 @@ LOGGING = {
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
+        "temporalio": {"level": "DEBUG"},  # Temporal SDK logs
+        "temporalio.worker": {"level": "DEBUG"},
+        "temporalio.activity": {"level": "DEBUG"},
+        "temporalio.client": {"level": "DEBUG"},
+        "temporalio.core": {"level": "DEBUG"},
+        "grpc": {"level": "DEBUG"},  # gRPC logs
     },
 }
