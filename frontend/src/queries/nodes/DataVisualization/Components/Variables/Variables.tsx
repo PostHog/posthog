@@ -391,7 +391,7 @@ export const VariableComponent = ({
                                     )
                                 }}
                                 type="secondary"
-                                tooltip="Copy variable HogQL"
+                                tooltip="Copy variable code name"
                                 noPadding
                                 size="small"
                             />
