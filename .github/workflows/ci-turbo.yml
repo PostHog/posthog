@@ -48,6 +48,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install pnpm
@@ -59,8 +60,8 @@ jobs:
                   node-version: 18
                   cache: 'pnpm'
 
-            - name: Cache node-gyp artifacts
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore node-gyp cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: ~/.cache/node-gyp
                   key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -101,3 +102,10 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
+
+            - name: Save node-gyp cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: ~/.cache/node-gyp
+                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
