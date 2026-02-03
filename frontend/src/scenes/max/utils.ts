@@ -25,7 +25,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
-    DataVisualizationNode,
+    DataTableNode,
     HogQLVariable,
     InsightVizNode,
     NodeKind,
@@ -287,7 +287,7 @@ export const visualizationTypeToQuery = (
 ): QuerySchema | null => {
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
-        return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
+        return { kind: NodeKind.DataTableNode, source: source } satisfies DataTableNode
     }
     if (isInsightQueryNode(source)) {
         return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode

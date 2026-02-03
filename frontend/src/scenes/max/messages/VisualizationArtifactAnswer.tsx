@@ -23,7 +23,7 @@ import {
     ArtifactSource,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
@@ -142,7 +142,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                                 isSavedInsight
                                     ? urls.insightView(message.artifact_id as InsightShortId)
                                     : urls.insightNew({
-                                          query: query as InsightVizNode | DataVisualizationNode,
+                                          query: query as InsightVizNode | DataVisualizationNode | DataTableNode,
                                       })
                             }
                             icon={<IconOpenInNew />}

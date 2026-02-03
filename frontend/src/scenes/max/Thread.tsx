@@ -63,8 +63,8 @@ import {
     PlanningStep,
     PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { isDataTableNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
 import { ContextSummary } from './Context'
@@ -1145,7 +1145,7 @@ const Visualization = React.memo(function Visualization({
     collapsed,
     editingChildren,
 }: {
-    query: InsightVizNode | DataVisualizationNode
+    query: InsightVizNode | DataVisualizationNode | DataTableNode
     collapsed?: boolean
     editingChildren?: React.ReactNode
 }): JSX.Element | null {
@@ -1184,7 +1184,7 @@ const Visualization = React.memo(function Visualization({
                     />
                 </div>
             </div>
-            {isSummaryShown && (
+            {isSummaryShown && !isDataTableNode(query) && (
                 <>
                     <SeriesSummary query={query.source} heading={null} />
                     {!isHogQLQuery(query.source) && (
@@ -1215,7 +1215,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
                 }
                 return null
             })
-            .filter(Boolean) as Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+            .filter(Boolean) as Array<{ query: InsightVizNode | DataVisualizationNode | DataTableNode; title: string }>
     }, [visualizations])
 
     const openModal = (): void => {
@@ -1296,7 +1296,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
 
 // Modal for detailed view
 interface MultiVisualizationModalProps {
-    insights: Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+    insights: Array<{ query: InsightVizNode | DataVisualizationNode | DataTableNode; title: string }>
 }
 
 function MultiVisualizationModal({ insights: messages }: MultiVisualizationModalProps): JSX.Element {

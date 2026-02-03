@@ -335,12 +335,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             }
             actions.loadHeatmap()
         },
-        setHeatmapFixedPositionMode: () => {
-            actions.loadHeatmap()
-        },
-        setHeatmapColorPalette: () => {
-            actions.loadHeatmap()
-        },
         setHref: () => {
             actions.loadHeatmap()
         },
