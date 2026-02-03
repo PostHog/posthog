@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconCode, IconCopy, IconFilter, IconRefresh, IconX } from '@posthog/icons'
+import { IconCopy, IconFilter, IconGraph, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -9,9 +9,10 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { OPERATOR_OPTIONS } from 'scenes/surveys/SurveyResponseFilters'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -27,43 +28,6 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { SurveySQLHelper } from './SurveySQLHelper'
-import { surveyLogic } from './surveyLogic'
-
-type OperatorOption = { label: string; value: PropertyOperator }
-
-export const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
-    [SurveyQuestionType.Open]: [
-        { label: allOperatorsMapping[PropertyOperator.IContains], value: PropertyOperator.IContains },
-        { label: allOperatorsMapping[PropertyOperator.NotIContains], value: PropertyOperator.NotIContains },
-        { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
-        { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
-        { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
-        { label: allOperatorsMapping[PropertyOperator.IsNot], value: PropertyOperator.IsNot },
-    ],
-    [SurveyQuestionType.Rating]: [
-        { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
-        { label: allOperatorsMapping[PropertyOperator.IsNot], value: PropertyOperator.IsNot },
-        { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
-        { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
-    ],
-    [SurveyQuestionType.SingleChoice]: [
-        { label: allOperatorsMapping[PropertyOperator.IContains], value: PropertyOperator.IContains },
-        { label: allOperatorsMapping[PropertyOperator.NotIContains], value: PropertyOperator.NotIContains },
-        { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
-        { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
-        { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
-        { label: allOperatorsMapping[PropertyOperator.IsNot], value: PropertyOperator.IsNot },
-    ],
-    [SurveyQuestionType.MultipleChoice]: [
-        { label: allOperatorsMapping[PropertyOperator.IContains], value: PropertyOperator.IContains },
-        { label: allOperatorsMapping[PropertyOperator.NotIContains], value: PropertyOperator.NotIContains },
-        { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
-        { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
-    ],
-    [SurveyQuestionType.Link]: [],
-}
-
 function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Element {
     return (
         <button
@@ -78,12 +42,18 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
     )
 }
 
-export const SurveyResponseFilters = React.memo(function SurveyResponseFilters(): JSX.Element {
-    const { survey, answerFilters, propertyFilters, defaultAnswerFilters, dateRange, showArchivedResponses } =
-        useValues(surveyLogic)
+export function SurveyResultsFiltersBar(): JSX.Element {
+    const {
+        survey,
+        answerFilters,
+        propertyFilters,
+        defaultAnswerFilters,
+        dateRange,
+        showArchivedResponses,
+        surveyAsInsightURL,
+    } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const [questionFiltersExpanded, setQuestionFiltersExpanded] = useState(false)
 
     const handleResetFilters = (): void => {
@@ -95,20 +65,22 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
         })
     }
 
-    const handleUpdateFilter = (questionId: string, field: 'operator' | 'value', value: any): void => {
+    const handleUpdateFilter = (
+        questionId: string,
+        field: 'operator' | 'value',
+        value: PropertyOperator | string | string[]
+    ): void => {
         const newFilters = [...answerFilters]
         const filterIndex = newFilters.findIndex((f) => f.key === getSurveyIdBasedResponseKey(questionId))
 
         if (filterIndex >= 0) {
-            // Ensure we're working with an EventPropertyFilter
             const existingFilter = newFilters[filterIndex]
             newFilters[filterIndex] = {
                 ...existingFilter,
                 [field]: value,
-                type: PropertyFilterType.Event, // Ensure type is always set
+                type: PropertyFilterType.Event,
             }
         } else {
-            // Create new filter if one doesn't exist
             newFilters.push({
                 key: getSurveyIdBasedResponseKey(questionId),
                 type: PropertyFilterType.Event,
@@ -120,17 +92,14 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
     }
 
     const getFilterForQuestion = (questionId: string): EventPropertyFilter | undefined => {
-        const filter = answerFilters.find((f: AnyPropertyFilter) => f.key === getSurveyIdBasedResponseKey(questionId))
-        return filter
+        return answerFilters.find((f: AnyPropertyFilter) => f.key === getSurveyIdBasedResponseKey(questionId))
     }
 
-    // Get the list of questions that have filters available
     const questionWithFiltersAvailable = (survey as Survey).questions.filter((question) => {
         const operators = OPERATOR_OPTIONS[question.type] || []
         return operators.length > 0
     })
 
-    // Count how many questions have active filters
     const activeAnswerFiltersCount = questionWithFiltersAvailable.filter((question) => {
         if (!question.id) {
             return false
@@ -143,15 +112,9 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
     }).length
 
     return (
-        <div className="deprecated-space-y-2">
-            <div className="flex justify-between items-center">
-                <h3 className="m-0">Filter survey results</h3>
-                <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
-                    Get SQL Query
-                </LemonButton>
-            </div>
-            <div className="flex gap-2 justify-between">
-                <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2 items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center">
                     <DateFilter
                         dateFrom={dateRange?.date_from}
                         dateTo={dateRange?.date_to}
@@ -185,20 +148,17 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                         ]}
                     />
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center">
                     <LemonSwitch
                         checked={showArchivedResponses}
                         onChange={setShowArchivedResponses}
                         label="Show archived"
                     />
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        onClick={handleResetFilters}
-                        className="self-start"
-                    >
-                        Reset all filters
+                    <LemonButton size="small" type="secondary" icon={<IconGraph />} to={surveyAsInsightURL}>
+                        View insights
+                    </LemonButton>
+                    <LemonButton size="small" type="secondary" icon={<IconRefresh />} onClick={handleResetFilters}>
+                        Reset filters
                     </LemonButton>
                 </div>
             </div>
@@ -245,7 +205,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                                                     type={PropertyFilterType.Event}
                                                     operator={currentFilter.operator}
                                                     value={currentFilter.value || []}
-                                                    onSet={(value: any) =>
+                                                    onSet={(value: string | string[]) =>
                                                         handleUpdateFilter(question.id ?? '', 'value', value)
                                                     }
                                                     placeholder={
@@ -263,8 +223,6 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                     })}
                 </div>
             )}
-
-            <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </div>
     )
-})
+}
