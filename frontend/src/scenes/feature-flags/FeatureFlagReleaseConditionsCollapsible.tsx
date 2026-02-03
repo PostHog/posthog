@@ -189,7 +189,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filtersTaxonomicOptions,
         affectedUsers,
         totalUsers,
-        computeBlastRadiusPercentage,
         aggregationTargetName,
         filters: releaseFilters,
         groupTypes,
@@ -442,41 +441,44 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     </div>
                                     {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
                                         <div className="text-xs text-muted mt-2">
-                                            Will match approximately{' '}
-                                            <b>
-                                                {`${Math.max(
-                                                    Math.round(
-                                                        computeBlastRadiusPercentage(
-                                                            Number.isNaN(group.rollout_percentage)
-                                                                ? 0
-                                                                : group.rollout_percentage,
-                                                            group.sort_key
-                                                        ) * 100
-                                                    ) / 100,
-                                                    0
-                                                )}%`}
-                                            </b>{' '}
                                             {(() => {
                                                 const affectedUserCount = group.sort_key
                                                     ? affectedUsers[group.sort_key]
                                                     : undefined
+                                                const rolloutPct = Number.isNaN(group.rollout_percentage)
+                                                    ? 0
+                                                    : (group.rollout_percentage ?? 100)
+
                                                 if (
-                                                    affectedUserCount !== undefined &&
-                                                    affectedUserCount >= 0 &&
-                                                    totalUsers !== null
+                                                    affectedUserCount === undefined ||
+                                                    affectedUserCount < 0 ||
+                                                    totalUsers === null
                                                 ) {
-                                                    const rolloutPct = Number.isNaN(group.rollout_percentage)
-                                                        ? 0
-                                                        : (group.rollout_percentage ?? 100)
-                                                    return `(${humanFriendlyNumber(
-                                                        Math.floor(
-                                                            (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
-                                                        )
-                                                    )} / ${humanFriendlyNumber(totalUsers)})`
+                                                    return null
                                                 }
-                                                return ''
-                                            })()}{' '}
-                                            of total {aggregationTargetName}
+
+                                                const usersReceivingFlag = Math.floor(
+                                                    (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
+                                                )
+
+                                                if (rolloutPct === 100) {
+                                                    return (
+                                                        <>
+                                                            <b>{humanFriendlyNumber(affectedUserCount)}</b> of{' '}
+                                                            {humanFriendlyNumber(totalUsers)} {aggregationTargetName}{' '}
+                                                            match these conditions
+                                                        </>
+                                                    )
+                                                }
+                                                return (
+                                                    <>
+                                                        Will match ~<b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
+                                                        {humanFriendlyNumber(totalUsers)} {aggregationTargetName} (
+                                                        {humanFriendlyNumber(affectedUserCount)} matching × {rolloutPct}
+                                                        %)
+                                                    </>
+                                                )
+                                            })()}
                                         </div>
                                     ) : (
                                         <div className="text-xs text-muted mt-2 flex items-center gap-1">
