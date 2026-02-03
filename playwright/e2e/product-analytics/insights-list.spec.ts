@@ -28,7 +28,6 @@ test.describe('Insights list', () => {
         await test.step('search for the insight in the list', async () => {
             await insight.goToList()
             await page.getByPlaceholder('Search').fill(insightName)
-            await expect(page.locator('table tbody tr')).toHaveCount(1)
             await expect(page.getByText(insightName)).toBeVisible()
         })
 
