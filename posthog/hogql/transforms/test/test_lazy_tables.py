@@ -78,6 +78,7 @@ class TestLazyJoins(BaseTest):
         )
         assert printed == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_table_as_table_in_join_reverse(self):
         # Bug reproduction: when persons is the FROM table and events is joined,
         # the join condition `events.person_id = persons.id` expands to reference
@@ -95,6 +96,7 @@ class TestLazyJoins(BaseTest):
             f"events__override is referenced at position {first_use} before it's defined at position {definition}. "
             f"This causes 'Unknown identifier' errors in ClickHouse."
         )
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_select_count_from_lazy_table(self):
