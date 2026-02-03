@@ -1,5 +1,6 @@
 {
     "$schema": "https://turbo.build/schema.json",
+    "extends": ["//"],
     "tasks": {
         "backend:test": {
             "inputs": [

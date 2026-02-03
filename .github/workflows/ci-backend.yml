@@ -174,134 +174,32 @@ jobs:
                     fi
                   fi
 
-    # Bazel tests for isolated products
-    # Always runs all product tests (bazel test //products/...)
-    # Checks contract changes to decide if Django tests should also run
-    bazel-tests:
+    # Turbo tests for isolated products
+    # Uses Turborepo for fast caching and test execution
+    # Checks contract changes via turbo cache to decide if Django tests should also run
+    turbo-tests:
         needs: changes
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.products == 'true'
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
-        name: Bazel tests (products)
+        timeout-minutes: 15
+        name: Turbo tests (products)
         outputs:
-            run_legacy: ${{ steps.test.outputs.run_legacy }}
+            run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
 
         steps:
             - uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
               with:
-                  fetch-depth: 0
-                  filter: 'blob:none'
+                  node-version: 20
+                  cache: pnpm
 
-            # === PHASE 1: Setup and contract check (clean workspace required) ===
-            - name: Install Bazelisk
-              run: |
-                  curl -LO https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64
-                  chmod +x bazelisk-linux-amd64
-                  sudo mv bazelisk-linux-amd64 /usr/local/bin/bazel
-
-            - name: Cache Bazel disk cache
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/bazel-disk-cache
-                  key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
-                  restore-keys: bazel-disk-${{ runner.os }}-
-
-            # Cache external repos (pip packages BUILD files) - saves ~3 min on cold start
-            - name: Cache Bazel repository cache
-              uses: actions/cache@v4
-              with:
-                  path: ~/.cache/bazel-repos
-                  key: bazel-repos-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
-                  restore-keys: bazel-repos-${{ runner.os }}-
-
-            # uv needed for wheel build and requirements_lock.txt generation
-            - name: Install uv
-              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
-              with:
-                  enable-cache: true
-                  version: 0.9.9
-
-            # Build wheels for sdist-only packages (thrift, zstd, fastuuid)
-            # Needed by bazel test in Phase 3 - built early so cached for later
-            - name: Build wheels for sdist-only packages
-              run: ./bin/build-bazel-wheels
-
-            - name: Check contract changes
-              id: contract-check
-              if: github.event_name == 'pull_request'
-              run: |
-                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
-
-                  # Cheap routing: legacy changes → run Django
-                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
-                    echo "Legacy code changed - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Get changed files for contract check
-                  git fetch origin ${{ github.base_ref }}
-                  CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}..HEAD)
-
-                  # Extract unique product names from changed files
-                  CHANGED_PRODUCTS=$(echo "$CHANGED_FILES" \
-                    | grep '^products/' \
-                    | cut -d/ -f2 \
-                    | sort -u)
-
-                  if [[ -z "$CHANGED_PRODUCTS" ]]; then
-                    echo "No product changes (likely deps/config change) - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  echo "Changed products: $(echo $CHANGED_PRODUCTS | tr '\n' ' ')"
-
-                  # Check contract changes for bazelified products
-                  CONTRACT_CHANGED=false
-                  for product in $CHANGED_PRODUCTS; do
-                    if [[ -f "products/$product/backend/BUILD.bazel" ]]; then
-                      # Check if :contract changed using forward deps query (fast: ~2s)
-                      CONTRACT_TARGET="//products/$product/backend:contract"
-                      if bazel query --config=ci "$CONTRACT_TARGET" &>/dev/null; then
-                        echo "Checking contract files for $product..."
-                        CONTRACT_FILES=$(bazel query --config=ci "kind('source file', deps($CONTRACT_TARGET))" 2>/dev/null \
-                          | sed 's|//products/'"$product"'/backend:||' \
-                          | tr '\n' '|' | sed 's/|$//')
-
-                        if [[ -n "$CONTRACT_FILES" ]] && echo "$CHANGED_FILES" | grep -qE "^products/$product/backend/($CONTRACT_FILES)"; then
-                          echo "Contract changed for $product - Django will run"
-                          CONTRACT_CHANGED=true
-                          break
-                        fi
-                      fi
-                    fi
-                  done
-
-                  # Legacy impact decision
-                  if [[ "$CONTRACT_CHANGED" == "true" ]]; then
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "Only impl changed - Django can be skipped"
-                    echo "run_legacy=false" >> $GITHUB_OUTPUT
-                  fi
-
-            # === PHASE 2: Test environment setup (can modify workspace) ===
-            - name: Clean up data directories with container permissions
-              run: |
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-
-            - name: Stop/Start stack with Docker Compose
-              run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
-                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d &
-
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Install pnpm dependencies
+              run: pnpm install --frozen-lockfile
 
             - name: Set up Python
               uses: actions/setup-python@v5
@@ -329,12 +227,24 @@ jobs:
               with:
                   workspaces: rust
 
-            - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
-
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Clean up data directories
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Start services
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d &
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up needed files
               run: |
@@ -342,49 +252,46 @@ jobs:
                   touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Cache pre-built wheels
-              uses: actions/cache@v4
-              with:
-                  path: /tmp/bazel-wheels
-                  key: bazel-wheels-${{ hashFiles('pyproject.toml') }}
-                  restore-keys: bazel-wheels-
-
-            - name: Generate requirements_lock.txt for Bazel
+            - name: Check contract changes
+              id: contract-check
               run: |
-                  bazel run --config=ci \
-                    --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_API_KEY }} \
-                    //:requirements.update
-
-            - name: Pre-build wheels for sdist-only packages
-              run: |
-                  if [ -z "$(ls /tmp/bazel-wheels/*.whl 2>/dev/null)" ]; then
-                    ./bin/build-bazel-wheels
-                  else
-                    echo "Using cached wheels from /tmp/bazel-wheels"
-                    ls -la /tmp/bazel-wheels/
-                  fi
-
-            # === PHASE 3: Run tests ===
-            - name: Run tests
-              id: test
-              run: |
-                  # Pass through contract-check result, default to true for master pushes
+                  # On push to master, always run Django
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
                     echo "Push to master - Django will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "run_legacy=${{ steps.contract-check.outputs.run_legacy || 'true' }}" >> $GITHUB_OUTPUT
+                    exit 0
                   fi
 
-                  echo "Waiting for services..."
+                  # Cheap routing: legacy changes → run Django
+                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
+                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
+                    echo "Legacy code changed - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  # Use turbo's cache to detect contract changes
+                  # If contract-check has cache miss, contracts changed → run Django
+                  OUTPUT=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null || echo '{}')
+                  CACHE_STATUS=$(echo "$OUTPUT" | jq -r '.tasks[]? | select(.taskId | contains("backend:contract-check")) | .cache.status' 2>/dev/null | head -1)
+
+                  echo "Contract check cache status: $CACHE_STATUS"
+
+                  if [[ "$CACHE_STATUS" == "MISS" || "$CACHE_STATUS" == "" ]]; then
+                    echo "Contract files changed (cache miss) - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "Only impl changed (cache hit) - Django can be skipped"
+                    echo "run_legacy=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Wait for services
+              run: |
                   bin/check_kafka_clickhouse_up
                   bin/check_postgres_up
 
-                  # Always run all product tests (no target narrowing per BuildBuddy recommendation)
-                  echo "Running: bazel test --config=ci //products/..."
-                  bazel test --config=ci \
-                    --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_API_KEY }} \
-                    //products/...
+            - name: Run product tests
+              run: pnpm turbo run backend:test --output-logs=new-only
 
     check-migrations:
         needs: [changes]
@@ -711,14 +618,14 @@ jobs:
                   fi
 
     django:
-        needs: [changes, bazel-tests, detect-snapshot-mode, get_clickhouse_versions]
+        needs: [changes, turbo-tests, detect-snapshot-mode, get_clickhouse_versions]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
-        # 2. OR product changes affect legacy code (bazel-tests outputs run_legacy=true)
+        # 2. OR product changes affect legacy code (turbo-tests outputs run_legacy=true)
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.bazel-tests.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' || needs.turbo-tests.outputs.run_legacy == 'true')
         # increase for tmate testing
         timeout-minutes: 30
 
@@ -1290,12 +1197,12 @@ jobs:
 
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, bazel-tests, get_clickhouse_versions]
+        needs: [changes, turbo-tests, get_clickhouse_versions]
         # Run if legacy code changed or product changes affect legacy
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.bazel-tests.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' || needs.turbo-tests.outputs.run_legacy == 'true')
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
@@ -1400,7 +1307,7 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, clickhouse-compat, check-migrations, async-migrations, bazel-tests, handle-snapshots]
+        needs: [django, clickhouse-compat, check-migrations, async-migrations, turbo-tests, handle-snapshots]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1432,7 +1339,7 @@ jobs:
                   fi
 
                   # Check Bazel tests (products) - must pass for Django Tests to be green
-                  if [[ "${{ needs.bazel-tests.result }}" != "success" && "${{ needs.bazel-tests.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
                     echo "Bazel tests failed."
                     exit 1
                   fi
@@ -1447,7 +1354,7 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: [changes, bazel-tests, get_clickhouse_versions]
+        needs: [changes, turbo-tests, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
@@ -1456,7 +1363,7 @@ jobs:
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
-            (needs.changes.outputs.legacy == 'true' || needs.bazel-tests.outputs.run_legacy == 'true')
+            (needs.changes.outputs.legacy == 'true' || needs.turbo-tests.outputs.run_legacy == 'true')
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
