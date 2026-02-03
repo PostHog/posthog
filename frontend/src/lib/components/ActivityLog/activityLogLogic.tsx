@@ -36,6 +36,7 @@ import { productTourActivityDescriber } from 'scenes/product-tours/activityDescr
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import { projectSecretAPIKeyActivityDescriber } from 'scenes/settings/project/activityDescriptions'
 import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
@@ -134,6 +135,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return personActivityDescriber
         case ActivityScope.PERSONAL_API_KEY:
             return personalAPIKeyActivityDescriber
+        case ActivityScope.PROJECT_SECRET_API_KEY:
+            return projectSecretAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
