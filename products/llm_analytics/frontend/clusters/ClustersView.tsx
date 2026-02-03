@@ -169,16 +169,19 @@ export function ClustersView(): JSX.Element {
                         </span>
                     </Tooltip>
                     <span className="text-muted">|</span>
-                    <label className="font-medium whitespace-nowrap">Clustering run:</label>
-                    <LemonSelect
-                        value={effectiveRunId || undefined}
-                        onChange={(value) => setSelectedRunId(value || null)}
-                        options={clusteringRuns.map((run: { runId: string; label: string }) => ({
-                            value: run.runId,
-                            label: run.label,
-                        }))}
-                        placeholder="Select a run"
-                    />
+                    <Tooltip title="Clustering run">
+                        <span>
+                            <LemonSelect
+                                value={effectiveRunId || undefined}
+                                onChange={(value) => setSelectedRunId(value || null)}
+                                options={clusteringRuns.map((run: { runId: string; label: string }) => ({
+                                    value: run.runId,
+                                    label: run.label,
+                                }))}
+                                placeholder="Select a run"
+                            />
+                        </span>
+                    </Tooltip>
                     <LemonButton
                         type="secondary"
                         size="small"
