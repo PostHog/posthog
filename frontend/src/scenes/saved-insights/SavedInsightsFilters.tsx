@@ -1,11 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconChevronDown, IconFlag, IconStar } from '@posthog/icons'
-import { LemonSelectOption, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
+import { IconFlag, IconStar } from '@posthog/icons'
 
-import { tagSelectLogic } from 'lib/components/tagSelectLogic'
+import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
@@ -25,19 +25,6 @@ export function SavedInsightsFilters({
     const { user } = useValues(userLogic)
     const { search, hideFeatureFlagInsights, createdBy, favorited, tags, insightType } = filters
 
-    const { filteredTags, search: tagSearch } = useValues(tagSelectLogic)
-    const { setSearch: setTagSearch } = useActions(tagSelectLogic)
-
-    const handleTagToggle = (tag: string): void => {
-        const selected = new Set(tags || [])
-        if (selected.has(tag)) {
-            selected.delete(tag)
-        } else {
-            selected.add(tag)
-        }
-        setFilters({ tags: Array.from(selected) })
-    }
-
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
             <LemonInput
@@ -50,134 +37,27 @@ export function SavedInsightsFilters({
             <div className="flex items-center gap-2 flex-wrap">
                 {showQuickFilters && (
                     <>
-                        <LemonButton
-                            type="secondary"
-                            sideAction={{
-                                dropdown: {
-                                    placement: 'bottom-end',
-                                    actionable: true,
-                                    overlay: (
-                                        <div className="deprecated-space-y-px">
-                                            {(INSIGHT_TYPE_OPTIONS as LemonSelectOption<string>[]).map((option) => {
-                                                const opt = option as LemonSelectOptionLeaf<string>
-                                                return (
-                                                    <LemonButton
-                                                        key={opt.value}
-                                                        onClick={() =>
-                                                            setFilters({
-                                                                insightType: opt.value,
-                                                            })
-                                                        }
-                                                        active={insightType === opt.value}
-                                                        icon={opt.icon}
-                                                        fullWidth
-                                                    >
-                                                        {opt.label}
-                                                    </LemonButton>
-                                                )
-                                            })}
-                                            {insightType && insightType !== 'All types' && (
-                                                <>
-                                                    <div className="my-1 border-t" />
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => setFilters({ insightType: 'All types' })}
-                                                        type="tertiary"
-                                                    >
-                                                        Clear filter
-                                                    </LemonButton>
-                                                </>
-                                            )}
-                                        </div>
-                                    ),
-                                },
-                                icon: <IconChevronDown />,
-                            }}
-                            active={insightType !== 'All types'}
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
                             size="small"
-                        >
-                            {(
-                                INSIGHT_TYPE_OPTIONS.find((o) => 'value' in o && o.value === insightType) as
-                                    | LemonSelectOptionLeaf<string>
-                                    | undefined
-                            )?.label || 'All types'}
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            sideAction={{
-                                dropdown: {
-                                    placement: 'bottom-end',
-                                    actionable: true,
-                                    overlay: (
-                                        <div className="max-w-100 deprecated-space-y-2">
-                                            <LemonInput
-                                                type="search"
-                                                placeholder="Search tags"
-                                                autoFocus
-                                                value={tagSearch}
-                                                onChange={setTagSearch}
-                                                fullWidth
-                                                className="max-w-full"
-                                            />
-                                            <ul className="deprecated-space-y-px">
-                                                {filteredTags.map((tag: string) => (
-                                                    <li key={tag}>
-                                                        <LemonButton
-                                                            fullWidth
-                                                            role="menuitem"
-                                                            size="small"
-                                                            onClick={() => handleTagToggle(tag)}
-                                                        >
-                                                            <span className="flex items-center justify-between gap-2 flex-1">
-                                                                <span className="flex items-center gap-2 max-w-full">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        className="cursor-pointer"
-                                                                        checked={tags?.includes(tag) || false}
-                                                                        readOnly
-                                                                    />
-                                                                    <span>{tag}</span>
-                                                                </span>
-                                                            </span>
-                                                        </LemonButton>
-                                                    </li>
-                                                ))}
-                                                {filteredTags.length === 0 ? (
-                                                    <div className="p-2 text-secondary italic truncate border-t">
-                                                        {tagSearch ? (
-                                                            <span>No matching tags</span>
-                                                        ) : (
-                                                            <span>No tags</span>
-                                                        )}
-                                                    </div>
-                                                ) : null}
-                                                {(tags?.length || 0) > 0 && (
-                                                    <>
-                                                        <div className="my-1 border-t" />
-                                                        <li>
-                                                            <LemonButton
-                                                                fullWidth
-                                                                role="menuitem"
-                                                                size="small"
-                                                                onClick={() => setFilters({ tags: [] })}
-                                                                type="tertiary"
-                                                            >
-                                                                Clear selection
-                                                            </LemonButton>
-                                                        </li>
-                                                    </>
-                                                )}
-                                            </ul>
-                                        </div>
-                                    ),
-                                },
-                                icon: <IconChevronDown />,
+                            onChange={(value) => {
+                                setFilters({ insightType: value as string })
                             }}
-                            active={(tags?.length || 0) > 0}
-                            size="small"
+                            options={INSIGHT_TYPE_OPTIONS}
+                            value={insightType || 'All types'}
+                        />
+                        <TagSelect
+                            value={tags || []}
+                            onChange={(tags) => {
+                                setFilters({ tags: tags.length > 0 ? tags : [] })
+                            }}
                         >
-                            Tags{(tags?.length || 0) > 0 ? `: ${tags?.length}` : ''}
-                        </LemonButton>
+                            {(selectedTags) => (
+                                <LemonButton size="small" type="secondary">
+                                    {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
+                                </LemonButton>
+                            )}
+                        </TagSelect>
 
                         <LemonButton
                             type="secondary"
