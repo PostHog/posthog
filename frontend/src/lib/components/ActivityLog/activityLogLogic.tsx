@@ -287,9 +287,11 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
         }
     }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            actions.fetchActivity()
+            if (!values.activity.results.length && !values.activityLoading) {
+                actions.fetchActivity()
+            }
         },
     })),
 ])

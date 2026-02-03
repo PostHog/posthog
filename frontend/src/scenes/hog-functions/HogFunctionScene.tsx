@@ -302,7 +302,7 @@ export function HogFunctionScene(): JSX.Element {
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { id, templateId } = logicProps
+    const { id, templateId, subTemplateId } = logicProps
 
     useFileSystemLogView({
         type: `hog_function/${type ?? ''}`,
@@ -388,7 +388,7 @@ export function HogFunctionScene(): JSX.Element {
                     </LemonBanner>
                 )}
                 {templateId ? (
-                    <HogFunctionConfiguration templateId={templateId} />
+                    <HogFunctionConfiguration templateId={templateId} subTemplateId={subTemplateId} />
                 ) : (
                     <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
                 )}
