@@ -11,14 +11,15 @@ import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { personsLogic } from './personsLogic'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
-    const { urlId } = useValues(personsLogic)
+    // We explicitly pull the modal state from personsLogic
+    const { urlId, splitMergeModalShown } = useValues(personsLogic)
     const logicProps = { person, urlId: urlId ?? '' }
     const { executedLoading } = useValues(mergeSplitPersonLogic(logicProps))
     const { execute, cancel } = useActions(mergeSplitPersonLogic(logicProps))
 
     return (
         <LemonModal
-            isOpen
+            isOpen={splitMergeModalShown}  // <--- REPLACED "isOpen" with the variable
             width="40rem"
             title="Split persons"
             footer={
