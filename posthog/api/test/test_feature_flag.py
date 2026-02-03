@@ -8950,75 +8950,74 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+    def test_get_flags_with_stale_filter_usage_and_config_based(self):
+        """Test filtering by STALE status with both usage and config-based detection"""
+        FeatureFlag.objects.all().delete()
 
-def test_get_flags_with_stale_filter_usage_and_config_based(self):
-    """Test filtering by STALE status with both usage and config-based detection"""
-    FeatureFlag.objects.all().delete()
+        # Create a stale flag (usage-based: old + not called in 30+ days)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="stale_by_usage_flag",
+            active=True,
+            last_called_at=datetime.now(UTC) - timedelta(days=35),
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
 
-    # Create a stale flag (usage-based: old + not called in 30+ days)
-    FeatureFlag.objects.create(
-        created_at=datetime.now(UTC) - timedelta(days=60),
-        team=self.team,
-        created_by=self.user,
-        key="stale_by_usage_flag",
-        active=True,
-        last_called_at=datetime.now(UTC) - timedelta(days=35),
-        filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-    )
+        # Create a stale flag (config-based: old + 100% rollout + no usage data)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="stale_by_config_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
 
-    # Create a stale flag (config-based: old + 100% rollout + no usage data)
-    FeatureFlag.objects.create(
-        created_at=datetime.now(UTC) - timedelta(days=60),
-        team=self.team,
-        created_by=self.user,
-        key="stale_by_config_flag",
-        active=True,
-        last_called_at=None,
-        filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
-    )
+        # Create an active flag (recently called)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="active_flag",
+            active=True,
+            last_called_at=datetime.now(UTC) - timedelta(hours=1),
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
 
-    # Create an active flag (recently called)
-    FeatureFlag.objects.create(
-        created_at=datetime.now(UTC) - timedelta(days=60),
-        team=self.team,
-        created_by=self.user,
-        key="active_flag",
-        active=True,
-        last_called_at=datetime.now(UTC) - timedelta(hours=1),
-        filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-    )
+        # Create an active flag (no usage data + not fully rolled out = can't determine staleness)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=60),
+            team=self.team,
+            created_by=self.user,
+            key="no_data_partial_rollout_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
 
-    # Create an active flag (no usage data + not fully rolled out = can't determine staleness)
-    FeatureFlag.objects.create(
-        created_at=datetime.now(UTC) - timedelta(days=60),
-        team=self.team,
-        created_by=self.user,
-        key="no_data_partial_rollout_flag",
-        active=True,
-        last_called_at=None,
-        filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-    )
+        # Create a new flag that hasn't been called (should be ACTIVE, grace period)
+        FeatureFlag.objects.create(
+            created_at=datetime.now(UTC) - timedelta(days=5),
+            team=self.team,
+            created_by=self.user,
+            key="new_uncalled_flag",
+            active=True,
+            last_called_at=None,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
 
-    # Create a new flag that hasn't been called (should be ACTIVE, grace period)
-    FeatureFlag.objects.create(
-        created_at=datetime.now(UTC) - timedelta(days=5),
-        team=self.team,
-        created_by=self.user,
-        key="new_uncalled_flag",
-        active=True,
-        last_called_at=None,
-        filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
-    )
+        # Test filtering by STALE status
+        response = self.client.get("/api/projects/@current/feature_flags?active=STALE")
+        results = response.json()["results"]
 
-    # Test filtering by STALE status
-    response = self.client.get("/api/projects/@current/feature_flags?active=STALE")
-    results = response.json()["results"]
-
-    assert len(results) == 2
-    result_keys = {r["key"] for r in results}
-    assert result_keys == {"stale_by_usage_flag", "stale_by_config_flag"}
-    for result in results:
-        assert result["status"] == "STALE"
+        assert len(results) == 2
+        result_keys = {r["key"] for r in results}
+        assert result_keys == {"stale_by_usage_flag", "stale_by_config_flag"}
+        for result in results:
+            assert result["status"] == "STALE"
 
 
 class TestFeatureFlagBulkDelete(APIBaseTest):
