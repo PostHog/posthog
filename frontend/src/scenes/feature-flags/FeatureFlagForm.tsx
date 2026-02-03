@@ -89,6 +89,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const handleShowImplementation = (): void => {
+        setShowImplementation(true)
         setTimeout(() => {
             implementationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         }, 150)
