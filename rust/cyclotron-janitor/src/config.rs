@@ -58,6 +58,12 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub should_compress_vm_state: bool, // Defaults to "false" (for now!)
+
+    #[envconfig(default = "0")]
+    pub janitor_delete_batch_limit: i64, // 0 = no limit, >0 = LIMIT N per delete cycle
+
+    #[envconfig(default = "false")]
+    pub janitor_skip_aggregation: bool, // Skip aggregation + Kafka metrics (for shadow janitor)
 }
 
 #[allow(dead_code)]
@@ -81,6 +87,8 @@ impl Config {
             max_touches: self.janitor_max_touches,
             id: self.janitor_id.clone(),
             shard_id: self.shard_id.clone(),
+            delete_batch_limit: self.janitor_delete_batch_limit,
+            skip_aggregation: self.janitor_skip_aggregation,
         };
 
         JanitorConfig {
@@ -102,4 +110,6 @@ pub struct JanitorSettings {
     pub max_touches: i16,
     pub id: String,
     pub shard_id: String,
+    pub delete_batch_limit: i64,
+    pub skip_aggregation: bool,
 }
