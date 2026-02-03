@@ -294,7 +294,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadClusterDataSuccess: async () => {
             // Load summaries for the first page of traces
             await actions.setPage(1)
