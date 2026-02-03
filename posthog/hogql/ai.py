@@ -41,7 +41,7 @@ SQL: SELECT arrayJoin(JSONExtractArrayRaw(properties.$active_feature_flags ?? '[
 </example>
 
 <example>
-User: "How many users have a gentle-tenccent email?"
+User: "How many users have a gentle-tencent email?"
 SQL: SELECT count(DISTINCT person_id) FROM events WHERE person.properties.email LIKE '%@gentle-tencent.com'
 </example>
 """
