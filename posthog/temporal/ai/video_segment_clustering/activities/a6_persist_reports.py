@@ -13,6 +13,11 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.temporal.ai.video_segment_clustering.centroid_cache import (
+    delete_centroids,
+    get_centroids,
+    get_workflow_id_from_activity,
+)
 from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.models import PersistReportsActivityInputs, PersistReportsResult
 from posthog.temporal.ai.video_segment_clustering.priority import (
@@ -29,7 +34,14 @@ logger = structlog.get_logger(__name__)
 
 @activity.defn
 async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> PersistReportsResult:
-    """Persists new SignalReports and updates existing relevant ones, creating SignalReportArtefacts in the process."""
+    """Persists new SignalReports and updates existing relevant ones, creating SignalReportArtefacts in the process.
+
+    Centroids are fetched from Redis for new reports, then cleaned up at the end.
+    """
+    # Fetch centroids from Redis for new reports
+    workflow_id = get_workflow_id_from_activity()
+    cached_centroids = await get_centroids(workflow_id) if inputs.new_clusters else None
+
     team = await Team.objects.aget(id=inputs.team_id)
 
     segment_lookup = {s.document_id: s for s in inputs.segments}
@@ -48,6 +60,12 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
             logger.warning("No label found for new cluster, skipping", cluster_id=cluster.cluster_id)
             continue
 
+        # Get centroid from Redis cache
+        centroid = cached_centroids.get(cluster.cluster_id) if cached_centroids else None
+        if centroid is None:
+            logger.warning("No centroid found for cluster, skipping", cluster_id=cluster.cluster_id)
+            continue
+
         cluster_segments = [segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup]
         metrics = await calculate_task_metrics(team, cluster_segments)
 
@@ -61,7 +79,7 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
             title=label.title,
             summary=label.description,
             status=SignalReport.Status.READY,
-            cluster_centroid=cluster.centroid,
+            cluster_centroid=centroid,
             cluster_centroid_updated_at=django_timezone.now(),
             total_weight=total_weight,
             signal_count=metrics["occurrence_count"],
@@ -204,6 +222,9 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
         artefacts_created = len(created_artefacts)
     else:
         artefacts_created = 0
+
+    # Cleanup centroid cache now that we've persisted everything
+    await delete_centroids(workflow_id)
 
     return PersistReportsResult(
         reports_created=reports_created,
