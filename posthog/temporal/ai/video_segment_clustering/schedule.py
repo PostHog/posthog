@@ -25,10 +25,6 @@ async def create_video_segment_clustering_coordinator_schedule(client: Client):
 
     Every PROACTIVE_TASKS_SCHEDULE_INTERVAL, we run video segment clustering for teams with proactive tasks enabled,
     with a lookback window of DEFAULT_LOOKBACK_WINDOW.
-
-    In practice: Every hour, we summarize session recordings finished in the last hour, and then group segments
-    from the last 7 days (incl. the latest ones). From that, we create tasks for segments suggesting new action items,
-    and/or update existing tasks based on the new segments.
     """
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
