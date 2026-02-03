@@ -16363,6 +16363,10 @@
                 "breakdownAttributionValue": {
                     "$ref": "#/definitions/integer"
                 },
+                "breakdownSorting": {
+                    "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
+                    "type": "string"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
@@ -17479,9 +17483,6 @@
                 },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
-                    "type": "boolean"
-                },
-                "usePresortedEventsTable": {
                     "type": "boolean"
                 },
                 "useWebAnalyticsPreAggregatedTables": {
@@ -22484,6 +22485,7 @@
                 "llm_analytics_docs_viewed",
                 "logs_docs_viewed",
                 "logs_set_filters",
+                "logs_settings_opened",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -22642,6 +22644,25 @@
                 }
             },
             "required": ["products", "games", "metadata"],
+            "type": "object"
+        },
+        "ProjectSecretAPIKeyAllowedScope": {
+            "enum": ["feature_flag:read", "PLACEHOLDER"],
+            "type": "string"
+        },
+        "ProjectSecretAPIKeyRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "items": {
+                        "$ref": "#/definitions/ProjectSecretAPIKeyAllowedScope"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "PropertyFilterBaseValue": {

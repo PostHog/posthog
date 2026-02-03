@@ -111,6 +111,10 @@ class TestSampleItemsInWindowActivity:
             assert result[0].trace_id == "trace_0"
             assert result[49].trace_id == "trace_49"
 
+            # Verify randomOrder is not used (defaults to timestamp DESC ordering)
+            query = mock_runner_class.call_args.kwargs["query"]
+            assert query.randomOrder is None
+
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_sample_items_empty(self, mock_team):
