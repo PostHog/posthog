@@ -1783,6 +1783,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_prompts').addPathComponent(id)
     }
 
+    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -4126,6 +4130,9 @@ const api = {
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
         },
+        async clusterVideoSegments(): Promise<{ status: string; workflow_id: string; message: string }> {
+            return await new ApiRequest().tasks().withAction('cluster_video_segments').create()
+        },
         runs: {
             async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
                 return await new ApiRequest().taskRuns(taskId).get()
@@ -5300,6 +5307,10 @@ const api = {
 
         get(promptId: string): Promise<LLMPrompt> {
             return new ApiRequest().llmPrompt(promptId).get()
+        },
+
+        getByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPromptByName(promptName).get()
         },
 
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {

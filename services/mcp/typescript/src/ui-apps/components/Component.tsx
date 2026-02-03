@@ -15,8 +15,9 @@ function isTrendsResult(results: unknown): results is TrendsResult {
     if (!Array.isArray(results) || results.length === 0) {
         return false
     }
-    const first = results[0] as Record<string, unknown>
+
     // TrendsResult items have: data (number[]), labels or days (string[])
+    const first = results[0] as Record<string, unknown>
     return (
         typeof first === 'object' &&
         first !== null &&
@@ -31,13 +32,15 @@ function isFunnelResult(results: unknown): results is FunnelResult {
     if (!Array.isArray(results) || results.length === 0) {
         return false
     }
+
     // Handle both flat array and nested array formats
     const items = Array.isArray(results[0]) ? (results[0] as unknown[]) : results
     if (items.length === 0) {
         return false
     }
-    const first = items[0] as Record<string, unknown>
+
     // FunnelResult items have: name, count, order
+    const first = items[0] as Record<string, unknown>
     return (
         typeof first === 'object' &&
         first !== null &&
@@ -53,6 +56,7 @@ function isHogQLResult(results: unknown): results is HogQLResult {
     if (typeof results !== 'object' || results === null) {
         return false
     }
+
     const r = results as Record<string, unknown>
     return 'columns' in r && 'results' in r && Array.isArray(r.columns) && Array.isArray(r.results)
 }
@@ -65,8 +69,8 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
     if (typeof data !== 'object' || data === null) {
         return null
     }
-    const d = data as Record<string, unknown>
 
+    const d = data as Record<string, unknown>
     const results = d.results
 
     // Infer from results structure first (most reliable)

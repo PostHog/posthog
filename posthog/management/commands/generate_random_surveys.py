@@ -24,7 +24,7 @@ class LinkTemplate(TypedDict):
     link: str
 
 
-QuestionType = Literal["open", "rating", "multiple_choice", "link"]
+QuestionType = Literal["open", "rating", "multiple_choice", "link", "thumbs"]
 SurveyType = Literal["popover", "widget", "api"]
 
 # Define template types
@@ -40,6 +40,14 @@ class QuestionTemplates(TypedDict):
     multiple_choice: MultipleChoiceTemplates
     link: LinkTemplates
 
+
+THUMBS_TEMPLATES: list[str] = [
+    "Was this {feature} helpful?",
+    "Did {feature} meet your expectations?",
+    "Would you use {feature} again?",
+    "Did you find {feature} useful?",
+    "Was your experience with {feature} positive?",
+]
 
 QUESTION_TEMPLATES: QuestionTemplates = {
     "open": [
@@ -260,6 +268,11 @@ class Command(BaseCommand):
             default=30,
             help="Generate responses over the last N days (default: 30)",
         )
+        parser.add_argument(
+            "--with-trace-ids",
+            action="store_true",
+            help="Include $ai_trace_id property on each survey response (for testing LLM feedback surveys)",
+        )
 
     def generate_question_of_type(
         self, question_type: QuestionType, choice_type: Literal["single_choice", "multiple_choice"] | None = None
@@ -314,6 +327,22 @@ class Command(BaseCommand):
                 "hasOpenChoice": True,  # Always include open-ended option for actionable surveys
             }
 
+        elif question_type == "thumbs":
+            thumbs_template = random.choice(THUMBS_TEMPLATES)
+            question_text = thumbs_template.format(feature=feature)
+            return {
+                "type": "rating",
+                "question": question_text,
+                "description": f"Quick feedback on {feature}",
+                "descriptionContentType": "text",
+                "optional": random.choice([True, False]),
+                "buttonText": random.choice(["Submit", "Next", "Continue"]),
+                "display": "emoji",
+                "scale": 2,  # Thumbs up/down scale
+                "lowerBoundLabel": "No",
+                "upperBoundLabel": "Yes",
+            }
+
         else:  # link
             link_templates: list[LinkTemplate] = QUESTION_TEMPLATES["link"]
             link_template = random.choice(link_templates)
@@ -333,12 +362,13 @@ class Command(BaseCommand):
         return [
             self.generate_question_of_type("open"),
             self.generate_question_of_type("rating"),
+            self.generate_question_of_type("thumbs"),
             self.generate_question_of_type("multiple_choice", choice_type="single_choice"),
             self.generate_question_of_type("multiple_choice", choice_type="multiple_choice"),
         ]
 
     def generate_random_question(self) -> dict[str, Any]:
-        question_type: QuestionType = random.choice(["open", "rating", "multiple_choice", "link"])
+        question_type: QuestionType = random.choice(["open", "rating", "thumbs", "multiple_choice", "link"])
         feature = random.choice(FEATURES)
 
         if question_type == "open":
@@ -373,6 +403,24 @@ class Command(BaseCommand):
                 "scale": random.choice([5, 7, 10]),
                 "lowerBoundLabel": "Not at all",
                 "upperBoundLabel": "Extremely",
+            }
+
+        elif question_type == "thumbs":
+            # Generate a thumbs up/down question
+            thumbs_template = random.choice(THUMBS_TEMPLATES)
+            question_text = thumbs_template.format(feature=feature)
+
+            return {
+                "type": "rating",
+                "question": question_text,
+                "description": f"Quick feedback on {feature}",
+                "descriptionContentType": "text",
+                "optional": random.choice([True, False]),
+                "buttonText": random.choice(["Submit", "Next", "Continue"]),
+                "display": "emoji",
+                "scale": 2,  # Thumbs up/down scale
+                "lowerBoundLabel": "No",
+                "upperBoundLabel": "Yes",
             }
 
         elif question_type == "multiple_choice":
@@ -488,6 +536,13 @@ class Command(BaseCommand):
 
         elif question_type == "rating":
             scale = question.get("scale", 5)
+            display = question.get("display", "number")
+
+            # Handle thumbs up/down (scale of 2, emoji display)
+            if scale == 2 and display == "emoji":
+                # Realistic distribution: ~70% thumbs up, ~30% thumbs down
+                return "2" if random.random() < 0.7 else "1"
+
             # Realistic distribution: skewed positive with some variation
             rand = random.random()
             if rand < 0.1:
@@ -614,7 +669,13 @@ class Command(BaseCommand):
         return insert, params
 
     def generate_survey_responses(
-        self, survey: Survey, team: Team, num_responses: int, days_back: int, persons_data: list[PersonData]
+        self,
+        survey: Survey,
+        team: Team,
+        num_responses: int,
+        days_back: int,
+        persons_data: list[PersonData],
+        with_trace_ids: bool = False,
     ) -> tuple[int, int, int]:
         """Generate survey response events for a survey.
 
@@ -675,6 +736,10 @@ class Command(BaseCommand):
                     "$survey_name": survey.name,
                 }
 
+                # Add trace ID if requested (for testing LLM feedback surveys)
+                if with_trace_ids:
+                    response_properties["$ai_trace_id"] = str(uuid.uuid4())
+
                 # Generate response for each question
                 questions = survey.questions or []
                 for idx, question in enumerate(questions):
@@ -727,6 +792,7 @@ class Command(BaseCommand):
         team_id = options["team_id"]
         num_responses = options["responses"]
         days_back = options["days_back"]
+        with_trace_ids = options["with_trace_ids"]
 
         if team_id:
             team = Team.objects.filter(id=team_id).first()
@@ -781,12 +847,15 @@ class Command(BaseCommand):
 
             if num_responses > 0 and persons_data:
                 sent, shown, dismissed = self.generate_survey_responses(
-                    survey, team, num_responses, days_back, persons_data
+                    survey, team, num_responses, days_back, persons_data, with_trace_ids
                 )
                 total_sent += sent
                 total_shown += shown
                 total_dismissed += dismissed
-                self.stdout.write(f"  Generated {sent} responses, {shown} shown events, {dismissed} dismissed events")
+                trace_msg = " (with $ai_trace_id)" if with_trace_ids else ""
+                self.stdout.write(
+                    f"  Generated {sent} responses{trace_msg}, {shown} shown events, {dismissed} dismissed events"
+                )
 
         if num_responses > 0:
             self.stdout.write(

@@ -102,6 +102,16 @@ export function Tooltip({
         ],
     })
 
+    useEffect(() => {
+        return () => {
+            // Break circular references on unmount to prevent memory leaks.
+            // The floating-ui event handlers capture context in closures, and context
+            // holds refs to DOM elements. Clearing refs breaks this retention chain.
+            refs.setReference(null)
+            refs.setFloating(null)
+        }
+    }, [refs])
+
     const hover = useHover(context, {
         enabled: !isPressingReference, // Need to disable esp. for elements where the tooltip is a dragging handle
         move: false,

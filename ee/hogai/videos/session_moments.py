@@ -168,11 +168,14 @@ class SessionMomentsLLMAnalyzer:
             client = await async_connect()
             await client.execute_workflow(
                 VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                # TODO: Enable Puppeteer for the previous video analysis flow after testing
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=False),
                 id=f"session-moment-video-export_{self.session_id}_{moment.moment_id}_{uuid.uuid4()}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                # Keep hard limit to avoid hanging workflows
+                execution_timeout=timedelta(hours=3),
             )
             # Return the asset ID for later retrieval
             return exported_asset.id
