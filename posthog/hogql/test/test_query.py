@@ -271,6 +271,42 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][1], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_persons_events_with_person_id(self):
+        """Test that joining persons to events using events.person_id works correctly.
+
+        This tests a bug fix where the generated SQL would reference events__override
+        before it was defined, causing 'Unknown identifier' errors in ClickHouse.
+        """
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            _create_person(
+                properties={"email": "other@example.com"},
+                team=self.team,
+                distinct_ids=["person2"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(distinct_id="person1", event="pageview", team=self.team)
+            _create_event(distinct_id="person1", event="pageview", team=self.team)
+            _create_event(distinct_id="person2", event="pageview", team=self.team)
+            flush_persons_and_events()
+
+            response = execute_hogql_query(
+                "SELECT persons.id, count() FROM persons JOIN events ON events.person_id = persons.id WHERE persons.properties.email LIKE '%posthog.com' GROUP BY persons.id",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            # Should return 1 row for the person with posthog.com email, with count of 2 events
+            self.assertEqual(len(response.results), 1)
+            self.assertEqual(response.results[0][1], 2)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()

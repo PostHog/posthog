@@ -867,6 +867,49 @@
   LIMIT 10
   '''
 # ---
+# name: TestQuery.test_query_joins_persons_events_with_person_id
+  '''
+  -- ClickHouse
+  
+  SELECT persons.id AS id, count() AS `count()` 
+  FROM (
+  SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email, person.id AS id 
+  FROM person 
+  WHERE and(equals(person.team_id, 99999), in(id, (
+  SELECT where_optimization.id AS id 
+  FROM person AS where_optimization 
+  WHERE and(equals(where_optimization.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0))))) 
+  GROUP BY person.id 
+  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_3)s)), person.version), 1), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1))), 0))) AS persons JOIN (
+  SELECT events.uuid AS uuid, events.event AS event, events.properties AS properties, toTimeZone(events.timestamp, %(hogql_val_6)s) AS timestamp, events.distinct_id AS distinct_id, events.elements_chain AS elements_chain, toTimeZone(events.created_at, %(hogql_val_7)s) AS created_at, events.`$session_id` AS `$session_id`, events.`$window_id` AS `$window_id`, events.person_mode AS person_mode, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, events.`$group_0` AS `$group_0`, events.`$group_1` AS `$group_1`, events.`$group_2` AS `$group_2`, events.`$group_3` AS `$group_3`, events.`$group_4` AS `$group_4`, events.elements_chain_href AS elements_chain_href, events.elements_chain_texts AS elements_chain_texts, events.elements_chain_ids AS elements_chain_ids, events.elements_chain_elements AS elements_chain_elements, events.person_id AS event_person_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', ''), %(hogql_val_9)s) AS event_issue_id, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_10)s), ''), 'null'), '^"|"$', ''), %(hogql_val_11)s)) AS issue_id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS __join_key 
+  FROM events LEFT OUTER JOIN (
+  SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint 
+  FROM error_tracking_issue_fingerprint_overrides 
+  WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) 
+  GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint) LEFT OUTER JOIN (
+  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE equals(events.team_id, 99999)) AS events ON equals(events.__join_key, persons.id) 
+  WHERE ifNull(like(persons.properties___email, %(hogql_val_12)s), 0) 
+  GROUP BY persons.id 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT persons.id, count() 
+  FROM persons JOIN events ON equals(events.person_id, persons.id) 
+  WHERE like(persons.properties.email, '%posthog.com') 
+  GROUP BY persons.id 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_query_joins_simple
   '''
   -- ClickHouse
