@@ -11,7 +11,7 @@ from llm_gateway.api.handler import (
     handle_llm_request,
 )
 from llm_gateway.dependencies import RateLimitedUser
-from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest
+from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
 
 openai_router = APIRouter()
@@ -140,12 +140,10 @@ async def _handle_transcription(
     content = await file.read()
     file_tuple = (file.filename, content, file.content_type or "audio/mpeg")
 
-    request_data: dict[str, Any] = {"model": normalized_model, "file": file_tuple}
-    if language:
-        request_data["language"] = language
+    request = TranscriptionRequest(model=normalized_model, file=file_tuple, language=language)
 
     return await handle_llm_request(
-        request_data=request_data,
+        request_data=request.model_dump(exclude_none=True),
         user=user,
         model=normalized_model,
         is_streaming=False,
