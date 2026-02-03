@@ -87,7 +87,7 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
                 return (
                     billing?.subscription_level === 'paid' &&
                     !hasPlatformAddon &&
-                    featureFlags[FEATURE_FLAGS.PROJECT_UPGRADE_MODAL_REDESIGN]
+                    featureFlags[FEATURE_FLAGS.PROJECT_UPGRADE_MODAL_REDESIGN] === 'test-simplified-modal'
                 )
             },
         ],
