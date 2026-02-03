@@ -21,15 +21,13 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from statshog.defaults.django import statsd
 
-from posthog.api.uploaded_media import validate_image_file
+from posthog.api.uploaded_media import upload_image
 from posthog.auth import WidgetAuthentication
-from posthog.models import Team, UploadedMedia
+from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUploadThrottle, WidgetUserBurstThrottle
-from posthog.storage import object_storage
 from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
@@ -436,7 +434,7 @@ class WidgetMarkReadView(APIView):
         return Response({"success": True, "unread_count": 0})
 
 
-FOUR_MEGABYTES = 4 * 1024 * 1024
+UPLOAD_LIMIT = 4 * 1024 * 1024  # FOUR_MEBIBYTES
 
 
 class WidgetUploadView(APIView):
@@ -494,57 +492,8 @@ class WidgetUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Validate file size
-        if file.size > FOUR_MEGABYTES:
-            return Response(
-                {"error": "Uploaded media must be less than 4MB", "code": "file_too_large"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Validate content type
-        if not file.content_type.startswith("image/"):
-            raise UnsupportedMediaType(file.content_type)
-
-        # Save to object storage
         try:
-            uploaded_media = UploadedMedia.save_content(
-                team=team,
-                created_by=None,  # Widget uploads don't have a user
-                file_name=file.name,
-                content_type=file.content_type,
-                content=file.file,
-            )
-            if uploaded_media is None:
-                return Response(
-                    {"error": "Could not save media"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-            # Verify the image is actually valid (prevents XSS via fake magic bytes)
-            if not uploaded_media.media_location:
-                uploaded_media.delete()
-                return Response(
-                    {"error": "Could not save media"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-            bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
-            if not validate_image_file(bytes_to_verify, user=0):  # Use 0 for widget uploads (no user)
-                statsd.incr(
-                    "widget_upload.image_failed_validation",
-                    tags={"file_name": file.name, "team": team.pk},
-                )
-                # Delete the invalid upload
-                uploaded_media.delete()
-                return Response(
-                    {"error": "Uploaded media must be a valid image", "code": "invalid_image"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            statsd.incr(
-                "widget_upload.uploaded",
-                tags={"team_id": team.pk, "content_type": file.content_type},
-            )
-
+            uploaded_media = upload_image(team=team, file=file, created_by=None, size_limit=UPLOAD_LIMIT)
             return Response(
                 {
                     "id": str(uploaded_media.id),
@@ -553,7 +502,19 @@ class WidgetUploadView(APIView):
                 },
                 status=status.HTTP_201_CREATED,
             )
-
+        except ValidationError as e:
+            # Extract code from ValidationError (get_codes() returns a list)
+            codes = e.get_codes()
+            code = codes[0] if isinstance(codes, list) and codes else codes
+            return Response(
+                {"error": str(e.detail), "code": code},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except UnsupportedMediaType as e:
+            return Response(
+                {"error": f"Unsupported media type: {e.detail}", "code": "unsupported_media_type"},
+                status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            )
         except ObjectStorageUnavailable:
             return Response(
                 {
