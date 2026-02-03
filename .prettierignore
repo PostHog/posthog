@@ -1,6 +1,7 @@
 venv
 env
 .venv
+emsdk-cache/
 __pycache__/
 staticfiles
 .env

@@ -1,5 +1,5 @@
 name: 'Setup HogQL WASM Build Tools'
-description: 'Conditionally setup emscripten and ninja for hogql-parser WASM build, skipping if turbo cache will hit'
+description: 'Setup emscripten and ninja for hogql-parser WASM build'
 
 inputs:
     emsdk-version:
@@ -7,36 +7,31 @@ inputs:
         required: false
         default: '4.0.23'
 
-outputs:
-    cache-hit:
-        description: 'Whether turbo cache will be used (true) or build is needed (false)'
-        value: ${{ steps.check-cache.outputs.cache_hit }}
-
 runs:
     using: 'composite'
     steps:
-        - name: Check if hogql-parser needs building
-          id: check-cache
-          shell: bash
-          run: |
-              # Check if turbo will need to build hogql-parser or serve from cache
-              # Look for cache.local or cache.remote being true in the dry-run output
-              if pnpm turbo build --filter=@posthog/hogql-parser --dry=json 2>/dev/null | grep -qE '"(local|remote)":true'; then
-                echo "cache_hit=true" >> $GITHUB_OUTPUT
-                echo "Turbo cache hit - skipping emsdk/ninja setup"
-              else
-                echo "cache_hit=false" >> $GITHUB_OUTPUT
-                echo "Turbo cache miss - will setup emsdk/ninja"
-              fi
+        - name: Restore emsdk cache
+          id: emsdk-cache
+          uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+          with:
+              path: emsdk-cache
+              key: emsdk-${{ runner.os }}-${{ inputs.emsdk-version }}
 
         - name: Setup Emscripten
-          if: steps.check-cache.outputs.cache_hit == 'false'
           uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
           with:
               version: ${{ inputs.emsdk-version }}
+              actions-cache-folder: emsdk-cache
+              no-cache: true
+
+        - name: Save emsdk cache
+          if: github.ref == 'refs/heads/master' && steps.emsdk-cache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+          with:
+              path: emsdk-cache
+              key: emsdk-${{ runner.os }}-${{ inputs.emsdk-version }}
 
         - name: Install Ninja
-          if: steps.check-cache.outputs.cache_hit == 'false'
           shell: bash
           run: |
               if command -v apt-get &> /dev/null; then
