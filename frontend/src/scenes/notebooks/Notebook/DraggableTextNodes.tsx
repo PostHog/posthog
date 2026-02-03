@@ -19,11 +19,15 @@ function DragHandle(): JSX.Element {
     )
 }
 
-
-function createDecorations(doc: PMNode, nodeTypes: string[], editor: Editor, oldRenderers?: ReactRenderer[]): { decorations: DecorationSet, renderers: ReactRenderer[] } {
+function createDecorations(
+    doc: PMNode,
+    nodeTypes: string[],
+    editor: Editor,
+    oldRenderers?: ReactRenderer[]
+): { decorations: DecorationSet; renderers: ReactRenderer[] } {
     // Destroy old renderers
-    oldRenderers?.forEach(r => r.destroy())
-    
+    oldRenderers?.forEach((r) => r.destroy())
+
     const decorations: Decoration[] = []
     const renderers: ReactRenderer[] = []
 
@@ -40,7 +44,6 @@ function createDecorations(doc: PMNode, nodeTypes: string[], editor: Editor, old
 
     return { decorations: DecorationSet.create(doc as any, decorations), renderers }
 }
-
 
 /**
  * Finds the range of nodes that should move when dragging a heading.
@@ -104,13 +107,13 @@ export const DraggableHeading = Heading.extend({
                     init: (_, { doc }) => createDecorations(doc, ['heading'], this.editor),
                     apply: (tr, old) => {
                         if (tr.docChanged || tr.selectionSet) {
-                            return createDecorations(tr.doc as PMNode, ['heading'], this.editor)
+                            return createDecorations(tr.doc as PMNode, ['heading'], this.editor, old.renderers)
                         }
                         return old
                     },
                 },
                 props: {
-                    decorations: (state) => pluginKey.getState(state),
+                    decorations: (state) => pluginKey.getState(state)?.decorations,
                 },
             }),
             new Plugin({
@@ -223,13 +226,13 @@ export const DraggableCollapsibleHeading = CollapsibleHeading.extend({
                     init: (_, { doc }) => createDecorations(doc, ['heading'], this.editor),
                     apply: (tr, old) => {
                         if (tr.docChanged || tr.selectionSet) {
-                            return createDecorations(tr.doc as PMNode, ['heading'], this.editor)
+                            return createDecorations(tr.doc as PMNode, ['heading'], this.editor, old.renderers)
                         }
                         return old
                     },
                 },
                 props: {
-                    decorations: (state) => pluginKey.getState(state),
+                    decorations: (state) => pluginKey.getState(state)?.decorations,
                 },
             }),
             new Plugin({
@@ -340,13 +343,13 @@ export const DraggableParagraph = Paragraph.extend({
                     init: (_, { doc }) => createDecorations(doc, ['paragraph'], this.editor),
                     apply: (tr, old) => {
                         if (tr.docChanged || tr.selectionSet) {
-                            return createDecorations(tr.doc as PMNode, ['paragraph'], this.editor)
+                            return createDecorations(tr.doc as PMNode, ['paragraph'], this.editor, old.renderers)
                         }
                         return old
                     },
                 },
                 props: {
-                    decorations: (state) => pluginKey.getState(state),
+                    decorations: (state) => pluginKey.getState(state)?.decorations,
                 },
             }),
             new Plugin({
