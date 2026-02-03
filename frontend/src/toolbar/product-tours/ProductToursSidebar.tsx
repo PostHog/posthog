@@ -377,6 +377,10 @@ export function ProductToursSidebar(): JSX.Element | null {
                     while you're working with Product Tours to help us build the best product for you.
                 </p>
                 <p>
+                    This means we'll record this browser tab, and nothing else - we won't have access to your screen,
+                    other tabs, or your camera.
+                </p>
+                <p>
                     All inputs will be masked, and we'll respect any <pre className="inline-block">.ph-no-capture</pre>{' '}
                     marks on your site.
                 </p>
