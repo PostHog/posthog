@@ -56,9 +56,7 @@ export function EvaluationSummaryControls(): JSX.Element | null {
         setEvaluationSummaryFilter,
         trackSummarizeClicked,
     } = useActions(llmEvaluationLogic)
-    const hasSummaryFlag = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
-    const isEarlyAdopter = useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
-    const showSummaryFeature = hasSummaryFlag || isEarlyAdopter
+    const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY') || useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
 
     if (!showSummaryFeature || !runsSummary || runsSummary.total === 0) {
         return null
