@@ -51,6 +51,13 @@ static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
 /// The `block_in_place` call allows tokio to move pending tasks to other workers,
 /// keeping the async runtime responsive for connection pool operations and I/O.
 ///
+/// # Test vs production behavior
+///
+/// In tests (`#[cfg(test)]`), we skip `block_in_place` because `#[tokio::test]`
+/// defaults to a single-threaded runtime where `block_in_place` panics.
+/// The rayon parallel evaluation is still exercised; only the tokio integration
+/// wrapper differs.
+///
 /// # Example
 ///
 /// ```ignore
@@ -64,10 +71,21 @@ static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
 /// `spawn_blocking` requires `'static + Send` bounds, which would force cloning
 /// the entire `FeatureFlagMatcher` and all flag data for every evaluation.
 /// `block_in_place` runs in-place on the current thread, allowing borrows.
+#[cfg(not(test))]
 pub fn eval_parallel<F, R>(f: F) -> R
 where
     F: FnOnce() -> R + Send,
     R: Send,
 {
     tokio::task::block_in_place(|| EVAL_POOL.install(f))
+}
+
+/// Test version: skips `block_in_place` since `#[tokio::test]` uses single-threaded runtime.
+#[cfg(test)]
+pub fn eval_parallel<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R + Send,
+    R: Send,
+{
+    EVAL_POOL.install(f)
 }
