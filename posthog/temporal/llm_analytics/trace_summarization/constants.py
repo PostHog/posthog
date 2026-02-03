@@ -13,6 +13,7 @@ DEFAULT_MAX_ITEMS_PER_WINDOW = (
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
+DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
 # Max text representation length (in characters)
@@ -24,7 +25,7 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Timeout configuration (in seconds)
-SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
+SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 
 # Workflow-level timeouts (in minutes)
@@ -73,3 +74,4 @@ CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"
 
 # Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
 GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-summarization-coordinator-schedule"
+GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-summarization-team"

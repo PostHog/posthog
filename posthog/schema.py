@@ -2843,6 +2843,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
+    LOGS_SETTINGS_OPENED = "logs_settings_opened"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2948,6 +2949,19 @@ class ProductKey(StrEnum):
     USER_INTERVIEWS = "user_interviews"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
+
+
+class ProjectSecretAPIKeyAllowedScope(StrEnum):
+    FEATURE_FLAG_READ = "feature_flag:read"
+    PLACEHOLDER = "PLACEHOLDER"
+
+
+class ProjectSecretAPIKeyRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str | None = None
+    scopes: list[ProjectSecretAPIKeyAllowedScope] | None = None
 
 
 class PropertyFilterType(StrEnum):
@@ -15308,6 +15322,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None

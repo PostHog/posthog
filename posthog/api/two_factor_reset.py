@@ -19,11 +19,11 @@ logger = structlog.get_logger(__name__)
 class TwoFactorResetTokenGenerator(PasswordResetTokenGenerator):
     """
     Token generator for 2FA reset requests initiated by admins.
-    Tokens are valid for 1 hour and become invalid after the user's 2FA settings change.
+    Tokens are valid for 24 hours and become invalid after the user's 2FA settings change.
     """
 
     def check_token(self, user, token):
-        """Override to use 1-hour timeout."""
+        """Override to use 24-hour timeout."""
         if not (user and token):
             logger.warning(
                 "2FA reset token check failed: missing user or token",
@@ -53,14 +53,14 @@ class TwoFactorResetTokenGenerator(PasswordResetTokenGenerator):
             )
             return False
 
-        # Check 1-hour timeout (3600 seconds)
+        # Check 24-hour timeout (86400 seconds)
         token_age_seconds = self._num_seconds(self._now()) - ts
-        if token_age_seconds > 3600:
+        if token_age_seconds > 86400:
             logger.warning(
                 "2FA reset token check failed: token expired",
                 user_id=user.pk,
                 token_age_seconds=token_age_seconds,
-                max_age_seconds=3600,
+                max_age_seconds=86400,
             )
             return False
 
@@ -128,8 +128,8 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
         1. Half-authed: User passed credential auth but not 2FA (normal reset flow)
         2. Fully authed: User already completed 2FA (e.g., admin resetting their own 2FA)
 
-        Note: We use a longer timeout (1 hour) for the 2FA reset flow since
-        the reset token itself has a 1-hour expiration. The normal 2FA login
+        Note: We use a longer timeout (24 hours) for the 2FA reset flow since
+        the reset token itself has a 24-hour expiration. The normal 2FA login
         timeout (10 minutes) is too short for this use case.
         """
         # Check if user is fully authenticated first
@@ -144,8 +144,8 @@ class TwoFactorResetViewSet(viewsets.ViewSet):
         if not user_id or auth_time is None:
             return None, "You must log in with your credentials first."
 
-        # Use 1 hour timeout for reset flow (matches the reset token expiration)
-        reset_session_timeout = 3600  # 1 hour
+        # Use 24 hour timeout for reset flow (matches the reset token expiration)
+        reset_session_timeout = 86400  # 24 hours
         expiration_time = auth_time + reset_session_timeout
         if int(time.time()) > expiration_time:
             return None, "Your login session has expired. Please log in again."
