@@ -753,6 +753,9 @@ importers:
       hls.js:
         specifier: ^1.5.15
         version: 1.5.15
+      html-to-image:
+        specifier: ^1.11.13
+        version: 1.11.13
       husky:
         specifier: ^7.0.4
         version: 7.0.4
@@ -14036,6 +14039,9 @@ packages:
     resolution: {integrity: sha512-ztqyC3kLto0e9WbNp0aeP+M3kTt+nbaIveGmUxAtZa+8iFgKLUOD4YKM5j+f3QD89bra7UeumolZHKuOXnTmeQ==}
     engines: {node: '>=8'}
 
+  html-to-image@1.11.13:
+    resolution: {integrity: sha512-cuOPoI7WApyhBElTTb9oqsawRvZ0rHhaHwghRLlTuffoD1B2aDemlCruLeZrUIIdvG7gs9xeELEPm6PhuASqrg==}
+
   html-to-react@1.5.0:
     resolution: {integrity: sha512-tjihXBgaJZRRYzmkrJZ/Qf9jFayilFYcb+sJxXXE2BVLk2XsNrGeuNCVvhXmvREULZb9dz6NFTBC96DTR/lQCQ==}
 
@@ -20069,8 +20075,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.364.0:
-    resolution: {integrity: sha512-napzlO1ui26ePQ4+h3uCaoxbQocBxuSCI/Ef81aSf3/I9+M3iKXlpOnQuFEzipShlNjIxczEj2Z2T/JTsS4Hzw==}
+  unlayer-types@1.365.0:
+    resolution: {integrity: sha512-OIY6+isxDkyYrxzO/XPQgb1V5Vv+4vqHMZ1MhP7VuRU6z5CeNCSEVo7uzsOUj5cMGwhJjXziHFMKsWKRSd8STA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -35823,6 +35829,8 @@ snapshots:
 
   html-tags@3.3.1: {}
 
+  html-to-image@1.11.13: {}
+
   html-to-react@1.5.0:
     dependencies:
       domhandler: 5.0.3
@@ -37281,7 +37289,7 @@ snapshots:
   jest-watch-typeahead@2.2.2(jest@29.7.0):
     dependencies:
       ansi-escapes: 6.0.0
-      chalk: 5.4.1
+      chalk: 5.6.2
       jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
@@ -41240,7 +41248,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.364.0
+      unlayer-types: 1.365.0
 
   react-error-overlay@6.0.9: {}
 
@@ -43471,7 +43479,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.364.0: {}
+  unlayer-types@1.365.0: {}
 
   unpipe@1.0.0: {}
 
