@@ -66,8 +66,13 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         return AgentMemory.objects.filter(team=self.team)
 
     def perform_destroy(self, instance):
-        # Hard delete - the embedding service will handle cleanup
-        instance.delete()
+        # Soft delete in embeddings table, then hard delete in postgres
+        # We mark as deleted in the embedding index first so it won't appear in semantic searches,
+        # then remove the database record. The embed() call updates the embeddings table.
+        instance.metadata = {**instance.metadata, "deleted": True}
+        with transaction.atomic():
+            instance.embed(EMBEDDING_MODEL)
+            instance.delete()
 
     @action(detail=False, methods=["post"])
     def query(self, request, *args, **kwargs):
