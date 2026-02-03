@@ -160,6 +160,7 @@ function SkipToNext(): JSX.Element | null {
 
     return (
         <Tooltip
+            delayMs={100}
             title={
                 <>
                     Play the next recording <KeyboardShortcut n />
