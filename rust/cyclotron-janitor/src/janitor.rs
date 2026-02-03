@@ -72,8 +72,8 @@ impl Janitor {
                 .inner
                 .delete_completed_and_failed_jobs_batch(self.settings.delete_batch_limit)
                 .await?;
-            common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, deleted);
-            (deleted, 0u64, 0u64)
+            common_metrics::inc(DELETED_COUNT, &self.metrics_labels, deleted);
+            (0u64, 0u64, 0u64)
         } else {
             let aggregated_deletes = {
                 let _time = common_metrics::timing_guard(CLEANUP_TIME, &self.metrics_labels);

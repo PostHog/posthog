@@ -442,19 +442,41 @@ async fn janitor_skip_aggregation_test(db: PgPool) {
         worker.release_job(job.id, None).await.unwrap();
     }
 
-    // With batch limit of 2, first run should delete 2
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 2);
-    assert_eq!(result.failed, 0);
+    // With skip_aggregation, completed/failed/canceled counts are 0
+    // (no per-state breakdown available). Verify via DB row count instead.
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 3);
 
-    // Second run should delete the remaining 1
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 1);
-    assert_eq!(result.failed, 0);
+    // Batch limit of 2: first run deletes 2
+    janitor.run_once().await.unwrap();
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 1);
 
-    // Third run should find nothing
-    let result = janitor.run_once().await.unwrap();
-    assert_eq!(result.completed, 0);
+    // Second run deletes the remaining 1
+    janitor.run_once().await.unwrap();
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 0);
+
+    // Third run finds nothing
+    janitor.run_once().await.unwrap();
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 0);
 
     // No Kafka messages should have been produced
     use std::time::Duration as StdDuration;
