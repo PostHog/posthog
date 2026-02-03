@@ -169,7 +169,7 @@ export function ClustersView(): JSX.Element {
                         </span>
                     </Tooltip>
                     <span className="text-muted">|</span>
-                    <label className="font-medium">Clustering run:</label>
+                    <label className="font-medium whitespace-nowrap">Clustering run:</label>
                     <LemonSelect
                         value={effectiveRunId || undefined}
                         onChange={(value) => setSelectedRunId(value || null)}
@@ -190,7 +190,7 @@ export function ClustersView(): JSX.Element {
 
                 <div className="flex items-center gap-4">
                     {currentRun && (
-                        <div className="flex items-center gap-2 text-muted text-sm">
+                        <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
                             <span>
                                 {currentRun.totalItemsAnalyzed}{' '}
                                 {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed

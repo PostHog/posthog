@@ -24,7 +24,7 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Timeout configuration (in seconds)
-SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
+SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 
 # Workflow-level timeouts (in minutes)

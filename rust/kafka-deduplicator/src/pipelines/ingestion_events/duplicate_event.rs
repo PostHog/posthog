@@ -1,6 +1,9 @@
-use crate::store::deduplication_store::DeduplicationResult;
+//! Duplicate event representation for ingestion events pipeline.
+
 use common_types::RawEvent;
 use serde::{Deserialize, Serialize, Serializer};
+
+use super::dedup_result::DeduplicationResult;
 
 /// Helper function to serialize bool as u8 (0 or 1) for ClickHouse UInt8
 fn serialize_bool_as_u8<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
@@ -197,8 +200,10 @@ impl DuplicateEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipelines::ingestion_events::dedup_result::{
+        DeduplicationResultReason, DeduplicationType,
+    };
     use crate::rocksdb::dedup_metadata::{DedupFieldName, EventSimilarity};
-    use crate::store::deduplication_store::{DeduplicationResultReason, DeduplicationType};
     use serde_json::json;
 
     #[test]
