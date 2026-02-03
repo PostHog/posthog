@@ -297,8 +297,10 @@ def dataframe_to_plo_clay_payload(df: pl.DataFrame, org_users: dict[str, list[di
     # Cast datetime columns to ISO format strings for JSON serialization
     selected = df.select(PAYLOAD_COLUMNS)
     for col_name in selected.columns:
-        if selected[col_name].dtype in (pl.Datetime, pl.Date):
+        if selected[col_name].dtype == pl.Datetime:
             selected = selected.with_columns(pl.col(col_name).dt.to_string("%Y-%m-%dT%H:%M:%S%.fZ"))
+        elif selected[col_name].dtype == pl.Date:
+            selected = selected.with_columns(pl.col(col_name).dt.to_string("%Y-%m-%d"))
     return [{**record, "users": org_users.get(record["organization_id"], [])} for record in selected.to_dicts()]
 
 
