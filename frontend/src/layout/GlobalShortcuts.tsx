@@ -111,7 +111,7 @@ export function GlobalShortcuts(): null {
     useAppShortcut({
         name: 'toggle-theme',
         keybind: [keyBinds.theme],
-        intent: 'Theme settings',
+        intent: 'Theme settings (dark / light)',
         interaction: 'function',
         callback: () => router.actions.push(urls.settings('user-customization', 'theme')),
     })
