@@ -133,11 +133,12 @@ class TestTableExists:
 class TestEventsDDL:
     def test_events_ddl_is_valid_sql(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = EVENTS_TABLE_DDL.format(catalog="memory")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
-        result = conn.execute("DESCRIBE memory.main.events").fetchall()
+        result = conn.execute("DESCRIBE memory.posthog.events").fetchall()
         column_names = {row[0] for row in result}
 
         assert column_names == EXPECTED_DUCKLAKE_COLUMNS
@@ -145,6 +146,7 @@ class TestEventsDDL:
 
     def test_events_ddl_is_idempotent(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = EVENTS_TABLE_DDL.format(catalog="memory")
         # Should not raise on second execution
         conn.execute(ddl)
@@ -155,11 +157,12 @@ class TestEventsDDL:
 class TestPersonsDDL:
     def test_persons_ddl_is_valid_sql(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = PERSONS_TABLE_DDL.format(catalog="memory")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
-        result = conn.execute("DESCRIBE memory.main.persons").fetchall()
+        result = conn.execute("DESCRIBE memory.posthog.persons").fetchall()
         column_names = {row[0] for row in result}
 
         assert column_names == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
@@ -167,6 +170,7 @@ class TestPersonsDDL:
 
     def test_persons_ddl_is_idempotent(self):
         conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
         ddl = PERSONS_TABLE_DDL.format(catalog="memory")
         # Should not raise on second execution
         conn.execute(ddl)
