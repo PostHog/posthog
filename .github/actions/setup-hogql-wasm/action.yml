@@ -1,0 +1,49 @@
+name: 'Setup HogQL WASM Build Tools'
+description: 'Conditionally setup emscripten and ninja for hogql-parser WASM build, skipping if turbo cache will hit'
+
+inputs:
+    emsdk-version:
+        description: 'Emscripten SDK version'
+        required: false
+        default: '4.0.23'
+
+outputs:
+    cache-hit:
+        description: 'Whether turbo cache will be used (true) or build is needed (false)'
+        value: ${{ steps.check-cache.outputs.cache_hit }}
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Check if hogql-parser needs building
+          id: check-cache
+          shell: bash
+          run: |
+              # Check if turbo will need to build hogql-parser or serve from cache
+              if pnpm turbo build --filter=@posthog/hogql-parser --dry=json 2>/dev/null | grep -q '"cache":{"local":true\|"remote":true'; then
+                echo "cache_hit=true" >> $GITHUB_OUTPUT
+                echo "Turbo cache hit - skipping emsdk/ninja setup"
+              else
+                echo "cache_hit=false" >> $GITHUB_OUTPUT
+                echo "Turbo cache miss - will setup emsdk/ninja"
+              fi
+
+        - name: Setup Emscripten
+          if: steps.check-cache.outputs.cache_hit == 'false'
+          uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+          with:
+              version: ${{ inputs.emsdk-version }}
+              actions-cache-folder: 'emsdk-cache'
+
+        - name: Install Ninja
+          if: steps.check-cache.outputs.cache_hit == 'false'
+          shell: bash
+          run: |
+              if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y ninja-build
+              elif command -v apk &> /dev/null; then
+                apk add --no-cache ninja
+              else
+                echo "Unknown package manager, attempting apt-get"
+                apt-get update && apt-get install -y ninja-build
+              fi
