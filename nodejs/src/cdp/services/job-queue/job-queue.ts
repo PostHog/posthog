@@ -18,7 +18,7 @@ import {
 } from '../../types'
 import { CyclotronJobQueueDelay } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './job-queue-postgres'
+import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
@@ -53,7 +53,7 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
-    private shadowPostgres: CyclotronJobQueuePostgres | null = null
+    private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
     private shadowFailures = 0
     private shadowCircuitOpenUntil = 0
 
@@ -83,9 +83,7 @@ export class CyclotronJobQueue {
                 ...this.config,
                 CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
             }
-            this.shadowPostgres = new CyclotronJobQueuePostgres(shadowConfig, this.queue, () =>
-                Promise.resolve({ backgroundTask: Promise.resolve() })
-            )
+            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig, this.queue)
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {

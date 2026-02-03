@@ -1,4 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -32,7 +33,7 @@ export const scene: SceneExport = {
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(dataWarehouseSceneLogic)
-    const { setActiveTab } = useActions(dataWarehouseSceneLogic)
+    const { searchParams } = useValues(router)
 
     if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
         return <NotFound object="Data warehouse" />
@@ -74,23 +75,25 @@ export function DataWarehouseScene(): JSX.Element {
             />
             <LemonTabs
                 activeKey={activeTab}
-                onChange={(newKey) => setActiveTab(newKey)}
                 sceneInset
                 tabs={[
                     {
                         key: DataWarehouseTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverviewTab />,
+                        link: urls.dataWarehouse(),
                     },
                     {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
+                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
                     },
                     {
                         key: DataWarehouseTab.VIEWS,
                         label: 'Views',
                         content: <ViewsTab />,
+                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
                         ? [
@@ -98,6 +101,10 @@ export function DataWarehouseScene(): JSX.Element {
                                   key: DataWarehouseTab.MODELING,
                                   label: 'Modeling',
                                   content: <DataModelingTab />,
+                                  link: combineUrl(urls.dataWarehouse(), {
+                                      ...searchParams,
+                                      tab: DataWarehouseTab.MODELING,
+                                  }).url,
                               },
                           ]
                         : []),

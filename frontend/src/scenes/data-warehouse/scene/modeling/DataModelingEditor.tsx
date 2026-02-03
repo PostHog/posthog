@@ -17,7 +17,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
+import { dataModelingNodesLogic, parseSearchTerm } from '../dataModelingNodesLogic'
 import { DataModelingEditorPanel } from './DataModelingEditorPanel'
 import { REACT_FLOW_NODE_TYPES } from './Nodes'
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
@@ -32,7 +32,7 @@ const FIT_VIEW_OPTIONS = {
 function DataModelingEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { enrichedNodes, edges, nodesLoading } = useValues(dataModelingEditorLogic)
+    const { enrichedNodes, edges, nodesLoading, highlightedNodeIds } = useValues(dataModelingEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -56,25 +56,34 @@ function DataModelingEditorContent(): JSX.Element {
 
     useEffect(() => {
         if (debouncedSearchTerm.length > 0 && enrichedNodes.length > 0) {
-            const matchingNode = enrichedNodes.find((node) =>
-                node.data.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-            )
-            if (matchingNode) {
-                const targetX = matchingNode.position.x + NODE_WIDTH / 2
-                const targetY = matchingNode.position.y + NODE_HEIGHT / 2
+            const { baseName, mode } = parseSearchTerm(debouncedSearchTerm)
+            let matchingNodes: ModelNode[]
+            if (mode !== 'search') {
+                const highlightedIds = highlightedNodeIds(baseName, mode)
+                matchingNodes = enrichedNodes.filter((n) => highlightedIds.has(n.id))
+            } else {
+                matchingNodes = enrichedNodes.filter((n) => n.data.name.toLowerCase().includes(baseName.toLowerCase()))
+            }
+            if (matchingNodes.length > 0) {
+                const centroidX = matchingNodes.reduce((acc, node) => {
+                    return acc + node.position.x + NODE_WIDTH / 2
+                }, 0)
+                const centroidY = matchingNodes.reduce((acc, node) => {
+                    return acc + node.position.y + NODE_HEIGHT / 2
+                }, 0)
                 const viewport = reactFlowInstance.getViewport()
                 const wrapper = reactFlowWrapper.current
                 if (wrapper) {
                     const currentCenterX = -viewport.x / viewport.zoom + wrapper.clientWidth / 2 / viewport.zoom
                     const currentCenterY = -viewport.y / viewport.zoom + wrapper.clientHeight / 2 / viewport.zoom
-                    const distance = Math.sqrt((targetX - currentCenterX) ** 2 + (targetY - currentCenterY) ** 2)
+                    const distance = Math.sqrt((centroidX - currentCenterX) ** 2 + (centroidY - currentCenterY) ** 2)
                     // skips animation for long distances to avoid rendering too many nodes during pan
                     const duration = distance > 2560 ? 0 : 400
-                    reactFlowInstance.setCenter(targetX, targetY, { duration, zoom: 1 })
+                    reactFlowInstance.setCenter(centroidX, centroidY, { duration, zoom: 1 })
                 }
             }
         }
-    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance])
+    }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance, highlightedNodeIds])
 
     return (
         <div ref={reactFlowWrapper} className="relative w-full h-full">

@@ -104,6 +104,8 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
             style={{
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
+                // dims non matched nodes, search match is undefined when the debounced query value is unset
+                opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.15,
             }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
@@ -208,14 +210,24 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
 
 const ModelNodeComponent = React.memo(function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
-    const { layoutDirection } = useValues(dataModelingEditorLogic)
+    const { layoutDirection, highlightedNodeIds } = useValues(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
-    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
+    const { debouncedSearchTerm, parsedSearch } = useValues(dataModelingNodesLogic)
 
     const { id, data } = props
     const { name, type, savedQueryId, isSelected, isRunning, isTypeHighlighted, lastJobStatus } = data
-    const isSearchMatch =
-        debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+    const isSearchMatch = (() => {
+        if (debouncedSearchTerm.length === 0) {
+            return undefined
+        }
+        if (parsedSearch.mode !== 'search') {
+            // graph traversal for +name, name+, or +name+ syntax
+            const highlighted = highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
+            return highlighted.has(props.id)
+        }
+        // default text search
+        return name.toLowerCase().includes(parsedSearch.baseName.toLowerCase())
+    })()
 
     const handleRunUpstream = useCallback(
         (e: React.MouseEvent): void => {

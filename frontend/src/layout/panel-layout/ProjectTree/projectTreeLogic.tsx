@@ -234,6 +234,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         searchResults: [
             { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
             {
+                clearSearch: () => ({ searchTerm: '', results: [], hasMore: false, lastCount: 0 }),
                 movedItem: (state, { newPath, item }) => {
                     if (state.searchTerm && state.results.length > 0) {
                         const newResults = state.results.map((result) => {
@@ -283,6 +284,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         recentResults: [
             { results: [], hasMore: false, startTime: null, endTime: null } as RecentResults,
             {
+                clearSearch: () => ({ results: [], hasMore: false, startTime: null, endTime: null }),
                 movedItem: (state, { newPath, item }) => {
                     if (state.results.length > 0) {
                         const newResults = state.results.map((result) => {
