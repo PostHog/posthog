@@ -374,6 +374,8 @@ impl KafkaDeduplicatorService {
                 )
                 // Consumer group membership settings
                 .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
+                .with_session_timeout_ms(self.config.kafka_session_timeout_ms)
+                .with_heartbeat_interval_ms(self.config.kafka_heartbeat_interval_ms)
                 .build();
 
         // Create shutdown channel
