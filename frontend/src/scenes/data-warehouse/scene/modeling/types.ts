@@ -1,6 +1,6 @@
 import { Node, Position } from '@xyflow/react'
 
-import { DataModelingNodeType } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType } from '~/types'
 
 export interface ModelNodeHandle {
     id?: string
@@ -20,6 +20,12 @@ export interface ModelNodeData extends Record<string, unknown> {
     userTag?: string
     upstreamCount: number
     downstreamCount: number
+    // derived state for reactflow optimization
+    isSelected?: boolean
+    isRunning?: boolean
+    isTypeHighlighted?: boolean
+    isSearchMatch?: boolean
+    lastJobStatus?: DataModelingJobStatus
 }
 
 export type ModelNode = Node<ModelNodeData>

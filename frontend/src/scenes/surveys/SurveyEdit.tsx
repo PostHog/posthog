@@ -6,7 +6,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { IconGitBranch, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelect,
@@ -67,6 +67,7 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -260,6 +261,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
+
+    const [showFlowModal, setShowFlowModal] = useState(false)
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -727,6 +730,17 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Add question
                                                 </LemonButton>
+                                                {hasBranchingLogic && (
+                                                    <LemonButton
+                                                        data-attr="preview-survey-branching"
+                                                        type="secondary"
+                                                        className="w-max"
+                                                        icon={<IconGitBranch />}
+                                                        onClick={() => setShowFlowModal(true)}
+                                                    >
+                                                        Preview branching flow
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                             {!survey.appearance?.displayThankYouMessage && (
                                                 <LemonButton
@@ -1283,6 +1297,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     </div>
                 </div>
             </div>
+            <SurveyBranchingFlowModal survey={survey} isOpen={showFlowModal} onClose={() => setShowFlowModal(false)} />
         </SceneContent>
     )
 }
