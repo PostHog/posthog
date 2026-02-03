@@ -32,7 +32,7 @@ WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
-AGENT_SERVER_PORT = 3001
+AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
 class DockerSandbox:
@@ -82,12 +82,34 @@ class DockerSandbox:
         return result
 
     @staticmethod
-    def _get_local_agent_package() -> str | None:
-        """Check if LOCAL_AGENT_PACKAGE env var is set or default location exists."""
-        local_path = os.environ.get("LOCAL_AGENT_PACKAGE")
-        if local_path and os.path.isdir(local_path):
-            return os.path.abspath(local_path)
-        return None
+    def _get_local_twig_packages() -> tuple[str, str] | None:
+        """
+        Get paths to local twig packages for development builds.
+
+        Configure via LOCAL_TWIG_MONOREPO_ROOT pointing to the twig monorepo root.
+        Returns tuple of (agent_path, shared_path) or None if not configured.
+        """
+        monorepo_root = os.environ.get("LOCAL_TWIG_MONOREPO_ROOT")
+        if not monorepo_root or not os.path.isdir(monorepo_root):
+            return None
+
+        monorepo_root = os.path.abspath(monorepo_root)
+        agent_path = os.path.join(monorepo_root, "packages", "agent")
+        shared_path = os.path.join(monorepo_root, "packages", "shared")
+
+        missing = []
+        if not os.path.isdir(agent_path):
+            missing.append(f"agent: {agent_path}")
+        if not os.path.isdir(shared_path):
+            missing.append(f"shared: {shared_path}")
+
+        if missing:
+            raise SandboxProvisionError(
+                f"LOCAL_TWIG_MONOREPO_ROOT is set but required packages not found: {', '.join(missing)}",
+                {"monorepo_root": monorepo_root, "missing": missing},
+            )
+
+        return agent_path, shared_path
 
     @staticmethod
     def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
@@ -112,29 +134,24 @@ class DockerSandbox:
         )
 
     @staticmethod
-    def _build_local_image(local_agent_path: str) -> None:
-        """Build the local sandbox image with the local agent package."""
-        logger.info("Building posthog-sandbox-base-local image with local agent package...")
+    def _build_local_image(agent_path: str, shared_path: str) -> None:
+        """Build the local sandbox image with local twig packages."""
+        logger.info("Building posthog-sandbox-base-local image with local twig packages...")
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
 
-        # Also copy the shared package from the same monorepo
-        local_shared_path = os.path.join(os.path.dirname(local_agent_path), "shared")
-
         with tempfile.TemporaryDirectory() as tmpdir:
             shutil.copytree(
-                local_agent_path,
+                agent_path,
                 os.path.join(tmpdir, "local-agent"),
                 ignore=shutil.ignore_patterns("node_modules"),
             )
-
-            if os.path.isdir(local_shared_path):
-                shutil.copytree(
-                    local_shared_path,
-                    os.path.join(tmpdir, "local-shared"),
-                    ignore=shutil.ignore_patterns("node_modules"),
-                )
+            shutil.copytree(
+                shared_path,
+                os.path.join(tmpdir, "local-shared"),
+                ignore=shutil.ignore_patterns("node_modules"),
+            )
 
             DockerSandbox._run(
                 [
@@ -151,7 +168,7 @@ class DockerSandbox:
 
     @staticmethod
     def _ensure_image_exists(template: SandboxTemplate) -> str:
-        """Build the sandbox image, using local agent if LOCAL_AGENT_PACKAGE is set."""
+        """Build the sandbox image, using local packages if LOCAL_TWIG_MONOREPO_ROOT is set."""
         if template == SandboxTemplate.NOTEBOOK_BASE:
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
@@ -159,17 +176,17 @@ class DockerSandbox:
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
 
-        local_agent = DockerSandbox._get_local_agent_package()
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
         )
+        DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
 
-        if local_agent:
-            DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
-            DockerSandbox._build_local_image(local_agent)
+        local_packages = DockerSandbox._get_local_twig_packages()
+        if local_packages:
+            agent_path, shared_path = local_packages
+            DockerSandbox._build_local_image(agent_path, shared_path)
             return "posthog-sandbox-base-local"
 
-        DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
         return DEFAULT_IMAGE_NAME
 
     @staticmethod
