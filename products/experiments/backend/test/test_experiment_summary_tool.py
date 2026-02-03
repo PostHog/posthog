@@ -512,7 +512,7 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
         mock_summary = ExperimentSummaryOutput(key_metrics=["Test variant shows improvement"])
 
         # Mock context with old frontend refresh time (2 hours ago)
-        mock_context = {"experiment_results_summary": {"frontend_last_refresh": "2020-01-10T10:00:00Z"}}
+        mock_context: dict = {"experiment_results_summary": {"frontend_last_refresh": "2020-01-10T10:00:00Z"}}
 
         with (
             patch(
@@ -568,7 +568,7 @@ class TestExperimentSummaryTool(ClickhouseTestMixin, APIBaseTest):
         mock_summary = ExperimentSummaryOutput(key_metrics=["Test variant shows improvement"])
 
         # Mock context with no frontend_last_refresh
-        mock_context = {"experiment_results_summary": {}}
+        mock_context: dict = {"experiment_results_summary": {}}
 
         with (
             patch(

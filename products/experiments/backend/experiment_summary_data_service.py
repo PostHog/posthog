@@ -309,11 +309,13 @@ class ExperimentSummaryDataService:
         latest_refresh: datetime | None = None
         pending_calculation = False
 
-        def process_metric_results(query_results: list) -> list[MaxExperimentMetricResult]:
+        def process_metric_results(
+            query_results: list[MetricQueryResult | BaseException],
+        ) -> list[MaxExperimentMetricResult]:
             nonlocal latest_refresh, pending_calculation
             results: list[MaxExperimentMetricResult] = []
             for qr in query_results:
-                if isinstance(qr, Exception):
+                if isinstance(qr, BaseException):
                     capture_exception(qr, properties={"experiment_id": experiment_id})
                     continue
                 if qr.pending:
@@ -329,9 +331,9 @@ class ExperimentSummaryDataService:
 
         # Process exposure result
         exposures: dict[str, float] | None = None
-        if isinstance(exposure_query_result, Exception):
+        if isinstance(exposure_query_result, BaseException):
             capture_exception(exposure_query_result, properties={"experiment_id": experiment_id})
-        else:
+        elif isinstance(exposure_query_result, ExposureQueryResult):
             if exposure_query_result.pending:
                 pending_calculation = True
             exposures = exposure_query_result.exposures
