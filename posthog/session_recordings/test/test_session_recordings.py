@@ -1878,7 +1878,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert response.status_code == status.HTTP_200_OK
         # Consume streaming response to trigger the generator
-        list(response.streaming_content)
+        list(response.streaming_content)  # type: ignore[attr-defined]
 
         if video_based_enabled:
             mock_execute_summarize.assert_called_once()
