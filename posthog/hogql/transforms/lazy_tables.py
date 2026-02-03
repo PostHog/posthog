@@ -54,6 +54,18 @@ class FieldFinder(TraversingVisitor):
         self.field_chains.append(node.chain)
 
 
+def constraint_references_table(constraint: ast.JoinConstraint | None, table_alias: str) -> bool:
+    """Check if a join constraint references a specific table alias."""
+    if constraint is None:
+        return False
+    finder = FieldFinder()
+    finder.visit(constraint)
+    for chain in finder.field_chains:
+        if len(chain) > 0 and chain[0] == table_alias:
+            return True
+    return False
+
+
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
     max_type_visits: int = 1
@@ -436,8 +448,44 @@ class LazyTableResolver(TraversingVisitor):
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
+                    # Check if the parent join's constraint references the lazy join we're adding
+                    # If so, we need to nest the lazy join inside a subquery to avoid forward references
+                    # We check both the full alias (e.g., "events__override") and the field name (e.g., "override")
+                    lazy_field_name = join_scope.lazy_join_type.field if join_scope.lazy_join_type else None
+                    references_lazy_join = constraint_references_table(join_ptr.constraint, to_table) or (
+                        lazy_field_name and constraint_references_table(join_ptr.constraint, lazy_field_name)
+                    )
+                    if references_lazy_join:
+                        # The parent join's ON constraint references the lazy join we're adding.
+                        # This creates a circular dependency: the lazy join needs to be defined before
+                        # the constraint, but the lazy join is added after the parent table.
+                        #
+                        # Solution: For INNER JOINs, move the constraint to WHERE (semantically equivalent).
+                        # Then add the lazy join after the parent, with both using CROSS/INNER join semantics.
+                        #
+                        # Store the constraint to add to WHERE later
+                        constraint_to_move = join_ptr.constraint
+                        if constraint_to_move is not None:
+                            # Add to the select query's WHERE clause
+                            if node.where is None:
+                                node.where = constraint_to_move.expr
+                            else:
+                                node.where = ast.And(exprs=[node.where, constraint_to_move.expr])
+
+                        # Convert the parent join to CROSS JOIN (no constraint)
+                        # For INNER JOIN semantics with WHERE, this is equivalent
+                        if join_ptr.join_type and "LEFT" not in join_ptr.join_type.upper():
+                            join_ptr.constraint = None
+                            # Add the lazy join after the parent
+                            join_to_add.next_join = join_ptr.next_join
+                            join_ptr.next_join = join_to_add
+                        else:
+                            # For LEFT JOINs, we can't move to WHERE - fall back to adding normally
+                            # This may still produce invalid SQL in edge cases
+                            join_to_add.next_join = join_ptr.next_join
+                            join_ptr.next_join = join_to_add
                     # If the `join_to_add` is reliant on the existing `next_join`, then just append after instead of before
-                    if join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
+                    elif join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
                         if join_ptr.next_join.next_join:
                             join_to_add.next_join = join_ptr.next_join.next_join
                         join_ptr.next_join.next_join = join_to_add
