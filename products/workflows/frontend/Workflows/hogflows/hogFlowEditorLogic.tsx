@@ -720,6 +720,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.hideDropzones()
         },
         moveNodeToHighlightedDropzone: () => {
+            // We manipulate edges directly in a single setWorkflowInfo call rather than
+            // using onNodesDelete + onDrop (like copy does). Two reasons:
+            // 1. Preserves node identity — same id, timestamps, config. No delete + recreate.
+            // 2. Avoids a race condition — onNodesDelete and onDrop each call setWorkflowInfo,
+            //    which triggers resetFlowFromHogFlow -> setNodes -> async getFormattedNodes.
+            //    Two async layout computations can complete out of order, causing the node to
+            //    disappear when the first result (without the node) overwrites the second.
             const movingNodeId = values.movingNodeId!
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
             if (!dropzoneNode) {
@@ -748,7 +755,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 .map((e) => (e.to === movingNodeId ? { ...e, to: outgoingEdge.to } : e))
                 .filter((e) => e.from !== movingNodeId)
 
-            // Step 2: Find the target edge(s) to insert into
+            // Step 2: Find the target edge(s) to insert into.
+            // We match by from/type/index (not the full edge ID) because step 1 may have
+            // changed the 'to' field of the target edge if the moving node was its target.
             let edgesToSplitIndexes: number[] = []
 
             if (isBranchJoinDropzone) {
