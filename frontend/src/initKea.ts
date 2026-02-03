@@ -8,7 +8,6 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog, { PostHog } from 'posthog-js'
 import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
-import { setGlobalDevModeChecks } from 'reselect'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { hashCodeForString, identifierToHuman } from 'lib/utils'
@@ -16,8 +15,6 @@ import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/route
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
-
-setGlobalDevModeChecks({ inputStabilityCheck: 'never' })
 
 /*
 Actions for which we don't want to show error alerts,
