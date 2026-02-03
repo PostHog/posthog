@@ -46,11 +46,11 @@ function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Elem
 
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
-    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId } =
+    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId, highlightedNodeIds } =
         useValues(dataModelingEditorLogic)
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
-    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
+    const { debouncedSearchTerm, parsedSearch } = useValues(dataModelingNodesLogic)
     const [isHovered, setIsHovered] = useState(false)
 
     useEffect(() => {
@@ -63,8 +63,18 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const isRunning = runningNodeIds.has(props.id)
     const lastJobStatus = lastJobStatusByNodeId[props.id]
 
-    const isSearchMatch =
-        debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+    const isSearchMatch = (() => {
+        if (debouncedSearchTerm.length === 0) {
+            return false
+        }
+        if (parsedSearch.mode !== 'search') {
+            // Use graph traversal for +name or name+ syntax
+            const highlighted = highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
+            return highlighted.has(props.id)
+        }
+        // Plain search - just match the name
+        return name.toLowerCase().includes(parsedSearch.baseName.toLowerCase())
+    })()
     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
 
     const canRun = type !== 'table'
@@ -112,6 +122,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             style={{
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
+                opacity: debouncedSearchTerm.length > 0 && !isSearchMatch ? 0.15 : 1,
             }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}

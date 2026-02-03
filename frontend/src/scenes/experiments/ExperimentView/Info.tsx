@@ -2,13 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconGear, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
@@ -27,47 +25,6 @@ import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
 import { StatsMethodModal } from './StatsMethodModal'
 import { StatusTag } from './components'
-
-export const ExperimentLastRefresh = ({
-    isRefreshing,
-    lastRefresh,
-    onClick,
-}: {
-    isRefreshing: boolean
-    lastRefresh: string
-    onClick: () => void
-}): JSX.Element => {
-    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
-
-    return (
-        <div className="flex flex-col">
-            <Label intent="menu">Last refreshed</Label>
-            <div className="inline-flex deprecated-space-x-2">
-                <span
-                    className={`${
-                        lastRefresh
-                            ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-                                ? 'text-danger'
-                                : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                  ? 'text-warning'
-                                  : ''
-                            : ''
-                    }`}
-                >
-                    {isRefreshing ? 'Loading…' : lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-                </span>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    onClick={onClick}
-                    data-attr="refresh-experiment"
-                    icon={<IconRefresh />}
-                    tooltip="Refresh experiment results"
-                />
-            </div>
-        </div>
-    )
-}
 
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
@@ -97,7 +54,6 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
-    const useNewReloadAction = featureFlags[FEATURE_FLAGS.EXPERIMENTS_RELOAD_ACTION] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -282,39 +238,19 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             onClick={openRunningTimeConfigModal}
                                         />
                                     )}
-                                    {useNewReloadAction ? (
-                                        <ExperimentReloadAction
-                                            isRefreshing={
-                                                primaryMetricsResultsLoading || secondaryMetricsResultsLoading
-                                            }
-                                            lastRefresh={lastRefresh}
-                                            onClick={() => {
-                                                // Track manual refresh click
-                                                reportExperimentMetricsRefreshed(experiment, true, {
-                                                    triggered_by: 'manual',
-                                                    auto_refresh_enabled: autoRefresh.enabled,
-                                                    auto_refresh_interval: autoRefresh.interval,
-                                                })
-                                                refreshExperimentResults(true)
-                                            }}
-                                        />
-                                    ) : (
-                                        <ExperimentLastRefresh
-                                            isRefreshing={
-                                                primaryMetricsResultsLoading || secondaryMetricsResultsLoading
-                                            }
-                                            lastRefresh={lastRefresh}
-                                            onClick={() => {
-                                                // Track manual refresh click (old UI)
-                                                reportExperimentMetricsRefreshed(experiment, true, {
-                                                    triggered_by: 'manual',
-                                                    auto_refresh_enabled: false,
-                                                    auto_refresh_interval: 0,
-                                                })
-                                                refreshExperimentResults(true)
-                                            }}
-                                        />
-                                    )}
+                                    <ExperimentReloadAction
+                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                        lastRefresh={lastRefresh}
+                                        onClick={() => {
+                                            // Track manual refresh click
+                                            reportExperimentMetricsRefreshed(experiment, true, {
+                                                triggered_by: 'manual',
+                                                auto_refresh_enabled: autoRefresh.enabled,
+                                                auto_refresh_interval: autoRefresh.interval,
+                                            })
+                                            refreshExperimentResults(true)
+                                        }}
+                                    />
                                 </>
                             )}
                             <div className="flex flex-col">

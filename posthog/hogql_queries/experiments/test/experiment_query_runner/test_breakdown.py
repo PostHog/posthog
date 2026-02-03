@@ -23,6 +23,7 @@ from posthog.schema import (
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     StartHandling,
+    StepOrderValue,
 )
 
 from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
@@ -1186,6 +1187,41 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
         assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 8)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_funnel_metric_breakdown_query_builds_without_ambiguity_error(self):
+        """
+        Regression test for ambiguous query error with UNORDERED funnel breakdowns.
+        Tests that the query can be built and printed to HogQL without
+        "Ambiguous query. Found multiple sources for field: breakdown_value_1" error.
+
+        The error occurs during to_printed_hogql() when the resolver tries to resolve
+        breakdown_value_1 and finds it in multiple CTEs (metric_events and exposures).
+
+        This specifically tests UNORDERED funnels (funnel_order_type=StepOrderValue.UNORDERED)
+        which use the exposures CTE and are where the ambiguity error occurs.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentFunnelMetric(
+            series=[EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+            funnel_order_type=StepOrderValue.UNORDERED,  # This is the key - unordered funnels trigger the bug
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        # The error happens during _evaluate_experiment_query when it calls to_printed_hogql
+        # This should NOT raise: "ResolutionError: Ambiguous query. Found multiple sources for field: breakdown_value_1"
+        # If it does, that means the breakdown field references are not properly qualified
+        query_runner._evaluate_experiment_query()
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

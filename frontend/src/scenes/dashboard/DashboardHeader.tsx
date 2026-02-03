@@ -85,8 +85,9 @@ export function DashboardHeader(): JSX.Element | null {
         apiUrl,
         showTextTileModal,
         textTileId,
+        isSavingTags,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate, loadDashboard } = useActions(dashboardLogic)
+    const { setDashboardMode, loadDashboard, updateDashboardTags } = useActions(dashboardLogic)
     const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
         useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
@@ -208,12 +209,13 @@ export function DashboardHeader(): JSX.Element | null {
                 <ScenePanelInfoSection>
                     <SceneTags
                         onSave={(tags) => {
-                            triggerDashboardUpdate({ tags })
+                            updateDashboardTags(tags)
                         }}
                         canEdit={canEditDashboard}
                         tags={dashboard?.tags}
                         tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
                         dataAttrKey={RESOURCE_TYPE}
+                        loading={isSavingTags}
                     />
 
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />

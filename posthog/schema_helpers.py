@@ -112,6 +112,7 @@ def to_dict(query: BaseModel) -> dict:
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",
+                        "breakdownSorting",
                     ]
                 }
 

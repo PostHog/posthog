@@ -1,3 +1,8 @@
+//! Batch processor for ingestion events pipeline.
+//!
+//! This processor implements timestamp-based deduplication for PostHog
+//! ingestion events (CapturedEvent/RawEvent).
+
 use std::{collections::HashMap, sync::Arc, time::Duration, time::Instant};
 
 use anyhow::{Context, Result};
@@ -12,35 +17,33 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tracing::{debug, error, warn};
 
+use crate::kafka::batch_consumer::BatchConsumerProcessor;
+use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
-use crate::{
-    duplicate_event::DuplicateEvent,
-    kafka::batch_consumer::BatchConsumerProcessor,
-    kafka::batch_message::KafkaMessage,
-    metrics::MetricsHelper,
-    metrics_const::{
-        DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
-        DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
-        MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
-        ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
-        TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
-        TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-        TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
-        UNIQUE_EVENTS_TOTAL_COUNTER,
-    },
-    rocksdb::dedup_metadata::DedupFieldName,
-    store::deduplication_store::{
-        DeduplicationResult, DeduplicationResultReason, DeduplicationType, TimestampBatchEntry,
-    },
-    store::keys::TimestampKey,
-    store::metadata::TimestampMetadata,
-    store::DeduplicationStoreConfig,
-    store_manager::{StoreError, StoreManager},
-    utils::timestamp,
+use crate::metrics::MetricsHelper;
+use crate::metrics_const::{
+    DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
+    DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
+    MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
+    ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
+    TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
+    TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
+    UNIQUE_EVENTS_TOTAL_COUNTER,
 };
+use crate::pipelines::traits::{DeduplicationKeyExtractor, EventParser};
+use crate::rocksdb::dedup_metadata::DedupFieldName;
+use crate::store::deduplication_store::TimestampBatchEntry;
+use crate::store::metadata::TimestampMetadata;
+use crate::store::DeduplicationStoreConfig;
+use crate::store_manager::{StoreError, StoreManager};
 
-/// Configuration for the deduplication processor
+use super::dedup_result::{DeduplicationResult, DeduplicationResultReason, DeduplicationType};
+use super::duplicate_event::DuplicateEvent;
+use super::IngestionEventParser;
+
+/// Configuration for the ingestion events deduplication processor
 #[derive(Debug, Clone)]
 pub struct DeduplicationConfig {
     pub output_topic: Option<String>,
@@ -119,7 +122,15 @@ struct EnrichedEvent<'a> {
     timestamp_key_bytes: Vec<u8>,
 }
 
-pub struct BatchDeduplicationProcessor {
+/// Batch processor for ingestion events with timestamp-based deduplication.
+///
+/// This processor:
+/// 1. Parses CapturedEvent (wire format) into RawEvent (domain format)
+/// 2. Extracts deduplication keys based on timestamp + event + distinct_id + token
+/// 3. Checks for duplicates in RocksDB
+/// 4. Publishes non-duplicate events to output topic
+/// 5. Optionally publishes duplicate detection results to a separate topic
+pub struct IngestionEventsBatchProcessor {
     config: DeduplicationConfig,
 
     /// Kafka producer for publishing non-duplicate events
@@ -136,7 +147,7 @@ pub struct BatchDeduplicationProcessor {
 }
 
 #[async_trait]
-impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
+impl BatchConsumerProcessor<CapturedEvent> for IngestionEventsBatchProcessor {
     async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
         // Organize messages by partition
         let messages_by_partition = messages
@@ -164,7 +175,7 @@ impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
     }
 }
 
-impl BatchDeduplicationProcessor {
+impl IngestionEventsBatchProcessor {
     /// Create a new deduplication processor with a store manager
     pub fn new(
         config: DeduplicationConfig,
@@ -210,7 +221,10 @@ impl BatchDeduplicationProcessor {
         // Use block_in_place to avoid blocking the async runtime thread pool
         let parsing_start = Instant::now();
         let parsed_events: Vec<Result<RawEvent>> = tokio::task::block_in_place(|| {
-            messages.par_iter().map(Self::parse_raw_event).collect()
+            messages
+                .par_iter()
+                .map(|msg| IngestionEventParser::parse(msg))
+                .collect()
         });
         let parsing_duration = parsing_start.elapsed();
         metrics::histogram!(EVENT_PARSING_DURATION_MS).record(parsing_duration.as_millis() as f64);
@@ -405,8 +419,7 @@ impl BatchDeduplicationProcessor {
         let enriched_events: Vec<EnrichedEvent> = events
             .into_iter()
             .map(|raw_event| {
-                let timestamp_key = TimestampKey::from(raw_event);
-                let timestamp_key_bytes: Vec<u8> = (&timestamp_key).into();
+                let timestamp_key_bytes = raw_event.extract_dedup_key();
 
                 EnrichedEvent {
                     raw_event,
@@ -711,95 +724,6 @@ impl BatchDeduplicationProcessor {
             }
         }
     }
-
-    fn parse_raw_event(message: &&KafkaMessage<CapturedEvent>) -> Result<RawEvent> {
-        // Parse the captured event and extract the raw event from it
-        let captured_event = match message.get_message() {
-            Some(captured_event) => captured_event,
-            None => {
-                // This should never fail since batch consumer catches errors
-                // of this sort upstream when unpacking the batch. As with stateful
-                // consumer, let's report but not fail on this if it does happen
-                error!(
-                    "Failed to extract CapturedEvent from KafkaMessage at {}:{} offset {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset()
-                );
-
-                return Err(anyhow::anyhow!(
-                    "Failed to extract CapturedEvent from KafkaMessage at {}:{} offset {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset(),
-                ));
-            }
-        };
-
-        // extract well-validated values from the CapturedEvent that
-        // may or may not be present in the wrapped RawEvent
-        let now = captured_event.now.clone();
-        let extracted_distinct_id = captured_event.distinct_id.clone();
-        let extracted_token = captured_event.token.clone();
-        let extracted_uuid = captured_event.uuid;
-
-        // The RawEvent is serialized in the data field
-        match serde_json::from_str::<RawEvent>(&captured_event.data) {
-            Ok(mut raw_event) => {
-                // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
-                // This ensures we always have a valid timestamp for deduplication
-                match raw_event.timestamp {
-                    None => {
-                        debug!("No timestamp in RawEvent, using CapturedEvent.now");
-                        raw_event.timestamp = Some(now);
-                    }
-                    Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
-                        // Don't log the invalid timestamp directly as it may contain
-                        // non-ASCII characters that could cause issues with logging
-                        debug!(
-                            "Invalid timestamp detected at {}:{} offset {}, replacing with CapturedEvent.now",
-                            message.get_topic_partition().topic(), message.get_topic_partition().partition_number(), message.get_offset()
-                        );
-                        raw_event.timestamp = Some(now);
-                    }
-                    _ => {
-                        // Timestamp exists and is valid, keep it
-                    }
-                }
-
-                // if RawEvent is missing any of the core values
-                // extracted by capture into the CapturedEvent
-                // wrapper, use those values for downstream analysis
-                if raw_event.uuid.is_none() {
-                    raw_event.uuid = Some(extracted_uuid);
-                }
-                if raw_event.distinct_id.is_none() && !extracted_distinct_id.is_empty() {
-                    raw_event.distinct_id = Some(serde_json::Value::String(extracted_distinct_id));
-                }
-                if raw_event.token.is_none() && !extracted_token.is_empty() {
-                    raw_event.token = Some(extracted_token);
-                }
-
-                Ok(raw_event)
-            }
-            Err(e) => {
-                error!(
-                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset(),
-                    e
-                );
-                Err(anyhow::anyhow!(
-                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                    message.get_topic_partition().topic(),
-                    message.get_topic_partition().partition_number(),
-                    message.get_offset(),
-                    e
-                ))
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -869,7 +793,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -926,7 +850,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -981,7 +905,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1038,7 +962,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1089,7 +1013,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1159,7 +1083,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1222,7 +1146,7 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,
@@ -1263,7 +1187,7 @@ mod tests {
 
         // NOTE: We intentionally do NOT pre-create a store here
 
-        let processor = BatchDeduplicationProcessor {
+        let processor = IngestionEventsBatchProcessor {
             config,
             producer: None,
             duplicate_producer: None,

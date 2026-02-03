@@ -229,43 +229,59 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                      */
                     trackUrl(data.id, url)
 
-                    img.onload = () => {
-                        // Step 2: Apply the chosen dimensions and replace canvas
+                    // Abort any previous listeners for this canvas to prevent accumulation
+                    abortPreviousListeners(data.id)
 
-                        // Apply the chosen dimensions to the image
-                        img.style.width = finalWidthStyle
-                        img.style.height = finalHeightStyle
-                        img.style.display = computedStyle.display || 'block'
-                        img.style.objectFit = 'fill'
+                    const controller = new AbortController()
+                    storeController(data.id, controller)
 
-                        // Copy other layout-related styles from canvas
-                        const layoutStyles = [
-                            'margin',
-                            'padding',
-                            'border',
-                            'boxSizing',
-                            'position',
-                            'top',
-                            'left',
-                            'right',
-                            'bottom',
-                        ]
-                        layoutStyles.forEach((prop) => {
-                            const value = computedStyle.getPropertyValue(prop)
-                            if (value && value !== 'auto' && value !== 'normal') {
-                                img.style.setProperty(prop, value)
+                    img.addEventListener(
+                        'load',
+                        () => {
+                            // Apply the chosen dimensions to the image
+                            img.style.width = finalWidthStyle
+                            img.style.height = finalHeightStyle
+                            img.style.display = computedStyle.display || 'block'
+                            img.style.objectFit = 'fill'
+
+                            // Copy other layout-related styles from canvas
+                            const layoutStyles = [
+                                'margin',
+                                'padding',
+                                'border',
+                                'boxSizing',
+                                'position',
+                                'top',
+                                'left',
+                                'right',
+                                'bottom',
+                            ]
+                            layoutStyles.forEach((prop) => {
+                                const value = computedStyle.getPropertyValue(prop)
+                                if (value && value !== 'auto' && value !== 'normal') {
+                                    img.style.setProperty(prop, value)
+                                }
+                            })
+
+                            // Replace the canvas with the properly sized image
+                            const parent = originalCanvas.parentNode
+                            if (parent) {
+                                parent.replaceChild(img, originalCanvas)
                             }
-                        })
 
-                        // Replace the canvas with the properly sized image
-                        const parent = originalCanvas.parentNode
-                        if (parent) {
-                            parent.replaceChild(img, originalCanvas)
-                        }
-
-                        finalizeUrl(data.id, url)
-                    }
-                    img.onerror = () => finalizeUrl(data.id, url)
+                            finalizeUrl(data.id, url)
+                            controllerById.delete(data.id)
+                        },
+                        { signal: controller.signal }
+                    )
+                    img.addEventListener(
+                        'error',
+                        () => {
+                            finalizeUrl(data.id, url)
+                            controllerById.delete(data.id)
+                        },
+                        { signal: controller.signal }
+                    )
 
                     img.src = url
 
@@ -386,5 +402,19 @@ const finalizeUrl = (id: number, url: string): void => {
         if (set.size === 0) {
             objectUrlsById.delete(id)
         }
+    }
+}
+
+const controllerById = new Map<number, AbortController>()
+
+const storeController = (id: number, controller: AbortController): void => {
+    controllerById.set(id, controller)
+}
+
+const abortPreviousListeners = (id: number): void => {
+    const controller = controllerById.get(id)
+    if (controller) {
+        controller.abort()
+        controllerById.delete(id)
     }
 }

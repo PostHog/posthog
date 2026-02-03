@@ -157,6 +157,10 @@ class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
     pass
 
 
+class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
+    pass
+
+
 def get_specific_clickhouse_error(meta_name: str, original_message: str, code: int) -> InternalCHQueryError | None:
     lookup: dict[str, InternalCHQueryError] = {
         # Infrastructure errors - custom messages to hide internals
@@ -186,6 +190,9 @@ def get_specific_clickhouse_error(meta_name: str, original_message: str, code: i
         "CANNOT_PARSE_UUID": CHQueryErrorCannotParseUuid(original_message, code=code, code_name="cannot_parse_uuid"),
         "UNSUPPORTED_METHOD": CHQueryErrorUnsupportedMethod(
             original_message, code=code, code_name="unsupported_method"
+        ),
+        "INVALID_JOIN_ON_EXPRESSION": CHQueryErrorInvalidJoinOnExpression(
+            original_message, code=code, code_name="invalid_join_on_expression"
         ),
     }
     return lookup.get(meta_name)

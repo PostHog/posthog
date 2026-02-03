@@ -1,5 +1,6 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -99,7 +100,16 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
         isRunning: [(s) => [s.clusteringRunLoading], (loading): boolean => loading],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        triggerClusteringRun: () => {
+            posthog.capture('llma clusters admin run triggered', {
+                level: values.params.analysis_level,
+                method: values.params.clustering_method,
+                normalization: values.params.embedding_normalization,
+                lookback_days: values.params.lookback_days,
+            })
+        },
+
         triggerClusteringRunSuccess: ({ clusteringRun }) => {
             lemonToast.success(`Clustering workflow started`, {
                 toastId: `clustering-run-${clusteringRun?.workflow_id}`,

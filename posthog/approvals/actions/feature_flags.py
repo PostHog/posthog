@@ -67,7 +67,11 @@ class FeatureFlagActionBase(BaseAction):
         desired_active = request.data.get("active")
         current_active = flag.active
 
-        if desired_active != cls.target_active_state or current_active == cls.target_active_state:
+        if (
+            desired_active is None
+            or desired_active != cls.target_active_state
+            or current_active == cls.target_active_state
+        ):
             return False
 
         team = cls._get_team(view)

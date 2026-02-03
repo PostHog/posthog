@@ -604,8 +604,6 @@ export interface HogQLQueryModifiersApi {
      */
     usePreaggregatedTableTransforms?: boolean | null
     /** @nullable */
-    usePresortedEventsTable?: boolean | null
-    /** @nullable */
     useWebAnalyticsPreAggregatedTables?: boolean | null
 }
 
@@ -2228,6 +2226,11 @@ export interface FunnelsFilterApi {
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     /** @nullable */
     breakdownAttributionValue?: number | null
+    /**
+     * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
+     * @nullable
+     */
+    breakdownSorting?: string | null
     /** @nullable */
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
     /** @nullable */

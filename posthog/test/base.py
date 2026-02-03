@@ -1086,9 +1086,12 @@ def also_test_with_materialized_columns(
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
+    replace_all_numbers: bool = False
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
+        replace_all_numbers = replace_all_numbers or self.replace_all_numbers
+
         query = clean_varying_query_parts(query, replace_all_numbers)
 
         try:

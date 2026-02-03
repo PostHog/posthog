@@ -26,6 +26,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
+    GENERATION_CHILD_WORKFLOW_ID_PREFIX,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
 from posthog.temporal.llm_analytics.trace_summarization.models import (
@@ -116,6 +117,9 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         total_items = 0
         total_summaries = 0
         failed_teams = []
+        child_id_prefix = (
+            GENERATION_CHILD_WORKFLOW_ID_PREFIX if inputs.analysis_level == "generation" else CHILD_WORKFLOW_ID_PREFIX
+        )
 
         for team_id in team_ids:
             try:
@@ -130,7 +134,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         window_minutes=inputs.window_minutes,
                         model=inputs.model,
                     ),
-                    id=f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{temporalio.workflow.now().isoformat()}",
+                    id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )

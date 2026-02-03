@@ -96,7 +96,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
 
     return (
         <div className="saved-insights">
-            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
+            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-secondary">

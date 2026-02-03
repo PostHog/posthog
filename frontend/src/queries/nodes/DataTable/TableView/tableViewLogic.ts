@@ -7,9 +7,12 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
+import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
 
 import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
@@ -21,6 +24,64 @@ export interface TableViewLogicProps {
     contextKey: string
     query: TableViewSupportedQueryType
     setQuery: (query: TableViewSupportedQueryType) => void
+}
+
+function getViewData(
+    props: TableViewLogicProps,
+    name?: string,
+    visibility?: 'private' | 'shared'
+): Partial<ColumnConfigurationApi> {
+    if (!isEventsQuery(props.query)) {
+        return {
+            context_key: props.contextKey,
+            ...(name && { name }),
+            ...(visibility && { visibility }),
+            columns: props.query.select,
+            filters: props.query.properties,
+        }
+    }
+    const event = {
+        key: 'event',
+        value: props.query.event,
+        operator: PropertyOperator.Exact,
+    }
+    const events = {
+        key: 'events',
+        value: props.query.events,
+        operator: PropertyOperator.In,
+    }
+    return {
+        context_key: props.contextKey,
+        ...(name && { name }),
+        ...(visibility && { visibility }),
+        columns: props.query.select,
+        filters: [...(props.query.properties || []), event, events],
+    }
+}
+
+function getQueryFromView(
+    query: TableViewSupportedQueryType,
+    view: ColumnConfigurationApi
+): TableViewSupportedQueryType {
+    if (!isEventsQuery(query)) {
+        return {
+            ...query,
+            select: view.columns || [],
+            properties: view.filters || [],
+        } as TableViewSupportedQueryType
+    }
+
+    const rawFilters = (view.filters || []) as AnyPropertyFilter[]
+    const properties = rawFilters.filter((filter) => filter.key !== 'event' && filter.key !== 'events')
+    const event = rawFilters.find((filter) => filter.key === 'event')?.value
+    const events = rawFilters.find((filter) => filter.key === 'events')?.value
+    return {
+        ...query,
+        select: view.columns || [],
+        properties,
+        event,
+        events,
+    } as EventsQuery
 }
 
 export const tableViewLogic = kea<tableViewLogicType>([
@@ -51,16 +112,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 },
 
                 saveCurrentAsView: async ({ name, visibility }) => {
-                    const viewData = {
-                        context_key: props.contextKey,
-                        name,
-                        columns: props.query.select,
-                        filters: props.query.properties,
-                        visibility,
-                    }
-
                     const response = await api.columnConfigurations.create({
-                        data: viewData,
+                        data: getViewData(props, name, visibility),
                     })
                     return [...values.views, response]
                 },
@@ -68,10 +121,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 updateView: async ({ id, updates }) => {
                     // If updating with current query state (no explicit updates provided)
                     if (!updates.name && !updates.visibility) {
-                        updates = {
-                            columns: props.query.select || [],
-                            filters: props.query.properties || [],
-                        }
+                        updates = getViewData(props)
                     }
 
                     const response = await api.columnConfigurations.update({
@@ -136,14 +186,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 if (!currentView) {
                     return false
                 }
-                // Compare current query state with saved view state
-                const currentColumns = query.select || []
-                const currentFilters = query.properties || []
-
-                const columnsChanged = JSON.stringify(currentColumns) !== JSON.stringify(currentView.columns)
-                const filtersChanged = JSON.stringify(currentFilters) !== JSON.stringify(currentView.filters)
-
-                return columnsChanged || filtersChanged
+                const queryFromView = getQueryFromView(query, currentView)
+                return !equal(queryFromView, query)
             },
         ],
     })),
@@ -158,16 +202,8 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
             submit: async ({ name, visibility }) => {
-                const viewData = {
-                    context_key: props.contextKey,
-                    name: name.trim(),
-                    columns: props.query.select,
-                    filters: props.query.properties,
-                    visibility,
-                }
-
                 const response = await api.columnConfigurations.create({
-                    data: viewData,
+                    data: getViewData(props, name, visibility),
                 })
 
                 actions.loadViews()
@@ -180,13 +216,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
 
     listeners(({ props, actions, values }) => ({
         applyView: ({ view }) => {
-            const newQuery = {
-                ...props.query,
-                select: view.columns || [],
-                properties: view.filters || [],
-            } as TableViewSupportedQueryType
-
-            props.setQuery(newQuery)
+            props.setQuery(getQueryFromView(props.query, view))
         },
 
         saveCurrentAsViewSuccess: () => {
@@ -255,6 +285,9 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 if (equal(props.query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)) {
                     actions.applyView(values.currentView)
                 }
+                break
+            case PERSON_EVENTS_CONTEXT_KEY:
+                actions.applyView(values.currentView)
         }
     }),
 ])

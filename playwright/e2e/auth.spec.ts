@@ -107,10 +107,10 @@ test.describe('Auth', () => {
     test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
         const secondPage = await context.newPage()
         await secondPage.goto('/logout')
+        await secondPage.waitForURL(/\/login/)
 
-        // Now interact with the original page
-        // forces a click so that the visibility of other elements doesn't interfere
-        await page.locator('[data-attr=menu-item-settings]').click({ force: true })
-        await expect(page).toHaveURL('/login') // Should be redirected
+        // Reload the page to trigger API calls that will detect the logout
+        await page.reload()
+        await page.waitForURL(/\/login/, { timeout: 30000 })
     })
 })

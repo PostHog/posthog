@@ -91,13 +91,13 @@ class TestTwoFactorReset(APIBaseTest):
         self.assertEqual(response.json()["error"], "You must log in with your credentials first.")
 
     def test_cannot_validate_with_expired_half_auth_session(self):
-        """Test that validation fails when half-auth session has expired (1 hour for reset flow)."""
+        """Test that validation fails when half-auth session has expired (24 hours for reset flow)."""
         token = self._setup_2fa_reset()
 
-        # Set up session with an old timestamp (more than 1 hour ago)
+        # Set up session with an old timestamp (more than 24 hours ago)
         session = self.client.session
         session["user_authenticated_but_no_2fa"] = self.user.pk
-        session["user_authenticated_time"] = int(time.time()) - 3700  # 1 hour + 100 seconds ago
+        session["user_authenticated_time"] = int(time.time()) - 86500  # 24 hours + 100 seconds ago
         session.save()
 
         response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={token}")
@@ -117,11 +117,11 @@ class TestTwoFactorReset(APIBaseTest):
         self.assertEqual(response.json()["error"], "This reset link is invalid or has expired.")
 
     def test_cannot_validate_expired_token(self):
-        """Test that tokens expire after 1 hour."""
+        """Test that tokens expire after 24 hours."""
         token = self._setup_2fa_reset()
 
-        # Move time forward by more than 1 hour
-        with freeze_time(timezone.now() + datetime.timedelta(hours=1, minutes=1)):
+        # Move time forward by more than 24 hours
+        with freeze_time(timezone.now() + datetime.timedelta(hours=24, minutes=1)):
             self._setup_half_auth_session()
             response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={token}")
 

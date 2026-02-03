@@ -36,7 +36,6 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
     })),
     reducers({
         policies: {
-            createPolicy: (state, { policy }) => [...state, policy as ApprovalPolicy],
             updatePolicy: (state, { id, policy }) =>
                 state.map((p) => (p.id === id ? { ...p, ...policy } : p)) as ApprovalPolicy[],
             deletePolicy: (state, { id }) => state.filter((p) => p.id !== id),

@@ -22,7 +22,7 @@ interface TemplateCardProps {
 }
 
 function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
-    const iconClass = 'w-6 h-6'
+    const iconClass = 'w-6 h-6 text-primary-3000'
     switch (icon) {
         case 'target':
             return <IconTarget className={iconClass} />
@@ -64,12 +64,8 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
             onClick={handleClick}
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
-                <div className="bg-primary-3000/10 rounded-lg p-3 flex-shrink-0">
-                    {isBlank ? (
-                        <IconPlus className="w-6 h-6 text-primary-3000" />
-                    ) : (
-                        <div className="text-primary-3000">{getTemplateIcon(template.icon)}</div>
-                    )}
+                <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
+                    {isBlank ? <IconPlus className="w-6 h-6 text-primary-3000" /> : getTemplateIcon(template.icon)}
                 </div>
                 <div className="flex-1 flex flex-col justify-start">
                     <div className="flex items-center justify-center gap-2 mb-2">
