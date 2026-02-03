@@ -56,7 +56,9 @@ export function EvaluationSummaryControls(): JSX.Element | null {
         setEvaluationSummaryFilter,
         trackSummarizeClicked,
     } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY') || useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
+    const flag1 = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
+    const flag2 = useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
+    const showSummaryFeature = flag1 || flag2
 
     if (!showSummaryFeature || !runsSummary || runsSummary.total === 0) {
         return null
@@ -110,7 +112,9 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
         summaryExpanded,
     } = useValues(llmEvaluationLogic)
     const { toggleSummaryExpanded } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY') || useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
+    const flag1 = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
+    const flag2 = useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
+    const showSummaryFeature = flag1 || flag2
 
     if (!showSummaryFeature) {
         return null
