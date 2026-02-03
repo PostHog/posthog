@@ -63,6 +63,7 @@ class TestRadarApiCall(TestCase):
             ip_address="1.2.3.4",
             user_agent="TestBrowser",
             action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
         )
 
         assert verdict == RadarVerdict.ALLOW
@@ -84,6 +85,7 @@ class TestRadarApiCall(TestCase):
             ip_address="1.2.3.4",
             user_agent="TestBrowser",
             action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
         )
 
         assert verdict == RadarVerdict.CHALLENGE
@@ -101,6 +103,7 @@ class TestRadarApiCall(TestCase):
             ip_address="1.2.3.4",
             user_agent="TestBrowser",
             action=RadarAction.SIGNUP,
+            auth_method=RadarAuthMethod.PASSWORD,
         )
 
         assert verdict == RadarVerdict.BLOCK
@@ -117,6 +120,7 @@ class TestRadarApiCall(TestCase):
             ip_address="1.2.3.4",
             user_agent="TestBrowser",
             action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
         )
 
         assert verdict == RadarVerdict.ERROR
@@ -131,6 +135,7 @@ class TestRadarApiCall(TestCase):
             ip_address="1.2.3.4",
             user_agent="TestBrowser",
             action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
         )
 
         assert verdict == RadarVerdict.ERROR
@@ -145,6 +150,7 @@ class TestRadarApiCall(TestCase):
             ip_address="1.2.3.4",
             user_agent="TestBrowser",
             action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
         )
 
         assert verdict == RadarVerdict.ERROR
@@ -169,7 +175,7 @@ class TestRadarEventLogging(TestCase):
         assert call_args[1]["event"] == "workos_radar_attempt"
         props = call_args[1]["properties"]
         assert props["action"] == "signin"
-        assert props["auth_method"] == "password"
+        assert props["auth_method"] == "Password"
         assert props["verdict"] == "allow"
         assert props["would_challenge"] is False
         assert props["would_block"] is False

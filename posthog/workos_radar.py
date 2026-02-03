@@ -32,8 +32,8 @@ class RadarAction(StrEnum):
 
 
 class RadarAuthMethod(StrEnum):
-    PASSWORD = "password"
-    PASSKEY = "passkey"
+    PASSWORD = "Password"
+    PASSKEY = "Passkey"
 
 
 class RadarVerdict(StrEnum):
@@ -101,6 +101,7 @@ def evaluate_auth_attempt(
         ip_address=ip_address,
         user_agent=user_agent,
         action=action,
+        auth_method=auth_method,
     )
 
     _log_radar_event(
@@ -121,12 +122,10 @@ def _call_radar_api(
     ip_address: str,
     user_agent: str,
     action: RadarAction,
+    auth_method: RadarAuthMethod,
 ) -> RadarVerdict:
     """
     Make the actual API call to WorkOS Radar.
-
-    The API specification is based on WorkOS documentation. The request body
-    structure may need adjustment once the full API reference is available.
     """
     try:
         response = httpx.post(
@@ -140,6 +139,7 @@ def _call_radar_api(
                 "ip_address": ip_address,
                 "user_agent": user_agent,
                 "action": action.value,
+                "auth_method": auth_method.value,
             },
             timeout=WORKOS_RADAR_TIMEOUT,
         )
