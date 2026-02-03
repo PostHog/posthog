@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
@@ -13,6 +14,7 @@ type SceneTagsProps = SceneCanEditProps &
         onSave?: (value: string[]) => void
         tags?: string[]
         tagsAvailable?: string[]
+        loading?: boolean
     }
 
 export const SceneTags = ({
@@ -21,6 +23,7 @@ export const SceneTags = ({
     tagsAvailable,
     dataAttrKey,
     canEdit = true,
+    loading,
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -35,9 +38,16 @@ export const SceneTags = ({
         setLocalTags(tags)
     }, [tags])
 
+    const label = (
+        <span className="flex items-center gap-1.5">
+            Tags
+            {loading ? <Spinner className="text-sm" /> : null}
+        </span>
+    )
+
     return localIsEditing ? (
         <div className="flex flex-col gap-1">
-            <ScenePanelLabel htmlFor="new-tag-input" title="Tags">
+            <ScenePanelLabel htmlFor="new-tag-input" title={label}>
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
@@ -55,7 +65,7 @@ export const SceneTags = ({
             </ScenePanelLabel>
         </div>
     ) : (
-        <ScenePanelLabel title="Tags">
+        <ScenePanelLabel title={label}>
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"

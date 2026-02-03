@@ -253,6 +253,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             tagsAvailable={allExistingTags}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
+                            loading={insightSaving}
                         />
 
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />

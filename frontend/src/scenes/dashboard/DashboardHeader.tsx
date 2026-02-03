@@ -104,6 +104,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { tags } = useValues(tagsModel)
+    const { dashboardLoading: isDashboardUpdating } = useValues(dashboardsModel)
 
     const { push } = useActions(router)
 
@@ -214,6 +215,7 @@ export function DashboardHeader(): JSX.Element | null {
                         tags={dashboard?.tags}
                         tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
                         dataAttrKey={RESOURCE_TYPE}
+                        loading={isDashboardUpdating}
                     />
 
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
