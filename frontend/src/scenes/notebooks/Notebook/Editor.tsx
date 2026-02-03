@@ -52,7 +52,7 @@ import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
 import { textContent } from '../utils'
-import { DraggableCollapsibleHeading, DraggableHeading, DraggableParagraph } from './DraggableTextNodes'
+import { CollapsibleHeading } from './CollapsibleHeading'
 import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 import { InlineMenu } from './InlineMenu'
 import { SlashCommandsExtension } from './SlashCommands'
@@ -79,15 +79,11 @@ export function Editor(): JSX.Element {
         document: false,
         gapcursor: false,
         link: false,
-        heading: false,
-        paragraph: false,
     }
 
     const extensions = [
         mode === 'notebook' ? CustomDocument : ExtensionDocument,
-        StarterKit.configure(starterKitConfig),
-        hasCollapsibleSections ? DraggableCollapsibleHeading.configure() : DraggableHeading,
-        DraggableParagraph,
+        StarterKit.configure(hasCollapsibleSections ? { ...starterKitConfig, heading: false } : starterKitConfig),
         TableOfContents.configure({
             getIndex: getHierarchicalIndexes,
             onUpdate(content) {
@@ -153,6 +149,10 @@ export function Editor(): JSX.Element {
         NotebookNodeZendeskTickets,
         NotebookNodeRelatedGroups,
     ]
+
+    if (hasCollapsibleSections) {
+        extensions.push(CollapsibleHeading.configure())
+    }
 
     return (
         <RichContentEditor
