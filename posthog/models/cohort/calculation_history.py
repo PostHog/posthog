@@ -131,3 +131,10 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
         if self.queries:
             return self.queries[0].get("query")
         return None
+
+    @property
+    def main_query_id(self) -> Optional[str]:
+        """Get the main query ID (first query ID in the array)"""
+        if self.queries:
+            return self.queries[0].get("query_id")
+        return None
