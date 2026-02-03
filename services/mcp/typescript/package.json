@@ -56,7 +56,7 @@
         "@langchain/core": "^0.3.72",
         "@langchain/openai": "^0.6.9",
         "ai": "^5.0.0",
-        "langchain": "^0.3.31"
+        "langchain": "^1.2.16"
     },
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.0.1",
@@ -82,7 +82,7 @@
         "ajv-formats": "^3.0.1",
         "chokidar": "^3.6.0",
         "dotenv": "^16.4.7",
-        "langchain": "^0.3.31",
+        "langchain": "^1.2.16",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "tsup": "^8.5.0",
