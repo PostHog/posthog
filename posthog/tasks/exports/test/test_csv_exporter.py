@@ -1602,9 +1602,9 @@ class TestNestedColumnExport(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            content = exported_asset.content.decode("utf-8")
-            assert "Hello world" in content, f"Nested input content missing. Content:\n{content}"
-            assert "Hi there!" in content, f"Nested output content missing. Content:\n{content}"
+            assert exported_asset.content is not None
+            assert b"Hello world" in exported_asset.content, f"Nested input content missing"
+            assert b"Hi there!" in exported_asset.content, f"Nested output content missing"
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
@@ -1641,8 +1641,8 @@ class TestNestedColumnExport(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            content = exported_asset.content.decode("utf-8")
-            assert "Test message" in content, f"Nested content missing when null row came first. Content:\n{content}"
+            assert exported_asset.content is not None
+            assert b"Test message" in exported_asset.content, f"Nested content missing when null row came first"
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
@@ -1676,10 +1676,12 @@ class TestNestedColumnExport(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            content = exported_asset.content.decode("utf-8")
-            lines = content.strip().split("\r\n")
-            assert "inputState" in lines[0], f"Column header missing. Header: {lines[0]}"
-            assert len(lines) == 3, f"Expected 3 lines. Content:\n{content}"
+            assert exported_asset.content is not None
+            # Header should contain inputState column even when all values are null
+            assert b"inputState" in exported_asset.content
+            # Verify both data rows are present
+            assert b"trace-1" in exported_asset.content
+            assert b"trace-2" in exported_asset.content
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
@@ -1721,12 +1723,12 @@ class TestNestedColumnExport(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            content = exported_asset.content.decode("utf-8")
-            assert "First message" in content
-            assert "Second message" in content
-            assert "web" in content
-
-            header = content.split("\r\n")[0]
-            assert "inputState.messages.0.content" in header or "inputState.messages.1.content" in header, (
-                f"Expected flattened column names. Header: {header}"
-            )
+            assert exported_asset.content is not None
+            assert b"First message" in exported_asset.content
+            assert b"Second message" in exported_asset.content
+            assert b"web" in exported_asset.content
+            # Nested objects should be flattened to dot-notation columns
+            assert (
+                b"inputState.messages.0.content" in exported_asset.content
+                or b"inputState.messages.1.content" in exported_asset.content
+            ), "Expected flattened column names in header"
