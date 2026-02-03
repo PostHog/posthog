@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { InsightGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -16,7 +17,7 @@ export const getAllHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to get insights: ${insightsResult.error.message}`)
     }
 
-    const insightsWithUrls = insightsResult.data.map((insight) => ({
+    const insightsWithUrls = insightsResult.data.map((insight: Schemas.Insight) => ({
         ...insight,
         url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insight.short_id}`,
     }))

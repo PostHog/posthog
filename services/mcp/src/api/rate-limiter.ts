@@ -23,7 +23,7 @@ export class RateLimiter {
 
         // If we're at the limit, wait until the oldest request expires
         if (this.requestTimestamps.length >= this.maxRequests) {
-            const oldestTimestamp = this.requestTimestamps[0]
+            const oldestTimestamp = this.requestTimestamps[0]!
             const waitTime = this.windowMs - (now - oldestTimestamp) + 10 // Add 10ms buffer
 
             if (waitTime > 0) {

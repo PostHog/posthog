@@ -54,6 +54,9 @@ jobs:
             - name: Build package
               run: cd services/mcp && pnpm build
 
+            - name: Type check
+              run: cd services/mcp && pnpm typecheck
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest

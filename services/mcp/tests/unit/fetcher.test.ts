@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildApiFetcher } from '@/api/fetcher'
+import type { Fetcher } from '@/api/generated'
 import { globalRateLimiter } from '@/api/rate-limiter'
 
 // Mock the global rate limiter
@@ -10,10 +11,18 @@ vi.mock('@/api/rate-limiter', () => ({
     },
 }))
 
+type FetchInput = Parameters<Fetcher['fetch']>[0]
+
 describe('buildApiFetcher', () => {
     const mockConfig = {
         apiToken: 'test-token-123',
         baseUrl: 'https://api.example.com',
+    }
+
+    const baseFetchInput: FetchInput = {
+        url: new URL('https://api.example.com/test'),
+        method: 'get',
+        path: '/test',
     }
 
     beforeEach(() => {
@@ -35,10 +44,7 @@ describe('buildApiFetcher', () => {
             vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            const response = await fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const response = await fetcher.fetch(baseFetchInput)
 
             expect(response.ok).toBe(true)
             expect(global.fetch).toHaveBeenCalledTimes(1)
@@ -50,12 +56,9 @@ describe('buildApiFetcher', () => {
             vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            await fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            await fetcher.fetch(baseFetchInput)
 
-            const fetchCall = vi.mocked(global.fetch).mock.calls[0]
+            const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
             const headers = fetchCall[1]?.headers as Headers
             expect(headers.get('Authorization')).toBe('Bearer test-token-123')
         })
@@ -66,14 +69,14 @@ describe('buildApiFetcher', () => {
 
             const fetcher = buildApiFetcher(mockConfig)
             await fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
+                ...baseFetchInput,
                 method: 'post',
                 parameters: {
                     body: { name: 'test', value: 123 },
                 },
             })
 
-            const fetchCall = vi.mocked(global.fetch).mock.calls[0]
+            const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
             expect(fetchCall[1]?.method).toBe('POST')
             expect(fetchCall[1]?.body).toBe(JSON.stringify({ name: 'test', value: 123 }))
             const headers = fetchCall[1]?.headers as Headers
@@ -89,8 +92,8 @@ describe('buildApiFetcher', () => {
             const urlSearchParams = new URLSearchParams({ foo: 'bar', baz: 'qux' })
 
             await fetcher.fetch({
+                ...baseFetchInput,
                 url,
-                method: 'get',
                 urlSearchParams,
             })
 
@@ -103,8 +106,7 @@ describe('buildApiFetcher', () => {
 
             const fetcher = buildApiFetcher(mockConfig)
             await fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
+                ...baseFetchInput,
                 parameters: {
                     header: {
                         'X-Custom-Header': 'custom-value',
@@ -113,7 +115,7 @@ describe('buildApiFetcher', () => {
                 },
             })
 
-            const fetchCall = vi.mocked(global.fetch).mock.calls[0]
+            const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
             const headers = fetchCall[1]?.headers as Headers
             expect(headers.get('X-Custom-Header')).toBe('custom-value')
             expect(headers.get('X-Another-Header')).toBe('123')
@@ -128,10 +130,7 @@ describe('buildApiFetcher', () => {
             vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const promise = fetcher.fetch(baseFetchInput)
 
             // Advance time for first retry (2000ms * 2^0 = 2000ms)
             await vi.advanceTimersByTimeAsync(2000)
@@ -152,10 +151,7 @@ describe('buildApiFetcher', () => {
                 .mockResolvedValueOnce(mockSuccessResponse) // Attempt 3: success
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const promise = fetcher.fetch(baseFetchInput)
 
             // First retry: 2000ms * 2^0 = 2000ms
             await vi.advanceTimersByTimeAsync(2000)
@@ -181,10 +177,7 @@ describe('buildApiFetcher', () => {
             vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const promise = fetcher.fetch(baseFetchInput)
 
             // Should wait 5000ms (from Retry-After header) instead of 2000ms
             await vi.advanceTimersByTimeAsync(5000)
@@ -203,12 +196,9 @@ describe('buildApiFetcher', () => {
             const fetcher = buildApiFetcher(mockConfig)
 
             // Start the fetch and immediately wrap in expect to catch rejection
-            const fetchPromise = expect(
-                fetcher.fetch({
-                    url: new URL('https://api.example.com/test'),
-                    method: 'get',
-                })
-            ).rejects.toThrow('Rate limit exceeded after 3 retries')
+            const fetchPromise = expect(fetcher.fetch(baseFetchInput)).rejects.toThrow(
+                'Rate limit exceeded after 3 retries'
+            )
 
             // Run all timers to completion
             await vi.runAllTimersAsync()
@@ -227,10 +217,7 @@ describe('buildApiFetcher', () => {
             vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const promise = fetcher.fetch(baseFetchInput)
 
             await vi.advanceTimersByTimeAsync(2000)
             await promise
@@ -253,12 +240,7 @@ describe('buildApiFetcher', () => {
 
             const fetcher = buildApiFetcher(mockConfig)
 
-            await expect(
-                fetcher.fetch({
-                    url: new URL('https://api.example.com/test'),
-                    method: 'get',
-                })
-            ).rejects.toThrow('Failed request: [404]')
+            await expect(fetcher.fetch(baseFetchInput)).rejects.toThrow('Failed request: [404]')
 
             // Should not retry on non-429 errors
             expect(global.fetch).toHaveBeenCalledTimes(1)
@@ -273,12 +255,7 @@ describe('buildApiFetcher', () => {
 
             const fetcher = buildApiFetcher(mockConfig)
 
-            await expect(
-                fetcher.fetch({
-                    url: new URL('https://api.example.com/test'),
-                    method: 'get',
-                })
-            ).rejects.toThrow('Failed request: [500]')
+            await expect(fetcher.fetch(baseFetchInput)).rejects.toThrow('Failed request: [500]')
 
             expect(global.fetch).toHaveBeenCalledTimes(1)
         })
@@ -292,10 +269,7 @@ describe('buildApiFetcher', () => {
             vi.mocked(global.fetch).mockResolvedValueOnce(mock429Response).mockResolvedValueOnce(mockSuccessResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const promise = fetcher.fetch(baseFetchInput)
 
             await vi.advanceTimersByTimeAsync(2000)
             await promise
@@ -314,10 +288,7 @@ describe('buildApiFetcher', () => {
                 .mockResolvedValueOnce(mockSuccessResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            const promise = fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            const promise = fetcher.fetch(baseFetchInput)
 
             await vi.advanceTimersByTimeAsync(2000)
             await vi.advanceTimersByTimeAsync(4000)
@@ -329,35 +300,35 @@ describe('buildApiFetcher', () => {
     })
 
     describe('HTTP methods', () => {
-        it.each(['post', 'put', 'patch', 'delete'])('should include body for %s requests', async (method) => {
-            const mockResponse = new Response('{}', { status: 200 })
-            vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
+        it.each(['post', 'put', 'patch', 'delete'] as const)(
+            'should include body for %s requests',
+            async (method) => {
+                const mockResponse = new Response('{}', { status: 200 })
+                vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
 
-            const fetcher = buildApiFetcher(mockConfig)
-            await fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method,
-                parameters: {
-                    body: { test: 'data' },
-                },
-            })
+                const fetcher = buildApiFetcher(mockConfig)
+                await fetcher.fetch({
+                    ...baseFetchInput,
+                    method,
+                    parameters: {
+                        body: { test: 'data' },
+                    },
+                })
 
-            const fetchCall = vi.mocked(global.fetch).mock.calls[0]
-            expect(fetchCall[1]?.body).toBe(JSON.stringify({ test: 'data' }))
-            expect(fetchCall[1]?.method).toBe(method.toUpperCase())
-        })
+                const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
+                expect(fetchCall[1]?.body).toBe(JSON.stringify({ test: 'data' }))
+                expect(fetchCall[1]?.method).toBe(method.toUpperCase())
+            }
+        )
 
         it('should not include body for GET requests', async () => {
             const mockResponse = new Response('{}', { status: 200 })
             vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
 
             const fetcher = buildApiFetcher(mockConfig)
-            await fetcher.fetch({
-                url: new URL('https://api.example.com/test'),
-                method: 'get',
-            })
+            await fetcher.fetch(baseFetchInput)
 
-            const fetchCall = vi.mocked(global.fetch).mock.calls[0]
+            const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
             expect(fetchCall[1]?.body).toBeUndefined()
         })
     })

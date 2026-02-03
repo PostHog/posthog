@@ -2,7 +2,7 @@ import { McpUiResourceMeta } from '@modelcontextprotocol/ext-apps'
 import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
-import { Context } from '@/tools'
+import type { Context } from '@/tools/types'
 
 // Import bundled HTML at build time (wrangler Text rule)
 // Each UI app has its own HTML file in ui-apps-dist/src/ui-apps/apps/<name>/
