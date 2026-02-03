@@ -469,8 +469,11 @@ jobs:
                                   LEAK_COUNT=$(jq -r '.leakResults.leakedObjectCount // 0' "$JSON_FILE")
 
                                   # Keep highest leak count for this test
-                                  if [ -z "${MAX_LEAKS[$TEST_NAME]}" ] || [ "$LEAK_COUNT" -gt "${MAX_LEAKS[$TEST_NAME]}" ]; then
-                                      MAX_LEAKS[$TEST_NAME]=$LEAK_COUNT
+                                  if [ -n "$LEAK_COUNT" ] && [ "$LEAK_COUNT" -eq "$LEAK_COUNT" ] 2>/dev/null; then
+                                      if [ -z "${MAX_LEAKS[$TEST_NAME]}" ] || [ "$LEAK_COUNT" -gt "${MAX_LEAKS[$TEST_NAME]}" ]; then
+                                          MAX_LEAKS[$TEST_NAME]=$LEAK_COUNT
+                                      fi
+                                  fi
                                   fi
                               fi
                           fi
