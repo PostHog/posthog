@@ -69,21 +69,33 @@ export class DashboardPage {
         await this.topBarName.getByRole('button').getByText('Save').click()
     }
 
+    async openFirstTileMenu(): Promise<void> {
+        const card = this.page.locator('.InsightCard').first()
+        await card.scrollIntoViewIfNeeded()
+        await card.hover()
+        await card.getByTestId('more-button').click()
+    }
+
     async renameFirstTile(newTileName: string): Promise<void> {
-        await this.page.locator('.InsightCard').first().getByTestId('more-button').click()
+        await this.openFirstTileMenu()
         await this.page.locator('.Popover').getByText('Rename').click()
-        await this.page.locator('.LemonModal').getByTestId('insight-name').fill(newTileName)
-        await this.page.locator('.LemonModal').getByText('Submit').click()
-        await expect(this.page.locator('.LemonModal')).not.toBeVisible()
+
+        const renameModal = this.page.locator('.LemonModal').filter({ has: this.page.getByTestId('insight-name') })
+        await renameModal.getByTestId('insight-name').fill(newTileName)
+        await renameModal.getByText('Submit').click()
+
+        await expect(this.page.locator('.InsightCard').first().getByText(newTileName)).toBeVisible()
+
+        await this.page.keyboard.press('Escape')
     }
 
     async removeFirstTile(): Promise<void> {
-        await this.page.locator('.InsightCard').first().getByTestId('more-button').click()
+        await this.openFirstTileMenu()
         await this.page.locator('.Popover').getByText('Remove from dashboard').click()
     }
 
     async duplicateFirstTile(): Promise<void> {
-        await this.page.locator('.InsightCard').first().getByTestId('more-button').click()
+        await this.openFirstTileMenu()
         await this.page.locator('.Popover').getByText('Duplicate').click()
     }
 }
