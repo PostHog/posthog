@@ -9,6 +9,7 @@ def register_all_admin():
         AsyncDeletionAdmin,
         BatchImportAdmin,
         CohortAdmin,
+        CohortCalculationHistoryAdmin,
         ColumnConfigurationAdmin,
         DashboardAdmin,
         DashboardTemplateAdmin,
@@ -70,6 +71,7 @@ def register_all_admin():
         Text,
         User,
     )
+    from posthog.models.cohort.calculation_history import CohortCalculationHistory
     from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
 
@@ -101,6 +103,7 @@ def register_all_admin():
     admin.site.register(Text, TextAdmin)
 
     admin.site.register(Cohort, CohortAdmin)
+    admin.site.register(CohortCalculationHistory, CohortCalculationHistoryAdmin)
     admin.site.register(ColumnConfiguration, ColumnConfigurationAdmin)
     admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
