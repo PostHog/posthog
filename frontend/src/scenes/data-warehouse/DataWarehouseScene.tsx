@@ -21,6 +21,7 @@ import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneL
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
+import { ViewsTab } from './scene/ViewsTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
