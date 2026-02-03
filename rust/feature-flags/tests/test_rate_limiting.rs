@@ -10,7 +10,7 @@ use feature_flags::utils::test_utils::{
 
 pub mod common;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rate_limit_basic() -> Result<()> {
     // Create config with very restrictive rate limiting (capacity: 3, replenish: 0.1/sec)
     let mut config = Config::default_test_config();
@@ -89,7 +89,7 @@ async fn test_rate_limit_basic() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rate_limit_disabled() -> Result<()> {
     // Create config with rate limiting disabled (default)
     let config = Config::default_test_config();
@@ -143,7 +143,7 @@ async fn test_rate_limit_disabled() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rate_limit_per_token_isolation() -> Result<()> {
     // Create config with capacity of 1
     let mut config = Config::default_test_config();
@@ -240,7 +240,7 @@ async fn test_rate_limit_per_token_isolation() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rate_limit_with_invalid_tokens() -> Result<()> {
     // Create config with very restrictive rate limiting
     let mut config = Config::default_test_config();
@@ -295,7 +295,7 @@ async fn test_rate_limit_with_invalid_tokens() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
     // Test that IP is used for rate limiting when body parsing fails
     let mut config = Config::default_test_config();
@@ -344,7 +344,7 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_rate_limit_replenishment() -> Result<()> {
     // Test that rate limit replenishes over time
     let mut config = Config::default_test_config();
@@ -425,7 +425,7 @@ async fn test_rate_limit_replenishment() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_ip_rate_limit_basic() -> Result<()> {
     // Create config with IP rate limiting enabled
     let mut config = Config::default_test_config();
@@ -502,7 +502,7 @@ async fn test_ip_rate_limit_basic() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_ip_rate_limit_with_rotating_tokens() -> Result<()> {
     // Test that IP rate limiting prevents DDoS with rotating fake tokens
     let mut config = Config::default_test_config();
@@ -558,7 +558,7 @@ async fn test_ip_rate_limit_with_rotating_tokens() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_both_rate_limiters_together() -> Result<()> {
     // Test that both token-based and IP-based rate limiting work together
     let mut config = Config::default_test_config();
@@ -638,7 +638,7 @@ async fn test_both_rate_limiters_together() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_ip_rate_limit_disabled() -> Result<()> {
     // Verify IP rate limiting is disabled by default
     let mut config = Config::default_test_config();
@@ -692,7 +692,7 @@ async fn test_ip_rate_limit_disabled() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_ip_rate_limit_respects_x_forwarded_for() -> Result<()> {
     // Test that IP rate limiting uses X-Forwarded-For header (production scenario)
     let mut config = Config::default_test_config();
@@ -801,7 +801,7 @@ async fn test_ip_rate_limit_respects_x_forwarded_for() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_token_rate_limit_log_only_mode() -> Result<()> {
     // Test that token-based rate limiting in log-only mode allows requests through
     let mut config = Config::default_test_config();
@@ -874,7 +874,7 @@ async fn test_token_rate_limit_log_only_mode() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_ip_rate_limit_log_only_mode() -> Result<()> {
     // Test that IP-based rate limiting in log-only mode allows requests through
     let mut config = Config::default_test_config();
@@ -947,7 +947,7 @@ async fn test_ip_rate_limit_log_only_mode() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_mixed_log_only_modes() -> Result<()> {
     // Test IP rate limiting in enforced mode while token rate limiting is in log-only mode
     let mut config = Config::default_test_config();
