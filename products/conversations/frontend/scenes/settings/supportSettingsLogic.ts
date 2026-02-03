@@ -28,6 +28,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         cancelDomainEdit: true,
         setGreetingInputValue: (value: string | null) => ({ value }),
         saveGreetingText: true,
+        // Identification form settings
+        setIdentificationFormTitleValue: (value: string | null) => ({ value }),
+        saveIdentificationFormTitle: true,
+        setIdentificationFormDescriptionValue: (value: string | null) => ({ value }),
+        saveIdentificationFormDescription: true,
+        setPlaceholderTextValue: (value: string | null) => ({ value }),
+        savePlaceholderText: true,
         // Notification recipients
         setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
     }),
@@ -77,6 +84,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             null as string | null,
             {
                 setGreetingInputValue: (_, { value }) => value,
+            },
+        ],
+        identificationFormTitleValue: [
+            null as string | null,
+            {
+                setIdentificationFormTitleValue: (_, { value }) => value,
+            },
+        ],
+        identificationFormDescriptionValue: [
+            null as string | null,
+            {
+                setIdentificationFormDescriptionValue: (_, { value }) => value,
+            },
+        ],
+        placeholderTextValue: [
+            null as string | null,
+            {
+                setPlaceholderTextValue: (_, { value }) => value,
             },
         ],
     }),
@@ -140,6 +165,39 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
+        saveIdentificationFormTitle: () => {
+            if (!values.identificationFormTitleValue?.trim()) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_identification_form_title: values.identificationFormTitleValue,
+                },
+            })
+        },
+        saveIdentificationFormDescription: () => {
+            if (!values.identificationFormDescriptionValue?.trim()) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_identification_form_description: values.identificationFormDescriptionValue,
+                },
+            })
+        },
+        savePlaceholderText: () => {
+            if (!values.placeholderTextValue?.trim()) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_placeholder_text: values.placeholderTextValue,
+                },
+            })
+        },
         setNotificationRecipients: ({ users }) => {
             actions.updateCurrentTeam({
                 conversations_settings: {
@@ -150,6 +208,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
+            actions.setIdentificationFormTitleValue(null)
+            actions.setIdentificationFormDescriptionValue(null)
+            actions.setPlaceholderTextValue(null)
         },
     })),
 ])
