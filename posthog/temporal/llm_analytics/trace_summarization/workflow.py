@@ -174,7 +174,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         items = await temporalio.workflow.execute_activity(
             sample_items_in_window_activity,
             inputs_with_window,
-            schedule_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
+            start_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
             retry_policy=constants.SAMPLE_RETRY_POLICY,
         )
         metrics.items_queried = len(items)
