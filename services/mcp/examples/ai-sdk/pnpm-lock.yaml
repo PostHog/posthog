@@ -13,10 +13,10 @@ importers:
         version: 2.0.79(zod@3.25.76)
       '@posthog/agent-toolkit':
         specifier: ^0.2.1
-        version: 0.2.4(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251205.0)(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@langchain/openai@0.6.16(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))))(ai@5.0.108(zod@3.25.76))(langchain@0.3.36(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@opentelemetry/api@1.9.0)(axios@1.13.2)(openai@5.12.2(zod@3.25.76)))(react@19.2.1)
+        version: 0.2.4(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251205.0)(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@langchain/openai@0.6.16(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))))(ai@5.0.52(zod@3.25.76))(langchain@0.3.36(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@opentelemetry/api@1.9.0)(axios@1.13.2)(openai@5.12.2(zod@3.25.76)))(react@19.2.1)
       ai:
-        specifier: ^5.0.40
-        version: 5.0.108(zod@3.25.76)
+        specifier: ^5.0.52
+        version: 5.0.52(zod@3.25.76)
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -36,11 +36,11 @@ importers:
 
 packages:
 
-  '@ai-sdk/gateway@2.0.18':
-    resolution: {integrity: sha512-sDQcW+6ck2m0pTIHW6BPHD7S125WD3qNkx/B8sEzJp/hurocmJ5Cni0ybExg6sQMGo+fr/GWOwpHF1cmCdg5rQ==}
+  '@ai-sdk/gateway@1.0.29':
+    resolution: {integrity: sha512-o9LtmBiG2WAgs3GAmL79F8idan/UupxHG8Tyr2gP4aUSOzflM0bsvfzozBp8x6WatQnOx+Pio7YNw45Y6I16iw==}
     engines: {node: '>=18'}
     peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
+      zod: ^3.25.76 || ^4
 
   '@ai-sdk/openai@2.0.79':
     resolution: {integrity: sha512-RIUbwD2VGpawSKUuZ0HmsDbyjPniQIa9wYyE3xQ5fIWnI+RZH8MfyRwnUFom1pko5YOGlhosZhJmvolG8lNr7Q==}
@@ -59,6 +59,12 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@3.0.9':
+    resolution: {integrity: sha512-Pm571x5efqaI4hf9yW4KsVlDBDme8++UepZRnq+kqVBWWjgvGhQlzU8glaFq0YJEB9kkxZHbRRyVeHoV2sRYaQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4
 
   '@ai-sdk/provider@1.1.3':
     resolution: {integrity: sha512-qZMxYJ0qqX/RfnuIaab+zp8UAeJn/ygXXAffR5I4N0n1IrvA6qBsjc8hXLmBiMV2zoXlifkacF7sEFnYnjBcqg==}
@@ -286,6 +292,7 @@ packages:
 
   '@posthog/agent-toolkit@0.2.4':
     resolution: {integrity: sha512-mG097NgYDatH9FziZCeILV6nlEanEuhZoQ+QfI7QZhtEI7yAdgK9oPaeum8eH8B/rG6OVwhUFRRHcrskWAe9tQ==}
+    deprecated: This was an attempt at exposing some of our internals for ease of use when integrating with the PostHog AI agent. We decided to implement the PostHog AI agent differently which means this package is not useful anymore. Please, do NOT use it in production, communicate with PostHog for AI purposes via our MCP.
     peerDependencies:
       '@langchain/core': ^0.3.72
       '@langchain/openai': ^0.6.9
@@ -294,6 +301,9 @@ packages:
 
   '@standard-schema/spec@1.0.0':
     resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
+
+  '@standard-schema/spec@1.1.0':
+    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
   '@types/diff-match-patch@1.0.36':
     resolution: {integrity: sha512-xFdR6tkm0MWvBfO8xXCSsinYxHcqkQUlcHeSpMC2ukzOb6lwQAfDmW+Qt0AvlGd8HpsS28qKsB+oPeJn9I39jg==}
@@ -306,10 +316,6 @@ packages:
 
   '@types/uuid@10.0.0':
     resolution: {integrity: sha512-7gqG38EyHgyP1S+7+xomFtL+ZNHcKv6DwNaCZmJmo1vgMugyF3TCnXVg4t1uk89mLNwnLtnY3TpOpCOyp1/xHQ==}
-
-  '@vercel/oidc@3.0.5':
-    resolution: {integrity: sha512-fnYhv671l+eTTp48gB4zEsTW/YtRgRPnkI2nT7x6qw5rkI1Lq2hTmQIpHPgyThI0znLK+vX2n9XxKdXZ7BUbbw==}
-    engines: {node: '>= 20'}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -330,11 +336,11 @@ packages:
       react:
         optional: true
 
-  ai@5.0.108:
-    resolution: {integrity: sha512-Jex3Lb7V41NNpuqJHKgrwoU6BCLHdI1Pg4qb4GJH4jRIDRXUBySJErHjyN4oTCwbiYCeb/8II9EnqSRPq9EifA==}
+  ai@5.0.52:
+    resolution: {integrity: sha512-GLlRHjMlvN9+w7UYGxCpUQ8GgCRv5Z+JCprRH3Q8YbXJ/JyIc6EP9+YRUmQsyExX/qQsuehe7y/LLygarbSTOw==}
     engines: {node: '>=18'}
     peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
+      zod: ^3.25.76 || ^4
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -715,8 +721,8 @@ packages:
       typeorm:
         optional: true
 
-  langsmith@0.3.82:
-    resolution: {integrity: sha512-RTcxtRm0zp2lV+pMesMW7EZSsIlqN7OmR2F6sZ/sOFQwmcLVl+VErMPV4VkX4Sycs4/EIAFT5hpr36EqiHoikQ==}
+  langsmith@0.3.87:
+    resolution: {integrity: sha512-XXR1+9INH8YX96FKWc5tie0QixWz6tOqAsAKfcJyPkE0xPep+NDz0IQLR32q4bn10QK3LqD2HN6T3n6z1YLW7Q==}
     peerDependencies:
       '@opentelemetry/api': '*'
       '@opentelemetry/exporter-trace-otlp-proto': '*'
@@ -1021,16 +1027,20 @@ packages:
     peerDependencies:
       zod: ^3.25 || ^4
 
+  zod-to-json-schema@3.25.1:
+    resolution: {integrity: sha512-pM/SU9d3YAggzi6MtR4h7ruuQlqKtad8e9S0fmxcMi+ueAK5Korys/aWcV9LIIHTVbj01NdzxcnXSN+O74ZIVA==}
+    peerDependencies:
+      zod: ^3.25 || ^4
+
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
 
-  '@ai-sdk/gateway@2.0.18(zod@3.25.76)':
+  '@ai-sdk/gateway@1.0.29(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.18(zod@3.25.76)
-      '@vercel/oidc': 3.0.5
+      '@ai-sdk/provider-utils': 3.0.9(zod@3.25.76)
       zod: 3.25.76
 
   '@ai-sdk/openai@2.0.79(zod@3.25.76)':
@@ -1050,6 +1060,13 @@ snapshots:
     dependencies:
       '@ai-sdk/provider': 2.0.0
       '@standard-schema/spec': 1.0.0
+      eventsource-parser: 3.0.6
+      zod: 3.25.76
+
+  '@ai-sdk/provider-utils@3.0.9(zod@3.25.76)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.0
+      '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.0.6
       zod: 3.25.76
 
@@ -1173,13 +1190,13 @@ snapshots:
       camelcase: 6.3.0
       decamelize: 1.2.0
       js-tiktoken: 1.0.21
-      langsmith: 0.3.82(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))
+      langsmith: 0.3.87(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))
       mustache: 4.2.0
       p-queue: 6.6.2
       p-retry: 4.6.2
       uuid: 10.0.0
       zod: 3.25.76
-      zod-to-json-schema: 3.25.0(zod@3.25.76)
+      zod-to-json-schema: 3.25.1(zod@3.25.76)
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - '@opentelemetry/exporter-trace-otlp-proto'
@@ -1223,13 +1240,13 @@ snapshots:
 
   '@opentelemetry/api@1.9.0': {}
 
-  '@posthog/agent-toolkit@0.2.4(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251205.0)(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@langchain/openai@0.6.16(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))))(ai@5.0.108(zod@3.25.76))(langchain@0.3.36(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@opentelemetry/api@1.9.0)(axios@1.13.2)(openai@5.12.2(zod@3.25.76)))(react@19.2.1)':
+  '@posthog/agent-toolkit@0.2.4(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251205.0)(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@langchain/openai@0.6.16(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))))(ai@5.0.52(zod@3.25.76))(langchain@0.3.36(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@opentelemetry/api@1.9.0)(axios@1.13.2)(openai@5.12.2(zod@3.25.76)))(react@19.2.1)':
     dependencies:
       '@langchain/core': 0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))
       '@langchain/openai': 0.6.16(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))
       '@modelcontextprotocol/sdk': 1.24.3(@cfworker/json-schema@4.1.1)(zod@3.25.76)
       agents: 0.0.113(@cfworker/json-schema@4.1.1)(@cloudflare/workers-types@4.20251205.0)(react@19.2.1)
-      ai: 5.0.108(zod@3.25.76)
+      ai: 5.0.52(zod@3.25.76)
       fflate: 0.7.4
       langchain: 0.3.36(@langchain/core@0.3.79(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)))(@opentelemetry/api@1.9.0)(axios@1.13.2)(openai@5.12.2(zod@3.25.76))
       posthog-node: 4.18.0
@@ -1244,6 +1261,8 @@ snapshots:
 
   '@standard-schema/spec@1.0.0': {}
 
+  '@standard-schema/spec@1.1.0': {}
+
   '@types/diff-match-patch@1.0.36': {}
 
   '@types/node@22.19.1':
@@ -1253,8 +1272,6 @@ snapshots:
   '@types/retry@0.12.0': {}
 
   '@types/uuid@10.0.0': {}
-
-  '@vercel/oidc@3.0.5': {}
 
   accepts@2.0.0:
     dependencies:
@@ -1289,11 +1306,11 @@ snapshots:
     optionalDependencies:
       react: 19.2.1
 
-  ai@5.0.108(zod@3.25.76):
+  ai@5.0.52(zod@3.25.76):
     dependencies:
-      '@ai-sdk/gateway': 2.0.18(zod@3.25.76)
+      '@ai-sdk/gateway': 1.0.29(zod@3.25.76)
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.18(zod@3.25.76)
+      '@ai-sdk/provider-utils': 3.0.9(zod@3.25.76)
       '@opentelemetry/api': 1.9.0
       zod: 3.25.76
 
@@ -1645,7 +1662,7 @@ snapshots:
       js-tiktoken: 1.0.21
       js-yaml: 4.1.1
       jsonpointer: 5.0.1
-      langsmith: 0.3.82(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))
+      langsmith: 0.3.87(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76))
       openapi-types: 12.1.3
       p-retry: 4.6.2
       uuid: 10.0.0
@@ -1660,7 +1677,7 @@ snapshots:
       - openai
       - ws
 
-  langsmith@0.3.82(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)):
+  langsmith@0.3.87(@opentelemetry/api@1.9.0)(openai@5.12.2(zod@3.25.76)):
     dependencies:
       '@types/uuid': 10.0.0
       chalk: 4.1.2
@@ -1925,6 +1942,10 @@ snapshots:
   yaml@2.8.2: {}
 
   zod-to-json-schema@3.25.0(zod@3.25.76):
+    dependencies:
+      zod: 3.25.76
+
+  zod-to-json-schema@3.25.1(zod@3.25.76):
     dependencies:
       zod: 3.25.76
 

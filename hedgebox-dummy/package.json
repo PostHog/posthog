@@ -10,7 +10,7 @@
         "lint": "next lint"
     },
     "dependencies": {
-        "next": "14.0.0",
+        "next": "16.1.5",
         "posthog-js": "~1.337.0",
         "react": "^18",
         "react-dom": "^18",
