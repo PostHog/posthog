@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconCopy, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -10,11 +11,12 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
 
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -23,6 +25,7 @@ import {
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
+    variants?: MultivariateFlagVariant[]
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -102,7 +105,7 @@ function ConditionHeader({
             </div>
             <div className="flex items-center gap-1">
                 <span className="text-sm text-muted mr-2">
-                    ({rollout}%
+                    ({rollout}%{group.variant && ` · ${group.variant}`}
                     {actualUserCount !== null &&
                         totalUsers !== null &&
                         ` · ${humanFriendlyNumber(actualUserCount)} ${aggregationTargetName}`}
@@ -166,6 +169,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     filters,
     onChange,
     readOnly,
+    variants,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -200,14 +204,40 @@ export function FeatureFlagReleaseConditionsCollapsible({
         filterGroups.length === 1 ? [`condition-${filterGroups[0]?.sort_key ?? 0}`] : []
     )
 
+    // Track previous sort_keys to preserve open/closed state when aggregation type changes
+    const prevSortKeysRef = useRef<string[]>(filterGroups.map((g) => g.sort_key ?? ''))
+    useEffect(() => {
+        const currentSortKeys = filterGroups.map((g) => g.sort_key ?? '')
+        const prevSortKeys = prevSortKeysRef.current
+
+        // Check if sort_keys changed (e.g., due to aggregation type change resetting groups)
+        const keysChanged =
+            currentSortKeys.length !== prevSortKeys.length || currentSortKeys.some((key, i) => key !== prevSortKeys[i])
+
+        if (keysChanged && currentSortKeys.length > 0) {
+            // Map open state from old keys to new keys by index
+            const openIndices = prevSortKeys
+                .map((key, i) => (openConditions.includes(`condition-${key}`) ? i : -1))
+                .filter((i) => i !== -1)
+
+            const newOpenConditions = openIndices
+                .filter((i) => i < currentSortKeys.length)
+                .map((i) => `condition-${currentSortKeys[i]}`)
+
+            // If we had conditions open and now have fewer groups, keep first one open
+            if (newOpenConditions.length === 0 && openConditions.length > 0 && currentSortKeys.length > 0) {
+                newOpenConditions.push(`condition-${currentSortKeys[0]}`)
+            }
+
+            setOpenConditions(newOpenConditions)
+        }
+
+        prevSortKeysRef.current = currentSortKeys
+    }, [filterGroups, openConditions])
+
     const handleAddConditionSet = (): void => {
-        // Get the next sort_key - it will be max(existing sort_keys) + 1
-        const maxSortKey = filterGroups.reduce(
-            (max, group) => Math.max(max, typeof group.sort_key === 'number' ? group.sort_key : 0),
-            -1
-        )
-        const newSortKey = maxSortKey + 1
-        addConditionSet()
+        const newSortKey = uuidv4()
+        addConditionSet(newSortKey)
         setOpenConditions((prev) => [...prev, `condition-${newSortKey}`])
     }
 
@@ -231,7 +261,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         </span>
                                         <span>{summary}</span>
                                     </div>
-                                    <span className="text-muted">({rollout}%)</span>
+                                    <span className="text-muted">
+                                        ({rollout}%{group.variant && ` · ${group.variant}`})
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -440,6 +472,43 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                     </div>
                                 )}
                             </div>
+
+                            {variants && variants.length > 0 && (
+                                <div className="flex items-center gap-2 flex-wrap text-sm text-muted">
+                                    <span className="flex items-center gap-1">
+                                        <span className="font-medium text-default">Optional override</span>
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Force all matching {aggregationTargetName} to receive a specific
+                                                    variant.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more
+                                                    </Link>
+                                                </>
+                                            }
+                                        >
+                                            <IconInfo className="text-base" />
+                                        </Tooltip>
+                                    </span>
+                                    <span>Set variant for all {aggregationTargetName} in this set to</span>
+                                    <LemonSelect
+                                        placeholder="Select variant"
+                                        allowClear={true}
+                                        value={group.variant ?? null}
+                                        onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
+                                        options={variants.map((variant) => ({
+                                            label: variant.key,
+                                            value: variant.key,
+                                        }))}
+                                        size="small"
+                                        data-attr="feature-flags-variant-override-select"
+                                    />
+                                </div>
+                            )}
                         </div>
                     ),
                 }))}

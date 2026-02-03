@@ -5,6 +5,7 @@ export const keyBinds: Record<string, string[]> = {
     sqlEditor: ['s', 'then', 'q', 'then', 'l'],
     openSidePanel: ['g', 'then', 'p'],
     helpMenu: ['?'],
+    healthMenu: ['g', 'then', 'h'],
     newAccountMenu: ['g', 'then', 'a'],
     quickStart: ['g', 'then', 's'],
     recentItems: [...baseModifier, 'y'],
