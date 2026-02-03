@@ -11,8 +11,7 @@ use uuid::Uuid;
 /// UUID namespace for generating deterministic UUIDs from Mixpanel $insert_id values.
 /// This allows deduplication of events that may be imported multiple times.
 /// Generated using `uuidgen` - this is a random UUID that serves as our namespace.
-const MIXPANEL_INSERT_ID_NAMESPACE: Uuid =
-    Uuid::from_bytes(*b"posthog_mixpanel");
+const MIXPANEL_INSERT_ID_NAMESPACE: Uuid = Uuid::from_bytes(*b"posthog_mixpanel");
 
 use super::TransformContext;
 use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
@@ -431,8 +430,12 @@ mod tests {
         };
 
         // Parse the same event twice with the same $insert_id
-        let parser1 =
-            MixpanelEvent::parse_fn(context.clone(), false, Duration::seconds(0), identity_transform);
+        let parser1 = MixpanelEvent::parse_fn(
+            context.clone(),
+            false,
+            Duration::seconds(0),
+            identity_transform,
+        );
         let parser2 =
             MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
 
