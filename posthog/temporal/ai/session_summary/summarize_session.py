@@ -16,7 +16,7 @@ from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
 
@@ -541,6 +541,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     inactivity_periods = upload_result["inactivity_periods"]
 
     # Calculate segment specs based on video duration and activity periods
+    # TODO: Use real (video) to-from timings instead of session timings to not get 500 errors (checking parts of the video that don't exist)
     segment_specs = calculate_video_segment_specs(
         video_duration=uploaded_video.duration,
         chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
@@ -710,7 +711,7 @@ async def execute_summarize_session(
     session_id: str,
     user: User,
     team: Team,
-    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
+    model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
@@ -719,6 +720,10 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
+    if model_to_use is None:
+        model_to_use = (
+            SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
+        )
     _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user=user,
@@ -730,7 +735,13 @@ async def execute_summarize_session(
         video_validation_enabled=video_validation_enabled,
     )
     # Wait for the workflow to complete
-    await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+    try:
+        await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+    except WorkflowAlreadyStartedError:
+        # Workflow is already running, wait for it to complete
+        client = await async_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.result()
     # Get the summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id,

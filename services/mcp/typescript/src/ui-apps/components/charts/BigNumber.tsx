@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+
 import { formatNumber } from '../utils'
 
 export interface BigNumberProps {
