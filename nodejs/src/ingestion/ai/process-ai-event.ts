@@ -10,6 +10,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
+import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
 import { processAiErrorNormalization } from './errors'
 
@@ -38,6 +39,9 @@ export const AI_EVENT_TYPES = new Set([
  * 4. Extract model parameters (generation/embedding events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
+    // Map OTel attribute names to PostHog property names before any other processing.
+    convertRawEvent(event)
+
     // If the event doesn't carry properties, there's nothing to do.
     if (!isEventWithProperties(event)) {
         return event
