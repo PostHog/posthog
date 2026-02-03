@@ -1,3 +1,4 @@
+import { ProjectSecretAPIKeyAllowedScope } from '~/queries/schema/schema-general'
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
@@ -149,7 +150,7 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment'].includes(key)
+            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
                 ? `${key}:write`
                 : `${key}:read`
         ),
@@ -162,6 +163,27 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     read: 'Read',
     write: 'Write',
 }
+
+export const PROJECT_SECRET_API_KEY_SCOPES: APIScope[] = Object.values(ProjectSecretAPIKeyAllowedScope)
+    .filter((scopeString) => scopeString.includes(':'))
+    .map((scopeString) => {
+        const [objectKey, action] = scopeString.split(':')
+        const scopeConfig = API_SCOPES.find((s) => s.key === objectKey)
+
+        return {
+            key: objectKey as APIScopeObject,
+            objectName: scopeConfig?.objectName ?? objectKey,
+            objectPlural: scopeConfig?.objectPlural ?? `${objectKey}s`,
+            disabledActions: action === 'read' ? (['write'] as const) : undefined,
+        }
+    })
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    description: string
+}[] = []
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
@@ -186,6 +208,8 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'query:read',
     'survey:read',
     'survey:write',
+    'event_definition:read',
+    'event_definition:write',
     'error_tracking:read',
     'logs:read',
 ]

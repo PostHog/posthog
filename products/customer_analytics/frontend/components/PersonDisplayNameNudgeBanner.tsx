@@ -17,17 +17,19 @@ interface PersonDisplayNameNudgeBannerProps {
 
 const UUID_THRESHOLD = 0.5
 
-function getPersonsFromResponse(response: ActorsQueryResponse | null): Record<string, string>[] {
+export function getPersonsFromResponse(response: ActorsQueryResponse | null): Record<string, string>[] {
     if (!response?.results) {
         return []
     }
-    return response.results.map((result) => {
-        const person = result[0]
-        if (typeof person === 'object' && person !== null && 'display_name' in person) {
-            return person
-        }
-        return null
-    })
+    return response.results
+        .map((result) => {
+            const person = result[0]
+            if (typeof person === 'object' && person !== null && 'display_name' in person) {
+                return person
+            }
+            return null
+        })
+        .filter(Boolean)
 }
 
 export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNudgeBannerProps): JSX.Element | null {
@@ -58,7 +60,7 @@ export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNud
         }).length
         const shouldShow = dataLoading || uuidCount / persons.length > UUID_THRESHOLD
         setShowDisplayNameNudge(shouldShow)
-    }, [response, dataLoading, isRefresh])
+    }, [response, dataLoading, isRefresh, setIsBannerLoading, setShowDisplayNameNudge])
 
     if (isBannerLoading) {
         return <LemonSkeleton className="h-14 my-2" />

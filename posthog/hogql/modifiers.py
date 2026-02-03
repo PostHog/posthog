@@ -29,14 +29,18 @@ def create_default_modifiers_for_user(
     else:
         modifiers = modifiers.model_copy()
 
-    modifiers.useMaterializedViews = posthoganalytics.feature_enabled(
-        "data-modeling",
-        str(user.distinct_id),
-        person_properties={
-            "email": user.email,
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
+    modifiers.useMaterializedViews = (
+        posthoganalytics.feature_enabled(
+            "data-modeling",
+            str(user.distinct_id),
+            person_properties={
+                "email": user.email,
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if user.email
+        else True
     )
 
     return create_default_modifiers_for_team(team, modifiers)
@@ -115,13 +119,10 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.sessionTableVersion = SessionTableVersion.AUTO
 
     if modifiers.sessionsV2JoinMode is None:
-        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.STRING
+        modifiers.sessionsV2JoinMode = SessionsV2JoinMode.UUID
 
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
-
-    if modifiers.usePresortedEventsTable is None:
-        modifiers.usePresortedEventsTable = False
 
     if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED

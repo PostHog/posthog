@@ -37,7 +37,7 @@ async def create_trace_clustering_coordinator_schedule(client: Client):
                 max_k=DEFAULT_MAX_K,
             ),
             id=COORDINATOR_SCHEDULE_ID,
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.LLMA_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
     )
@@ -82,7 +82,7 @@ async def create_generation_clustering_coordinator_schedule(client: Client):
                 max_k=DEFAULT_MAX_K,
             ),
             id=GENERATION_COORDINATOR_SCHEDULE_ID,
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.LLMA_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
     )

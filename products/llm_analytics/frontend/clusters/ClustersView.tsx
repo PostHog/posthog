@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ClusterCard } from './ClusterCard'
+import { ClusterDistributionBar } from './ClusterDistributionBar'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
@@ -168,16 +169,19 @@ export function ClustersView(): JSX.Element {
                         </span>
                     </Tooltip>
                     <span className="text-muted">|</span>
-                    <label className="font-medium">Clustering run:</label>
-                    <LemonSelect
-                        value={effectiveRunId || undefined}
-                        onChange={(value) => setSelectedRunId(value || null)}
-                        options={clusteringRuns.map((run: { runId: string; label: string }) => ({
-                            value: run.runId,
-                            label: run.label,
-                        }))}
-                        placeholder="Select a run"
-                    />
+                    <Tooltip title="Clustering run">
+                        <span>
+                            <LemonSelect
+                                value={effectiveRunId || undefined}
+                                onChange={(value) => setSelectedRunId(value || null)}
+                                options={clusteringRuns.map((run: { runId: string; label: string }) => ({
+                                    value: run.runId,
+                                    label: run.label,
+                                }))}
+                                placeholder="Select a run"
+                            />
+                        </span>
+                    </Tooltip>
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -189,7 +193,7 @@ export function ClustersView(): JSX.Element {
 
                 <div className="flex items-center gap-4">
                     {currentRun && (
-                        <div className="flex items-center gap-2 text-muted text-sm">
+                        <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
                             <span>
                                 {currentRun.totalItemsAnalyzed}{' '}
                                 {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed
@@ -255,8 +259,8 @@ export function ClustersView(): JSX.Element {
                         className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
                         onClick={toggleScatterPlotExpanded}
                     >
-                        <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-base">Cluster visualization</h3>
+                        <div className="flex items-center gap-4">
+                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
                             <LemonButton
                                 size="small"
                                 noPadding

@@ -16,8 +16,6 @@ import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationM
 import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { EnvironmentRollbackModal } from 'scenes/settings/environment/EnvironmentRollbackModal'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
@@ -70,7 +68,6 @@ export function GlobalModals(): JSX.Element {
     } = useActions(globalModalsLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     // Expose modal actions to window for debugging purposes
@@ -112,7 +109,6 @@ export function GlobalModals(): JSX.Element {
             <MoveToModal />
             <LinkToModal />
             <ItemSelectModal />
-            {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
             {superpowersEnabled && <SuperpowersModal />}
         </>
     )
