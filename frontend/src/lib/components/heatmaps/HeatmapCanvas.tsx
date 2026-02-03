@@ -9,6 +9,11 @@ import { cn } from 'lib/utils/css-classes'
 import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { useMousePosition } from './useMousePosition'
 
+const HEATMAP_CONFIG = {
+    minOpacity: 0,
+    maxOpacity: 0.8,
+}
+
 function HeatmapMouseInfo({
     heatmapJsRef,
     containerRef,
@@ -87,11 +92,6 @@ export function HeatmapCanvas({
         }
     }, [heatmapColorPalette])
 
-    const heatmapConfig = {
-        minOpacity: 0,
-        maxOpacity: 0.8,
-    }
-
     const updateHeatmapData = useCallback((): void => {
         try {
             heatmapsJsRef.current?.setData(heatmapJsData)
@@ -108,14 +108,14 @@ export function HeatmapCanvas({
             }
 
             heatmapsJsRef.current = heatmapsJs.create({
-                ...heatmapConfig,
+                ...HEATMAP_CONFIG,
                 container,
                 gradient: heatmapJSColorGradient,
             })
 
             updateHeatmapData()
         },
-        [updateHeatmapData, heatmapJSColorGradient]
+        [updateHeatmapData, heatmapJSColorGradient] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     useEffect(() => {
@@ -128,7 +128,7 @@ export function HeatmapCanvas({
         }
 
         heatmapsJsRef.current?.configure({
-            ...heatmapConfig, // oxlint-disable-line react-hooks/exhaustive-deps
+            ...HEATMAP_CONFIG,
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })

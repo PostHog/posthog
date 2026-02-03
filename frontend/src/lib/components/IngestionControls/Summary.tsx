@@ -16,19 +16,31 @@ const summaryLabel: Record<TriggerType, string> = {
     [TriggerType.URL_BLOCKLIST]: 'URL blocklist',
 }
 
-export function IngestionControlsSummary({ triggers }: { triggers: Trigger[] }): JSX.Element {
+export function IngestionControlsSummary({
+    triggers,
+    controlDescription,
+    docsLink,
+}: {
+    triggers: Trigger[]
+    controlDescription: string
+    docsLink?: {
+        to: string
+        label: string
+    }
+}): JSX.Element {
     const hasAnyTriggers = triggers.some((t) => t.enabled)
 
     return (
         <LemonBanner type="info" hideIcon>
             <div className="flex flex-col gap-1">
-                <strong>{hasAnyTriggers ? 'Active triggers:' : 'No triggers — all sessions recorded'}</strong>
-                <Link
-                    to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
-                    target="blank"
-                >
-                    Read about how to start and stop sessions in our docs.
-                </Link>
+                <h3 className="mb-0">
+                    {hasAnyTriggers ? 'Trigger summary' : `No triggers — all ${controlDescription}`}
+                </h3>
+                {docsLink && (
+                    <Link to={docsLink.to} target="blank">
+                        {docsLink.label}
+                    </Link>
+                )}
                 <div className="flex flex-col gap-0.5 mt-1">
                     {triggers.map((trigger, i) => (
                         <div key={i} className="flex items-center gap-2">
@@ -54,7 +66,7 @@ function triggerSummary(trigger: Trigger): string | null {
         .with({ type: TriggerType.URL_MATCH }, (t) => pluralize(t.urls?.length || 0, 'pattern'))
         .with({ type: TriggerType.EVENT }, (t) => pluralize(t.events?.length || 0, 'event'))
         .with({ type: TriggerType.FEATURE_FLAG }, (t) => t.key)
-        .with({ type: TriggerType.SAMPLING }, (t) => (t.sampleRate ? `${t.sampleRate}%` : 'N/A'))
+        .with({ type: TriggerType.SAMPLING }, (t) => (t.sampleRate ? `${t.sampleRate * 100}%` : 'N/A'))
         .with({ type: TriggerType.MIN_DURATION }, (t) => (t.minDurationMs ? `${t.minDurationMs / 1000}s` : 'N/A'))
         .with({ type: TriggerType.URL_BLOCKLIST }, (t) => pluralize(t.urls?.length || 0, 'pattern'))
         .run()

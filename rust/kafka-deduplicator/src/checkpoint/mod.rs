@@ -5,9 +5,9 @@ pub mod export;
 pub mod import;
 pub mod metadata;
 pub mod planner;
+pub mod s3_client;
 pub mod s3_downloader;
 pub mod s3_uploader;
-pub mod s3_utils;
 pub mod uploader;
 pub mod worker;
 
