@@ -64,6 +64,72 @@ const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'
     }
 }
 
+/**
+ * Computes the new edges after moving a node to a new position in the graph.
+ * Extracted into pure function to be easier to test.
+ */
+export function computeMoveEdges(
+    edges: HogFlow['edges'],
+    movingNodeId: string,
+    targetEdge: HogFlow['edges'][0],
+    isBranchJoinDropzone: boolean
+): HogFlow['edges'] | null {
+    const incomingEdges = edges.filter((e) => e.to === movingNodeId)
+    const outgoingEdge = edges.find((e) => e.from === movingNodeId)
+
+    if (!outgoingEdge || incomingEdges.length === 0) {
+        return null
+    }
+
+    // Step 1: Bypass the node — incoming edges point to the node's outgoer, outgoing edge removed
+    let newEdges = edges
+        .map((e) => (e.to === movingNodeId ? { ...e, to: outgoingEdge.to } : e))
+        .filter((e) => e.from !== movingNodeId)
+
+    // Step 2: Find the target edge(s) to insert into.
+    // We match by from/type/index (not the full edge ID) because step 1 may have
+    // changed the 'to' field of the target edge if the moving node was its target.
+    let edgesToSplitIndexes: number[] = []
+
+    if (isBranchJoinDropzone) {
+        const newTarget = targetEdge.to === movingNodeId ? outgoingEdge.to : targetEdge.to
+        edgesToSplitIndexes = newEdges
+            .map((edge, index) => ({ edge, index }))
+            .filter(({ edge }) => edge.to === newTarget)
+            .map(({ index }) => index)
+    } else {
+        edgesToSplitIndexes = [
+            newEdges.findIndex(
+                (edge) =>
+                    edge.from === targetEdge.from && edge.type === targetEdge.type && edge.index === targetEdge.index
+            ),
+        ]
+    }
+
+    if (edgesToSplitIndexes.length === 0 || edgesToSplitIndexes.includes(-1)) {
+        return null
+    }
+
+    // Step 3: Split the target edge(s) — sources → movingNode → original target
+    const edgesToSplit = edgesToSplitIndexes.map((i) => newEdges[i])
+    const insertionTarget = edgesToSplit[0].to
+
+    edgesToSplitIndexes.sort((a, b) => b - a).forEach((i) => newEdges.splice(i, 1))
+
+    for (const edge of edgesToSplit) {
+        newEdges.push({ ...edge, to: movingNodeId })
+    }
+
+    newEdges.push({
+        from: movingNodeId,
+        to: insertionTarget,
+        type: 'continue',
+        index: undefined,
+    } as HogFlow['edges'][0])
+
+    return newEdges
+}
+
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export type HogFlowEditorActionMetrics = {
@@ -720,13 +786,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.hideDropzones()
         },
         moveNodeToHighlightedDropzone: () => {
-            // We manipulate edges directly in a single setWorkflowInfo call rather than
-            // using onNodesDelete + onDrop (like copy does). Two reasons:
-            // 1. Preserves node identity — same id, timestamps, config. No delete + recreate.
-            // 2. Avoids a race condition — onNodesDelete and onDrop each call setWorkflowInfo,
-            //    which triggers resetFlowFromHogFlow -> setNodes -> async getFormattedNodes.
-            //    Two async layout computations can complete out of order, causing the node to
-            //    disappear when the first result (without the node) overwrites the second.
+            // Uses computeMoveEdges (pure function) to manipulate edges in a single
+            // setWorkflowInfo call rather than onNodesDelete + onDrop (like copy does).
+            // This preserves node identity and avoids a race condition where two async
+            // layout computations from separate setWorkflowInfo calls complete out of order.
             const movingNodeId = values.movingNodeId!
             const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
             if (!dropzoneNode) {
@@ -741,63 +804,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
 
             const isBranchJoinDropzone = dropzoneNode.data.isBranchJoinDropzone ?? false
-            const currentEdges = [...values.workflow.edges]
-            const incomingEdges = currentEdges.filter((e) => e.to === movingNodeId)
-            const outgoingEdge = currentEdges.find((e) => e.from === movingNodeId)
+            const newEdges = computeMoveEdges(
+                values.workflow.edges,
+                movingNodeId,
+                targetHogFlowEdge,
+                isBranchJoinDropzone
+            )
 
-            if (!outgoingEdge || incomingEdges.length === 0) {
+            if (!newEdges) {
                 actions.stopMovingNode()
                 return
             }
-
-            // Step 1: Bypass the node — incoming edges point to the node's outgoer, outgoing edge removed
-            let newEdges = currentEdges
-                .map((e) => (e.to === movingNodeId ? { ...e, to: outgoingEdge.to } : e))
-                .filter((e) => e.from !== movingNodeId)
-
-            // Step 2: Find the target edge(s) to insert into.
-            // We match by from/type/index (not the full edge ID) because step 1 may have
-            // changed the 'to' field of the target edge if the moving node was its target.
-            let edgesToSplitIndexes: number[] = []
-
-            if (isBranchJoinDropzone) {
-                const newTarget = targetHogFlowEdge.to === movingNodeId ? outgoingEdge.to : targetHogFlowEdge.to
-                edgesToSplitIndexes = newEdges
-                    .map((edge, index) => ({ edge, index }))
-                    .filter(({ edge }) => edge.to === newTarget)
-                    .map(({ index }) => index)
-            } else {
-                edgesToSplitIndexes = [
-                    newEdges.findIndex(
-                        (edge) =>
-                            edge.from === targetHogFlowEdge.from &&
-                            edge.type === targetHogFlowEdge.type &&
-                            edge.index === targetHogFlowEdge.index
-                    ),
-                ]
-            }
-
-            if (edgesToSplitIndexes.length === 0 || edgesToSplitIndexes.includes(-1)) {
-                actions.stopMovingNode()
-                return
-            }
-
-            // Step 3: Split the target edge(s) — sources → movingNode → original target
-            const edgesToSplit = edgesToSplitIndexes.map((i) => newEdges[i])
-            const insertionTarget = edgesToSplit[0].to
-
-            edgesToSplitIndexes.sort((a, b) => b - a).forEach((i) => newEdges.splice(i, 1))
-
-            for (const edge of edgesToSplit) {
-                newEdges.push({ ...edge, to: movingNodeId })
-            }
-
-            newEdges.push({
-                from: movingNodeId,
-                to: insertionTarget,
-                type: 'continue',
-                index: undefined,
-            } as HogFlow['edges'][0])
 
             actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
             actions.setSelectedNodeId(movingNodeId)
