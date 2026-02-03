@@ -403,6 +403,7 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    materialized_view_sync_failed?: boolean
 }
 
 export interface PluginAccess {
