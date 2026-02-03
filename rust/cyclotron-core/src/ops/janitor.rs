@@ -56,12 +56,15 @@ where
 {
     let result = sqlx::query!(
         r#"
-DELETE FROM cyclotron_jobs
-WHERE id IN (
+WITH to_delete AS (
     SELECT id FROM cyclotron_jobs
     WHERE state IN ('failed', 'completed', 'canceled')
     LIMIT $1
-)"#,
+    FOR UPDATE SKIP LOCKED
+)
+DELETE FROM cyclotron_jobs
+USING to_delete
+WHERE cyclotron_jobs.id = to_delete.id"#,
         limit
     )
     .execute(executor)
