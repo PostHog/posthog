@@ -276,6 +276,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         This tests a bug fix where the generated SQL would reference events__override
         before it was defined, causing 'Unknown identifier' errors in ClickHouse.
+        Also verifies that only accessed fields are included in the subquery (not SELECT *).
         """
         with freeze_time("2020-01-10"):
             _create_person(
@@ -291,20 +292,41 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 is_identified=True,
             )
             flush_persons_and_events()
-            _create_event(distinct_id="person1", event="pageview", team=self.team)
-            _create_event(distinct_id="person1", event="pageview", team=self.team)
-            _create_event(distinct_id="person2", event="pageview", team=self.team)
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                distinct_id="person1",
+                event="click",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                distinct_id="person2",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Firefox"},
+            )
             flush_persons_and_events()
 
+            # Query that accesses multiple fields from events: event, timestamp, and properties.$browser
             response = execute_hogql_query(
-                "SELECT persons.id, count() FROM persons JOIN events ON events.person_id = persons.id WHERE persons.properties.email LIKE '%posthog.com' GROUP BY persons.id",
+                "SELECT persons.id, events.event, max(events.timestamp), any(events.properties.$browser) "
+                "FROM persons JOIN events ON events.person_id = persons.id "
+                "WHERE persons.properties.email LIKE '%posthog.com' "
+                "GROUP BY persons.id, events.event",
                 self.team,
                 pretty=False,
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            # Should return 1 row for the person with posthog.com email, with count of 2 events
-            self.assertEqual(len(response.results), 1)
-            self.assertEqual(response.results[0][1], 2)
+            # Should return 2 rows for the person with posthog.com email (one per event type)
+            self.assertEqual(len(response.results), 2)
+            # Verify the browser property was extracted correctly
+            browsers = {row[3] for row in response.results}
+            self.assertEqual(browsers, {"Chrome"})
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):

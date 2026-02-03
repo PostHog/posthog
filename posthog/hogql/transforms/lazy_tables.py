@@ -62,6 +62,17 @@ def constraint_references_table(constraint: ast.JoinConstraint | None, table_ali
     return any(chain and chain[0] == table_alias for chain in finder.field_chains)
 
 
+def collect_fields_from_table(node: ast.AST, table_alias: str) -> set[str]:
+    """Collect all field names accessed from a specific table alias."""
+    finder = FieldFinder()
+    finder.visit(node)
+    fields: set[str] = set()
+    for chain in finder.field_chains:
+        if len(chain) >= 2 and chain[0] == table_alias and isinstance(chain[1], str):
+            fields.add(chain[1])
+    return fields
+
+
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
     max_type_visits: int = 1
@@ -459,12 +470,19 @@ class LazyTableResolver(TraversingVisitor):
                         constraint_expr = join_ptr.constraint.expr
                         original_alias = join_ptr.alias or str(join_ptr.table.chain[0])
 
-                        # Wrap table in subquery: SELECT *, <join_key_expr> AS __join_key FROM <table>
+                        # Find which fields from this table are actually used in the query
+                        used_fields = collect_fields_from_table(node, original_alias)
+
+                        # Build select list with only needed fields plus the join key
+                        select_fields: list[ast.Expr] = [
+                            ast.Field(chain=[original_alias, field]) for field in sorted(used_fields)
+                        ]
+                        select_fields.append(
+                            ast.Alias(alias="__join_key", expr=clone_expr(constraint_expr.left, clear_types=True))
+                        )
+
                         subquery = ast.SelectQuery(
-                            select=[
-                                ast.Field(chain=[original_alias, "*"]),
-                                ast.Alias(alias="__join_key", expr=clone_expr(constraint_expr.left, clear_types=True)),
-                            ],
+                            select=select_fields,
                             select_from=ast.JoinExpr(
                                 table=ast.Field(chain=list(join_ptr.table.chain)), alias=original_alias
                             ),
