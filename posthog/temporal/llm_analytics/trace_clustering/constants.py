@@ -26,6 +26,7 @@ CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
 
 # Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
 GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-schedule"
+GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
