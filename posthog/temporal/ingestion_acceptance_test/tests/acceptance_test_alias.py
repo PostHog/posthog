@@ -39,7 +39,7 @@ class TestAlias(AcceptanceTest):
         assert person is not None, "Person not found after alias"
 
         # Query all events for this person - should have both events and the alias creation event
-        events = self.client.query_events_by_person_id(person.id, expected_count=2)
+        events = self.client.query_events_by_person_id(person.id, expected_count=3)
         assert events is not None, "Expected 3 events for person after alias"
         assert len(events) == 3, f"Expected 3 events, got {len(events)}"
 
