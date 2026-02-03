@@ -14,9 +14,9 @@ use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
-    PARTITION_STORE_FALLBACK_EMPTY, PARTITION_STORE_SETUP_SKIPPED,
-    REBALANCE_CHECKPOINT_IMPORT_COUNTER, REBALANCE_PARTITION_STATE_CHANGE,
-    REBALANCE_RESUME_SKIPPED_NO_OWNED,
+    CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER, PARTITION_STORE_FALLBACK_EMPTY,
+    PARTITION_STORE_SETUP_SKIPPED, REBALANCE_CHECKPOINT_IMPORT_COUNTER,
+    REBALANCE_PARTITION_STATE_CHANGE, REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
 use crate::rebalance_tracker::RebalanceTracker;
 use crate::store_manager::StoreManager;
@@ -132,16 +132,68 @@ where
                     .await
                 {
                     Ok(path) => {
-                        // === CHECKPOINT 2: After download (or cancellation) ===
-                        if cancel_token.is_cancelled()
-                            || !coordinator.is_partition_owned(&partition)
-                        {
+                        // === CHECKPOINT 2: After download completes ===
+                        // Check if we should skip registration (token cancelled or ownership lost)
+                        let is_cancelled = cancel_token.is_cancelled();
+                        let is_owned = coordinator.is_partition_owned(&partition);
+
+                        if is_cancelled || !is_owned {
+                            let reason = if is_cancelled {
+                                "cancelled"
+                            } else {
+                                "not_owned"
+                            };
                             metrics::counter!(
                                 PARTITION_STORE_SETUP_SKIPPED,
-                                "reason" => if cancel_token.is_cancelled() { "cancelled" } else { "not_owned" },
+                                "reason" => reason,
                             )
                             .increment(1);
-                            // Downloaded files will be cleaned up by the orphan directory cleaner.
+
+                            // Only clean up immediately if partition is NOT owned.
+                            // If token is cancelled but partition IS owned (rapid revoke→assign),
+                            // a new task may be about to work with this directory - let it handle
+                            // cleanup via its defensive pre-import cleanup, or let orphan cleaner
+                            // handle it after the new task completes.
+                            if !is_owned && path.exists() {
+                                match std::fs::remove_dir_all(&path) {
+                                    Ok(_) => {
+                                        metrics::counter!(
+                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            "result" => "success",
+                                        )
+                                        .increment(1);
+                                        info!(
+                                            topic = partition.topic(),
+                                            partition = partition.partition_number(),
+                                            path = %path.display(),
+                                            reason = reason,
+                                            "Cleaned up checkpoint import for unowned partition"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        metrics::counter!(
+                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            "result" => "failed",
+                                        )
+                                        .increment(1);
+                                        warn!(
+                                            topic = partition.topic(),
+                                            partition = partition.partition_number(),
+                                            path = %path.display(),
+                                            error = %e,
+                                            "Failed to clean up checkpoint import, orphan cleaner will handle it"
+                                        );
+                                    }
+                                }
+                            } else if is_cancelled && is_owned {
+                                // Token cancelled but partition re-assigned - let new task handle it
+                                debug!(
+                                    topic = partition.topic(),
+                                    partition = partition.partition_number(),
+                                    path = %path.display(),
+                                    "Skipping cleanup - partition was re-assigned, new task will handle"
+                                );
+                            }
                             return;
                         }
 
