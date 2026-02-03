@@ -8,7 +8,7 @@ import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
@@ -144,16 +144,98 @@ export const LineGraph = ({
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
+    const MAX_SERIES = 200
+    const ySeriesData = useMemo(() => {
+        if (!yData) {
+            return null
+        }
+        if (yData.length > MAX_SERIES) {
+            if (!dashboardId) {
+                lemonToast.warning(
+                    `This breakdown has too many series (${yData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
+                )
+            }
+            return yData.slice(0, MAX_SERIES)
+        }
+        return yData
+    }, [yData, dashboardId])
+
+    const datasets = useMemo(() => {
+        if (!ySeriesData) {
+            return null
+        }
+
+        return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
+            const seriesColor = settings?.display?.color ?? getSeriesColor(index)
+            let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+
+            // Dim non-hovered bars in stacked bar charts when shift is pressed
+            if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
+                backgroundColor = hexToRGBA(seriesColor, 0.2)
+            }
+
+            const graphType = getGraphType(visualizationType, settings)
+
+            let yAxisID = 'yLeft'
+            if (chartSettings.stackBars100) {
+                yAxisID = 'y'
+            } else if (settings?.display?.yAxisPosition === 'right') {
+                yAxisID = 'yRight'
+            }
+
+            const getLabel = (): string => {
+                if ('name' in rest) {
+                    return rest.name
+                }
+
+                return rest.column.name
+            }
+
+            return {
+                data: seriesData,
+                label: getLabel(),
+                borderColor: seriesColor,
+                backgroundColor: backgroundColor,
+                borderWidth: graphType === GraphType.Bar ? 0 : 2,
+                pointRadius: 0,
+                hitRadius: 0,
+                order: 1,
+                hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
+                hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
+                type: graphType,
+                fill: isAreaChart ? 'origin' : false,
+                yAxisID,
+                ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
+                    ? {
+                          trendlineLinear: {
+                              colorMin: hexToRGBA(seriesColor, 0.6),
+                              colorMax: hexToRGBA(seriesColor, 0.6),
+                              lineStyle: 'dotted',
+                              width: 3,
+                          },
+                      }
+                    : {}),
+            } as ChartData['datasets'][0]
+        })
+    }, [
+        ySeriesData,
+        xData,
+        yData,
+        isAreaChart,
+        isHighlightBarMode,
+        hoveredDatasetIndex,
+        visualizationType,
+        chartSettings.stackBars100,
+    ])
+
     const { canvasRef } = useChart({
         getConfig: () => {
             const colors = getGraphColors()
 
-            let ySeriesData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
             let xSeriesData: AxisSeries<string>
             let hasRightYAxis = false
             let hasLeftYAxis = false
-            if (xData && yData) {
-                ySeriesData = yData
+            if (xData && ySeriesData && datasets) {
                 xSeriesData = xData
                 hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
                 hasLeftYAxis =
@@ -163,74 +245,9 @@ export const LineGraph = ({
                 return null
             }
 
-            const MAX_SERIES = 200
-            if (ySeriesData.length > MAX_SERIES) {
-                if (!dashboardId) {
-                    lemonToast.warning(
-                        `This breakdown has too many series (${ySeriesData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
-                    )
-                }
-                ySeriesData = ySeriesData.slice(0, MAX_SERIES)
-            }
-
             const data: ChartData = {
                 labels: xSeriesData.data,
-                datasets: ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
-                    const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-                    let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
-
-                    // Dim non-hovered bars in stacked bar charts when shift is pressed
-                    if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
-                        backgroundColor = hexToRGBA(seriesColor, 0.2)
-                    }
-
-                    const graphType = getGraphType(visualizationType, settings)
-
-                    let yAxisID = 'yLeft'
-                    if (chartSettings.stackBars100) {
-                        yAxisID = 'y'
-                    } else if (settings?.display?.yAxisPosition === 'right') {
-                        yAxisID = 'yRight'
-                    }
-
-                    const getLabel = (): string => {
-                        if ('name' in rest) {
-                            return rest.name
-                        }
-
-                        return rest.column.name
-                    }
-
-                    return {
-                        data: seriesData,
-                        label: getLabel(),
-                        borderColor: seriesColor,
-                        backgroundColor: backgroundColor,
-                        borderWidth: graphType === GraphType.Bar ? 0 : 2,
-                        pointRadius: 0,
-                        hitRadius: 0,
-                        order: 1,
-                        hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
-                        hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
-                        type: graphType,
-                        fill: isAreaChart ? 'origin' : false,
-                        yAxisID,
-                        ...(settings?.display?.trendLine &&
-                        xData &&
-                        yData &&
-                        xData.data.length > 0 &&
-                        seriesData.length > 0
-                            ? {
-                                  trendlineLinear: {
-                                      colorMin: hexToRGBA(seriesColor, 0.6),
-                                      colorMax: hexToRGBA(seriesColor, 0.6),
-                                      lineStyle: 'dotted',
-                                      width: 3,
-                                  },
-                              }
-                            : {}),
-                    } as ChartData['datasets'][0]
-                }),
+                datasets,
             }
 
             const annotations = goalLines.reduce(
