@@ -119,7 +119,7 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { getTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const isBarChart =
@@ -231,11 +231,10 @@ export const LineGraph = ({
                                     annotationsList[`line${curIndex}`].label.content = `${
                                         cur.label
                                     }: ${cur.value.toLocaleString()}`
-                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
 
                                     if (tooltipEl) {
-                                        tooltipEl.style.opacity = '0'
-                                        tooltipEl.style.pointerEvents = 'none'
+                                        tooltipEl.classList.add('opacity-0', 'invisible')
                                     }
 
                                     ctx.chart.update()
@@ -251,10 +250,9 @@ export const LineGraph = ({
                                 if (annotationsList[`line${curIndex}`]) {
                                     annotationsList[`line${curIndex}`].label.content = cur.label
 
-                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {
-                                        tooltipEl.style.opacity = ''
-                                        tooltipEl.style.pointerEvents = ''
+                                        tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
 
                                     ctx.chart.update()

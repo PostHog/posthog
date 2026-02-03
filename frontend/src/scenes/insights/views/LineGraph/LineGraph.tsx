@@ -295,7 +295,7 @@ export function LineGraph_({
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
-    const { hideTooltip, getTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, getTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -713,17 +713,15 @@ export function LineGraph_({
                                 borderWidth: 1,
                                 borderDash: [5, 8],
                                 enter: () => {
-                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {
-                                        tooltipEl.style.opacity = '0'
-                                        tooltipEl.style.pointerEvents = 'none'
+                                        tooltipEl.classList.add('opacity-0', 'invisible')
                                     }
                                 },
                                 leave: () => {
-                                    const tooltipEl = document.querySelector('.InsightTooltipWrapper') as HTMLElement
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {
-                                        tooltipEl.style.opacity = ''
-                                        tooltipEl.style.pointerEvents = ''
+                                        tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
                                 },
                             }
