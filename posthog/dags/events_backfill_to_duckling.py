@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     group3_created_at TIMESTAMPTZ,
     group4_created_at TIMESTAMPTZ,
     person_mode VARCHAR,
-    historical_migration VARCHAR,
+    historical_migration BOOLEAN,
     _inserted_at TIMESTAMPTZ
 )
 """
