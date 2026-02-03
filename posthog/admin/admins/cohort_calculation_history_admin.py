@@ -16,7 +16,7 @@ class CohortCalculationHistoryAdmin(admin.ModelAdmin):
         "total_query_ms",
     )
     list_display_links = ("id",)
-    list_filter = ("is_successful", "started_at", "team")
+    list_filter = ("error", "finished_at", "started_at", "team")
     search_fields = ("cohort__name", "cohort__id", "team__name")
     list_select_related = ("cohort", "team")
     ordering = ("-started_at",)
