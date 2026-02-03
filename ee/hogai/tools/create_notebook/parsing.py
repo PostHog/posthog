@@ -55,7 +55,37 @@ def _parse_notebook_content(
     return blocks
 
 
-def parse_notebook_content_for_storage(content: str) -> list[StoredBlock]:
+def _strip_title_heading(content: str, title: str | None) -> str:
+    """
+    Strip the first H1 heading from content if it matches the title.
+
+    LLMs often generate a markdown H1 heading that duplicates the notebook title.
+    This function removes that redundancy.
+
+    Args:
+        content: Markdown content
+        title: The notebook title to compare against
+
+    Returns:
+        Content with duplicate H1 heading removed if it matched the title
+    """
+    if not title:
+        return content
+
+    # Match H1 at the start of content (with optional leading whitespace)
+    h1_pattern = r"^\s*#\s+(.+?)(?:\n|$)"
+    match = re.match(h1_pattern, content)
+
+    if match:
+        heading_text = match.group(1).strip()
+        if heading_text.lower() == title.lower():
+            # Remove the H1 heading and any following blank lines
+            return content[match.end() :].lstrip("\n")
+
+    return content
+
+
+def parse_notebook_content_for_storage(content: str, title: str | None = None) -> list[StoredBlock]:
     """
     Parse markdown content into StoredBlock[] for persistence.
 
@@ -64,12 +94,14 @@ def parse_notebook_content_for_storage(content: str) -> list[StoredBlock]:
 
     Args:
         content: Markdown content with optional <insight>artifact_id</insight> tags
+        title: Optional notebook title - if provided, a matching H1 heading will be stripped
 
     Returns:
         List of StoredBlock (MarkdownBlock, VisualizationRefBlock, SessionReplayBlock)
     """
+    cleaned_content = _strip_title_heading(content, title)
     return _parse_notebook_content(
-        content,
+        cleaned_content,
         create_insight_block=lambda artifact_id: VisualizationRefBlock(artifact_id=artifact_id),
     )
 

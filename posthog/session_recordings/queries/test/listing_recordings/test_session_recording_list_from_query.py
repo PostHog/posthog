@@ -2935,6 +2935,45 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    @snapshot_clickhouse_queries
+    def test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library(self):
+        """
+        Test that $lib event property filters are automatically converted to snapshot_library
+        recording filters for better query performance (avoids events table scan).
+        """
+        user = "test_lib_conversion-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id_one = f"test_lib_conversion-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            snapshot_library="posthog-ios",
+        )
+
+        session_id_two = f"test_lib_conversion-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            snapshot_library="posthog-react-native",
+        )
+
+        # Using $lib event property filter should work the same as snapshot_library
+        # because the backend converts it automatically
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "$lib", "value": ["posthog-ios"], "operator": "exact", "type": "event"}]'},
+            [session_id_one],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "$lib", "value": ["posthog-react-native"], "operator": "exact", "type": "event"}]'
+            },
+            [session_id_two],
+        )
+
     def test_filter_for_recordings_by_visited_page(self):
         user = "test_visited_page_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})

@@ -10,6 +10,7 @@ NOTES:
 - The goal here is for useful and actionable summarization.
 
 IMPORTANT GUIDELINES:
+- Focus, when feasible, on what the user or human was trying to accomplish and how the AI agent helped or failed to help them complete their task.
 - Provide 5-10 bullet points covering the main aspects of what happened.
 - Include interesting notes highlighting notable aspects that a human user responsible for the system might want to know.
 - Line references go in the line_refs field - DO NOT include them in the text field.
