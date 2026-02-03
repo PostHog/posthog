@@ -604,8 +604,6 @@ export interface HogQLQueryModifiersApi {
      */
     usePreaggregatedTableTransforms?: boolean | null
     /** @nullable */
-    usePresortedEventsTable?: boolean | null
-    /** @nullable */
     useWebAnalyticsPreAggregatedTables?: boolean | null
 }
 
