@@ -56,11 +56,9 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         query = TracesQuery(
             dateRange=DateRange(date_from=window_start, date_to=window_end),
             limit=max_items,
-            randomOrder=True,
         )
 
         # Use QUERY_ASYNC limit context to get 600s timeout instead of default 60s
-        # This prevents timeouts for high-volume teams with many AI events
         runner = TracesQueryRunner(team=team, query=query, limit_context=LimitContext.QUERY_ASYNC)
         response = runner.calculate()
 
