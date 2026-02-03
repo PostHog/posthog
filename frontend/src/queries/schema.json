@@ -22401,6 +22401,9 @@
                 "organization_name": {
                     "type": "string"
                 },
+                "skip_onboarding": {
+                    "type": "boolean"
+                },
                 "use_current_time": {
                     "type": "boolean"
                 }
