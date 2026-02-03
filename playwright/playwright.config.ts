@@ -76,8 +76,8 @@ export default defineConfig({
                       testMatch: ['**/memory-leak.spec.ts'],
                       use: {
                           ...devices['Desktop Chrome'],
-                          screenshot: 'off',
-                          video: 'off',
+                          screenshot: 'off' as const,
+                          video: 'off' as const,
                       },
                       retries: 0,
                   },
