@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
@@ -10,13 +11,19 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AddInsightToDashboardModalV2 } from './AddInsightToDashboardModalV2'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
 export function AddInsightToDashboardModal(): JSX.Element {
+    const showNewModal = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT', 'test')
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
+
+    if (showNewModal) {
+        return <AddInsightToDashboardModalV2 />
+    }
     return (
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
             <LemonModal
