@@ -105,7 +105,7 @@ const ModelNodeInner = React.memo(function ModelNodeInner({
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
                 // dims non matched nodes, search match is undefined when the debounced query value is unset
-                opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.15,
+                opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.5,
             }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
