@@ -128,28 +128,28 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     uuid VARCHAR,
     event VARCHAR,
     properties VARCHAR,
-    timestamp TIMESTAMP,
+    timestamp TIMESTAMPTZ,
     team_id BIGINT,
     project_id BIGINT,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPTZ,
     person_id VARCHAR,
-    person_created_at TIMESTAMP,
+    person_created_at TIMESTAMPTZ,
     person_properties VARCHAR,
     group0_properties VARCHAR,
     group1_properties VARCHAR,
     group2_properties VARCHAR,
     group3_properties VARCHAR,
     group4_properties VARCHAR,
-    group0_created_at TIMESTAMP,
-    group1_created_at TIMESTAMP,
-    group2_created_at TIMESTAMP,
-    group3_created_at TIMESTAMP,
-    group4_created_at TIMESTAMP,
+    group0_created_at TIMESTAMPTZ,
+    group1_created_at TIMESTAMPTZ,
+    group2_created_at TIMESTAMPTZ,
+    group3_created_at TIMESTAMPTZ,
+    group4_created_at TIMESTAMPTZ,
     person_mode VARCHAR,
     historical_migration VARCHAR,
-    _inserted_at TIMESTAMP
+    _inserted_at TIMESTAMPTZ
 )
 """
 
@@ -160,12 +160,12 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     distinct_id VARCHAR,
     id VARCHAR,
     properties VARCHAR,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPTZ,
     is_identified BOOLEAN,
     person_distinct_id_version BIGINT,
     person_version BIGINT,
-    _timestamp TIMESTAMP,
-    _inserted_at TIMESTAMP
+    _timestamp TIMESTAMPTZ,
+    _inserted_at TIMESTAMPTZ
 )
 """
 
