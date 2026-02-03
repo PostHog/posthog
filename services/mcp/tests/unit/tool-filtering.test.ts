@@ -36,8 +36,6 @@ describe('Tool Filtering - Features', () => {
                 'dashboards-get-all',
                 'add-insight-to-dashboard',
                 'insights-get-all',
-                'query-generate-hogql-from-question',
-                'query-run',
                 'insight-create-from-query',
             ],
         },
@@ -86,7 +84,7 @@ describe('Tool Filtering - Features', () => {
 
     describe('getToolsForFeatures', () => {
         it.each(featureTests)('should return $description', ({ features, expectedTools }) => {
-            const tools = getToolsForFeatures(features)
+            const tools = getToolsForFeatures({ features })
 
             for (const tool of expectedTools) {
                 expect(tools).toContain(tool)

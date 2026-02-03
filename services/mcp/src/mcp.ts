@@ -36,6 +36,7 @@ export type RequestProperties = {
     sessionId?: string
     features?: string[]
     region?: string
+    version?: number
 }
 
 export class MCP extends McpAgent<Env> {
@@ -290,8 +291,8 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const features = this.requestProperties.features
-        const allTools = await getToolsFromContext(context, features)
+        const { features, version } = this.requestProperties
+        const allTools = await getToolsFromContext(context, { features, version })
 
         for (const tool of allTools) {
             this.registerTool(tool, async (params) => tool.handler(context, params))

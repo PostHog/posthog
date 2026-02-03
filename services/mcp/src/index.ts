@@ -189,8 +189,10 @@ const handleRequest = async (
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
-    Object.assign(ctx.props, { features, region: regionParam })
-    log.extend({ features })
+    const version = Number(url.searchParams.get('v')) || 1
+
+    Object.assign(ctx.props, { features, region: regionParam, version })
+    log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {
         return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
@@ -199,18 +201,6 @@ const handleRequest = async (
     if (url.pathname.startsWith('/sse')) {
         return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
     }
-
-    // Twig MCP endpoints - only expose tools with new_mcp: true
-    if (url.pathname.startsWith('/twig/mcp')) {
-        Object.assign(ctx.props, { newMcpOnly: true })
-        return MCP.serve('/twig/mcp').fetch(request, env, ctx).then(errorHandler)
-    }
-
-    if (url.pathname.startsWith('/twig/sse')) {
-        Object.assign(ctx.props, { newMcpOnly: true })
-        return MCP.serveSSE('/twig/sse').fetch(request, env, ctx).then(errorHandler)
-    }
-
 
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
