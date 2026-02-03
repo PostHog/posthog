@@ -24,6 +24,7 @@ import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { surveyLogic } from './surveyLogic'
+import { isThumbQuestion } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -148,10 +149,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
     const shouldShowNpsCheckbox =
         question.type === SurveyQuestionType.Rating && question.scale === SURVEY_RATING_SCALE.NPS_10_POINT
-    const isThumbSurvey =
-        question.type === SurveyQuestionType.Rating &&
-        question.display === 'emoji' &&
-        question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
 
     const confirmQuestionTypeChange = (
         index: number,
@@ -301,7 +298,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 />
                             </LemonField>
                         </div>
-                        {!isThumbSurvey && (
+                        {!isThumbQuestion(question) && (
                             <div className="flex flex-row gap-4">
                                 <LemonField name="lowerBoundLabel" label="Lower bound label" className="w-1/2">
                                     <LemonInput value={question.lowerBoundLabel || ''} />
