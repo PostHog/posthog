@@ -29,7 +29,6 @@ from posthog.temporal.cleanup_property_definitions import (
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.posthog_analytics_config import configure_posthog_analytics_for_temporal
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
@@ -404,10 +403,6 @@ class Command(BaseCommand):
             options["client_key"] = "--SECRET--"
 
         structlog.reset_defaults()
-
-        # Configure posthoganalytics for Temporal worker safety before any usage
-        # This must happen early, before any activities or workflows execute
-        configure_posthog_analytics_for_temporal()
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()

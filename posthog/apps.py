@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import get_instance_region, get_machine_id, initialize_self_capture_api_token
 
@@ -22,7 +23,6 @@ class PostHogConfig(AppConfig):
     def ready(self):
         self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
@@ -32,6 +32,24 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("SENTRY_ENVIRONMENT"),
         }
         posthoganalytics.capture_exception_code_variables = True
+
+        # Thread-safe mode for Temporal workers and other highly concurrent environments.
+        # The posthoganalytics SDK has thread-safety issues in versions 7.x where global
+        # HTTP sessions and feature flag polling state can be corrupted under concurrent access.
+        # This mode:
+        # - Enables sync_mode (no Consumer background threads)
+        # - Disables local evaluation (no Poller background thread)
+        # - Disables connection pooling (no shared mutable session state)
+        if get_from_env("ENABLE_POSTHOG_ANALYTICS_SYNC_MODE", default=False, type_cast=str_to_bool):
+            posthoganalytics.sync_mode = True
+            posthoganalytics.personal_api_key = None
+            try:
+                posthoganalytics.disable_connection_reuse()
+            except AttributeError:
+                pass  # Older SDK versions don't have this
+            logger.info("posthog_analytics_sync_mode_enabled")
+        else:
+            posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
