@@ -13,6 +13,7 @@ DEFAULT_MAX_ITEMS_PER_WINDOW = (
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
+DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
 # Max text representation length (in characters)
