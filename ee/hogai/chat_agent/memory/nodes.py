@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 from typing import Literal, Optional, Union, cast
 from uuid import uuid4
@@ -16,6 +17,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
     AssistantForm,
     AssistantFormOption,
@@ -390,7 +393,18 @@ class core_memory_replace(BaseModel):
     new_fragment: str = Field(description="The content to replace the existing memory with.")
 
 
-memory_collector_tools = [core_memory_append, core_memory_replace]
+class query_memories(BaseModel):
+    """
+    Query the queryable memory system to check for existing similar memories before appending new information.
+    Use this to prevent duplicate memories by searching for semantically similar content.
+    Returns a list of existing memories that are semantically similar to the query.
+    """
+
+    query_text: str = Field(description="The text to search for in existing memories")
+    limit: int = Field(default=5, description="Maximum number of results to return (default 5)")
+
+
+memory_collector_tools = [query_memories, core_memory_append, core_memory_replace]
 
 
 class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
@@ -514,9 +528,9 @@ class MemoryCollectorToolsNode(AssistantNode):
 
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
         try:
-            tool_calls: list[Union[core_memory_append, core_memory_replace]] = await tools_parser.ainvoke(
-                last_message, config=config
-            )
+            tool_calls: list[
+                Union[query_memories, core_memory_append, core_memory_replace]
+            ] = await tools_parser.ainvoke(last_message, config=config)
         except ValidationError as e:
             failover_messages = ChatPromptTemplate.from_messages(
                 [("user", TOOL_CALL_ERROR_PROMPT)], template_format="mustache"
@@ -527,12 +541,15 @@ class MemoryCollectorToolsNode(AssistantNode):
 
         new_messages: list[LangchainToolMessage] = []
         for tool_call, schema in zip(last_message.tool_calls, tool_calls):
-            if isinstance(schema, core_memory_append):
+            if isinstance(schema, query_memories):
+                result_text = await self._query_memories(schema.query_text, schema.limit)
+                new_messages.append(LangchainToolMessage(content=result_text, tool_call_id=tool_call["id"]))
+            elif isinstance(schema, core_memory_append):
                 await core_memory.aappend_core_memory(schema.memory_content)
                 # Sync to queryable memory system (only if no similar memory exists)
                 await sync_memory_to_queryable(self._team, self._user, schema.memory_content)
                 new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
-            if isinstance(schema, core_memory_replace):
+            elif isinstance(schema, core_memory_replace):
                 try:
                     await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)
                     # Sync the new fragment to queryable memory system (only if no similar memory exists)
@@ -544,3 +561,80 @@ class MemoryCollectorToolsNode(AssistantNode):
         return PartialAssistantState(
             memory_collection_messages=[*node_messages, *new_messages],
         )
+
+    async def _query_memories(self, query_text: str, limit: int) -> str:
+        """
+        Query the queryable memory system for semantically similar memories.
+
+        This method searches for memories similar to the query text and returns
+        formatted results for the agent to use when deciding whether to append
+        new memories or not.
+
+        Args:
+            query_text: The text to search for in existing memories
+            limit: Maximum number of results to return
+
+        Returns:
+            Formatted string with query results or "No memories found" message
+        """
+        EMBEDDING_MODEL = "text-embedding-3-small-1536"
+
+        # Query similar to ManageMemoriesTool._query_memories but simpler
+        # We search team-wide memories (not just user-specific) since core memory is team-wide
+        query = """
+            SELECT
+                document_id,
+                content,
+                metadata,
+                cosineDistance(embedding, embedText({query_text}, {model_name})) as distance
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(content, inserted_at) as content,
+                    argMax(metadata, inserted_at) as metadata,
+                    argMax(embedding, inserted_at) as embedding
+                FROM document_embeddings
+                WHERE model_name = {model_name}
+                  AND product = 'posthog-ai'
+                  AND document_type = 'memory'
+                GROUP BY document_id, model_name, product, document_type, rendering
+            )
+            WHERE NOT JSONExtractBool(metadata, 'deleted')
+            ORDER BY distance ASC
+            LIMIT {limit}
+        """
+
+        @database_sync_to_async(thread_sensitive=False)
+        def run_query():
+            return execute_hogql_query(
+                query_type="MemoryCollectorQueryMemories",
+                query=query,
+                team=self._team,
+                placeholders={
+                    "query_text": ast.Constant(value=query_text),
+                    "model_name": ast.Constant(value=EMBEDDING_MODEL),
+                    "limit": ast.Constant(value=limit),
+                },
+            )
+
+        result = await run_query()
+
+        if not result.results:
+            return "No memories found matching your query."
+
+        # Format results for the agent
+        result_text = f"Found {len(result.results)} relevant memories:\n\n"
+        for i, row in enumerate(result.results, 1):
+            document_id, content, metadata_str, distance = row
+            try:
+                metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
+            except json.JSONDecodeError:
+                metadata_dict = {}
+
+            result_text += f"**Memory {i}** (distance: {distance:.4f})\n"
+            result_text += f"Content: {content}\n"
+            if metadata_dict and metadata_dict.get("source"):
+                result_text += f"Source: {metadata_dict['source']}\n"
+            result_text += "\n"
+
+        return result_text
