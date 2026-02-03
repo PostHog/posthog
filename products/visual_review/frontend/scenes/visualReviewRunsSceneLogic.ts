@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { Breadcrumb } from '~/types'
 
-import { visualReviewProjectsList, visualReviewRunsList } from '../generated/api'
-import type { ProjectApi, RunApi } from '../generated/api.schemas'
+import { visualReviewReposList, visualReviewRunsList } from '../generated/api'
+import type { RepoApi, RunApi } from '../generated/api.schemas'
 import type { visualReviewRunsSceneLogicType } from './visualReviewRunsSceneLogicType'
 
 export type RunFilterTab = 'needs_review' | 'clean' | 'processing'
@@ -35,11 +35,11 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 },
             },
         ],
-        project: [
-            null as ProjectApi | null,
+        repo: [
+            null as RepoApi | null,
             {
-                loadProject: async () => {
-                    const response = await visualReviewProjectsList('@current')
+                loadRepo: async () => {
+                    const response = await visualReviewReposList('@current')
                     return response.results[0] || null
                 },
             },
@@ -100,7 +100,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 processing: processingRuns.length,
             }),
         ],
-        repoFullName: [(s) => [s.project], (project): string | undefined => project?.repo_full_name || undefined],
+        repoFullName: [(s) => [s.repo], (repo): string | undefined => repo?.repo_full_name || undefined],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -115,6 +115,6 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadRuns()
-        actions.loadProject()
+        actions.loadRepo()
     }),
 ])

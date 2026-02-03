@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGear, IconGithub } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,69 +20,23 @@ export const scene: SceneExport = {
     logic: visualReviewRunsSceneLogic,
 }
 
-function RunCard({ run, repoFullName }: { run: RunApi; repoFullName?: string }): JSX.Element {
-    const hasChanges = run.summary.changed > 0 || run.summary.new > 0 || run.summary.removed > 0
-    const isProcessing = run.status === 'pending' || run.status === 'processing'
+function BranchCell({ run, repoFullName }: { run: RunApi; repoFullName?: string }): JSX.Element {
     const prUrl = run.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${run.pr_number}` : null
 
     return (
-        <div
-            className="bg-bg-light border rounded-lg p-4 hover:border-primary cursor-pointer transition-colors flex flex-col"
-            onClick={() => router.actions.push(`/visual_review/runs/${run.id}`)}
-        >
-            <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                    {run.pr_number ? (
-                        <span
-                            className="flex items-center gap-1 text-xs font-medium text-muted bg-bg-3000 px-1.5 py-0.5 rounded shrink-0"
-                            onClick={(e) => {
-                                if (prUrl) {
-                                    e.stopPropagation()
-                                    window.open(prUrl, '_blank')
-                                }
-                            }}
-                            title={prUrl ? 'Open PR on GitHub' : undefined}
-                        >
-                            <IconGithub className="text-sm" />#{run.pr_number}
-                        </span>
-                    ) : null}
-                    <span className="font-semibold truncate">{run.branch}</span>
-                </div>
-                <span className="font-mono text-xs text-muted shrink-0">{run.commit_sha.substring(0, 7)}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-muted mb-3">
-                <RunStatusBadge status={run.status} />
-                {run.approved && <span className="text-success text-xs font-medium">Approved</span>}
-                <span className="ml-auto">{dayjs(run.created_at).fromNow()}</span>
-            </div>
-            <div className="flex items-center justify-between mt-auto pt-2 border-t border-border-light">
-                <RunSummaryStats summary={run.summary} />
-                {isProcessing ? (
-                    <Spinner className="text-lg" />
-                ) : hasChanges && !run.approved ? (
-                    <LemonButton type="primary" size="small">
-                        Review
-                    </LemonButton>
-                ) : (
-                    <LemonButton type="secondary" size="small">
-                        View
-                    </LemonButton>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function RunCardSkeleton(): JSX.Element {
-    return (
-        <div className="bg-bg-light border rounded-lg p-4">
-            <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                    <LemonSkeleton className="h-5 w-48 mb-2" />
-                    <LemonSkeleton className="h-4 w-32" />
-                </div>
-                <LemonSkeleton className="h-8 w-24" />
-            </div>
+        <div className="flex items-center gap-2 min-w-0">
+            {run.pr_number && prUrl ? (
+                <Link
+                    to={prUrl}
+                    target="_blank"
+                    className="flex items-center gap-1 text-xs font-medium text-muted hover:text-primary shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                    title="Open PR on GitHub"
+                >
+                    <IconGithub className="text-sm" />#{run.pr_number}
+                </Link>
+            ) : null}
+            <span className="font-medium truncate">{run.branch}</span>
         </div>
     )
 }
@@ -96,6 +50,65 @@ export function VisualReviewRunsScene(): JSX.Element {
         clean: 'No clean runs yet.',
         processing: 'No runs are currently processing.',
     }
+
+    const columns: LemonTableColumns<RunApi> = [
+        {
+            title: 'Status',
+            key: 'status',
+            width: 120,
+            render: (_, run) => (
+                <div className="flex items-center gap-2">
+                    <RunStatusBadge status={run.status} />
+                    {run.approved && <span className="text-success text-xs font-medium">✓</span>}
+                </div>
+            ),
+        },
+        {
+            title: 'Branch',
+            key: 'branch',
+            render: (_, run) => <BranchCell run={run} repoFullName={repoFullName} />,
+        },
+        {
+            title: 'Commit',
+            key: 'commit',
+            width: 90,
+            render: (_, run) => <span className="font-mono text-xs text-muted">{run.commit_sha.substring(0, 7)}</span>,
+        },
+        {
+            title: 'Changes',
+            key: 'changes',
+            width: 140,
+            render: (_, run) => <RunSummaryStats summary={run.summary} compact />,
+        },
+        {
+            title: 'Created',
+            key: 'created',
+            width: 120,
+            render: (_, run) => <span className="text-muted">{dayjs(run.created_at).fromNow()}</span>,
+        },
+        {
+            key: 'actions',
+            width: 80,
+            align: 'right',
+            render: (_, run) => {
+                const hasChanges = run.summary.changed > 0 || run.summary.new > 0 || run.summary.removed > 0
+                const needsReview = run.status === 'completed' && hasChanges && !run.approved
+
+                return (
+                    <LemonButton
+                        type={needsReview ? 'primary' : 'tertiary'}
+                        size="xsmall"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            router.actions.push(`/visual_review/runs/${run.id}`)
+                        }}
+                    >
+                        {needsReview ? 'Review' : 'View'}
+                    </LemonButton>
+                )
+            },
+        },
+    ]
 
     return (
         <SceneContent>
@@ -160,20 +173,18 @@ export function VisualReviewRunsScene(): JSX.Element {
                 ]}
             />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                {runsLoading && filteredRuns.length === 0 ? (
-                    <>
-                        <RunCardSkeleton />
-                        <RunCardSkeleton />
-                        <RunCardSkeleton />
-                        <RunCardSkeleton />
-                    </>
-                ) : filteredRuns.length === 0 ? (
-                    <div className="col-span-full text-center py-12 text-muted">{emptyMessages[activeTab]}</div>
-                ) : (
-                    filteredRuns.map((run) => <RunCard key={run.id} run={run} repoFullName={repoFullName} />)
-                )}
-            </div>
+            <LemonTable
+                dataSource={filteredRuns}
+                columns={columns}
+                loading={runsLoading}
+                pagination={{ pageSize: 20 }}
+                nouns={['run', 'runs']}
+                emptyState={emptyMessages[activeTab]}
+                onRow={(run) => ({
+                    onClick: () => router.actions.push(`/visual_review/runs/${run.id}`),
+                    className: 'cursor-pointer',
+                })}
+            />
         </SceneContent>
     )
 }

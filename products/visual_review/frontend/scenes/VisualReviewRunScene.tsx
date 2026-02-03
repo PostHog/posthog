@@ -32,18 +32,44 @@ function SnapshotThumbnail({
     onClick: () => void
 }): JSX.Element {
     const isApproved = snapshot.review_state === 'approved'
-    const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
+    const result = snapshot.result
 
     // Extract short name from identifier (last part after --)
     const parts = snapshot.identifier.split('--')
     const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
 
-    const borderColor = isSelected ? 'border-warning-dark' : hasChanges ? 'border-warning' : 'border-border'
+    // Status badge styling
+    const getBadgeStyles = (): string => {
+        if (isApproved) {
+            return 'bg-success-highlight text-success-dark'
+        }
+        switch (result) {
+            case 'changed':
+                return 'bg-warning-highlight text-warning-dark'
+            case 'new':
+                return 'bg-primary-highlight text-primary-dark'
+            case 'removed':
+                return 'bg-danger-highlight text-danger'
+            default:
+                return 'bg-muted-alt text-muted'
+        }
+    }
+
+    const getBadgeText = (): string => {
+        if (isApproved) {
+            return 'APPROVED'
+        }
+        return result?.toUpperCase() || 'UNCHANGED'
+    }
 
     return (
-        <button type="button" onClick={onClick} className="flex flex-col items-center gap-1 shrink-0 group">
+        <button type="button" onClick={onClick} className="flex flex-col items-center gap-1.5 shrink-0 group">
             <div
-                className={`w-20 h-14 rounded border-2 overflow-hidden bg-bg-3000 transition-all ${borderColor} ${isSelected ? 'ring-2 ring-warning ring-offset-1' : 'group-hover:border-warning-dark'}`}
+                className={`w-24 h-16 rounded-lg overflow-hidden bg-bg-3000 transition-all border-2 ${
+                    isSelected
+                        ? 'border-warning-dark ring-2 ring-warning ring-offset-2'
+                        : 'border-transparent group-hover:border-warning'
+                }`}
             >
                 {snapshot.current_artifact?.download_url ? (
                     <img
@@ -52,27 +78,19 @@ function SnapshotThumbnail({
                         className="w-full h-full object-cover object-top"
                     />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                        <span className="text-[10px] text-muted">No image</span>
+                    <div className="w-full h-full flex items-center justify-center border border-dashed border-border rounded-md">
+                        <span className="text-xs text-muted">No image</span>
                     </div>
                 )}
             </div>
             <Tooltip title={snapshot.identifier}>
-                <span className="text-xs text-muted truncate max-w-[80px]">{shortName}</span>
+                <span className="text-xs text-muted truncate max-w-[96px] text-center">{shortName}</span>
             </Tooltip>
             <span
-                className={`text-[10px] font-semibold uppercase flex items-center gap-0.5 ${
-                    isApproved ? 'text-success' : hasChanges ? 'text-warning-dark' : 'text-muted'
-                }`}
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 ${getBadgeStyles()}`}
             >
-                {isApproved ? (
-                    <>
-                        <IconCheck className="w-3 h-3" />
-                        Approved
-                    </>
-                ) : (
-                    snapshot.result
-                )}
+                {isApproved && <IconCheck className="w-3 h-3" />}
+                {getBadgeText()}
             </span>
         </button>
     )
@@ -166,7 +184,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     </div>
 
                     {/* Thumbnail strip */}
-                    <div className="flex gap-3 overflow-x-auto py-2 px-1">
+                    <div className="flex gap-4 overflow-x-auto py-3 px-2 -mx-2">
                         {changedSnapshots.map((snapshot: SnapshotApi) => (
                             <SnapshotThumbnail
                                 key={snapshot.id}

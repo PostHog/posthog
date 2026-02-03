@@ -102,8 +102,8 @@ function BaselinePathEditor({ paths, onChange }: BaselinePathEditorProps): JSX.E
 }
 
 export function VisualReviewSettingsScene(): JSX.Element {
-    const { project, projectLoading, availableRepos, saving } = useValues(visualReviewSettingsSceneLogic)
-    const { loadProject, saveProject } = useActions(visualReviewSettingsSceneLogic)
+    const { repo, repoLoading, availableRepos, saving } = useValues(visualReviewSettingsSceneLogic)
+    const { loadRepo, saveRepo } = useActions(visualReviewSettingsSceneLogic)
     const { integrations, integrationsLoading, githubRepositoriesLoading } = useValues(integrationsLogic)
     const { loadGitHubRepositories } = useActions(integrationsLogic)
 
@@ -112,10 +112,10 @@ export function VisualReviewSettingsScene(): JSX.Element {
 
     const githubIntegrations = integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
 
-    // Load project on mount (integrations are loaded by integrationsLogic's afterMount)
+    // Load repo on mount (integrations are loaded by integrationsLogic's afterMount)
     useEffect(() => {
-        loadProject()
-    }, [loadProject])
+        loadRepo()
+    }, [loadRepo])
 
     // Load repos when integrations are loaded
     useEffect(() => {
@@ -124,27 +124,27 @@ export function VisualReviewSettingsScene(): JSX.Element {
         })
     }, [integrations?.length, githubIntegrations, loadGitHubRepositories])
 
-    // Sync form state when project loads
+    // Sync form state when repo loads
     useEffect(() => {
-        if (project) {
-            setRepoFullName(project.repo_full_name || '')
-            setBaselineFilePaths(project.baseline_file_paths || {})
+        if (repo) {
+            setRepoFullName(repo.repo_full_name || '')
+            setBaselineFilePaths(repo.baseline_file_paths || {})
         }
-    }, [project])
+    }, [repo])
 
     const handleSave = (): void => {
-        saveProject({
+        saveRepo({
             repo_full_name: repoFullName,
             baseline_file_paths: baselineFilePaths,
         })
     }
 
-    const hasChanges = project
-        ? repoFullName !== (project.repo_full_name || '') ||
-          JSON.stringify(baselineFilePaths) !== JSON.stringify(project.baseline_file_paths || {})
+    const hasChanges = repo
+        ? repoFullName !== (repo.repo_full_name || '') ||
+          JSON.stringify(baselineFilePaths) !== JSON.stringify(repo.baseline_file_paths || {})
         : repoFullName !== '' || Object.keys(baselineFilePaths).length > 0
 
-    if (projectLoading) {
+    if (repoLoading) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Visual review settings" resourceType={{ type: 'visual_review' }} />

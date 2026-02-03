@@ -6,12 +6,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { Breadcrumb } from '~/types'
 
-import {
-    visualReviewProjectsCreate,
-    visualReviewProjectsList,
-    visualReviewProjectsPartialUpdate,
-} from '../generated/api'
-import type { PatchedUpdateProjectInputApi, ProjectApi } from '../generated/api.schemas'
+import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
+import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
 import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsSceneLogicType'
 
 export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogicType>([
@@ -22,19 +18,19 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     })),
 
     actions({
-        saveProject: (updates: PatchedUpdateProjectInputApi) => ({ updates }),
+        saveRepo: (updates: PatchedUpdateRepoRequestInputApi) => ({ updates }),
     }),
 
     loaders({
-        project: [
-            null as ProjectApi | null,
+        repo: [
+            null as RepoApi | null,
             {
-                loadProject: async () => {
-                    const response = await visualReviewProjectsList('@current')
+                loadRepo: async () => {
+                    const response = await visualReviewReposList('@current')
                     if (response.results.length > 0) {
                         return response.results[0]
                     }
-                    // No project exists - will create on first save
+                    // No repo exists - will create on first save
                     return null
                 },
             },
@@ -45,9 +41,9 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
         saving: [
             false,
             {
-                saveProject: () => true,
-                saveProjectSuccess: () => false,
-                saveProjectFailure: () => false,
+                saveRepo: () => true,
+                saveRepoSuccess: () => false,
+                saveRepoFailure: () => false,
             },
         ],
     }),
@@ -88,15 +84,15 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     }),
 
     listeners(({ values, actions }) => ({
-        saveProject: async ({ updates }) => {
+        saveRepo: async ({ updates }) => {
             try {
-                let project = values.project
-                if (!project) {
-                    // Create project first
-                    project = await visualReviewProjectsCreate('@current')
+                let repo = values.repo
+                if (!repo) {
+                    // Create repo first
+                    repo = await visualReviewReposCreate('@current')
                 }
-                const updated = await visualReviewProjectsPartialUpdate('@current', project.id, updates)
-                actions.loadProjectSuccess(updated)
+                const updated = await visualReviewReposPartialUpdate('@current', repo.id, updates)
+                actions.loadRepoSuccess(updated)
                 lemonToast.success('Settings saved')
             } catch {
                 lemonToast.error('Failed to save settings')
@@ -105,6 +101,6 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     })),
 
     afterMount(({ actions }) => {
-        actions.loadProject()
+        actions.loadRepo()
     }),
 ])
