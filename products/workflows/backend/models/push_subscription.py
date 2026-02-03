@@ -26,6 +26,7 @@ class PushSubscription(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     distinct_id = models.CharField(max_length=512)
+    bundle_id = models.CharField(max_length=256)
     token = EncryptedTextField()
     token_hash = models.CharField(max_length=64)
     platform = models.CharField(choices=PushPlatform.choices, max_length=16)
@@ -72,6 +73,7 @@ class PushSubscription(UUIDModel):
         cls,
         team_id: int,
         distinct_id: str,
+        bundle_id: str,
         token: str,
         platform: PushPlatform,
         provider: PushProvider,
@@ -88,6 +90,7 @@ class PushSubscription(UUIDModel):
             distinct_id=distinct_id,
             token_hash=token_hash,
             defaults={
+                "bundle_id": bundle_id,
                 "token": token,
                 "platform": platform,
                 "provider": provider,

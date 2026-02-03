@@ -20,6 +20,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("distinct_id", models.CharField(max_length=512)),
+                ("bundle_id", models.CharField(max_length=256)),
                 ("token", posthog.helpers.encrypted_fields.EncryptedTextField()),
                 ("token_hash", models.CharField(max_length=64)),
                 (
