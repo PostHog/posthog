@@ -19,8 +19,13 @@ function DragHandle(): JSX.Element {
     )
 }
 
-function createDecorations(doc: PMNode, nodeTypes: string[], editor: Editor): DecorationSet {
+
+function createDecorations(doc: PMNode, nodeTypes: string[], editor: Editor, oldRenderers?: ReactRenderer[]): { decorations: DecorationSet, renderers: ReactRenderer[] } {
+    // Destroy old renderers
+    oldRenderers?.forEach(r => r.destroy())
+    
     const decorations: Decoration[] = []
+    const renderers: ReactRenderer[] = []
 
     doc.descendants((node, pos) => {
         if (nodeTypes.includes(node.type.name)) {
@@ -28,12 +33,14 @@ function createDecorations(doc: PMNode, nodeTypes: string[], editor: Editor): De
                 editor,
                 props: {},
             })
+            renderers.push(renderer)
             decorations.push(Decoration.widget(pos + 1, renderer.element, { side: -1 }))
         }
     })
 
-    return DecorationSet.create(doc as any, decorations)
+    return { decorations: DecorationSet.create(doc as any, decorations), renderers }
 }
+
 
 /**
  * Finds the range of nodes that should move when dragging a heading.
