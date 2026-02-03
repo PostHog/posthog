@@ -2,12 +2,12 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError, CountedPaginatedResponse } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { fetchInsightsUsingVariable } from 'scenes/data-management/variables/insightsLoader'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import {
     BooleanVariable,
@@ -178,47 +178,13 @@ export const variableModalLogic = kea<variableModalLogicType>([
     listeners(({ values, actions }) => ({
         openExistingVariableModal: async ({ variable }) => {
             // Load insights that use this variable
-            if (variable.id) {
+            if (variable.id && values.currentTeamId) {
                 actions.setInsightsLoading(true)
                 try {
-                    const matchingInsights: QueryBasedInsightModel[] = []
-                    let offset = 0
-                    const limit = 100
-
-                    // Paginate through all insights
-                    while (true) {
-                        const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                            `api/environments/${teamLogic.values.currentTeamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
-                        )
-
-                        const insights = legacyResponse.results.map((legacyInsight) =>
-                            getQueryBasedInsightModel(legacyInsight)
-                        )
-
-                        // Filter insights that use this variable
-                        const filtered = insights.filter((insight) => {
-                            if (insight.query?.kind === 'DataVisualizationNode') {
-                                const variables = (insight.query as any).source?.variables
-                                if (variables) {
-                                    return Object.values(variables).some((v: any) => v.variableId === variable.id)
-                                }
-                            }
-                            return false
-                        })
-
-                        matchingInsights.push(...filtered)
-
-                        // Stop if we've fetched all insights
-                        if (legacyResponse.results.length < limit || !legacyResponse.next) {
-                            break
-                        }
-
-                        offset += limit
-                    }
-
+                    const matchingInsights = await fetchInsightsUsingVariable(values.currentTeamId, variable.id)
                     actions.setInsightsUsingVariable(matchingInsights)
                 } catch {
-                    lemonToast.error('Failed to load insights using this variable')
+                    // Error already handled by fetchInsightsUsingVariable
                 } finally {
                     actions.setInsightsLoading(false)
                 }

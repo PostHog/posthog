@@ -1,18 +1,18 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
+import { fetchInsightsUsingVariable } from './insightsLoader'
 import type { sqlVariableEditSceneLogicType } from './sqlVariableEditSceneLogicType'
 
 export interface SqlVariableEditSceneLogicProps {
@@ -29,6 +29,9 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
     props({} as SqlVariableEditSceneLogicProps),
     path(['scenes', 'data-management', 'variables', 'sqlVariableEditSceneLogic']),
     key((props: SqlVariableEditSceneLogicProps) => props.id),
+    connect({
+        values: [teamLogic, ['currentTeamId']],
+    }),
     actions({
         setVariableType: (type: VariableType) => ({ type }),
     }),
@@ -57,45 +60,15 @@ export const sqlVariableEditSceneLogic = kea<sqlVariableEditSceneLogicType>([
                         return []
                     }
 
+                    const currentTeamId = teamLogic.values.currentTeamId
+                    if (!currentTeamId) {
+                        return []
+                    }
+
                     try {
-                        const matchingInsights: QueryBasedInsightModel[] = []
-                        let offset = 0
-                        const limit = 100
-
-                        // Paginate through all insights
-                        while (true) {
-                            const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                                `api/environments/${teamLogic.values.currentTeamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
-                            )
-
-                            const insights = legacyResponse.results.map((legacyInsight) =>
-                                getQueryBasedInsightModel(legacyInsight)
-                            )
-
-                            // Filter insights that use this variable
-                            const filtered = insights.filter((insight) => {
-                                if (insight.query?.kind === 'DataVisualizationNode') {
-                                    const variables = (insight.query as any).source?.variables
-                                    if (variables) {
-                                        return Object.values(variables).some((v: any) => v.variableId === props.id)
-                                    }
-                                }
-                                return false
-                            })
-
-                            matchingInsights.push(...filtered)
-
-                            // Stop if we've fetched all insights
-                            if (legacyResponse.results.length < limit || !legacyResponse.next) {
-                                break
-                            }
-
-                            offset += limit
-                        }
-
-                        return matchingInsights
+                        return await fetchInsightsUsingVariable(currentTeamId, props.id)
                     } catch {
-                        lemonToast.error('Failed to load insights using this variable')
+                        // Error already handled by fetchInsightsUsingVariable
                         return []
                     }
                 },
