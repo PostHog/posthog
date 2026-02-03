@@ -7,6 +7,7 @@ import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { Hub } from '../../../types'
+import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { addPreheaderToEmail } from './helpers/preheader'
@@ -216,7 +217,10 @@ export class EmailService {
             },
             Content: {
                 Simple: {
-                    Headers: this.generateUnsubscribeHeaders(),
+                    Headers: this.generateUnsubscribeHeaders({
+                        team_id: result.invocation.teamId,
+                        identifier: params.to.email,
+                    }),
                     Subject: {
                         Data: params.subject,
                         Charset: 'UTF-8',
@@ -255,11 +259,13 @@ export class EmailService {
         }
     }
 
-    private generateUnsubscribeHeaders(): MessageHeader[] {
+    private generateUnsubscribeHeaders(
+        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
+    ): MessageHeader[] {
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: '<{{ unsubscribe_url_one_click }}>',
+                Value: this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient),
             },
             {
                 Name: 'List-Unsubscribe-Post',
