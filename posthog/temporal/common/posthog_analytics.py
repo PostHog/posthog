@@ -68,12 +68,10 @@ async def capture_async(
     the event loop. This is fire-and-forget - errors are silently ignored.
     """
     loop = asyncio.get_running_loop()
+    # Use a lambda to pass kwargs through since run_in_executor doesn't support kwargs directly
     loop.run_in_executor(
         _executor,
-        _capture_sync,
-        distinct_id,
-        event,
-        properties,
+        lambda: _capture_sync(distinct_id, event, properties, **kwargs),
     )
 
 
@@ -108,7 +106,7 @@ def capture_in_background(
     Submits the capture to the thread pool without waiting for completion.
     Use this from sync code that might be called during async operations.
     """
-    _executor.submit(_capture_sync, distinct_id, event, properties)
+    _executor.submit(lambda: _capture_sync(distinct_id, event, properties, **kwargs))
 
 
 def capture_exception_in_background(
