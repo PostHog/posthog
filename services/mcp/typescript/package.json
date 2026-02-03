@@ -53,7 +53,7 @@
     "author": "PostHog Inc.",
     "license": "MIT",
     "peerDependencies": {
-        "@langchain/core": "^0.3.72",
+        "@langchain/core": "^0.3.80",
         "@langchain/openai": "^0.6.9",
         "ai": "^5.0.0",
         "langchain": "^0.3.31"
@@ -71,7 +71,7 @@
         "zod": "^3.24.4"
     },
     "devDependencies": {
-        "@langchain/core": "^0.3.72",
+        "@langchain/core": "^0.3.80",
         "@langchain/openai": "^0.6.9",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
