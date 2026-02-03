@@ -8,7 +8,6 @@ import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
 
@@ -29,6 +28,7 @@ import {
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { useChart } from 'lib/hooks/useChart'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
@@ -127,40 +127,15 @@ export const LineGraph = ({
     const { getTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
-    const { isShiftPressed, hoveredDatasetIndex } = useValues(displayLogic)
-    const { setIsShiftPressed, setHoveredDatasetIndex } = useActions(displayLogic)
+    const { hoveredDatasetIndex } = useValues(displayLogic)
+    const { setHoveredDatasetIndex } = useActions(displayLogic)
+    const isShiftPressed = useKeyHeld('Shift', () => setHoveredDatasetIndex(null))
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
-
-    const handleKeyDown = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            setIsShiftPressed(true)
-        }
-    }
-    const handleKeyUp = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            setIsShiftPressed(false)
-        }
-    }
-
-    // Track shift key for single-bar hover mode in stacked charts
-    useEffect(() => {
-        if (!isStackedBarChart) {
-            return
-        }
-
-        window.addEventListener('keydown', handleKeyDown)
-        window.addEventListener('keyup', handleKeyUp)
-
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown)
-            window.removeEventListener('keyup', handleKeyUp)
-        }
-    }, [isStackedBarChart, setIsShiftPressed])
 
     const { canvasRef } = useChart({
         getConfig: () => {

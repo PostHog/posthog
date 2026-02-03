@@ -30,6 +30,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -288,10 +289,8 @@ export function LineGraph_({
     const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, isShiftPressed } = useValues(
-        trendsDataLogic(insightProps)
-    )
-    const { setHoveredDatasetIndex, setIsShiftPressed } = useActions(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
+    const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
@@ -304,40 +303,13 @@ export function LineGraph_({
         throw new Error('Use PieChart not LineGraph for this `GraphType`')
     }
 
+    const isShiftPressed = useKeyHeld('Shift', () => setHoveredDatasetIndex(null))
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
-
-    const handleKeyDown = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            setIsShiftPressed(true)
-        }
-    }
-    const handleKeyUp = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            setIsShiftPressed(false)
-            setHoveredDatasetIndex(null)
-        }
-    }
-
-    // Track shift key for single-bar hover mode in stacked charts
-    useEffect(() => {
-        if (!isBar || !isStacked) {
-            return
-        }
-
-        window.addEventListener('keydown', handleKeyDown)
-        window.addEventListener('keyup', handleKeyUp)
-
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown)
-            window.removeEventListener('keyup', handleKeyUp)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isBar, isStacked])
 
     // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
