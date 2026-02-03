@@ -78,7 +78,7 @@ class FeatureFlagStatusChecker:
                     f"Flag was last called {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
                 )
             else:
-                return FeatureFlagStatus.ACTIVE, "Flag is disabled"
+                return FeatureFlagStatus.ACTIVE, "Flag is disabled (not evaluated for staleness)"
         else:
             # No usage data - fall back to configuration-based detection
             # Only for flags that are old enough (30+ days) to have had a chance to be called
@@ -90,7 +90,7 @@ class FeatureFlagStatusChecker:
 
         # No usage data and not fully rolled out
         if not flag.active:
-            return FeatureFlagStatus.ACTIVE, "Flag is disabled"
+            return FeatureFlagStatus.ACTIVE, "Flag is disabled (not evaluated for staleness)"
         return FeatureFlagStatus.ACTIVE, "Flag has no usage data yet"
 
     def is_flag_stale_by_usage(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:

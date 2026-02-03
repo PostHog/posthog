@@ -1349,9 +1349,12 @@ class FeatureFlagViewSet(
 
                     # Usage-based staleness (has last_called_at but not called recently)
                     # Only active flags can be stale - disabled flags should not be marked as stale
+                    # Note: We don't check created_at here because if we have usage data,
+                    # the flag's age doesn't matter - only when it was last called.
                     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
 
                     # Config-based staleness (no last_called_at, so fall back to rollout config)
+                    # We require created_at < 30 days to give flags time to accumulate usage data.
                     # This uses raw SQL for the complex JSON filter
                     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
                     config_based_queryset = queryset.filter(
