@@ -8,6 +8,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -76,7 +77,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": settings.SITE_URL,
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
-            "JWT_SECRET": settings.SECRET_KEY,
+            "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
 
         config = SandboxConfig(
