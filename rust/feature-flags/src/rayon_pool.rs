@@ -15,7 +15,7 @@
 //!
 //! # Important: Set TOKIO_WORKER_THREADS
 //!
-//! Tokio's `#[tokio::main]` defaults to `num_cpus`, which reflects the HOST CPU count (8-16),
+//! Tokio's `#[tokio::main]` defaults to `num_cpus`, which reflects the HOST CPU count,
 //! not the container's CFS quota. We should set `TOKIO_WORKER_THREADS` in production to match
 //! the CFS quota, otherwise tokio will create more threads than the container can efficiently run.
 
@@ -46,7 +46,7 @@ static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
 ///
 /// This handles the tokio/rayon interaction correctly by:
 /// 1. Using `block_in_place` to signal tokio that this thread will block
-/// 2. Installing the closure on the dedicated, right-sized rayon pool
+/// 2. Installing the closure on the dedicated rayon pool
 ///
 /// The `block_in_place` call allows tokio to move pending tasks to other workers,
 /// keeping the async runtime responsive for connection pool operations and I/O.
