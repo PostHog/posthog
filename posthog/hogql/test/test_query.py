@@ -329,6 +329,132 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(browsers, {"Chrome"})
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_events_persons_swapped_constraint_order(self):
+        """Test join with constraint operands swapped: persons.id = events.person_id instead of events.person_id = persons.id"""
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+            # Swapped order: persons.id = events.person_id
+            response = execute_hogql_query(
+                "SELECT persons.id, events.event "
+                "FROM persons JOIN events ON persons.id = events.person_id "
+                "WHERE persons.properties.email LIKE '%posthog.com'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertEqual(len(response.results), 1)
+            self.assertEqual(response.results[0][1], "pageview")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_events_first_to_persons(self):
+        """Test joining events to persons (events first in FROM clause)."""
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+            response = execute_hogql_query(
+                "SELECT events.event, persons.properties.email "
+                "FROM events JOIN persons ON events.person_id = persons.id "
+                "WHERE events.event = 'pageview'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            # Verify at least one result and check structure
+            self.assertTrue(len(response.results) >= 1)
+            self.assertEqual(response.results[0][0], "pageview")
+            self.assertEqual(response.results[0][1], "test@posthog.com")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_only_join_key_no_other_fields(self):
+        """Test join where only the join key is used, no other fields from the joined table."""
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+            )
+            flush_persons_and_events()
+
+            # Only selecting from persons, events is only used for join filtering
+            response = execute_hogql_query(
+                "SELECT persons.id, persons.properties.email "
+                "FROM persons JOIN events ON events.person_id = persons.id "
+                "WHERE persons.properties.email LIKE '%posthog.com'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            # Verify at least one result and check structure
+            self.assertTrue(len(response.results) >= 1)
+            self.assertEqual(response.results[0][1], "test@posthog.com")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_with_table_aliases(self):
+        """Test join using explicit table aliases."""
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+            response = execute_hogql_query(
+                "SELECT p.id, e.event, e.properties.$browser "
+                "FROM persons p JOIN events e ON e.person_id = p.id "
+                "WHERE p.properties.email LIKE '%posthog.com'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            # Verify at least one result and check structure
+            self.assertTrue(len(response.results) >= 1)
+            self.assertEqual(response.results[0][1], "pageview")
+            self.assertEqual(response.results[0][2], "Chrome")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
