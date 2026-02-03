@@ -98,6 +98,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insight,
         insightChanged,
         insightSaving,
+        isSavingTags,
         hasDashboardItemId,
         insightLoading,
         derivedName,
@@ -253,7 +254,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             tagsAvailable={allExistingTags}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
-                            loading={insightSaving}
+                            loading={isSavingTags}
                         />
 
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
