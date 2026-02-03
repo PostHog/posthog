@@ -1,3 +1,4 @@
+import { MessageHeader, SESClient, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import AWS from 'aws-sdk'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
@@ -10,6 +11,7 @@ import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { addPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
+import { RecipientTokensService } from './recipient-tokens.service'
 
 export type EmailServiceHub = Pick<
     Hub,
@@ -19,6 +21,8 @@ export type EmailServiceHub = Pick<
 export class EmailService {
     ses: AWS.SES
 
+    private recipientTokensService: RecipientTokensService
+
     constructor(private hub: EmailServiceHub) {
         this.ses = new AWS.SES({
             accessKeyId: this.hub.SES_ACCESS_KEY_ID,
@@ -26,6 +30,7 @@ export class EmailService {
             region: this.hub.SES_REGION,
             endpoint: this.hub.SES_ENDPOINT || undefined,
         })
+        this.recipientTokensService = new RecipientTokensService(hub)
     }
 
     // Send email
@@ -183,5 +188,83 @@ export class EmailService {
         } catch (error) {
             throw new Error(`Failed to send email via SES: ${error.message}`)
         }
+    }
+
+    private async sendEmailWithSESv2(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): Promise<void> {
+        const sesClient = new SESClient({
+            credentials: {
+                accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+                secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            },
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT || undefined,
+        })
+
+        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
+        const htmlWithTrackingAndPreheader = params.preheader
+            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
+            : htmlWithTracking
+
+        const sendEmailParams: SendEmailCommandInput = {
+            FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            Destination: {
+                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+            },
+            Content: {
+                Simple: {
+                    Headers: this.generateUnsubscribeHeaders(),
+                    Subject: {
+                        Data: params.subject,
+                        Charset: 'UTF-8',
+                    },
+                    Body: {
+                        Html: {
+                            Data: htmlWithTrackingAndPreheader,
+                            Charset: 'UTF-8',
+                        },
+                        Text: {
+                            Data: params.text,
+                            Charset: 'UTF-8',
+                        },
+                    },
+                },
+            },
+            ConfigurationSetName: 'posthog-messaging',
+            EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
+            FeedbackForwardingEmailAddress: params.from.email,
+        }
+
+        if (params.replyTo && params.replyTo.trim()) {
+            sendEmailParams.ReplyToAddresses = params.replyTo
+                .split(',')
+                .map((addr) => addr.trim())
+                .filter((addr) => addr.length > 0)
+        }
+
+        try {
+            const response = await sesClient.send(new SendEmailCommand(sendEmailParams))
+            if (!response.MessageId) {
+                throw new Error('No messageId returned from SES')
+            }
+        } catch (error) {
+            throw new Error(`Failed to send email via SES: ${error.message}`)
+        }
+    }
+
+    private generateUnsubscribeHeaders(): MessageHeader[] {
+        return [
+            {
+                Name: 'List-Unsubscribe',
+                Value: '<{{ unsubscribe_url_one_click }}>',
+            },
+            {
+                Name: 'List-Unsubscribe-Post',
+                Value: 'List-Unsubscribe=One-Click',
+            },
+        ]
     }
 }

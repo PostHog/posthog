@@ -105,6 +105,7 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+    unsubscribe_url_one_click?: string // For email actions, the one-click unsubscribe URL to use
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
