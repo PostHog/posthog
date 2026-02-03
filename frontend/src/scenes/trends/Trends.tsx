@@ -6,6 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { RegionMap } from 'scenes/insights/views/RegionMap'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
@@ -93,6 +94,24 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.WorldMap) {
+            const hasSubdivisionBreakdown =
+                breakdownFilter?.breakdowns &&
+                breakdownFilter.breakdowns.length >= 2 &&
+                breakdownFilter.breakdowns.some(
+                    (b) => b.property === '$geoip_subdivision_1_code' || b.property === '$geoip_subdivision_1_name'
+                )
+
+            if (hasSubdivisionBreakdown) {
+                return (
+                    <RegionMap
+                        showPersonsModal={showPersonsModal}
+                        context={context}
+                        inCardView={embedded}
+                        inSharedMode={inSharedMode}
+                    />
+                )
+            }
+
             return (
                 <WorldMap
                     showPersonsModal={showPersonsModal}
