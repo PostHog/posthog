@@ -1133,6 +1133,7 @@
 
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
+            background-color: var(--color-bg-fill-input);
             border-color: var(--color-border-secondary);
             box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
         }
