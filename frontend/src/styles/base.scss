@@ -538,6 +538,7 @@
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
+
     // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
     --color-skeleton-light: rgb(190 190 190 / 20%);
 
@@ -1115,10 +1116,13 @@
         --input-ring-color: var(--color-bg-fill-highlight-75);
         --input-ring-size: 3px;
 
+        border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
         outline: 0 solid transparent;
         box-shadow: 0 0 0 0 transparent;
-        transition: box-shadow 0.1s ease-in-out;
+        transition:
+            box-shadow 0.1s ease-in-out,
+            border-color 0.1s ease-in-out;
 
         & input,
         & textarea {
@@ -1127,7 +1131,13 @@
 
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
+            background-color: var(--color-bg-fill-input);
+            border-color: var(--color-border-secondary);
             box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
+        }
+
+        &:not([disabled]):hover {
+            border-color: var(--color-border-secondary) !important;
         }
     }
 

@@ -337,6 +337,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saveInsightFailure: () => false,
             },
         ],
+        isSavingTags: [
+            false,
+            {
+                setInsightMetadata: (_, { metadataUpdate }) => !!metadataUpdate.tags,
+                setInsightMetadataSuccess: () => false,
+                setInsightMetadataFailure: () => false,
+            },
+        ],
         previousQuery: [
             null as Node | null,
             {
