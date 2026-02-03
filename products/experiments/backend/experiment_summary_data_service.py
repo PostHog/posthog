@@ -1,3 +1,5 @@
+import asyncio
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Union
 from zoneinfo import ZoneInfo
@@ -32,7 +34,23 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Experiment
 from posthog.sync import database_sync_to_async
 
+
+@dataclass
+class MetricQueryResult:
+    metric_result: MaxExperimentMetricResult | None
+    refresh_time: datetime | None
+    pending: bool
+
+
+@dataclass
+class ExposureQueryResult:
+    exposures: dict[str, float] | None
+    refresh_time: datetime | None
+    pending: bool
+
+
 MAX_METRICS_TO_SUMMARIZE = 20
+MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
 # This threshold is just to avoid minor discrepancies in timestamps.
 # The check itself compares the frontend timestamp with the last
@@ -145,36 +163,43 @@ class ExperimentSummaryDataService:
         self, experiment_id: int
     ) -> tuple[MaxExperimentSummaryContext, datetime | None, bool]:
         """
-        Fetch experiment data from the database and run cached queries.
-        Returns the context data and the last refresh timestamp.
+        Fetch experiment data from the database and run cached queries concurrently.
+        Returns the context data, the last refresh timestamp, and whether any calculation is pending.
         """
         team_id = self._team.id
 
+        # First, fetch the experiment (required to build queries)
         @database_sync_to_async(thread_sensitive=settings.TEST)
-        def fetch_data() -> tuple[MaxExperimentSummaryContext, datetime | None, bool]:
-            experiment = Experiment.objects.select_related("feature_flag", "holdout", "team").get(
+        def fetch_experiment():
+            return Experiment.objects.select_related("feature_flag", "holdout", "team").get(
                 id=experiment_id, team_id=team_id, deleted=False
             )
 
-            if not experiment.start_date:
-                raise ValueError(f"Experiment {experiment_id} has not been started yet")
+        try:
+            experiment = await fetch_experiment()
+        except Experiment.DoesNotExist:
+            raise ValueError(f"Experiment {experiment_id} not found or access denied")
 
-            feature_flag = experiment.feature_flag
-            if not feature_flag:
-                raise ValueError(f"Experiment {experiment_id} has no feature flag")
+        if not experiment.start_date:
+            raise ValueError(f"Experiment {experiment_id} has not been started yet")
 
-            multivariate = feature_flag.filters.get("multivariate", {})
-            variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
-            stats_method = get_experiment_stats_method(experiment)
-            latest_refresh: datetime | None = None
-            pending_calculation = False
+        feature_flag = experiment.feature_flag
+        if not feature_flag:
+            raise ValueError(f"Experiment {experiment_id} has no feature flag")
 
-            def run_metric_query(
-                metric_dict: dict, metric_index: int
-            ) -> tuple[MaxExperimentMetricResult | None, datetime | None]:
+        multivariate = feature_flag.filters.get("multivariate", {})
+        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        stats_method = get_experiment_stats_method(experiment)
+
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES)
+
+        # Create coroutines for all queries to run concurrently
+        async def run_metric_query_async(metric_dict: dict, metric_index: int) -> MetricQueryResult:
+            @database_sync_to_async(thread_sensitive=settings.TEST)
+            def _run_query():
                 metric_obj = parse_metric_dict(metric_dict)
                 if not metric_obj:
-                    return None, None
+                    return MetricQueryResult(metric_result=None, refresh_time=None, pending=False)
 
                 experiment_query = ExperimentQuery(
                     experiment_id=experiment_id,
@@ -189,12 +214,10 @@ class ExperimentSummaryDataService:
                 refresh_time = getattr(result, "last_refresh", None)
 
                 if is_incomplete_response(result):
-                    nonlocal pending_calculation
-                    pending_calculation = True
-                    return None, None
+                    return MetricQueryResult(metric_result=None, refresh_time=None, pending=True)
 
                 if not result.variant_results:
-                    return None, refresh_time
+                    return MetricQueryResult(metric_result=None, refresh_time=refresh_time, pending=False)
 
                 metric_goal = metric_dict.get("goal")
                 transformed_variants = [
@@ -202,79 +225,135 @@ class ExperimentSummaryDataService:
                 ]
                 metric_name = metric_dict.get("name") or get_default_metric_title(metric_dict)
 
-                return MaxExperimentMetricResult(
-                    name=metric_name,
-                    goal=metric_dict.get("goal"),
-                    variant_results=transformed_variants,
-                ), refresh_time
-
-            def process_metrics(metrics: list[dict], is_primary: bool) -> list[MaxExperimentMetricResult]:
-                nonlocal latest_refresh
-                results: list[MaxExperimentMetricResult] = []
-                for i, metric_dict in enumerate(metrics[:MAX_METRICS_TO_SUMMARIZE]):
-                    result, refresh_time = run_metric_query(metric_dict, i)
-                    if result:
-                        result.name = f"{i + 1}. {result.name}"
-                        results.append(result)
-                    if refresh_time and (latest_refresh is None or refresh_time > latest_refresh):
-                        latest_refresh = refresh_time
-                return results
-
-            primary_results = process_metrics(experiment.metrics or [], is_primary=True)
-            secondary_results = process_metrics(experiment.metrics_secondary or [], is_primary=False)
-
-            exposures: dict[str, float] | None = None
-            try:
-                exposure_query = ExperimentExposureQuery(
-                    experiment_id=experiment_id,
-                    experiment_name=experiment.name,
-                    feature_flag=feature_flag.filters,
-                    start_date=experiment.start_date.isoformat() if experiment.start_date else None,
-                    end_date=experiment.end_date.isoformat() if experiment.end_date else None,
-                    exposure_criteria=experiment.exposure_criteria,
-                    holdout=experiment.holdout,
-                )
-                exposure_runner = ExperimentExposuresQueryRunner(
-                    query=exposure_query,
-                    team=experiment.team,
-                )
-                exposure_result = exposure_runner.run(
-                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                return MetricQueryResult(
+                    metric_result=MaxExperimentMetricResult(
+                        name=f"{metric_index + 1}. {metric_name}",
+                        goal=metric_dict.get("goal"),
+                        variant_results=transformed_variants,
+                    ),
+                    refresh_time=refresh_time,
+                    pending=False,
                 )
 
-                if is_incomplete_response(exposure_result):
+            async with semaphore:
+                return await _run_query()
+
+        async def run_exposure_query_async() -> ExposureQueryResult:
+            @database_sync_to_async(thread_sensitive=settings.TEST)
+            def _run_query():
+                try:
+                    exposure_query = ExperimentExposureQuery(
+                        experiment_id=experiment_id,
+                        experiment_name=experiment.name,
+                        feature_flag=feature_flag.filters,
+                        start_date=experiment.start_date.isoformat() if experiment.start_date else None,
+                        end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+                        exposure_criteria=experiment.exposure_criteria,
+                        holdout=experiment.holdout,
+                    )
+                    exposure_runner = ExperimentExposuresQueryRunner(
+                        query=exposure_query,
+                        team=experiment.team,
+                    )
+                    exposure_result = exposure_runner.run(
+                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                    )
+
+                    if is_incomplete_response(exposure_result):
+                        return ExposureQueryResult(exposures=None, refresh_time=None, pending=True)
+
+                    exposures = None
+                    if exposure_result and exposure_result.total_exposures:
+                        exposures = {k: float(v) for k, v in exposure_result.total_exposures.items()}
+
+                    refresh_time = getattr(exposure_result, "last_refresh", None) if exposure_result else None
+                    return ExposureQueryResult(exposures=exposures, refresh_time=refresh_time, pending=False)
+                except Exception as e:
+                    capture_exception(e, properties={"experiment_id": experiment_id})
+                    return ExposureQueryResult(exposures=None, refresh_time=None, pending=False)
+
+            async with semaphore:
+                return await _run_query()
+
+        # Build list of all query tasks
+        primary_metrics = experiment.metrics or []
+        secondary_metrics = experiment.metrics_secondary or []
+
+        primary_metric_tasks = [
+            run_metric_query_async(metric, i) for i, metric in enumerate(primary_metrics[:MAX_METRICS_TO_SUMMARIZE])
+        ]
+        secondary_metric_tasks = [
+            run_metric_query_async(metric, i) for i, metric in enumerate(secondary_metrics[:MAX_METRICS_TO_SUMMARIZE])
+        ]
+        exposure_task = run_exposure_query_async()
+
+        # Run all queries concurrently using asyncio.gather.
+        # This waits for all results (not streaming), which is appropriate here
+        # since we need all metric results to build a complete summary response.
+        all_results = await asyncio.gather(
+            *primary_metric_tasks,
+            *secondary_metric_tasks,
+            exposure_task,
+            return_exceptions=True,  # Don't fail on individual query errors
+        )
+
+        # Split results back into categories
+        primary_count = len(primary_metric_tasks)
+        secondary_count = len(secondary_metric_tasks)
+
+        primary_query_results = all_results[:primary_count]
+        secondary_query_results = all_results[primary_count : primary_count + secondary_count]
+        exposure_query_result = all_results[-1]
+
+        # Aggregate results
+        latest_refresh: datetime | None = None
+        pending_calculation = False
+
+        def process_metric_results(query_results: list) -> list[MaxExperimentMetricResult]:
+            nonlocal latest_refresh, pending_calculation
+            results: list[MaxExperimentMetricResult] = []
+            for qr in query_results:
+                if isinstance(qr, Exception):
+                    capture_exception(qr, properties={"experiment_id": experiment_id})
+                    continue
+                if qr.pending:
                     pending_calculation = True
-                    exposure_result = None
+                if qr.metric_result:
+                    results.append(qr.metric_result)
+                if qr.refresh_time and (latest_refresh is None or qr.refresh_time > latest_refresh):
+                    latest_refresh = qr.refresh_time
+            return results
 
-                if exposure_result and exposure_result.total_exposures:
-                    exposures = {k: float(v) for k, v in exposure_result.total_exposures.items()}
+        primary_results = process_metric_results(primary_query_results)
+        secondary_results = process_metric_results(secondary_query_results)
 
-                if exposure_result:
-                    exposure_refresh = getattr(exposure_result, "last_refresh", None)
-                    if exposure_refresh and (latest_refresh is None or exposure_refresh > latest_refresh):
-                        latest_refresh = exposure_refresh
-            except Exception as e:
-                capture_exception(e, properties={"experiment_id": experiment_id})
+        # Process exposure result
+        exposures: dict[str, float] | None = None
+        if isinstance(exposure_query_result, Exception):
+            capture_exception(exposure_query_result, properties={"experiment_id": experiment_id})
+        else:
+            if exposure_query_result.pending:
+                pending_calculation = True
+            exposures = exposure_query_result.exposures
+            if exposure_query_result.refresh_time and (
+                latest_refresh is None or exposure_query_result.refresh_time > latest_refresh
+            ):
+                latest_refresh = exposure_query_result.refresh_time
 
-            return (
-                MaxExperimentSummaryContext(
-                    experiment_id=experiment_id,
-                    experiment_name=experiment.name or "Unnamed experiment",
-                    description=experiment.description or None,
-                    exposures=exposures,
-                    variants=variants,
-                    primary_metrics_results=primary_results,
-                    secondary_metrics_results=secondary_results,
-                    stats_method=stats_method,
-                ),
-                latest_refresh,
-                pending_calculation,
-            )
-
-        try:
-            return await fetch_data()
-        except Experiment.DoesNotExist:
-            raise ValueError(f"Experiment {experiment_id} not found or access denied")
+        return (
+            MaxExperimentSummaryContext(
+                experiment_id=experiment_id,
+                experiment_name=experiment.name or "Unnamed experiment",
+                description=experiment.description or None,
+                exposures=exposures,
+                variants=variants,
+                primary_metrics_results=primary_results,
+                secondary_metrics_results=secondary_results,
+                stats_method=stats_method,
+            ),
+            latest_refresh,
+            pending_calculation,
+        )
 
     def check_data_freshness(
         self, frontend_last_refresh: str | None, backend_last_refresh: datetime | None
