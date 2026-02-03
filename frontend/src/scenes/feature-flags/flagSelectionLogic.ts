@@ -145,20 +145,19 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         },
     })),
 
-    afterMount(({ actions, cache }) => {
-        cache.disposables = cache.disposables || new Set()
-        cache.disposables.add(() => {
-            const onKeyChange = (event: KeyboardEvent): void => {
-                actions.setShiftKeyHeld(event.shiftKey)
-            }
+    afterMount(({ actions }) => {
+        const onKeyChange = (event: KeyboardEvent): void => {
+            actions.setShiftKeyHeld(event.shiftKey)
+        }
 
-            // Register shift key listener
-            window.addEventListener('keydown', onKeyChange)
-            window.addEventListener('keyup', onKeyChange)
-            return () => {
-                window.removeEventListener('keydown', onKeyChange)
-                window.removeEventListener('keyup', onKeyChange)
-            }
-        })
+        // Register shift key listener
+        window.addEventListener('keydown', onKeyChange)
+        window.addEventListener('keyup', onKeyChange)
+
+        // Return cleanup function that will be called on unmount
+        return () => {
+            window.removeEventListener('keydown', onKeyChange)
+            window.removeEventListener('keyup', onKeyChange)
+        }
     }),
 ])
