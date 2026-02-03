@@ -33,8 +33,10 @@ async def store_centroids(
     cluster_ids = np.array(list(centroids.keys()), dtype=np.int32)
     embeddings = np.array(list(centroids.values()), dtype=np.float32)
 
-    await redis_client.setex(_cache_key(workflow_id, "ids"), ttl, cluster_ids.tobytes())
-    await redis_client.setex(_cache_key(workflow_id, "embeddings"), ttl, embeddings.tobytes())
+    pipeline = redis_client.pipeline(transaction=True)
+    pipeline.setex(_cache_key(workflow_id, "ids"), ttl, cluster_ids.tobytes())
+    pipeline.setex(_cache_key(workflow_id, "embeddings"), ttl, embeddings.tobytes())
+    await pipeline.execute()
 
 
 async def get_centroids(workflow_id: str) -> dict[int, list[float]] | None:
