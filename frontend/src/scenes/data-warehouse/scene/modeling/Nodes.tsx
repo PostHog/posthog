@@ -1,7 +1,7 @@
-import { Handle, useUpdateNodeInternals } from '@xyflow/react'
+import { Handle } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 
 import { IconCheck, IconPlay, IconPlayFilled, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingJobStatus, DataModelingNodeType } from '~/types'
 
 import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
+import { ElkDirection } from './autolayout'
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { ModelNodeProps } from './types'
@@ -44,57 +45,50 @@ function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Elem
     )
 }
 
-function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
-    const updateNodeInternals = useUpdateNodeInternals()
-    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId } =
-        useValues(dataModelingEditorLogic)
-    const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
-    const { newTab } = useActions(sceneLogic)
-    const { debouncedSearchTerm } = useValues(dataModelingNodesLogic)
+interface ModelNodeInnerProps {
+    data: ModelNodeProps['data']
+    isSelected: boolean
+    isRunning: boolean
+    isSearchMatch: boolean | undefined
+    isTypeHighlighted: boolean
+    lastJobStatus: DataModelingJobStatus | undefined
+    layoutDirection: ElkDirection
+    onRunUpstream: (e: React.MouseEvent) => void
+    onRunDownstream: (e: React.MouseEvent) => void
+    onMaterialize: (e: React.MouseEvent) => void
+    onNodeClick: () => void
+}
+
+const ModelNodeInner = React.memo(function ModelNodeInner({
+    data,
+    isSelected,
+    isRunning,
+    isSearchMatch,
+    isTypeHighlighted,
+    lastJobStatus,
+    layoutDirection,
+    onRunUpstream,
+    onRunDownstream,
+    onMaterialize,
+    onNodeClick,
+}: ModelNodeInnerProps): JSX.Element {
     const [isHovered, setIsHovered] = useState(false)
 
-    useEffect(() => {
-        updateNodeInternals(props.id)
-    }, [props.id, updateNodeInternals])
-
-    const settings = NODE_TYPE_SETTINGS[props.data.type]
-    const isSelected = selectedNodeId === props.id
-    const { userTag, name, type, savedQueryId } = props.data
-    const isRunning = runningNodeIds.has(props.id)
-    const lastJobStatus = lastJobStatusByNodeId[props.id]
-
-    const isSearchMatch =
-        debouncedSearchTerm.length > 0 && name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
+    const settings = NODE_TYPE_SETTINGS[data.type]
+    const { userTag, name, type, savedQueryId } = data
 
     const canRun = type !== 'table'
     const canOpenInEditor = type !== 'table' && savedQueryId
+    const hasUpstream = data.upstreamCount > 0
+    const hasDownstream = data.downstreamCount > 0
 
-    const handleRunUpstream = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        runNode(props.id, 'upstream')
-    }
-
-    const handleRunDownstream = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        runNode(props.id, 'downstream')
-    }
-
-    const handleMaterialize = (e: React.MouseEvent): void => {
-        e.stopPropagation()
-        materializeNode(props.id)
-    }
-
-    const handleNodeClick = (): void => {
-        if (canOpenInEditor) {
-            newTab(urls.sqlEditor({ view_id: savedQueryId }))
-        }
-    }
+    const handleMouseEnter = useCallback(() => setIsHovered(true), [])
+    const handleMouseLeave = useCallback(() => setIsHovered(false), [])
 
     return (
         <div
             className={clsx(
-                'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
+                'relative rounded-lg border bg-bg-light',
                 isRunning
                     ? 'border-warning ring-2 ring-warning/30 animate-pulse'
                     : isSearchMatch
@@ -110,12 +104,14 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             style={{
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
+                // dims non matched nodes, search match is undefined when the debounced query value is unset
+                opacity: isSearchMatch === undefined || isSearchMatch ? 1 : 0.5,
             }}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            onClick={handleNodeClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onClick={onNodeClick}
         >
-            {props.data.handles?.map((handle) => (
+            {data.handles?.map((handle) => (
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
 
@@ -127,28 +123,52 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
             {canRun && isHovered && !isRunning && (
                 <>
-                    <Tooltip title="Run all upstream nodes including this one">
-                        <button
-                            type="button"
-                            onClick={handleRunUpstream}
-                            className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
-                        >
-                            <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
-                        </button>
-                    </Tooltip>
-                    <Tooltip title="Run all downstream nodes including this one">
-                        <button
-                            type="button"
-                            onClick={handleRunDownstream}
-                            className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
-                        >
-                            <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
-                        </button>
-                    </Tooltip>
+                    {hasUpstream && (
+                        <Tooltip title="Run all upstream nodes including this one">
+                            <button
+                                type="button"
+                                onClick={onRunUpstream}
+                                className={clsx(
+                                    'absolute w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400',
+                                    layoutDirection === 'DOWN'
+                                        ? 'left-1/2 -translate-x-1/2 -top-3'
+                                        : 'top-1/2 -translate-y-1/2 -left-3'
+                                )}
+                            >
+                                <IconPlayFilled
+                                    className={clsx(
+                                        'w-2.5 h-2.5 text-white dark:text-gray-900',
+                                        layoutDirection === 'DOWN' ? '-rotate-90' : 'rotate-180'
+                                    )}
+                                />
+                            </button>
+                        </Tooltip>
+                    )}
+                    {hasDownstream && (
+                        <Tooltip title="Run all downstream nodes including this one">
+                            <button
+                                type="button"
+                                onClick={onRunDownstream}
+                                className={clsx(
+                                    'absolute w-5 h-5 flex items-center justify-center rounded-full cursor-pointer z-10 bg-gray-600 dark:bg-gray-400',
+                                    layoutDirection === 'DOWN'
+                                        ? 'left-1/2 -translate-x-1/2 -bottom-3'
+                                        : 'top-1/2 -translate-y-1/2 -right-3'
+                                )}
+                            >
+                                <IconPlayFilled
+                                    className={clsx(
+                                        'w-2.5 h-2.5 text-white dark:text-gray-900',
+                                        layoutDirection === 'DOWN' ? 'rotate-90' : ''
+                                    )}
+                                />
+                            </button>
+                        </Tooltip>
+                    )}
                 </>
             )}
 
-            <div className="flex flex-col justify-between p-2 h-full">
+            <div className="flex flex-col justify-between px-2.5 py-2 h-full">
                 <div className="flex justify-between items-start">
                     <span
                         className="text-[10px] lowercase tracking-wide px-1 rounded"
@@ -176,7 +196,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                onClick={handleMaterialize}
+                                onClick={onMaterialize}
                                 disabled={isRunning}
                                 icon={isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
                             />
@@ -186,7 +206,76 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             </div>
         </div>
     )
-}
+})
+
+const ModelNodeComponent = React.memo(function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
+    const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
+    const { layoutDirection, highlightedNodeIds } = useValues(dataModelingEditorLogic)
+    const { newTab } = useActions(sceneLogic)
+    const { debouncedSearchTerm, parsedSearch } = useValues(dataModelingNodesLogic)
+
+    const { id, data } = props
+    const { name, type, savedQueryId, isSelected, isRunning, isTypeHighlighted, lastJobStatus } = data
+    const isSearchMatch = (() => {
+        if (debouncedSearchTerm.length === 0) {
+            return undefined
+        }
+        if (parsedSearch.mode !== 'search') {
+            // graph traversal for +name, name+, or +name+ syntax
+            const highlighted = highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode)
+            return highlighted.has(props.id)
+        }
+        // default text search
+        return name.toLowerCase().includes(parsedSearch.baseName.toLowerCase())
+    })()
+
+    const handleRunUpstream = useCallback(
+        (e: React.MouseEvent): void => {
+            e.stopPropagation()
+            runNode(id, 'upstream')
+        },
+        [id, runNode]
+    )
+
+    const handleRunDownstream = useCallback(
+        (e: React.MouseEvent): void => {
+            e.stopPropagation()
+            runNode(id, 'downstream')
+        },
+        [id, runNode]
+    )
+
+    const handleMaterialize = useCallback(
+        (e: React.MouseEvent): void => {
+            e.stopPropagation()
+            materializeNode(id)
+        },
+        [id, materializeNode]
+    )
+
+    const canOpenInEditor = type !== 'table' && savedQueryId
+    const handleNodeClick = useCallback((): void => {
+        if (canOpenInEditor) {
+            newTab(urls.sqlEditor({ view_id: savedQueryId }))
+        }
+    }, [canOpenInEditor, savedQueryId, newTab])
+
+    return (
+        <ModelNodeInner
+            data={data}
+            isSelected={isSelected ?? false}
+            isRunning={isRunning ?? false}
+            isSearchMatch={isSearchMatch}
+            isTypeHighlighted={isTypeHighlighted ?? false}
+            lastJobStatus={lastJobStatus}
+            layoutDirection={layoutDirection}
+            onRunUpstream={handleRunUpstream}
+            onRunDownstream={handleRunDownstream}
+            onMaterialize={handleMaterialize}
+            onNodeClick={handleNodeClick}
+        />
+    )
+})
 
 export const REACT_FLOW_NODE_TYPES = {
     model: ModelNodeComponent,

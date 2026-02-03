@@ -44,8 +44,8 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
+    // Default multivariate now includes control/test at 50/50, so just rename them
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
-    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 

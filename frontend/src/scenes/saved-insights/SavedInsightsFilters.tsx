@@ -1,4 +1,6 @@
-import { IconFlag } from '@posthog/icons'
+import { useValues } from 'kea'
+
+import { IconFlag, IconStar } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -6,15 +8,19 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function SavedInsightsFilters({
     filters,
     setFilters,
+    showQuickFilters = true,
 }: {
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
+    showQuickFilters?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights } = filters
+    const { user } = useValues(userLogic)
+    const { search, hideFeatureFlagInsights, createdBy, favorited } = filters
 
     return (
         <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
@@ -26,6 +32,39 @@ export function SavedInsightsFilters({
                 autoFocus
             />
             <div className="flex items-center gap-2 flex-wrap">
+                {showQuickFilters && (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            active={!!(user && createdBy !== 'All users' && (createdBy as number[]).includes(user.id))}
+                            onClick={() => {
+                                if (user) {
+                                    const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
+                                    const selected = new Set(currentUsers)
+                                    if (selected.has(user.id)) {
+                                        selected.delete(user.id)
+                                    } else {
+                                        selected.add(user.id)
+                                    }
+                                    const newValue = Array.from(selected)
+                                    setFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
+                                }
+                            }}
+                            size="small"
+                        >
+                            Created by me
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            active={favorited || false}
+                            onClick={() => setFilters({ favorited: !favorited })}
+                            size="small"
+                            icon={<IconStar />}
+                        >
+                            Favorites
+                        </LemonButton>
+                    </>
+                )}
                 <FeatureFlagInsightsToggle
                     hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                     onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}

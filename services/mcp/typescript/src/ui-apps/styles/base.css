@@ -1,0 +1,111 @@
+/* Base styles for PostHog MCP UI Apps */
+
+:root {
+    /*
+     * Default theme colors - these are fallbacks when host CSS variables aren't provided.
+     * When the host provides styles via applyHostStyleVariables(), it sets variables like:
+     * --color-background-primary, --color-text-primary, --color-border-primary, etc.
+     * See: https://github.com/modelcontextprotocol/ext-apps/blob/main/src/spec.types.ts
+     */
+
+    /* Host-provided variables (these are the standard ext-apps variable names) */
+    --color-background-primary: #fff;
+    --color-background-secondary: #f9fafb;
+    --color-background-tertiary: #f2f4f7;
+    --color-text-primary: #101828;
+    --color-text-secondary: #6b7280;
+    --color-text-inverse: #fff;
+    --color-border-primary: #e5e7eb;
+    --color-border-secondary: #d1d5db;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', roboto, 'Helvetica Neue', arial, sans-serif;
+    --font-mono: ui-monospace, sfmono-regular, 'SF Mono', menlo, consolas, monospace;
+    --border-radius-sm: 0.25rem;
+    --border-radius-md: 0.375rem;
+    --border-radius-lg: 0.5rem;
+
+    /* PostHog custom chart colors (not part of ext-apps spec, we define our own) */
+    --posthog-chart-1: #1d4ed8;
+    --posthog-chart-2: #7c3aed;
+    --posthog-chart-3: #059669;
+    --posthog-chart-4: #dc2626;
+    --posthog-chart-5: #ea580c;
+}
+
+/* Dark mode defaults */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-background-primary: #111827;
+        --color-background-secondary: #1f2937;
+        --color-background-tertiary: #374151;
+        --color-text-primary: #f9fafb;
+        --color-text-secondary: #9ca3af;
+        --color-text-inverse: #fff;
+        --color-border-primary: #374151;
+        --color-border-secondary: #4b5563;
+
+        /* Dark mode chart colors */
+        --posthog-chart-1: #60a5fa;
+        --posthog-chart-2: #a78bfa;
+        --posthog-chart-3: #34d399;
+        --posthog-chart-4: #f87171;
+        --posthog-chart-5: #fb923c;
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    /* Minimum height for ResizeObserver to report to host */
+    min-height: 200px;
+    padding: 0;
+    margin: 0;
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    color: var(--color-text-primary);
+    background-color: var(--color-background-primary);
+}
+
+/* Loading state */
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--color-text-secondary);
+}
+
+.loading::after {
+    width: 24px;
+    height: 24px;
+    margin-left: 0.5rem;
+    content: '';
+    border: 2px solid var(--color-border-primary);
+    border-top-color: var(--posthog-chart-1);
+    border-radius: 50%;
+    animation: loading__spin 0.8s linear infinite;
+}
+
+@keyframes loading__spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Error state */
+.error {
+    padding: 1rem;
+    color: var(--color-text-danger, #dc2626);
+    background-color: var(--color-background-danger, #fef2f2);
+    border: 1px solid var(--color-border-danger, #fecaca);
+    border-radius: var(--border-radius-md);
+}

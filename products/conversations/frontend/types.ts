@@ -1,5 +1,6 @@
 import type { TicketAssignee } from './components/Assignee'
 
+export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
@@ -65,6 +66,7 @@ export interface ConversationTicket {
 export interface ConversationMessage {
     id: string
     content: string
+    rich_content?: Record<string, unknown> | null
     author_type: MessageAuthorType
     author_name?: string
     created_at: string
@@ -80,6 +82,7 @@ export interface MessageAuthor {
 export interface ChatMessage {
     id: string
     content: string
+    richContent?: Record<string, unknown> | null
     authorType: MessageAuthorType
     authorName: string
     createdBy?: MessageAuthor | null
@@ -104,10 +107,26 @@ export const statusOptionsWithoutAll: { value: TicketStatus; label: string }[] =
     { value: 'resolved', label: 'Resolved' },
 ]
 
+// Multiselect-compatible options for LemonInputSelect
+export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = [
+    { key: 'new', label: 'New' },
+    { key: 'open', label: 'Open' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'on_hold', label: 'On hold' },
+    { key: 'resolved', label: 'Resolved' },
+]
+
 export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+]
+
+// Multiselect-compatible options for LemonInputSelect
+export const priorityMultiselectOptions: { key: TicketPriority; label: string }[] = [
+    { key: 'low', label: 'Low' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'high', label: 'High' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [

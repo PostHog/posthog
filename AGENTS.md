@@ -181,6 +181,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
 - Python tests: do not add doc comments
+- Python tests: do not create `__init__.py` files in test directories (pytest discovers tests without them)
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead
@@ -189,6 +190,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Avoid over-engineering: Don't apply design patterns just because you know them
 - Start simple, iterate: Build minimal solution first, add complexity only when demanded
+- DO NOT alter random useEffect or useMemo etc dependencies. Only alter if they impact the actual code you are writing in files that you really need to touch.
 
 ## General
 
