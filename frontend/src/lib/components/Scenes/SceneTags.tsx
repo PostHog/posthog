@@ -6,7 +6,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { ObjectTags } from '../ObjectTags/ObjectTags'
-import { SceneCanEditProps, SceneDataAttrKeyProps, SceneSaveCancelButtons } from './utils'
+import { SceneCanEditProps, SceneDataAttrKeyProps } from './utils'
 
 type SceneTagsProps = SceneCanEditProps &
     SceneDataAttrKeyProps & {
@@ -24,32 +24,27 @@ export const SceneTags = ({
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
-    const [hasChanged, setHasChanged] = useState(false)
 
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
-        e.preventDefault()
-        onSave?.(localTags ?? [])
-        setHasChanged(false)
-        setLocalIsEditing(false)
+    const handleTagsChange = (newTags: string[]): void => {
+        setLocalTags(newTags)
+        // Autosave on change
+        onSave?.(newTags)
     }
-
-    useEffect(() => {
-        setHasChanged(localTags !== tags)
-    }, [localTags, tags])
 
     useEffect(() => {
         setLocalTags(tags)
     }, [tags])
 
     return localIsEditing ? (
-        <form onSubmit={handleSubmit} name="page-tags" className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
             <ScenePanelLabel htmlFor="new-tag-input" title="Tags">
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
                     value={localTags}
                     options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
-                    onChange={setLocalTags}
+                    onChange={handleTagsChange}
+                    onBlur={() => setLocalIsEditing(false)}
                     loading={false}
                     data-attr={`${dataAttrKey}-new-tag-input`}
                     placeholder='try "official"'
@@ -58,16 +53,7 @@ export const SceneTags = ({
                     className="max-w-full"
                 />
             </ScenePanelLabel>
-            <SceneSaveCancelButtons
-                name="tags"
-                onCancel={() => {
-                    setLocalTags(tags)
-                    setLocalIsEditing(false)
-                }}
-                hasChanged={hasChanged}
-                dataAttrKey={dataAttrKey}
-            />
-        </form>
+        </div>
     ) : (
         <ScenePanelLabel title="Tags">
             <ButtonPrimitive
