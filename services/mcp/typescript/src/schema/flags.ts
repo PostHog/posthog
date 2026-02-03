@@ -72,12 +72,28 @@ export type PersonPropertyFilter = z.infer<typeof PersonPropertyFilterSchema>
 export const FiltersSchema = z.object({
     properties: z.array(PersonPropertyFilterSchema),
     rollout_percentage: z.number(),
+    variant: z.string().optional().describe('Variant key to serve for this condition (for multivariate flags)'),
 })
 
 export type Filters = z.infer<typeof FiltersSchema>
 
+export const VariantSchema = z.object({
+    key: z.string().describe('Unique identifier for this variant (e.g., "control", "test", "variant_a")'),
+    name: z.string().optional().describe('Human-readable name for this variant'),
+    rollout_percentage: z.number().min(0).max(100).describe('Percentage of users who will see this variant (0-100)'),
+})
+
+export type Variant = z.infer<typeof VariantSchema>
+
+export const MultivariateSchema = z.object({
+    variants: z.array(VariantSchema).min(2, 'At least 2 variants required for multivariate flags'),
+})
+
+export type Multivariate = z.infer<typeof MultivariateSchema>
+
 export const FilterGroupsSchema = z.object({
     groups: z.array(FiltersSchema).min(1, 'At least one group is required'),
+    multivariate: MultivariateSchema.optional().describe('Multivariate configuration with variant definitions'),
 })
 
 export type FilterGroups = z.infer<typeof FilterGroupsSchema>
