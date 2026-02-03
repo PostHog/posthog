@@ -60,9 +60,18 @@ function DataModelingEditorContent(): JSX.Element {
                 node.data.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
             )
             if (matchingNode) {
-                const x = matchingNode.position.x + NODE_WIDTH / 2
-                const y = matchingNode.position.y + NODE_HEIGHT / 2
-                reactFlowInstance.setCenter(x, y, { duration: 300, zoom: 1 })
+                const targetX = matchingNode.position.x + NODE_WIDTH / 2
+                const targetY = matchingNode.position.y + NODE_HEIGHT / 2
+                const viewport = reactFlowInstance.getViewport()
+                const wrapper = reactFlowWrapper.current
+                if (wrapper) {
+                    const currentCenterX = -viewport.x / viewport.zoom + wrapper.clientWidth / 2 / viewport.zoom
+                    const currentCenterY = -viewport.y / viewport.zoom + wrapper.clientHeight / 2 / viewport.zoom
+                    const distance = Math.sqrt((targetX - currentCenterX) ** 2 + (targetY - currentCenterY) ** 2)
+                    // skips animation for long distances to avoid rendering too many nodes during pan
+                    const duration = distance > 2560 ? 0 : 400
+                    reactFlowInstance.setCenter(targetX, targetY, { duration, zoom: 1 })
+                }
             }
         }
     }, [debouncedSearchTerm, enrichedNodes, reactFlowInstance])
