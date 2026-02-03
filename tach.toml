@@ -337,3 +337,8 @@ layer = "non_isolated"
 # - ❌ Import from other "products" layer modules (enforced isolation)
 # - ✅ Isolated testing with 'tach test' (only runs affected tests)
 # ============================================================================
+
+[[modules]]
+path = "products.visual_review"
+depends_on = ["posthog"]  # Only core - no ee, no other products
+layer = "products"

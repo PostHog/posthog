@@ -1,0 +1,178 @@
+"""Django models for visual_review."""
+
+import uuid
+
+from django.db import models
+
+from posthog.models.team import Team
+from posthog.models.user import User
+
+from .domain_types import ReviewState, RunStatus, RunType, SnapshotResult
+
+
+class Repo(models.Model):
+    """
+    A visual review repo, typically representing a repository or test suite.
+
+    Each Team can have multiple projects.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
+    name = models.CharField(max_length=255)
+
+    # GitHub repository (e.g., "posthog/posthog")
+    repo_full_name = models.CharField(max_length=255, blank=True)
+
+    # Baseline file paths per run type
+    # e.g., {"storybook": ".storybook/snapshots.yml", "playwright": "playwright/snapshots.yml"}
+    baseline_file_paths = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Artifact(models.Model):
+    """
+    Content-addressed image storage.
+
+    Same hash = same artifact. Deduplicated across all runs in a repo.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
+
+    content_hash = models.CharField(max_length=128, db_index=True)
+    storage_path = models.CharField(max_length=1024)
+
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    size_bytes = models.PositiveIntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["repo", "content_hash"], name="unique_artifact_hash_per_repo"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.content_hash[:12]}..."
+
+
+class Run(models.Model):
+    """
+    A visual test run from CI.
+
+    Created when CI posts a manifest. Tracks status through diff processing.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
+
+    status = models.CharField(max_length=20, choices=[(s.value, s.value) for s in RunStatus], default=RunStatus.PENDING)
+    run_type = models.CharField(max_length=20, choices=[(t.value, t.value) for t in RunType], default=RunType.OTHER)
+
+    # Git context
+    commit_sha = models.CharField(max_length=40)
+    branch = models.CharField(max_length=255)
+    pr_number = models.PositiveIntegerField(null=True, blank=True)
+
+    # Approval
+    approved = models.BooleanField(default=False)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+
+    # Summary (populated after diff processing)
+    total_snapshots = models.PositiveIntegerField(default=0)
+    changed_count = models.PositiveIntegerField(default=0)
+    new_count = models.PositiveIntegerField(default=0)
+    removed_count = models.PositiveIntegerField(default=0)
+
+    error_message = models.TextField(blank=True)
+
+    # Flexible metadata (not indexed)
+    # e.g., {"pr_title": "...", "base_branch": "main", "ci_job_url": "..."}
+    metadata = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Run {self.id} ({self.status})"
+
+
+class RunSnapshot(models.Model):
+    """
+    A single snapshot within a run.
+
+    Links current captured image to baseline. Stores diff results.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
+
+    identifier = models.CharField(max_length=512)
+
+    # Hash values (stored for linking artifacts after upload)
+    current_hash = models.CharField(max_length=128, blank=True)
+    baseline_hash = models.CharField(max_length=128, blank=True)
+
+    # Dimensions from manifest (used for artifact creation during complete)
+    current_width = models.PositiveIntegerField(null=True, blank=True)
+    current_height = models.PositiveIntegerField(null=True, blank=True)
+
+    # Current artifact (from this CI run)
+    current_artifact = models.ForeignKey(
+        Artifact, on_delete=models.SET_NULL, null=True, blank=True, related_name="current_snapshots"
+    )
+
+    # Baseline artifact (from .snapshots.yml)
+    baseline_artifact = models.ForeignKey(
+        Artifact, on_delete=models.SET_NULL, null=True, blank=True, related_name="baseline_snapshots"
+    )
+
+    # Diff artifact (generated by diff engine)
+    diff_artifact = models.ForeignKey(
+        Artifact, on_delete=models.SET_NULL, null=True, blank=True, related_name="diff_snapshots"
+    )
+
+    result = models.CharField(
+        max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED
+    )
+
+    # Diff metrics
+    diff_percentage = models.FloatField(null=True, blank=True)
+    diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
+
+    # Review state (human decision, separate from computed result)
+    # result = computed diff status (immutable once set)
+    # review_state = human decision (can change, e.g., reset on new runs)
+    review_state = models.CharField(
+        max_length=20,
+        choices=[(s.value, s.value) for s in ReviewState],
+        default=ReviewState.PENDING,
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    review_comment = models.TextField(blank=True)  # For rejection reasons or notes
+    # Hash that was approved (specific to approval action)
+    approved_hash = models.CharField(max_length=128, blank=True)
+
+    # Flexible metadata (not indexed)
+    # e.g., {"browser": "chrome", "viewport": "desktop", "is_flaky": true, "is_critical": true, "page_group": "Checkout"}
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["run", "identifier"], name="unique_snapshot_identifier_per_run"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} ({self.result})"
