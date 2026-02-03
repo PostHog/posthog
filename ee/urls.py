@@ -108,6 +108,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         backfill_precalculated_person_properties_view,
     )
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
+    from posthog.admin.admins.recalculate_cohort_admin import recalculate_cohort_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
 
     admin_urlpatterns = [
@@ -126,6 +127,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
+        ),
+        path(
+            "admin/recalculate-cohort/",
+            admin.site.admin_view(recalculate_cohort_view),
+            name="recalculate-cohort",
         ),
         path(
             "admin/backfill-precalculated-person-properties/",

@@ -304,7 +304,44 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
             tags.celery_task_id = current_task.request.id
         update_tags(tags)
 
-        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        COHORT_CALCULATION_STARTED_COUNTER.inc()
+        calculation_start_time = time.time()
+
+        try:
+            cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+            COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="success").inc()
+            COHORT_CALCULATION_DURATION_SECONDS.labels(status="success").observe(time.time() - calculation_start_time)
+        except Exception as e:
+            COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="error").inc()
+            COHORT_CALCULATION_DURATION_SECONDS.labels(status="error").observe(time.time() - calculation_start_time)
+
+            # Ensure cohort status is reset if calculation failed at task level
+            # The cohort model's finally block should handle this, but in case of worker crashes,
+            # timeouts, or OOM errors, we need a safety net
+            try:
+                cohort.refresh_from_db()
+                if cohort.is_calculating:
+                    cohort.is_calculating = False
+                    cohort.errors_calculating = F("errors_calculating") + 1
+                    cohort.last_error_at = timezone.now()
+                    cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
+                    logger.warning(
+                        "cohort_calculation_task_level_failure_recovery",
+                        cohort_id=cohort_id,
+                        pending_version=pending_version,
+                        error=str(e),
+                    )
+            except Exception as recovery_error:
+                logger.exception(
+                    "cohort_calculation_recovery_failed",
+                    cohort_id=cohort_id,
+                    pending_version=pending_version,
+                    original_error=str(e),
+                    recovery_error=str(recovery_error),
+                )
+
+            # Re-raise the original exception
+            raise
 
 
 @shared_task(ignore_result=True, max_retries=1)

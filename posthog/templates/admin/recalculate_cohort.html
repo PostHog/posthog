@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row { margin-bottom: 15px; }
+    .help { font-size: 11px; color: #666; }
+    .submit-row { margin-top: 30px; }
+    .alert { padding: 10px; margin: 20px 0; border-radius: 5px; }
+    .alert-info { background: #e3f2fd; border: 1px solid #90caf9; color: #1565c0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <strong>Note:</strong> This tool triggers recalculation for a specific cohort. 
+    The cohort must not be static or deleted. Use the force option to override if the cohort is currently calculating.
+    Check server logs for detailed calculation output.
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<form method="post" id="recalculate-cohort-form">
+    {% csrf_token %}
+
+    <fieldset class="module aligned">
+        <h2>Cohort Recalculation</h2>
+
+        <div class="form-row">
+            <label for="{{ form.cohort_id.id_for_label }}" class="required">{{ form.cohort_id.label }}:</label>
+            {{ form.cohort_id }}
+            {% if form.cohort_id.help_text %}<p class="help">{{ form.cohort_id.help_text }}</p>{% endif %}
+            {{ form.cohort_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.force.id_for_label }}">{{ form.force.label }}:</label>
+            {{ form.force }}
+            {% if form.force.help_text %}<p class="help">{{ form.force.help_text }}</p>{% endif %}
+            {{ form.force.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Recalculate Cohort" class="default" />
+    </div>
+</form>
+{% endblock %}
