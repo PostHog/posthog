@@ -93,7 +93,7 @@ Table | Description
 `sessions` | Session data captured by the SDK
 Data warehouse tables | Connected external data sources and custom views
 
-Retrieve the `posthog:data-warehouse-schema` resource for the full schema of the tables above.
+Retrieve the `posthog/data-warehouse-schema` resource for the full schema of the tables above.
 
 **Key concepts:**
 
