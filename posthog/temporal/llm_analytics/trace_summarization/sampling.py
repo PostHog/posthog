@@ -49,19 +49,23 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
         if analysis_level == "generation":
             # Sample generations directly: get the last generation per trace
-            # with the trace's first_timestamp for navigation
+            # with the trace's first_timestamp for navigation.
+            # We query all AI event types to get accurate trace_first_timestamp,
+            # but use argMaxIf to only pick generation UUIDs.
             generations_query = parse_select(
                 """
                 SELECT
                     properties.$ai_trace_id as trace_id,
-                    argMax(uuid, timestamp) as last_generation_id,
+                    argMaxIf(uuid, timestamp, event = '$ai_generation') as last_generation_id,
                     min(timestamp) as trace_first_timestamp
                 FROM events
-                WHERE event IN ('$ai_generation', '$ai_span', '$ai_trace')
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id IS NOT NULL
+                    AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
+                HAVING last_generation_id IS NOT NULL
                 ORDER BY trace_first_timestamp DESC
                 LIMIT {limit}
                 """
@@ -114,6 +118,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id IS NOT NULL
+                    AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
                 ORDER BY first_timestamp DESC
                 LIMIT {limit}
