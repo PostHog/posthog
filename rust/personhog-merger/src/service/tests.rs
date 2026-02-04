@@ -55,6 +55,7 @@ struct DeletePersonCall {
 struct MockPersonPropertiesApi {
     get_persons_for_merge_result: Mutex<Option<ApiResult<GetPersonsForMergeResult>>>,
     merge_person_properties_result: Mutex<Option<ApiResult<()>>>,
+    delete_person_result: Mutex<Option<ApiResult<()>>>,
     get_persons_for_merge_calls: CallRecorder<GetPersonsForMergeCall>,
     merge_person_properties_calls: CallRecorder<MergePersonPropertiesCall>,
     delete_person_calls: CallRecorder<DeletePersonCall>,
@@ -69,6 +70,7 @@ impl MockPersonPropertiesApi {
         Self {
             get_persons_for_merge_result: Mutex::new(None),
             merge_person_properties_result: Mutex::new(None),
+            delete_person_result: Mutex::new(None),
             get_persons_for_merge_calls: Arc::new(Mutex::new(Vec::new())),
             merge_person_properties_calls: Arc::new(Mutex::new(Vec::new())),
             delete_person_calls: Arc::new(Mutex::new(Vec::new())),
@@ -89,8 +91,19 @@ impl MockPersonPropertiesApi {
             }));
     }
 
+    #[allow(dead_code)]
+    fn set_get_persons_for_merge_error(&self, error: impl Into<String>) {
+        *self.get_persons_for_merge_result.lock().unwrap() =
+            Some(Err(error.into().into()));
+    }
+
     fn set_merge_person_properties_result(&self, result: ApiResult<()>) {
         *self.merge_person_properties_result.lock().unwrap() = Some(result);
+    }
+
+    #[allow(dead_code)]
+    fn set_delete_person_error(&self, error: impl Into<String>) {
+        *self.delete_person_result.lock().unwrap() = Some(Err(error.into().into()));
     }
 
     fn get_persons_for_merge_call_count(&self) -> usize {
@@ -172,7 +185,11 @@ impl PersonPropertiesApi for MockPersonPropertiesApi {
                 person_uuid: person_uuid.to_string(),
             });
 
-        Ok(())
+        self.delete_person_result
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or(Ok(()))
     }
 }
 
@@ -211,8 +228,18 @@ impl MockPersonDistinctIdsApi {
         *self.set_merging_target_result.lock().unwrap() = Some(Ok(result));
     }
 
+    #[allow(dead_code)]
+    fn set_merging_target_error(&self, error: impl Into<String>) {
+        *self.set_merging_target_result.lock().unwrap() = Some(Err(error.into().into()));
+    }
+
     fn set_merging_source_result(&self, result: Vec<SetMergingSourceResult>) {
         *self.set_merging_source_result.lock().unwrap() = Some(Ok(result));
+    }
+
+    #[allow(dead_code)]
+    fn set_merging_source_error(&self, error: impl Into<String>) {
+        *self.set_merging_source_result.lock().unwrap() = Some(Err(error.into().into()));
     }
 
     fn get_set_merging_target_calls(&self) -> Vec<SetMergingTargetCall> {
@@ -889,4 +916,145 @@ async fn test_state_is_tracked_throughout_merge() {
         state.valid_source_distinct_ids(),
         vec![source_distinct_id.to_string()]
     );
+}
+
+#[tokio::test]
+async fn test_merge_reraises_api_errors_from_set_merging_target() {
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_ids = vec!["source-1".to_string()];
+    let version = 9000;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+
+    // Inject error on set_merging_target
+    distinct_ids_api.set_merging_target_error("network disconnection");
+
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service =
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+
+    let result = merge_service
+        .merge(target_distinct_id, &source_distinct_ids, version)
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("network disconnection"));
+}
+
+#[tokio::test]
+async fn test_merge_reraises_api_errors_from_set_merging_source() {
+    let target_distinct_id = "target-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_distinct_ids = vec!["source-1".to_string()];
+    let version = 9001;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+
+    distinct_ids_api.set_merging_target_result(SetMergingTargetResult::Ok {
+        distinct_id: target_distinct_id.to_string(),
+        person_uuid: target_person_uuid.to_string(),
+    });
+
+    // Inject error on set_merging_source
+    distinct_ids_api.set_merging_source_error("connection timeout");
+
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service =
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+
+    let result = merge_service
+        .merge(target_distinct_id, &source_distinct_ids, version)
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("connection timeout"));
+}
+
+#[tokio::test]
+async fn test_merge_reraises_api_errors_from_get_persons_for_merge() {
+    let target_distinct_id = "target-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_distinct_id = "source-distinct-id";
+    let source_person_uuid = "source-person-uuid";
+    let version = 9002;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+
+    distinct_ids_api.set_merging_target_result(SetMergingTargetResult::Ok {
+        distinct_id: target_distinct_id.to_string(),
+        person_uuid: target_person_uuid.to_string(),
+    });
+
+    distinct_ids_api.set_merging_source_result(vec![SetMergingSourceResult::Ok {
+        distinct_id: source_distinct_id.to_string(),
+        person_uuid: source_person_uuid.to_string(),
+    }]);
+
+    // Inject error on get_persons_for_merge
+    properties_api.set_get_persons_for_merge_error("database unavailable");
+
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service =
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+
+    let result = merge_service
+        .merge(
+            target_distinct_id,
+            &[source_distinct_id.to_string()],
+            version,
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("database unavailable"));
+}
+
+#[tokio::test]
+async fn test_merge_reraises_api_errors_from_delete_person() {
+    let target_distinct_id = "target-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_distinct_id = "source-distinct-id";
+    let source_person_uuid = "source-person-uuid";
+    let version = 9003;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+
+    distinct_ids_api.set_merging_target_result(SetMergingTargetResult::Ok {
+        distinct_id: target_distinct_id.to_string(),
+        person_uuid: target_person_uuid.to_string(),
+    });
+
+    distinct_ids_api.set_merging_source_result(vec![SetMergingSourceResult::Ok {
+        distinct_id: source_distinct_id.to_string(),
+        person_uuid: source_person_uuid.to_string(),
+    }]);
+
+    let target_person = create_person(target_person_uuid, vec![]);
+    let source_person = create_person(source_person_uuid, vec![]);
+    let mut source_persons_map = HashMap::new();
+    source_persons_map.insert(source_person_uuid.to_string(), source_person);
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
+    properties_api.set_merge_person_properties_result(Ok(()));
+
+    // Inject error on delete_person
+    properties_api.set_delete_person_error("storage failure");
+
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service =
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+
+    let result = merge_service
+        .merge(
+            target_distinct_id,
+            &[source_distinct_id.to_string()],
+            version,
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("storage failure"));
 }

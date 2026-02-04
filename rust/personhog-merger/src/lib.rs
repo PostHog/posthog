@@ -17,4 +17,6 @@ pub use types::{
 pub use testing::{Breakpoint, SequenceExecutor};
 
 #[cfg(test)]
-pub use state::breakpointed::{BreakpointedRepository, OperationBreakpoint, RepositoryOperation};
+pub use state::breakpointed::{
+    BreakpointedRepository, InjectedError, OperationBreakpoint, RepositoryOperation,
+};
