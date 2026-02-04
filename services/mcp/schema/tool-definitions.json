@@ -782,5 +782,75 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "memory-create": {
+        "description": "Store a new memory with content and optional metadata tags. Memories are searchable via semantic embedding and can include metadata for categorization. Use this to remember facts about the user's company, product, preferences, and past interactions.",
+        "category": "Memories",
+        "feature": "memories",
+        "summary": "Create a new memory to store facts or preferences.",
+        "title": "Create memory",
+        "required_scopes": ["conversation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "memory-query": {
+        "description": "Search memories using semantic similarity. Can filter by metadata key-value pairs and choose to search only the current user's memories or all team memories. Use this to find relevant context about the user's product or previous discussions.",
+        "category": "Memories",
+        "feature": "memories",
+        "summary": "Search memories using semantic similarity.",
+        "title": "Query memories",
+        "required_scopes": ["conversation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "memory-update": {
+        "description": "Update an existing memory's content or metadata by its ID. Use this to correct or enhance stored facts.",
+        "category": "Memories",
+        "feature": "memories",
+        "summary": "Update an existing memory.",
+        "title": "Update memory",
+        "required_scopes": ["conversation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "memory-delete": {
+        "description": "Delete a memory by its ID. Use this to remove outdated or incorrect facts.",
+        "category": "Memories",
+        "feature": "memories",
+        "summary": "Delete a memory.",
+        "title": "Delete memory",
+        "required_scopes": ["conversation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "memory-list-metadata-keys": {
+        "description": "Get all available metadata keys used across memories in the team. Useful for discovering the taxonomy of memory categories and understanding how memories are organized.",
+        "category": "Memories",
+        "feature": "memories",
+        "summary": "List all metadata keys used in memories.",
+        "title": "List memory metadata keys",
+        "required_scopes": ["conversation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }
