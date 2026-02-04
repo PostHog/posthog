@@ -606,6 +606,11 @@ export interface ConversationsSettings {
     widget_public_token?: string | null
     widget_domains?: string[] | null
     notification_recipients?: number[] | null
+    widget_require_email?: boolean
+    widget_collect_name?: boolean
+    widget_identification_form_title?: string
+    widget_identification_form_description?: string
+    widget_placeholder_text?: string
 }
 
 export interface LogsSettings {
@@ -3629,6 +3634,9 @@ export interface SurveyAppearance {
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
+    // supported in the js sdk, NOT user-configurable.
+    // only used for survey branching display.
+    hideCancelButton?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -3977,6 +3985,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    auth_brand?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
