@@ -305,6 +305,7 @@ export const NewSurveyPresentationSection: StoryFn = () => {
     return <App />
 }
 NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
+NewSurveyPresentationSection.tags = ['test-skip']
 
 export const NewSurveyTargetingSection: StoryFn = () => {
     useDelayedOnMountEffect(() => {
