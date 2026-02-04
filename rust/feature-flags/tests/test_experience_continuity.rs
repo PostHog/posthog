@@ -8,7 +8,7 @@ use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::flags::flag_models::FeatureFlagRow;
 use feature_flags::utils::test_utils::TestContext;
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_experience_continuity_matches_python() -> Result<()> {
     // 1. Create a user that evaluates to false
     // 2. Find an ID that evaluates to true
@@ -138,7 +138,7 @@ async fn test_experience_continuity_matches_python() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_experience_continuity_with_merge() -> Result<()> {
     // Test that merged persons also maintain overrides without $anon_distinct_id
 
@@ -300,7 +300,7 @@ async fn test_experience_continuity_with_merge() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     let context = TestContext::new(None).await;
     let team = context
@@ -425,7 +425,7 @@ async fn test_anon_distinct_id_from_person_properties() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
     let context = TestContext::new(None).await;
     let team = context
@@ -536,7 +536,7 @@ async fn test_top_level_anon_distinct_id_takes_precedence() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_experience_continuity_without_person_uses_anon_distinct_id() -> Result<()> {
     // This test verifies that when:
     // 1. No person record exists (common during anonymous->identified transition)
