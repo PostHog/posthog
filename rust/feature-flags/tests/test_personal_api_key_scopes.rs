@@ -24,7 +24,7 @@ async fn cleanup_test_data(ctx: &TestContext, pak_id: String, user_id: i32) {
         .unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_scoped_teams_allowed() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -79,7 +79,7 @@ async fn test_personal_api_key_scoped_teams_allowed() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_scoped_organizations_allowed() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -131,7 +131,7 @@ async fn test_personal_api_key_scoped_organizations_allowed() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_unrestricted_teams_null() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -198,7 +198,7 @@ async fn test_personal_api_key_unrestricted_teams_null() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_unrestricted_teams_empty_array() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -271,7 +271,7 @@ async fn test_personal_api_key_unrestricted_teams_empty_array() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_unrestricted_organizations_null() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -344,7 +344,7 @@ async fn test_personal_api_key_unrestricted_organizations_null() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_mixed_scopes_both_valid() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -396,7 +396,7 @@ async fn test_personal_api_key_mixed_scopes_both_valid() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_mixed_scopes_team_valid_org_invalid() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -457,7 +457,7 @@ async fn test_personal_api_key_mixed_scopes_team_valid_org_invalid() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_user_without_current_team() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
@@ -514,7 +514,7 @@ async fn test_personal_api_key_user_without_current_team() {
     cleanup_test_data(&ctx, pak_id, user_id).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_personal_api_key_user_member_of_multiple_orgs() {
     let config = DEFAULT_TEST_CONFIG.clone();
     let ctx = TestContext::new(Some(&config)).await;
