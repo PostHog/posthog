@@ -190,7 +190,11 @@ function TraceSceneWrapper(): JSX.Element {
                                 path: urls.llmAnalyticsTraces(),
                                 key: 'traces',
                             }}
-                            actions={<TraceNavigation />}
+                            actions={
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION] ? (
+                                    <TraceNavigation />
+                                ) : undefined
+                            }
                             noBorder
                         />
                         <div className="flex items-start justify-between">
@@ -765,6 +769,9 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
+        const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
+        const showPromptButton = !!promptName
+
         const showPlaygroundButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
@@ -834,6 +841,8 @@ const EventContent = React.memo(
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
+                                    timeToFirstToken={event.properties.$ai_time_to_first_token}
+                                    isStreaming={event.properties.$ai_stream === true}
                                 />
                             ) : (
                                 <MetadataHeader
@@ -865,8 +874,23 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionRecording || showSaveToDatasetButton) && (
+                            {(showPromptButton ||
+                                showPlaygroundButton ||
+                                hasSessionRecording ||
+                                showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
+                                    {showPromptButton && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            icon={<IconAIText />}
+                                            to={urls.llmAnalyticsPrompt(promptName)}
+                                            tooltip="View the prompt used for this generation"
+                                            data-attr="view-prompt-trace"
+                                        >
+                                            View prompt
+                                        </LemonButton>
+                                    )}
                                     {showPlaygroundButton && (
                                         <LemonButton
                                             type="secondary"

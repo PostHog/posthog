@@ -315,7 +315,7 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
     )
 }
 
-function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
+export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
     const { augmentedData, rawDataLoading: loading } = useValues(sidePanelSdkDoctorLogic)
 
     const sdk = augmentedData[sdkType]!

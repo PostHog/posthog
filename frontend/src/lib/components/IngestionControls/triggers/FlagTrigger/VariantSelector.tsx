@@ -37,7 +37,7 @@ export function variantOptions(
 
 export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }): JSX.Element | null => {
     const { resourceType } = useValues(ingestionControlsLogic)
-    const { flag, loading, linkedFlag, flagHasVariants } = useValues(flagTriggerLogic)
+    const { flag, featureFlagLoading, linkedFlag, flagHasVariants } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 
     if (!flagHasVariants) {
@@ -59,7 +59,7 @@ export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }
                         value={flag?.variant ?? ANY_VARIANT}
                         options={variantOptions(
                             linkedFlag?.filters.multivariate,
-                            (disabledReason ?? loading) ? 'Loading...' : undefined
+                            (disabledReason ?? featureFlagLoading) ? 'Loading...' : undefined
                         )}
                         onChange={(variant) => {
                             if (!linkedFlag) {

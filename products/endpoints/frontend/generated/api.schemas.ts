@@ -604,8 +604,6 @@ export interface HogQLQueryModifiersApi {
      */
     usePreaggregatedTableTransforms?: boolean | null
     /** @nullable */
-    usePresortedEventsTable?: boolean | null
-    /** @nullable */
     useWebAnalyticsPreAggregatedTables?: boolean | null
 }
 
@@ -2228,6 +2226,11 @@ export interface FunnelsFilterApi {
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     /** @nullable */
     breakdownAttributionValue?: number | null
+    /**
+     * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
+     * @nullable
+     */
+    breakdownSorting?: string | null
     /** @nullable */
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
     /** @nullable */
@@ -2281,8 +2284,6 @@ export interface FunnelsQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
-    isUdf?: boolean | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
@@ -3387,6 +3388,11 @@ export interface EndpointRequestApi {
         | null
     /** How frequently should the underlying materialized view be updated */
     sync_frequency?: DataWarehouseSyncIntervalApi | null
+    /**
+     * Target a specific version for updates (optional, defaults to current version)
+     * @nullable
+     */
+    version?: number | null
 }
 
 /**
@@ -3457,6 +3463,11 @@ export interface EndpointRunRequestApi {
 
 Tip: Use to get data for a specific customer or user. */
     filters_override?: DashboardFilterApi | null
+    /**
+     * Maximum number of results to return. If not provided, returns all results.
+     * @nullable
+     */
+    limit?: number | null
     /**
      * Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of $pageview's
      * @nullable

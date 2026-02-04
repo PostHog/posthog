@@ -1,6 +1,9 @@
 import pytest
 
 from posthog.hogql.hogql import ast
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+
+from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 
@@ -46,6 +49,45 @@ class TestSessionsRecordBatchModel:
             "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
             in printed_query
         )
+
+    async def test_get_hogql_query_returns_independent_ast_per_call(
+        self, ateam, another_ateam, data_interval_start, data_interval_end
+    ):
+        """get_hogql_query must return an independent AST each time, not a shared mutable reference."""
+        model_a = SessionsRecordBatchModel(team_id=ateam.id)
+        model_b = SessionsRecordBatchModel(team_id=another_ateam.id)
+
+        query_a = model_a.get_hogql_query(data_interval_start, data_interval_end)
+        query_b = model_b.get_hogql_query(data_interval_start, data_interval_end)
+
+        assert query_a is not query_b
+
+    async def test_interleaved_calls_do_not_mix_team_ids(
+        self, ateam, another_ateam, data_interval_start, data_interval_end
+    ):
+        """Regression test to reproduce a previous race condition in as_query_with_parameters where
+        two different models were created with different team IDs, and the second model's query
+        overwrote the first model's query."""
+
+        model_a = SessionsRecordBatchModel(team_id=ateam.id)
+        model_b = SessionsRecordBatchModel(team_id=another_ateam.id)
+
+        # Task A: get_hogql_query sets .where with team A's filter
+        hogql_query_a = model_a.get_hogql_query(data_interval_start, data_interval_end)
+        # Task A: awaits get_hogql_context (yields control)
+        context_a = await model_a.get_hogql_context()
+        # Task B runs during the yield and overwrites .where with team B's filter
+        model_b.get_hogql_query(data_interval_start, data_interval_end)
+        # Task A resumes and prints the query — hogql_query_a is a ref to the shared object
+        prepared = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query_a, context=context_a, dialect="clickhouse", stack=[]
+        )
+        assert prepared is not None
+        context_a.output_format = "ArrowStream"
+        printed_query = print_prepared_ast(prepared, context=context_a, dialect="clickhouse", stack=[])
+
+        assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
+        assert f"team_id, {another_ateam.id}" not in printed_query
 
     async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(

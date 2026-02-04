@@ -67,6 +67,8 @@ export function HelpMenu(): JSX.Element {
                             <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />
                         </>
                     }
+                    tooltipPlacement="top"
+                    tooltipCloseDelayMs={0}
                     iconOnly
                     className="group"
                 >
@@ -137,7 +139,7 @@ export function HelpMenu(): JSX.Element {
                             targetBlankIcon
                             target="_blank"
                             buttonProps={{ menuItem: true }}
-                            to="https://status.posthog.com"
+                            to="https://posthogstatus.com"
                         >
                             <SidePanelStatusIcon className="flex" size="xsmall" />
                             PostHog status

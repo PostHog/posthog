@@ -26,7 +26,7 @@ import {
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
-import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshot } from './utils'
+import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshotV2 } from './utils'
 
 /**
  * Editor state machine - explicit states instead of multiple boolean flags.
@@ -77,6 +77,19 @@ function isToolbarElement(element: HTMLElement): boolean {
     return toolbar?.contains(element) ?? false
 }
 
+export function hasValidSelector(step: TourStep): boolean {
+    if (step.type !== 'element') {
+        return true
+    }
+    if (step.useManualSelector && !step.selector) {
+        return false
+    }
+    if (!step.useManualSelector && !step.inferenceData) {
+        return false
+    }
+    return true
+}
+
 /** Get the DOM element for a step, checking cached ref is still valid */
 export function getStepElement(step: TourStep): HTMLElement | null {
     if (step.element && document.body.contains(step.element)) {
@@ -89,11 +102,22 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         if (!step.selector) {
             return null
         }
-        return document.querySelector(step.selector) as HTMLElement | null
+        try {
+            return document.querySelector(step.selector) as HTMLElement | null
+        } catch {
+            return null
+        }
     }
 
     if (!step.inferenceData) {
-        return step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
+        if (!step.selector) {
+            return null
+        }
+        try {
+            return document.querySelector(step.selector) as HTMLElement | null
+        } catch {
+            return null
+        }
     }
 
     return findElement(step.inferenceData)
@@ -137,6 +161,8 @@ export const productToursLogic = kea<productToursLogicType>([
         hideButtonProductTours: true,
 
         setEditorState: (state: EditorState) => ({ state }),
+
+        setSessionRecordingConsent: (consent: boolean) => ({ consent }),
 
         // Step actions
         addStep: (stepType: ProductTourStepType) => ({ stepType }),
@@ -259,6 +285,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectTour: () => null,
                 newTour: () => null,
                 removeStep: () => null,
+                startPreviewMode: () => null,
             },
         ],
         sidebarTransitioning: [
@@ -283,12 +310,19 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectTour: (state, { id }) => (id === null ? false : state),
             },
         ],
+        sessionRecordingConsent: [
+            null as boolean | null,
+            { persist: true },
+            {
+                setSessionRecordingConsent: (_, { consent }) => consent,
+            },
+        ],
     }),
 
     forms(({ values, actions }) => ({
         tourForm: {
             defaults: { name: '', steps: [] } as TourForm,
-            errors: ({ name, id }) => {
+            errors: ({ name, id, steps }) => {
                 if (!name || !name.length) {
                     return { name: 'Must name this tour' }
                 }
@@ -299,6 +333,12 @@ export const productToursLogic = kea<productToursLogicType>([
                 if (isDuplicate) {
                     return { name: 'A tour with this name already exists' }
                 }
+
+                const stepErrors = steps.map((s) => (hasValidSelector(s) ? {} : { selector: 'Missing selector' }))
+                if (stepErrors.some((e) => Object.keys(e).length > 0)) {
+                    return { steps: stepErrors }
+                }
+
                 return {}
             },
             submit: async (formValues) => {
@@ -408,6 +448,23 @@ export const productToursLogic = kea<productToursLogicType>([
             },
         ],
         stepCount: [(s) => [s.tourForm], (tourForm) => tourForm?.steps?.length ?? 0],
+        expandedStepRect: [
+            (s) => [s.expandedStepIndex, s.tourForm, s.rectUpdateCounter, s.editorState],
+            (expandedStepIndex, tourForm, _, editorState): ElementRect | null => {
+                if (editorState.mode === 'selecting') {
+                    return null
+                }
+                if (expandedStepIndex === null || !tourForm?.steps) {
+                    return null
+                }
+                const step = tourForm.steps[expandedStepIndex]
+                if (!step || step.type !== 'element') {
+                    return null
+                }
+                const element = getStepElement(step)
+                return element ? getRectForElement(element) : null
+            },
+        ],
     }),
 
     subscriptions(({ actions }) => ({
@@ -450,7 +507,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const { stepIndex } = editorState
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
-            const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
+            const screenshot = await captureAndUploadElementScreenshotV2(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })
@@ -513,6 +570,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     useManualSelector: true,
                     inferenceData: undefined,
                     screenshotMediaId: undefined,
+                    element: undefined,
                 }
             } else {
                 // switching from manual -> auto: wipe selector data, prompt for re-selection
@@ -522,6 +580,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     selector: undefined,
                     inferenceData: undefined,
                     screenshotMediaId: undefined,
+                    element: undefined,
                 }
                 actions.setEditorState({ mode: 'selecting', stepIndex: index })
             }
@@ -536,7 +595,7 @@ export const productToursLogic = kea<productToursLogicType>([
             if (!step || step.type !== 'element') {
                 return
             }
-            steps[index] = { ...step, selector }
+            steps[index] = { ...step, selector, element: undefined }
             actions.setTourFormValue('steps', steps)
         },
         updateStepProgressionTrigger: ({ index, trigger }) => {
@@ -553,10 +612,26 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         newTour: () => {
             toolbarLogic.actions.setVisibleMenu('none')
+            if (values.sessionRecordingConsent) {
+                toolbarPosthogJS.startSessionRecording()
+            }
+        },
+        setSessionRecordingConsent: ({ consent }) => {
+            toolbarPosthogJS.capture(ProductTourEvent.CONSENT_SELECTED, { consent })
+            if (consent && values.selectedTourId !== null) {
+                toolbarPosthogJS.startSessionRecording()
+            } else if (!consent) {
+                toolbarPosthogJS.stopSessionRecording()
+            }
         },
         selectTour: ({ id }) => {
             if (id !== null) {
                 toolbarLogic.actions.setVisibleMenu('none')
+                if (values.sessionRecordingConsent) {
+                    toolbarPosthogJS.startSessionRecording()
+                }
+            } else if (!values.isPreviewing && values.sessionRecordingConsent) {
+                toolbarPosthogJS.stopSessionRecording()
             }
         },
         saveTour: () => {
@@ -827,6 +902,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 window.removeEventListener('PHProductTourCompleted', cache.onTourEnded)
                 window.removeEventListener('PHProductTourDismissed', cache.onTourEnded)
             }
+            toolbarPosthogJS.stopSessionRecording()
         },
     })),
 ])
