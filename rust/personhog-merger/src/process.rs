@@ -160,7 +160,11 @@ impl Processable for SourcesMarkedState {
             // No sources to merge, just clear target and complete
             if let Err(e) = ctx
                 .person_distinct_ids_api
-                .set_merged(&self.target_distinct_id, &self.target_person_uuid, self.version)
+                .set_merged(
+                    &self.target_distinct_id,
+                    &self.target_person_uuid,
+                    self.version,
+                )
                 .await
             {
                 return ProcessResult::Failed(e);
@@ -226,8 +230,11 @@ impl Processable for PropertiesMergedState {
             .valid_sources
             .keys()
             .map(|distinct_id| {
-                ctx.person_distinct_ids_api
-                    .set_merged(distinct_id, &self.target_person_uuid, self.version)
+                ctx.person_distinct_ids_api.set_merged(
+                    distinct_id,
+                    &self.target_person_uuid,
+                    self.version,
+                )
             })
             .collect();
 
@@ -253,7 +260,11 @@ impl Processable for DistinctIdsMergedState {
     async fn process(self, ctx: &MergeContext) -> ProcessResult {
         if let Err(e) = ctx
             .person_distinct_ids_api
-            .set_merged(&self.target_distinct_id, &self.target_person_uuid, self.version)
+            .set_merged(
+                &self.target_distinct_id,
+                &self.target_person_uuid,
+                self.version,
+            )
             .await
         {
             return ProcessResult::Failed(e);

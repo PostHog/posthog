@@ -286,12 +286,8 @@ mod tests {
         let repo1 = repo.clone();
         let order1 = order.clone();
         let task1 = tokio::spawn(async move {
-            let state = MergeState::new(
-                "merge-1".to_string(),
-                "target-1".to_string(),
-                vec![],
-                1000,
-            );
+            let state =
+                MergeState::new("merge-1".to_string(), "target-1".to_string(), vec![], 1000);
             repo1.set(state).await.unwrap();
             order1.lock().await.push(1);
         });
@@ -299,12 +295,8 @@ mod tests {
         let repo2 = repo.clone();
         let order2 = order.clone();
         let task2 = tokio::spawn(async move {
-            let state = MergeState::new(
-                "merge-2".to_string(),
-                "target-2".to_string(),
-                vec![],
-                2000,
-            );
+            let state =
+                MergeState::new("merge-2".to_string(), "target-2".to_string(), vec![], 2000);
             repo2.set(state).await.unwrap();
             order2.lock().await.push(2);
         });
@@ -349,12 +341,7 @@ mod tests {
         let repo = BreakpointedRepository::new(inner);
 
         // No breakpoints added - operations should proceed immediately
-        let state = MergeState::new(
-            "merge-1".to_string(),
-            "target".to_string(),
-            vec![],
-            1000,
-        );
+        let state = MergeState::new("merge-1".to_string(), "target".to_string(), vec![], 1000);
         repo.set(state).await.unwrap();
 
         let retrieved = repo.get("merge-1").await.unwrap();
@@ -386,12 +373,8 @@ mod tests {
         let repo1 = repo.clone();
         let counter1 = counter.clone();
         let task1 = tokio::spawn(async move {
-            let state = MergeState::new(
-                "merge-1".to_string(),
-                "target-1".to_string(),
-                vec![],
-                1000,
-            );
+            let state =
+                MergeState::new("merge-1".to_string(), "target-1".to_string(), vec![], 1000);
             repo1.set(state).await.unwrap();
             counter1.fetch_add(1, Ordering::SeqCst);
         });
@@ -399,12 +382,8 @@ mod tests {
         let repo2 = repo.clone();
         let counter2 = counter.clone();
         let task2 = tokio::spawn(async move {
-            let state = MergeState::new(
-                "merge-2".to_string(),
-                "target-2".to_string(),
-                vec![],
-                2000,
-            );
+            let state =
+                MergeState::new("merge-2".to_string(), "target-2".to_string(), vec![], 2000);
             repo2.set(state).await.unwrap();
             counter2.fetch_add(1, Ordering::SeqCst);
         });
@@ -442,12 +421,7 @@ mod tests {
         ))
         .await;
 
-        let state = MergeState::new(
-            "merge-1".to_string(),
-            "target".to_string(),
-            vec![],
-            1000,
-        );
+        let state = MergeState::new("merge-1".to_string(), "target".to_string(), vec![], 1000);
 
         let result = repo.set(state).await;
         assert!(result.is_err());
@@ -463,12 +437,7 @@ mod tests {
         let repo = BreakpointedRepository::new(inner);
 
         // First set a state successfully
-        let state = MergeState::new(
-            "merge-1".to_string(),
-            "target".to_string(),
-            vec![],
-            1000,
-        );
+        let state = MergeState::new("merge-1".to_string(), "target".to_string(), vec![], 1000);
         repo.set(state).await.unwrap();
 
         // Inject an error for get operation
@@ -477,7 +446,10 @@ mod tests {
 
         let result = repo.get("merge-1").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("connection timeout"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("connection timeout"));
 
         // Error should be consumed - second get should succeed
         let result = repo.get("merge-1").await;
@@ -514,12 +486,7 @@ mod tests {
         ))
         .await;
 
-        let state = MergeState::new(
-            "merge-1".to_string(),
-            "target".to_string(),
-            vec![],
-            1000,
-        );
+        let state = MergeState::new("merge-1".to_string(), "target".to_string(), vec![], 1000);
 
         // First attempt fails
         let result = repo.set(state.clone()).await;

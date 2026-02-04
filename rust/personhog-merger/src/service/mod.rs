@@ -115,7 +115,10 @@ impl<S: MergeStateRepository, L: LockService> MergeExecutor<S, L> {
                 LockError::Timeout => format!("Lock acquisition timed out for merge {}", merge_id),
                 LockError::LockLost => format!("Lock lost for merge {}", merge_id),
                 LockError::AlreadyHeld => {
-                    format!("Lock already held by another process for merge {}", merge_id)
+                    format!(
+                        "Lock already held by another process for merge {}",
+                        merge_id
+                    )
                 }
             })?;
         Ok(())

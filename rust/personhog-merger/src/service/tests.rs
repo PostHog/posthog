@@ -93,11 +93,10 @@ impl MockPersonPropertiesApi {
         target_person: Person,
         source_persons: HashMap<String, Person>,
     ) {
-        *self.get_persons_for_merge_result.lock().unwrap() =
-            Some(Ok(GetPersonsForMergeResult {
-                target_person,
-                source_persons,
-            }));
+        *self.get_persons_for_merge_result.lock().unwrap() = Some(Ok(GetPersonsForMergeResult {
+            target_person,
+            source_persons,
+        }));
     }
 
     #[allow(dead_code)]
@@ -537,8 +536,12 @@ async fn test_merges_single_source_into_target() {
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge(
@@ -657,8 +660,12 @@ async fn test_merges_multiple_sources_into_target() {
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -718,8 +725,12 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let _result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -733,7 +744,10 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
     // Should only delete the person once (deduplicated)
     let delete_person_calls = properties_api.get_delete_person_calls();
     assert_eq!(delete_person_calls.len(), 1);
-    assert_eq!(delete_person_calls[0].person_uuid, shared_source_person_uuid);
+    assert_eq!(
+        delete_person_calls[0].person_uuid,
+        shared_source_person_uuid
+    );
 }
 
 #[tokio::test]
@@ -762,8 +776,12 @@ async fn test_handles_source_person_with_no_properties() {
     properties_api.set_get_persons_for_merge_result(target_person, HashMap::new());
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let _result = merge_service
         .merge(
@@ -836,8 +854,12 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -879,12 +901,8 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
     assert!(set_merged_calls
         .iter()
         .any(|c| c.distinct_id == "source-1" && c.person_uuid == target_person_uuid));
-    assert!(!set_merged_calls
-        .iter()
-        .any(|c| c.distinct_id == "source-2"));
-    assert!(!set_merged_calls
-        .iter()
-        .any(|c| c.distinct_id == "source-3"));
+    assert!(!set_merged_calls.iter().any(|c| c.distinct_id == "source-2"));
+    assert!(!set_merged_calls.iter().any(|c| c.distinct_id == "source-3"));
 }
 
 #[tokio::test]
@@ -917,8 +935,12 @@ async fn test_clears_target_merge_status_when_all_sources_conflict() {
     ]);
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -958,8 +980,12 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
     });
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -1070,8 +1096,12 @@ async fn test_merge_reraises_api_errors_from_set_merging_target() {
     distinct_ids_api.set_merging_target_error("network disconnection");
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -1103,8 +1133,12 @@ async fn test_merge_reraises_api_errors_from_set_merging_source() {
     distinct_ids_api.set_merging_source_error("connection timeout");
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -1142,8 +1176,12 @@ async fn test_merge_reraises_api_errors_from_get_persons_for_merge() {
     properties_api.set_get_persons_for_merge_error("database unavailable");
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge(
@@ -1193,8 +1231,12 @@ async fn test_merge_reraises_api_errors_from_delete_person() {
     properties_api.set_delete_person_error("storage failure");
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        create_lock_service(),
+    );
 
     let result = merge_service
         .merge(
@@ -1622,7 +1664,12 @@ async fn test_service_restart_fail_at_sources_marked() {
         });
         distinct_ids_api.set_merging_source_error("connection lost");
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
+        let service = PersonMergeService::new(
+            properties_api,
+            distinct_ids_api,
+            state_repo.clone(),
+            create_lock_service(),
+        );
 
         let result = service
             .merge(
@@ -1703,7 +1750,12 @@ async fn test_service_restart_fail_at_properties_merged() {
         }]);
         properties_api.set_get_persons_for_merge_error("database timeout");
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
+        let service = PersonMergeService::new(
+            properties_api,
+            distinct_ids_api,
+            state_repo.clone(),
+            create_lock_service(),
+        );
 
         let result = service
             .merge(
@@ -1785,7 +1837,12 @@ async fn test_service_restart_fail_at_distinct_ids_merged() {
         properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
         properties_api.set_merge_person_properties_result(Ok(()));
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
+        let service = PersonMergeService::new(
+            properties_api,
+            distinct_ids_api,
+            state_repo.clone(),
+            create_lock_service(),
+        );
 
         let result = service
             .merge(
@@ -1860,7 +1917,12 @@ async fn test_service_restart_fail_at_delete_person() {
         properties_api.set_merge_person_properties_result(Ok(()));
         properties_api.set_delete_person_error("storage failure");
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
+        let service = PersonMergeService::new(
+            properties_api,
+            distinct_ids_api,
+            state_repo.clone(),
+            create_lock_service(),
+        );
 
         let result = service
             .merge(
@@ -1907,7 +1969,7 @@ async fn test_service_restart_fail_at_delete_person() {
 // Lock acquisition tests
 // =============================================================================
 
-use crate::lock::{BreakpointedLockService, InjectedLockError, LockBreakpoint, LockOperation};
+use crate::lock::{BreakpointedLockService, InjectedLockError};
 
 #[tokio::test]
 async fn test_lock_failure_prevents_api_calls_at_started_step() {
@@ -2033,7 +2095,12 @@ async fn test_lock_lost_at_sources_marked_step_returns_error() {
     let results = merge_service.resume_all().await.unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0].1.is_err());
-    assert!(results[0].1.as_ref().unwrap_err().to_string().contains("lost"));
+    assert!(results[0]
+        .1
+        .as_ref()
+        .unwrap_err()
+        .to_string()
+        .contains("lost"));
 
     // No API calls should have been made
     assert_eq!(properties_api.get_persons_for_merge_call_count(), 0);
@@ -2086,7 +2153,12 @@ async fn test_lock_lost_at_properties_merged_step_returns_error() {
     let results = merge_service.resume_all().await.unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0].1.is_err());
-    assert!(results[0].1.as_ref().unwrap_err().to_string().contains("lost"));
+    assert!(results[0]
+        .1
+        .as_ref()
+        .unwrap_err()
+        .to_string()
+        .contains("lost"));
 
     // No set_merged calls should have been made
     assert!(distinct_ids_api.get_set_merged_calls().is_empty());

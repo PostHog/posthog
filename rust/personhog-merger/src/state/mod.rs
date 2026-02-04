@@ -250,7 +250,9 @@ impl MergeState {
     /// Get the source person UUIDs (only available after SourcesMarked step).
     pub fn source_person_uuids(&self) -> Option<&[String]> {
         match self {
-            MergeState::Started(_) | MergeState::TargetMarked(_) | MergeState::Failed { .. } => None,
+            MergeState::Started(_) | MergeState::TargetMarked(_) | MergeState::Failed { .. } => {
+                None
+            }
             MergeState::SourcesMarked(s) => Some(&s.source_person_uuids),
             MergeState::PropertiesMerged(s) => Some(&s.source_person_uuids),
             MergeState::DistinctIdsMerged(s) => Some(&s.source_person_uuids),
