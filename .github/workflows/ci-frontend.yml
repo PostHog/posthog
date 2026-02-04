@@ -153,11 +153,11 @@ jobs:
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   # Check all JS bundles in the dist folder
-                  pattern: 'frontend/dist/*.js'
+                  pattern: 'frontend/dist/**/*.js'
                   # Exclude source maps and chunk files (chunk hashes change every build)
                   exclude: |
-                      frontend/dist/*.js.map
-                      frontend/dist/chunk*.js
+                      **/*.js.map
+                      **/chunk*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
                   order-by: 'Size:desc'
