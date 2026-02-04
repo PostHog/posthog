@@ -499,6 +499,49 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][1], "click")
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_compound_constraint_with_lazy(self):
+        """Test join with compound AND constraint where one part triggers a lazy join.
+
+        This tests: ON e1.person_id = e2.person_id AND e1.event = e2.event
+        The person_id comparison triggers lazy joins, while the event comparison is simple.
+        """
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Firefox"},
+            )
+            flush_persons_and_events()
+
+            # Compound constraint: person_id match AND event match
+            response = execute_hogql_query(
+                "SELECT e1.event, e2.properties.$browser "
+                "FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id AND e1.event = e2.event "
+                "WHERE e1.properties.$browser = 'Chrome' AND e2.properties.$browser = 'Firefox'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            # Should find events with same person and same event type but different browsers
+            self.assertEqual(len(response.results), 1)
+            self.assertEqual(response.results[0][0], "pageview")
+            self.assertEqual(response.results[0][1], "Firefox")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()

@@ -515,6 +515,39 @@
   LIMIT 100
   '''
 # ---
+# name: TestQuery.test_query_joins_compound_constraint_with_lazy
+  '''
+  -- ClickHouse
+  
+  SELECT e1.event AS event, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e2.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS `$browser` 
+  FROM events AS e1 LEFT OUTER JOIN (
+  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS e1__override ON equals(e1.distinct_id, e1__override.distinct_id) JOIN (
+  SELECT e2.distinct_id AS distinct_id, e2.event AS event, if(not(empty(e2__override.distinct_id)), e2__override.person_id, e2.person_id) AS person_id, e2.properties AS properties 
+  FROM events AS e2 LEFT OUTER JOIN (
+  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+  FROM person_distinct_id_overrides 
+  WHERE equals(person_distinct_id_overrides.team_id, 99999) 
+  GROUP BY person_distinct_id_overrides.distinct_id 
+  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
+  SETTINGS optimize_aggregation_in_order=1) AS e2__override ON equals(e2.distinct_id, e2__override.distinct_id) 
+  WHERE equals(e2.team_id, 99999)) AS e2 ON and(equals(if(not(empty(e1__override.distinct_id)), e1__override.person_id, e1.person_id), if(not(empty(e2.distinct_id)), e2.person_id, e2.person_id)), equals(e1.event, e2.event)) 
+  WHERE and(equals(e1.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e1.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e2.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', ''), %(hogql_val_4)s), 0)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  
+  SELECT e1.event, e2.properties.$browser 
+  FROM events AS e1 JOIN events AS e2 ON and(equals(e1.person_id, e2.person_id), equals(e1.event, e2.event)) 
+  WHERE and(equals(e1.properties.$browser, 'Chrome'), equals(e2.properties.$browser, 'Firefox')) 
+  LIMIT 100
+  '''
+# ---
 # name: TestQuery.test_query_joins_events_e_pdi
   '''
   -- ClickHouse
@@ -800,7 +833,7 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS e1__override ON equals(e1.distinct_id, e1__override.distinct_id) JOIN (
-  SELECT e2.event AS event, if(not(empty(e2__override.distinct_id)), e2__override.person_id, e2.person_id) AS __join_key 
+  SELECT e2.distinct_id AS distinct_id, e2.event AS event, if(not(empty(e2__override.distinct_id)), e2__override.person_id, e2.person_id) AS person_id 
   FROM events AS e2 LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
@@ -808,7 +841,7 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS e2__override ON equals(e2.distinct_id, e2__override.distinct_id) 
-  WHERE equals(e2.team_id, 99999)) AS e2 ON equals(e2.__join_key, if(not(empty(e1__override.distinct_id)), e1__override.person_id, e1.person_id)) 
+  WHERE equals(e2.team_id, 99999)) AS e2 ON equals(if(not(empty(e1__override.distinct_id)), e1__override.person_id, e1.person_id), if(not(empty(e2.distinct_id)), e2.person_id, e2.person_id)) 
   WHERE and(equals(e1.team_id, 99999), equals(e1.event, %(hogql_val_0)s), equals(e2.event, %(hogql_val_1)s)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
