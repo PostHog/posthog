@@ -6,7 +6,10 @@ mod types;
 mod testing;
 
 pub use service::PersonMergeService;
-pub use state::{InMemoryMergeStateRepository, MergeState, MergeStateRepository, MergeStep};
+pub use state::{
+    InMemoryMergeStateRepository, MergeState, MergeStateRepository, MergeStep, SourcesMarkedData,
+    StartedData, TargetMarkedData,
+};
 pub use types::{
     DistinctIdInfo, GetPersonsForMergeResult, MergeConflict, MergeResult, MergeStatus, Person,
     PersonDistinctIdsApi, PersonPropertiesApi, SetMergingSourceResult, SetMergingTargetResult,

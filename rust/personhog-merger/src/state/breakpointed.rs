@@ -186,8 +186,8 @@ impl<R: MergeStateRepository> MergeStateRepository for BreakpointedRepository<R>
 
     async fn set(&self, state: MergeState) -> ApiResult<()> {
         let operation = RepositoryOperation::Set {
-            merge_id: state.merge_id.clone(),
-            step: state.step,
+            merge_id: state.merge_id().to_string(),
+            step: state.step(),
         };
         self.wait_for_breakpoint(&operation).await;
         if let Some(error_msg) = self.check_injected_error(&operation).await {
@@ -215,7 +215,7 @@ impl<R: MergeStateRepository> MergeStateRepository for BreakpointedRepository<R>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::InMemoryMergeStateRepository;
+    use crate::state::{InMemoryMergeStateRepository, StartedData, TargetMarkedData};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{timeout, Duration};
 
@@ -233,13 +233,15 @@ mod tests {
 
         let repo_clone = repo.clone();
         let handle = tokio::spawn(async move {
-            let mut state = MergeState::new(
-                "merge-1".to_string(),
-                "target".to_string(),
-                vec![],
-                1000,
-            );
-            state.step = MergeStep::TargetMarked;
+            let state = MergeState::TargetMarked(TargetMarkedData {
+                started: StartedData {
+                    merge_id: "merge-1".to_string(),
+                    target_distinct_id: "target".to_string(),
+                    source_distinct_ids: vec![],
+                    version: 1000,
+                },
+                target_person_uuid: "uuid".to_string(),
+            });
             repo_clone.set(state).await.unwrap();
         });
 
