@@ -118,6 +118,9 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
     const externalRef = options.interaction !== 'function' ? options.externalRef : undefined
     const callback = options.interaction === 'function' ? options.callback : undefined
 
+    // Keep a ref to the callback to avoid re-registering on every render
+    // This way, the latest callback is always called and callers
+    // don't need to remember to memoize it
     const callbackFnRef = useRef(callback)
     callbackFnRef.current = callback
 
