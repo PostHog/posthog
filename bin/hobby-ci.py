@@ -108,6 +108,7 @@ class HobbyTester:
             "fi"
         )
 
+<<<<<<< HEAD
     def _get_resolve_node_tag_script(self):
         """Return bash script to resolve the node image tag.
         The node container build only runs when node-related files change, so
@@ -123,6 +124,23 @@ class HobbyTester:
             "else "
             "  export POSTHOG_NODE_TAG=latest; "
             '  echo "$LOG_PREFIX Node image not found for commit, falling back to tag: latest"; '
+=======
+    def _get_node_image_fallback_script(self):
+        """Return bash script to check if posthog-node image exists on DockerHub.
+
+        If the node image doesn't exist for this commit (it's only built when
+        node files change), rewrite the compose file to use :latest for the
+        plugins service so that docker compose pull doesn't fail.
+        """
+        return (
+            'if curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT" > /dev/null 2>&1; then '
+            '  echo "$LOG_PREFIX posthog-node:$CURRENT_COMMIT found on DockerHub"; '
+            "else "
+            '  echo "$LOG_PREFIX posthog-node:$CURRENT_COMMIT not found, using latest for plugins service"; '
+            "  sed -i "
+            '"s|\\${REGISTRY_URL}-node:\\${POSTHOG_APP_TAG}|posthog/posthog-node:latest|g" '
+            "posthog/docker-compose.hobby.yml; "
+>>>>>>> 80124ba1dd (fix(hobby) pull latest images as fallback so that hobby CI is less flaky)
             "fi"
         )
 
@@ -183,7 +201,11 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
+<<<<<<< HEAD
             self._get_resolve_node_tag_script(),
+=======
+            self._get_node_image_fallback_script(),
+>>>>>>> 80124ba1dd (fix(hobby) pull latest images as fallback so that hobby CI is less flaky)
             *self._get_installer_commands(),
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
