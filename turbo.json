@@ -47,6 +47,7 @@
             "inputs": ["$TURBO_DEFAULT$", "src/queries/schema/**"]
         },
         "schema:build:python": {
+            "dependsOn": ["schema:build:json"],
             "inputs": ["$TURBO_DEFAULT$", "src/queries/schema.json"]
         }
     }
