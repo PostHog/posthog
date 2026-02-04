@@ -71,6 +71,17 @@ procs:
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
 
+    cyclotron-janitor-shadow:
+        shell: |-
+            bin/check_postgres_up cyclotron_shadow && \
+            bin/check_kafka_clickhouse_up && \
+            DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron_shadow \
+            BIND_PORT=3304 \
+            JANITOR_ID=shadow-janitor \
+            SHARD_ID=shadow \
+            bin/start-rust-service cyclotron-janitor
+        capability: cyclotron
+
     cymbal:
         shell: |-
             bin/check_postgres_up && \
@@ -147,7 +158,7 @@ procs:
         capability: mcp_server
 
     mcp-ui-apps:
-        shell: 'cd services/mcp/typescript && pnpm run build:ui-apps -- --watch'
+        shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
 
     migrate-postgres:
@@ -157,6 +168,14 @@ procs:
     migrate-clickhouse:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
         capability: core_infra
+
+    migrate-cyclotron:
+        shell: 'bin/check_postgres_up cyclotron && bin/migrate --scope=cyclotron'
+        capability: cyclotron
+
+    migrate-cyclotron-shadow:
+        shell: 'bin/check_postgres_up cyclotron_shadow && bin/migrate --scope=cyclotron-shadow'
+        capability: cyclotron
 
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && bin/migrate --scope=persons'

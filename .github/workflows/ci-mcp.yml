@@ -9,6 +9,7 @@ jobs:
     changes:
         permissions:
             contents: read
+            pull-requests: read
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
@@ -51,7 +52,10 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Build package
-              run: cd services/mcp/typescript && pnpm build
+              run: cd services/mcp && pnpm build
+
+            - name: Type check
+              run: cd services/mcp && pnpm typecheck
 
     unit-tests:
         name: Unit Tests

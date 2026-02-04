@@ -4,6 +4,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
@@ -80,7 +81,11 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
-            metadataSource={{ kind: NodeKind.ActorsQuery }}
+            metadataSource={{
+                kind: NodeKind.EventsQuery,
+                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                after: '-30d',
+            }}
         />
     )
 }
