@@ -94,7 +94,7 @@ class MatrixManager:
                     role_at_organization="engineering",
                 )
                 team = self.create_team(organization, initiating_user=new_user)
-            self.run_on_team(team, new_user)
+            # Demo data generation is triggered by create_with_data(is_demo=True) via Celery task
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
@@ -120,15 +120,14 @@ class MatrixManager:
 
     @staticmethod
     def create_team(organization: Organization, initiating_user: Optional["UserType"] = None, **kwargs) -> Team:
-        team = Team.objects.create_with_data(
+        # Pass is_demo=True to trigger demo data generation via Celery task
+        # The task calls MatrixManager.run_on_team() which handles all demo setup
+        return Team.objects.create_with_data(
             organization=organization,
             initiating_user=initiating_user,
-            ingested_event=True,
-            completed_snippet_onboarding=True,
             is_demo=True,
             **kwargs,
         )
-        return team
 
     def run_on_team(self, team: Team, user: User):
         does_clickhouse_data_need_saving = True
@@ -156,6 +155,9 @@ class MatrixManager:
             )
         for cohort in Cohort.objects.filter(team__project_id=team.project_id):
             cohort.calculate_people_ch(pending_version=0)
+        # Mark team as having ingested events since demo data has been generated
+        team.ingested_event = True
+        team.completed_snippet_onboarding = True
         team.project.save()
         team.save()
         print(f"Demo data ready for team ID {team.pk}.")

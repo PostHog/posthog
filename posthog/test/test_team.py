@@ -75,10 +75,10 @@ class TestTeam(BaseTest):
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
-        # A "Test users" cohort should be created for the team
+        # An "Internal / Test users" cohort should be created for the team
         test_users_cohort = Cohort.objects.get(team=team, name=TEST_USERS_COHORT_NAME)
 
-        # The cohort should have $test_user: true filter
+        # The cohort should have $internal_or_test_user: true filter
         self.assertEqual(
             test_users_cohort.filters,
             {
@@ -89,7 +89,7 @@ class TestTeam(BaseTest):
                             "type": "AND",
                             "values": [
                                 {
-                                    "key": "$test_user",
+                                    "key": "$internal_or_test_user",
                                     "type": "person",
                                     "value": [True],
                                     "operator": "exact",
