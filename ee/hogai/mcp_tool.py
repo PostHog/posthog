@@ -28,12 +28,12 @@ class MCPTool(ABC, Generic[ArgsT]):
         self._user = user
 
     @abstractmethod
-    async def execute(self, args: ArgsT) -> tuple[str, dict[str, Any] | None]:
+    async def execute(self, args: ArgsT) -> str:
         """
         Execute the tool with validated args.
 
         Returns:
-            Tuple of (content_str, optional_data_dict).
+            Content string for LLM consumption.
 
         Raises:
             MaxToolRetryableError: For errors that can be fixed with adjusted inputs.
@@ -74,6 +74,8 @@ class MCPToolRegistry:
 
     def get(self, name: str, team: Team, user: User) -> MCPTool[Any] | None:
         """Get an MCP tool instance by name, constructed with team/user."""
+        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
+
         registration = self._tools.get(name)
         if registration:
             return registration.tool_cls(team=team, user=user)
@@ -81,6 +83,8 @@ class MCPToolRegistry:
 
     def get_scopes(self, name: str) -> list[str]:
         """Get the required scopes for a registered MCP tool."""
+        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
+
         registration = self._tools.get(name)
         if registration:
             return registration.scopes

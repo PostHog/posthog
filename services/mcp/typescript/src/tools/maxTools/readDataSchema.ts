@@ -3,14 +3,14 @@ import type { z } from 'zod'
 import { MaxReadDataSchemaSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { invokeMaxTool } from './invokeMaxTool'
+import { invokeMcpTool } from './invokeMaxTool'
 
 const schema = MaxReadDataSchemaSchema
 
 type Params = z.infer<typeof schema>
 
 export const readDataSchemaHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
-    const result = await invokeMaxTool(context, 'read_taxonomy', {
+    const result = await invokeMcpTool(context, 'read_taxonomy', {
         query: params.query,
     })
 
@@ -18,10 +18,7 @@ export const readDataSchemaHandler: ToolBase<typeof schema>['handler'] = async (
         throw new Error(result.content)
     }
 
-    return {
-        content: result.content,
-        data: result.data,
-    }
+    return result.content
 }
 
 const tool = (): ToolBase<typeof schema> => ({

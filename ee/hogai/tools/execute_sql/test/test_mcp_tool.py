@@ -15,13 +15,11 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
         _create_event(team=self.team, distinct_id="user2", event="test_event")
 
-        content, data = await self.tool.execute(
+        content = await self.tool.execute(
             ExecuteSQLMCPToolArgs(query="SELECT event, count() as cnt FROM events GROUP BY event"),
         )
 
         self.assertIn("test_event", content)
-        assert data is not None
-        self.assertIn("query", data)
 
     async def test_validation_error_for_invalid_query(self):
         with self.assertRaises(MaxToolRetryableError) as ctx:

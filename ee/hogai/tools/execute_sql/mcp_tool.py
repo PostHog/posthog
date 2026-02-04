@@ -1,5 +1,3 @@
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -24,7 +22,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     name = "execute_sql"
     args_schema = ExecuteSQLMCPToolArgs
 
-    async def execute(self, args: ExecuteSQLMCPToolArgs) -> tuple[str, dict[str, Any] | None]:
+    async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
         try:
             validated_query = await self._validate_hogql_query(args.query)
         except PydanticOutputParserException as e:
@@ -36,6 +34,4 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             name="",
             description="",
         )
-        result = await insight_context.execute_and_format()
-
-        return result, {"query": args.query}
+        return await insight_context.execute_and_format()

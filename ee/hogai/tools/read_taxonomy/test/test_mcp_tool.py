@@ -15,21 +15,18 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
         self.assertEqual(self.tool.name, "read_taxonomy")
 
     async def test_read_events_returns_yaml(self):
-        content, data = await self.tool.execute(
+        content = await self.tool.execute(
             ReadTaxonomyToolArgs(query={"kind": "events"}),
         )
 
         self.assertIn("events:", content)
-        assert data is not None
-        self.assertEqual(data["query"], {"kind": "events"})
 
     async def test_nonexistent_event_returns_empty_properties(self):
-        content, data = await self.tool.execute(
+        content = await self.tool.execute(
             ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "nonexistent_event"}),
         )
 
         self.assertIsNotNone(content)
-        self.assertIsNotNone(data)
 
     async def test_schema_validates_query(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})

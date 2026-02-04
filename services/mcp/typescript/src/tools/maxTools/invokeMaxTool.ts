@@ -1,28 +1,26 @@
 import type { Context } from '@/tools/types'
 
-export interface MaxToolResult {
+export interface McpToolResult {
     success: boolean
     content: string
-    data?: Record<string, any> | null
-    error?: string | null
 }
 
 /**
- * Invoke a Max AI tool via the PostHog API.
+ * Invoke an MCP tool via the PostHog API.
  *
  * @param context - The MCP context containing API client and state
- * @param toolName - Name of the Max tool to invoke (e.g., 'execute_sql')
+ * @param toolName - Name of the MCP tool to invoke (e.g., 'execute_sql')
  * @param args - Arguments to pass to the tool
- * @returns The tool result
+ * @returns The tool result with success status and content
  */
-export async function invokeMaxTool(
+export async function invokeMcpTool(
     context: Context,
     toolName: string,
     args: Record<string, any>
-): Promise<MaxToolResult> {
+): Promise<McpToolResult> {
     const projectId = await context.stateManager.getProjectId()
 
-    const url = `${context.api.baseUrl}/api/environments/${projectId}/max_tools/invoke/${toolName}/`
+    const url = `${context.api.baseUrl}/api/environments/${projectId}/mcp_tools/${toolName}/`
 
     const response = await fetch(url, {
         method: 'POST',
@@ -38,16 +36,15 @@ export async function invokeMaxTool(
         let errorMessage: string
         try {
             const errorData = JSON.parse(errorText)
-            errorMessage = errorData.content || errorData.error || errorText
+            errorMessage = errorData.content || errorText
         } catch {
             errorMessage = errorText
         }
         return {
             success: false,
-            content: `Failed to invoke Max tool '${toolName}': ${errorMessage}`,
-            error: 'api_error',
+            content: `Failed to invoke MCP tool '${toolName}': ${errorMessage}`,
         }
     }
 
-    return response.json() as Promise<MaxToolResult>
+    return response.json() as Promise<McpToolResult>
 }

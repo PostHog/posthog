@@ -1,5 +1,3 @@
-from typing import Any
-
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
@@ -20,7 +18,7 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
     name = "read_taxonomy"
     args_schema = ReadTaxonomyToolArgs
 
-    async def execute(self, args: ReadTaxonomyToolArgs) -> tuple[str, dict[str, Any] | None]:
+    async def execute(self, args: ReadTaxonomyToolArgs) -> str:
         toolkit = TaxonomyAgentToolkit(self._team)
 
         try:
@@ -29,8 +27,6 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
             def _execute_query():
                 return execute_taxonomy_query(args.query, toolkit, self._team)
 
-            res = await _execute_query()
+            return await _execute_query()
         except ValueError as e:
             raise MaxToolRetryableError(str(e))
-
-        return res, {"query": args.query.model_dump()}
