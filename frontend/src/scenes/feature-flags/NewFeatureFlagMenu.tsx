@@ -1,11 +1,19 @@
-import { IconCode, IconFlask, IconTestTube, IconToggle } from '@posthog/icons'
+import { useActions } from 'kea'
+import React from 'react'
+
+import { IconCode, IconFlask, IconSparkles, IconTestTube, IconToggle, IconWrench } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { getToolDefinition } from 'scenes/max/max-constants'
+import { maxLogic } from 'scenes/max/maxLogic'
+import { createSuggestionGroup } from 'scenes/max/utils'
 import { urls } from 'scenes/urls'
 
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 type FeatureFlagNewType = 'boolean' | 'multivariate' | 'remote_config'
 
@@ -39,7 +47,18 @@ const FEATURE_FLAG_TYPE_METADATA: Record<FeatureFlagNewType, FeatureFlagTypeMeta
 
 const FLAG_TYPES: FeatureFlagNewType[] = ['boolean', 'multivariate', 'remote_config']
 
-export function OverlayForNewFeatureFlagMenu({ dataAttr }: { dataAttr: string }): JSX.Element {
+const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
+const AI_SUGGESTIONS = [
+    'Create a flag to gradually roll out…',
+    'Create a flag that starts at 10% rollout for…',
+    'Create a multivariate flag for…',
+    'Create a beta testing flag for…',
+]
+
+export function OverlayForNewFeatureFlagMenu(): JSX.Element {
+    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { openSidePanel } = useActions(sidePanelLogic)
+
     return (
         <>
             {FLAG_TYPES.map((flagType) => {
@@ -49,7 +68,7 @@ export function OverlayForNewFeatureFlagMenu({ dataAttr }: { dataAttr: string })
                         key={flagType}
                         icon={<metadata.icon />}
                         to={metadata.url}
-                        data-attr={dataAttr}
+                        data-attr="new-feature-flag-menu-item"
                         data-attr-flag-type={flagType}
                         fullWidth
                     >
@@ -64,7 +83,7 @@ export function OverlayForNewFeatureFlagMenu({ dataAttr }: { dataAttr: string })
             <LemonButton
                 icon={<IconFlask />}
                 to={urls.experiment('new')}
-                data-attr={dataAttr}
+                data-attr="new-experiment-menu-item"
                 data-attr-flag-type="experiment"
                 onClick={() => {
                     void addProductIntentForCrossSell({
@@ -78,6 +97,25 @@ export function OverlayForNewFeatureFlagMenu({ dataAttr }: { dataAttr: string })
                 <div className="flex flex-col text-sm py-1">
                     <strong>Experiment</strong>
                     <span className="text-xs font-sans font-normal">Run A/B tests with statistical analysis</span>
+                </div>
+            </LemonButton>
+            <LemonDivider />
+            <LemonButton
+                icon={<IconSparkles />}
+                data-attr="new-feature-flag-ai-menu-item"
+                data-attr-flag-type="ai"
+                onClick={() => {
+                    // Show the suggestions from the feature flag tool
+                    setActiveGroup(
+                        createSuggestionGroup(AI_TOOL_DEFINITION.name, React.createElement(IconWrench), AI_SUGGESTIONS)
+                    )
+                    openSidePanel(SidePanelTab.Max, 'Create a feature flag for ')
+                }}
+                fullWidth
+            >
+                <div className="flex flex-col text-sm py-1">
+                    <strong>Ask AI</strong>
+                    <span className="text-xs font-sans font-normal">Not sure? Ask AI to do it for you</span>
                 </div>
             </LemonButton>
         </>

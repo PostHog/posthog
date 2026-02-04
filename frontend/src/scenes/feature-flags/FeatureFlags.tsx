@@ -29,7 +29,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -515,7 +514,7 @@ export function OverViewTab({
 
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
-    const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+    const { setActiveTab } = useActions(featureFlagsLogic)
 
     return (
         <SceneContent className="feature_flags">
@@ -529,61 +528,33 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <MaxTool
-                            identifier="create_feature_flag"
-                            initialMaxPrompt="Create a feature flag for "
-                            suggestions={[
-                                'Create a flag to gradually roll out…',
-                                'Create a flag that starts at 10% rollout for…',
-                                'Create a multivariate flag for…',
-                                'Create a beta testing flag for…',
-                            ]}
-                            callback={(toolOutput: { flag_id?: string | number; error?: string }) => {
-                                if (toolOutput?.error || !toolOutput?.flag_id) {
-                                    lemonToast.error(
-                                        `Failed to create feature flag: ${toolOutput?.error || 'Unknown error'}`
-                                    )
-                                    return
-                                }
-
-                                // Refresh feature flags list to show new flag, then redirect to it
-                                loadFeatureFlags()
-                                router.actions.push(urls.featureFlag(toolOutput.flag_id))
-                            }}
-                            position="bottom-right"
-                            active={true}
-                            context={{}}
+                        <AppShortcut
+                            name="NewFeatureFlag"
+                            keybind={[keyBinds.new]}
+                            intent="New feature flag"
+                            interaction="click"
+                            scope={Scene.FeatureFlags}
                         >
-                            <AppShortcut
-                                name="NewFeatureFlag"
-                                keybind={[keyBinds.new]}
-                                intent="New feature flag"
-                                interaction="click"
-                                scope={Scene.FeatureFlags}
+                            <LemonButton
+                                type="primary"
+                                to={urls.featureFlag('new')}
+                                data-attr="new-feature-flag"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                sideAction={{
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        className: 'new-feature-flag-overlay',
+                                        actionable: true,
+                                        overlay: <OverlayForNewFeatureFlagMenu />,
+                                    },
+                                    'data-attr': 'new-feature-flag-dropdown',
+                                }}
+                                tooltip="New feature flag"
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.featureFlag('new')}
-                                    data-attr="new-feature-flag"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            className: 'new-feature-flag-overlay',
-                                            actionable: true,
-                                            overlay: (
-                                                <OverlayForNewFeatureFlagMenu dataAttr="new-feature-flag-menu-item" />
-                                            ),
-                                        },
-                                        'data-attr': 'new-feature-flag-dropdown',
-                                    }}
-                                    tooltip="New feature flag"
-                                >
-                                    New
-                                </LemonButton>
-                            </AppShortcut>
-                        </MaxTool>
+                                New
+                            </LemonButton>
+                        </AppShortcut>
                     </AccessControlAction>
                 }
             />
