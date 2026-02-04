@@ -83,21 +83,29 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
         limit_clause = f"LIMIT {inputs.limit}" if inputs.limit else ""
         person_ids_clause = "AND id IN %(person_ids)s" if inputs.person_ids else ""
 
+        # We use argMax/max with GROUP BY instead of FINAL for more consistent deduplication.
+        # FINAL can return inconsistent results depending on merge state, which could cause
+        # persons with valid distinct_ids to be incorrectly identified as orphaned.
+        # Note: We use aliases (tid, ver) that differ from column names to avoid ClickHouse
+        # confusing output aliases with column references in WHERE/HAVING/argMax clauses.
         query = f"""
             SELECT
                 id AS person_id,
-                team_id,
-                toString(created_at) AS created_at,
-                version
-            FROM person FINAL
+                any(team_id) AS tid,
+                toString(argMax(created_at, version)) AS created_at,
+                max(version) AS ver
+            FROM person
             WHERE team_id = %(team_id)s
-              AND is_deleted = 0
-              AND id NOT IN (
-                SELECT DISTINCT person_id
-                FROM person_distinct_id2 FINAL
-                WHERE team_id = %(team_id)s
-              )
               {person_ids_clause}
+            GROUP BY id
+            HAVING argMax(is_deleted, version) = 0
+              AND id NOT IN (
+                SELECT person_id
+                FROM person_distinct_id2
+                WHERE team_id = %(team_id)s
+                GROUP BY person_id, distinct_id
+                HAVING argMax(is_deleted, version) = 0
+              )
             ORDER BY created_at ASC
             {limit_clause}
             FORMAT JSONEachRow
@@ -123,9 +131,9 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
                     orphaned_persons.append(
                         OrphanedPerson(
                             person_id=data["person_id"],
-                            team_id=int(data["team_id"]),
+                            team_id=int(data["tid"]),
                             created_at=data["created_at"],
-                            version=int(data["version"]),
+                            version=int(data["ver"]),
                         )
                     )
 
