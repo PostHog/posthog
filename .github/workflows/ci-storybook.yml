@@ -225,9 +225,13 @@ jobs:
 
             - name: Install build dependencies
               run: |
-                  # Add alternative mirrors for resilience against primary mirror timeouts
-                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse' >> /etc/apt/sources.list
-                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse' >> /etc/apt/sources.list
+                  # Replace sources.list with alternative mirrors for resilience against primary mirror timeouts
+                  # The Playwright container uses Ubuntu jammy (22.04)
+                  cat > /etc/apt/sources.list << 'EOF'
+                  deb http://us.archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+                  deb http://us.archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+                  deb http://us.archive.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+                  EOF
                   apt-get update && apt-get install -y ninja-build unzip xz-utils
 
             - name: Setup Emscripten for WASM build
