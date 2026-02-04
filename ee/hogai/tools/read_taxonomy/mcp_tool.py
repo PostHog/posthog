@@ -3,7 +3,7 @@ from typing import Any
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
-from ee.hogai.external_tool import MCPTool, mcp_tool_registry
+from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 from .core import ReadTaxonomyToolArgs, execute_taxonomy_query

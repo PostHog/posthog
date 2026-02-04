@@ -16,7 +16,7 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
-from ee.hogai.external_tool import mcp_tool_registry
+from ee.hogai.mcp_tool import mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation

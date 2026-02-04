@@ -7,19 +7,19 @@ from posthog.hogql.database.database import Database
 
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.external_tool import MCPTool, mcp_tool_registry
+from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 
 
 class ReadDataWarehouseSchemaQuery(BaseModel):
     kind: Literal["data_warehouse_schema"] = "data_warehouse_schema"
 
 
-class ReadDataWarehouseSchemaExternalToolArgs(BaseModel):
+class ReadDataWarehouseSchemaMCPToolArgs(BaseModel):
     query: ReadDataWarehouseSchemaQuery
 
 
 @mcp_tool_registry.register(scopes=["insight:read", "query:read"])
-class ReadDataWarehouseSchemaMCPTool(MCPTool[ReadDataWarehouseSchemaExternalToolArgs]):
+class ReadDataWarehouseSchemaMCPTool(MCPTool[ReadDataWarehouseSchemaMCPToolArgs]):
     """
     MCP tool that returns core PostHog table schemas (events, groups, persons, sessions).
 
@@ -27,9 +27,9 @@ class ReadDataWarehouseSchemaMCPTool(MCPTool[ReadDataWarehouseSchemaExternalTool
     """
 
     name = "read_data_warehouse_schema"
-    args_schema = ReadDataWarehouseSchemaExternalToolArgs
+    args_schema = ReadDataWarehouseSchemaMCPToolArgs
 
-    async def execute(self, args: ReadDataWarehouseSchemaExternalToolArgs) -> tuple[str, dict[str, Any] | None]:
+    async def execute(self, args: ReadDataWarehouseSchemaMCPToolArgs) -> tuple[str, dict[str, Any] | None]:
         result = await self._build_tables_list()
         return result, {"tables": ["events", "groups", "persons", "sessions"]}
 

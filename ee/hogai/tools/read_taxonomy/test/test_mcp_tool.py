@@ -1,15 +1,15 @@
 from posthog.test.base import NonAtomicBaseTest
 
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadTaxonomyToolArgs
-from ee.hogai.tools.read_taxonomy.external import ReadTaxonomyExternalTool
+from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
 
 
-class TestReadTaxonomyExternalTool(NonAtomicBaseTest):
+class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
         super().setUp()
-        self.tool = ReadTaxonomyExternalTool(team=self.team, user=self.user)
+        self.tool = ReadTaxonomyMCPTool(team=self.team, user=self.user)
 
     async def test_tool_has_correct_name(self):
         self.assertEqual(self.tool.name, "read_taxonomy")

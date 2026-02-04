@@ -1,7 +1,7 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.execute_sql.external import ExecuteSQLExternalToolArgs, ExecuteSQLMCPTool
+from ee.hogai.tools.execute_sql.mcp_tool import ExecuteSQLMCPTool, ExecuteSQLMCPToolArgs
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -16,7 +16,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         _create_event(team=self.team, distinct_id="user2", event="test_event")
 
         content, data = await self.tool.execute(
-            ExecuteSQLExternalToolArgs(query="SELECT event, count() as cnt FROM events GROUP BY event"),
+            ExecuteSQLMCPToolArgs(query="SELECT event, count() as cnt FROM events GROUP BY event"),
         )
 
         self.assertIn("test_event", content)
@@ -26,7 +26,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_validation_error_for_invalid_query(self):
         with self.assertRaises(MaxToolRetryableError) as ctx:
             await self.tool.execute(
-                ExecuteSQLExternalToolArgs(query="INVALID SQL SYNTAX"),
+                ExecuteSQLMCPToolArgs(query="INVALID SQL SYNTAX"),
             )
 
         self.assertIn("validation failed", str(ctx.exception).lower())
@@ -34,7 +34,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_validation_error_for_empty_query(self):
         with self.assertRaises(MaxToolRetryableError):
             await self.tool.execute(
-                ExecuteSQLExternalToolArgs(query=""),
+                ExecuteSQLMCPToolArgs(query=""),
             )
 
     async def test_tool_name_and_schema(self):
