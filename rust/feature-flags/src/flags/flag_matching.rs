@@ -760,31 +760,15 @@ impl FeatureFlagMatcher {
             .map(|flag| (&flag.key, *flag))
             .collect();
 
-        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags_to_evaluate
-            .par_iter()
-            .map(|flag| {
-                // Flags with missing dependencies evaluate to false (fail closed)
-                if flags_with_missing_deps.contains(&flag.id) {
-                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
-                }
-
-                // If the overrides for this flag are not in the pre-computed map, assume no overrides
-                // this shouldn't happen, but it's here to avoid panics
-                let property_overrides = precomputed_property_overrides
-                    .get(&flag.key)
-                    .unwrap_or(&None)
-                    .clone();
-                (
-                    flag.key.clone(),
-                    self.get_match(
-                        flag,
-                        property_overrides,
-                        hash_key_overrides.clone(),
-                        request_hash_key_override.clone(),
-                    ),
-                )
-            })
-            .collect();
+        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = self
+            .evaluate_flag_batch(
+                &flags_to_evaluate,
+                &precomputed_property_overrides,
+                flags_with_missing_deps,
+                hash_key_overrides,
+                request_hash_key_override,
+            )
+            .await;
 
         for (flag_key, result) in results {
             // If flag not found in map, skip it (this shouldn't happen but is safe)
@@ -879,6 +863,133 @@ impl FeatureFlagMatcher {
         }
 
         Ok(None)
+    }
+
+    /// Evaluates flags using the appropriate strategy based on flag count.
+    ///
+    /// For large flag counts, uses parallel evaluation via `spawn_blocking` to
+    /// offload CPU-intensive work to a dedicated thread pool, keeping the async
+    /// runtime responsive.
+    async fn evaluate_flag_batch(
+        &self,
+        flags_to_evaluate: &[&FeatureFlag],
+        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
+        // Threshold below which sequential evaluation is faster than parallel.
+        // Based on benchmarking: rayon coordination overhead (~30-150μs) exceeds
+        // the benefit of parallelism for small flag counts with in-memory operations.
+        const PARALLEL_EVAL_THRESHOLD: usize = 100;
+
+        if flags_to_evaluate.len() < PARALLEL_EVAL_THRESHOLD {
+            self.evaluate_flags_sequential(
+                flags_to_evaluate,
+                precomputed_property_overrides,
+                flags_with_missing_deps,
+                hash_key_overrides,
+                request_hash_key_override,
+            )
+        } else {
+            self.evaluate_flags_parallel(
+                flags_to_evaluate,
+                precomputed_property_overrides,
+                flags_with_missing_deps,
+                hash_key_overrides,
+                request_hash_key_override,
+            )
+            .await
+        }
+    }
+
+    /// Sequential flag evaluation - used for typical workloads.
+    ///
+    /// This is faster than parallel evaluation for small-to-medium flag counts
+    /// because it avoids thread synchronization overhead and maintains cache locality.
+    fn evaluate_flags_sequential(
+        &self,
+        flags_to_evaluate: &[&FeatureFlag],
+        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
+        flags_to_evaluate
+            .iter()
+            .map(|flag| {
+                if flags_with_missing_deps.contains(&flag.id) {
+                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+                }
+
+                let property_overrides = precomputed_property_overrides
+                    .get(&flag.key)
+                    .unwrap_or(&None)
+                    .clone();
+
+                (
+                    flag.key.clone(),
+                    self.get_match(
+                        flag,
+                        property_overrides,
+                        hash_key_overrides.clone(),
+                        request_hash_key_override.clone(),
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    /// Parallel flag evaluation for large flag counts.
+    ///
+    /// Uses `spawn_blocking` to run rayon parallel iteration on a dedicated thread pool,
+    /// preventing CPU-intensive work from blocking the async runtime. Data is wrapped
+    /// in Arc to enable cheap sharing across threads without deep cloning.
+    async fn evaluate_flags_parallel(
+        &self,
+        flags_to_evaluate: &[&FeatureFlag],
+        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
+        // Clone self for use in the blocking task - FeatureFlagMatcher is designed
+        // to be cheap to clone (contains Arc-wrapped caches and connection pools)
+        let matcher = self.clone();
+
+        // Wrap shared immutable data in Arc to avoid cloning per-flag
+        let flags: Arc<Vec<FeatureFlag>> =
+            Arc::new(flags_to_evaluate.iter().map(|f| (*f).clone()).collect());
+        let overrides = Arc::new(precomputed_property_overrides.clone());
+        let missing_deps = Arc::new(flags_with_missing_deps.clone());
+        let hash_overrides = Arc::new(hash_key_overrides.clone());
+        let request_override = Arc::new(request_hash_key_override.clone());
+
+        // Offload parallel evaluation to the blocking thread pool
+        tokio::task::spawn_blocking(move || {
+            flags
+                .par_iter()
+                .map(|flag| {
+                    if missing_deps.contains(&flag.id) {
+                        return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+                    }
+
+                    let property_overrides = overrides.get(&flag.key).unwrap_or(&None).clone();
+
+                    (
+                        flag.key.clone(),
+                        matcher.get_match(
+                            flag,
+                            property_overrides,
+                            (*hash_overrides).clone(),
+                            (*request_override).clone(),
+                        ),
+                    )
+                })
+                .collect()
+        })
+        .await
+        .expect("Parallel flag evaluation task panicked")
     }
 
     /// Determines if a feature flag matches for the current context.
