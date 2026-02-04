@@ -17,27 +17,27 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tracing::{debug, error, warn};
 
+use super::metadata::TimestampMetadata;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
-    DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
-    DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
-    MESSAGES_DROPPED_NO_STORE, PARTITION_BATCH_PROCESSING_DURATION_MS,
-    ROCKSDB_MULTI_GET_DURATION_MS, ROCKSDB_PUT_BATCH_DURATION_MS,
+    DUPLICATE_EVENTS_PUBLISHED_COUNTER, DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS,
+    KAFKA_PRODUCER_SEND_DURATION_MS, PARTITION_BATCH_PROCESSING_DURATION_MS,
     TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
     TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
     TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
     UNIQUE_EVENTS_TOTAL_COUNTER,
 };
+use crate::pipelines::processor::{
+    batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
+    get_store_or_drop, DeduplicationResultLabels, StoreResult,
+};
 use crate::pipelines::traits::{DeduplicationKeyExtractor, EventParser};
-use crate::rocksdb::dedup_metadata::DedupFieldName;
-use crate::store::deduplication_store::TimestampBatchEntry;
-use crate::store::metadata::TimestampMetadata;
 use crate::store::DeduplicationStoreConfig;
-use crate::store_manager::{StoreError, StoreManager};
+use crate::store_manager::StoreManager;
 
 use super::dedup_result::{DeduplicationResult, DeduplicationResultReason, DeduplicationType};
 use super::duplicate_event::DuplicateEvent;
@@ -280,10 +280,11 @@ impl IngestionEventsBatchProcessor {
             let key = &keys[idx];
 
             // Emit deduplication result metrics (synchronous, fast)
-            self.emit_deduplication_result_metrics(
+            emit_deduplication_result_metrics(
                 partition.topic(),
                 partition.partition_number(),
-                result,
+                "ingestion_events",
+                Self::get_result_labels(result),
             );
 
             // Collect duplicate event publish futures
@@ -379,36 +380,10 @@ impl IngestionEventsBatchProcessor {
         partition: i32,
         events: Vec<&RawEvent>,
     ) -> Result<Vec<DeduplicationResult>> {
-        // Get the store for this partition - must already exist (created during rebalance)
-        // If store doesn't exist, partition was likely revoked and messages should be dropped
-        let store = match self.store_manager.get_store(topic, partition) {
-            Ok(store) => store,
-            Err(StoreError::NotFound {
-                topic: t,
-                partition: p,
-            }) => {
-                let message_count = events.len();
-
-                // Log at warn level - this is expected during rebalance due to rdkafka buffering
-                warn!(
-                    topic = %t,
-                    partition = p,
-                    message_count = message_count,
-                    "No store for partition - dropping messages (expected during rebalance)"
-                );
-
-                // Record metric with tags for observability
-                metrics::counter!(
-                    MESSAGES_DROPPED_NO_STORE,
-                    "topic" => t.clone(),
-                    "partition" => p.to_string(),
-                )
-                .increment(message_count as u64);
-
-                // Return empty results - messages gracefully dropped, not an error
-                return Ok(vec![]);
-            }
-            Err(StoreError::Other(e)) => return Err(e),
+        // Get the store for this partition (gracefully drops if not found)
+        let store = match get_store_or_drop(&self.store_manager, topic, partition, events.len())? {
+            StoreResult::Found(store) => store,
+            StoreResult::NotFound => return Ok(vec![]),
         };
 
         // Create metrics helper for this partition
@@ -434,11 +409,7 @@ impl IngestionEventsBatchProcessor {
             .map(|e| e.timestamp_key_bytes.as_slice())
             .collect();
 
-        let ts_read_start = Instant::now();
-        let timestamp_results = store.multi_get_timestamp_records(timestamp_keys_refs)?;
-        let ts_read_duration = ts_read_start.elapsed();
-        metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "timestamp")
-            .record(ts_read_duration.as_millis() as f64);
+        let timestamp_results = batch_read_timestamp_records(&store, timestamp_keys_refs)?;
 
         // Step 3: Process deduplication results and prepare batch writes
         // Track keys we've seen in this batch to detect within-batch duplicates
@@ -464,7 +435,7 @@ impl IngestionEventsBatchProcessor {
                 match Self::check_timestamp_duplicate_from_bytes(timestamp_source, raw_event) {
                     Ok((result, metadata)) => {
                         // Emit metrics for timestamp deduplication (before moving metadata)
-                        Self::emit_timestamp_metrics(
+                        Self::emit_similarity_metrics(
                             &result,
                             raw_event,
                             &metrics,
@@ -497,20 +468,7 @@ impl IngestionEventsBatchProcessor {
         }
 
         // Step 4: Batch write all updates
-        if !timestamp_writes.is_empty() {
-            let entries: Vec<TimestampBatchEntry> = timestamp_writes
-                .iter()
-                .map(|(key, value)| TimestampBatchEntry {
-                    key: key.as_slice(),
-                    value: value.as_slice(),
-                })
-                .collect();
-            let ts_write_start = Instant::now();
-            store.put_timestamp_records_batch(entries)?;
-            let ts_write_duration = ts_write_start.elapsed();
-            metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "timestamp")
-                .record(ts_write_duration.as_millis() as f64);
-        }
+        batch_write_timestamp_records(&store, &timestamp_writes)?;
 
         Ok(dedup_results)
     }
@@ -524,44 +482,27 @@ impl IngestionEventsBatchProcessor {
         )
     }
 
-    /// Emit metrics for deduplication results
-    fn emit_deduplication_result_metrics(
-        &self,
-        topic: &str,
-        partition: i32,
-        result: &DeduplicationResult,
-    ) {
-        let metrics = MetricsHelper::with_partition(topic, partition)
-            .with_label("service", "kafka-deduplicator");
-
+    fn get_result_labels(result: &DeduplicationResult) -> DeduplicationResultLabels {
         match result {
-            DeduplicationResult::New => {
-                metrics
-                    .counter(DEDUPLICATION_RESULT_COUNTER)
-                    .with_label("result_type", "new")
-                    .increment(1);
-            }
-            DeduplicationResult::PotentialDuplicate(dedup_type, _, _) => {
-                metrics
-                    .counter(DEDUPLICATION_RESULT_COUNTER)
-                    .with_label("result_type", "potential_duplicate")
-                    .with_label("dedup_type", &dedup_type.to_string().to_lowercase())
-                    .increment(1);
-            }
-            DeduplicationResult::ConfirmedDuplicate(dedup_type, reason, _, _) => {
-                metrics
-                    .counter(DEDUPLICATION_RESULT_COUNTER)
-                    .with_label("result_type", "confirmed_duplicate")
-                    .with_label("dedup_type", &dedup_type.to_string().to_lowercase())
-                    .with_label("reason", &reason.to_string().to_lowercase())
-                    .increment(1);
-            }
-            DeduplicationResult::Skipped => {
-                metrics
-                    .counter(DEDUPLICATION_RESULT_COUNTER)
-                    .with_label("result_type", "skipped")
-                    .increment(1);
-            }
+            DeduplicationResult::New => DeduplicationResultLabels {
+                result_type: "new",
+                reason: None,
+            },
+            DeduplicationResult::PotentialDuplicate(_, _, _) => DeduplicationResultLabels {
+                result_type: "potential_duplicate",
+                reason: None,
+            },
+            DeduplicationResult::ConfirmedDuplicate(_, reason, _, _) => DeduplicationResultLabels {
+                result_type: "confirmed_duplicate",
+                reason: Some(match reason {
+                    DeduplicationResultReason::SameEvent => "same_event",
+                    DeduplicationResultReason::OnlyUuidDifferent => "only_uuid_different",
+                }),
+            },
+            DeduplicationResult::Skipped => DeduplicationResultLabels {
+                result_type: "skipped",
+                reason: None,
+            },
         }
     }
 
@@ -637,7 +578,7 @@ impl IngestionEventsBatchProcessor {
                         original_event,
                     )
                 } else if similarity.different_fields.len() == 1
-                    && similarity.different_fields[0].0 == DedupFieldName::Uuid
+                    && similarity.different_fields[0].0 == "uuid"
                 {
                     DeduplicationResult::ConfirmedDuplicate(
                         DeduplicationType::Timestamp,
@@ -663,8 +604,11 @@ impl IngestionEventsBatchProcessor {
         }
     }
 
-    /// Emit metrics for timestamp deduplication
-    fn emit_timestamp_metrics(
+    /// Emit similarity-related metrics for duplicate detection.
+    ///
+    /// These metrics track how similar duplicate events are to their originals,
+    /// helping identify SDK bugs vs legitimate retries.
+    fn emit_similarity_metrics(
         result: &DeduplicationResult,
         raw_event: &RawEvent,
         metrics: &MetricsHelper,

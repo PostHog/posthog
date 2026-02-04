@@ -203,7 +203,7 @@ mod tests {
     use crate::pipelines::ingestion_events::dedup_result::{
         DeduplicationResultReason, DeduplicationType,
     };
-    use crate::rocksdb::dedup_metadata::{DedupFieldName, EventSimilarity};
+    use crate::pipelines::EventSimilarity;
     use serde_json::json;
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
             overall_score: 0.9,
             different_field_count: 1,
             different_fields: vec![(
-                DedupFieldName::Uuid,
+                "uuid".to_string(),
                 "uuid-2".to_string(),
                 "uuid-1".to_string(),
             )],
@@ -361,11 +361,7 @@ mod tests {
         let similarity = EventSimilarity {
             overall_score: 0.8,
             different_field_count: 1,
-            different_fields: vec![(
-                DedupFieldName::Uuid,
-                "uuid1".to_string(),
-                "uuid2".to_string(),
-            )],
+            different_fields: vec![("uuid".to_string(), "uuid1".to_string(), "uuid2".to_string())],
             properties_similarity: 0.7,
             different_property_count: 3,
             different_properties: vec![

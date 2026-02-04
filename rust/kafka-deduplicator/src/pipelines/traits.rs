@@ -8,7 +8,7 @@
 use anyhow::Result;
 
 use crate::kafka::batch_message::KafkaMessage;
-use crate::rocksdb::dedup_metadata::EventSimilarity;
+use crate::pipelines::EventSimilarity;
 
 /// Trait for extracting deduplication keys from events.
 ///

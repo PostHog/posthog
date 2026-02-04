@@ -2,7 +2,7 @@
 
 use common_types::RawEvent;
 
-use crate::rocksdb::dedup_metadata::EventSimilarity;
+use crate::pipelines::EventSimilarity;
 
 #[derive(strum_macros::Display, Debug, Copy, Clone, PartialEq)]
 pub enum DeduplicationResultReason {
@@ -92,17 +92,12 @@ impl DeduplicationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rocksdb::dedup_metadata::DedupFieldName;
 
     fn create_test_similarity() -> EventSimilarity {
         EventSimilarity {
             overall_score: 0.9,
             different_field_count: 1,
-            different_fields: vec![(
-                DedupFieldName::Uuid,
-                "uuid1".to_string(),
-                "uuid2".to_string(),
-            )],
+            different_fields: vec![("uuid".to_string(), "uuid1".to_string(), "uuid2".to_string())],
             properties_similarity: 1.0,
             different_property_count: 0,
             different_properties: vec![],
