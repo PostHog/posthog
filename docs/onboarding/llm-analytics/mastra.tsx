@@ -61,7 +61,7 @@ export const getMastraSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
+                        language="typescript"
                         code={dedent`
                             import { Agent } from "@mastra/core/agent";
                             import { PostHog } from "posthog-node";
@@ -108,7 +108,7 @@ export const getMastraSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
+                        language="typescript"
                         code={dedent`
                             const result = await agent.generate("What is the capital of France?");
 
