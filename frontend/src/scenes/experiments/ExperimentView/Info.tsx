@@ -223,35 +223,34 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
                 {/* Column 2 */}
                 <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
-                    {/* Row 1: Duration */}
-                    {!isExperimentDraft && <ExperimentDuration />}
+                    {/* Row 1: Duration/Running time */}
+                    {!isExperimentDraft && !useNewCalculator && <ExperimentDuration />}
+                    {useNewCalculator && tabId && (
+                        <RunningTimeNew
+                            experiment={experiment}
+                            tabId={tabId}
+                            onClick={openRunningTimeConfigModal}
+                            isExperimentDraft={isExperimentDraft}
+                        />
+                    )}
 
                     {/* Row 2: Last refreshed, Created by */}
                     <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
                         <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {experiment.start_date && (
-                                <>
-                                    {useNewCalculator && tabId && (
-                                        <RunningTimeNew
-                                            experiment={experiment}
-                                            tabId={tabId}
-                                            onClick={openRunningTimeConfigModal}
-                                        />
-                                    )}
-                                    <ExperimentReloadAction
-                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                        lastRefresh={lastRefresh}
-                                        onClick={() => {
-                                            // Track manual refresh click
-                                            reportExperimentMetricsRefreshed(experiment, true, {
-                                                triggered_by: 'manual',
-                                                auto_refresh_enabled: autoRefresh.enabled,
-                                                auto_refresh_interval: autoRefresh.interval,
-                                            })
-                                            refreshExperimentResults(true)
-                                        }}
-                                    />
-                                </>
+                                <ExperimentReloadAction
+                                    isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                    lastRefresh={lastRefresh}
+                                    onClick={() => {
+                                        // Track manual refresh click
+                                        reportExperimentMetricsRefreshed(experiment, true, {
+                                            triggered_by: 'manual',
+                                            auto_refresh_enabled: autoRefresh.enabled,
+                                            auto_refresh_interval: autoRefresh.interval,
+                                        })
+                                        refreshExperimentResults(true)
+                                    }}
+                                />
                             )}
                             <div className="flex flex-col">
                                 <Label intent="menu">Created by</Label>
