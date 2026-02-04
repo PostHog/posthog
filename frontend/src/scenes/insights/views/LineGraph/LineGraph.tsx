@@ -704,14 +704,13 @@ export function LineGraph_({
                                 type: 'line',
                                 yMin: annotation.value,
                                 yMax: annotation.value,
-                                borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
+                                borderWidth: 2,
+                                borderDash: [6, 6],
                                 label: {
                                     content: annotation.label,
                                     display: annotation.displayLabel ?? true,
                                     position: annotation.position ?? 'end',
                                 },
-                                borderWidth: 1,
-                                borderDash: [5, 8],
                                 enter: () => {
                                     const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {

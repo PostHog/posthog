@@ -214,6 +214,8 @@ export const LineGraph = ({
             const annotations = goalLines.reduce(
                 (acc, cur, curIndex) => {
                     const line: LineAnnotationOptions = {
+                        borderWidth: 2,
+                        borderDash: [6, 6],
                         label: {
                             display: cur.displayLabel ?? true,
                             content: cur.label,
