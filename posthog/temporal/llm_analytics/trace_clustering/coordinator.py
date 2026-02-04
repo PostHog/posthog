@@ -9,12 +9,10 @@ gracefully (returning empty results).
 """
 
 import dataclasses
-from datetime import timedelta
 from typing import Any
 
 import structlog
 import temporalio
-from temporalio.common import RetryPolicy
 from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -33,6 +31,8 @@ from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceC
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.llm_analytics.team_discovery import (
+        DISCOVERY_ACTIVITY_RETRY_POLICY,
+        DISCOVERY_ACTIVITY_TIMEOUT,
         SAMPLE_PERCENTAGE,
         TeamDiscoveryInput,
         get_team_ids_for_llm_analytics,
@@ -87,8 +87,8 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
         team_ids = await temporalio.workflow.execute_activity(
             get_team_ids_for_llm_analytics,
             TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
+            retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
         )
 
         if not team_ids:

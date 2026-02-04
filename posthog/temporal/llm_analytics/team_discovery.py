@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import structlog
 import temporalio.activity
+from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -40,6 +41,10 @@ SAMPLE_PERCENTAGE: float = 0.1
 # individual workflow's data window (e.g. 7 days for clustering, 60 min for
 # summarization) so we discover teams that have been active recently.
 DISCOVERY_LOOKBACK_DAYS: int = 30
+
+# Activity timeout and retry policy for team discovery.
+DISCOVERY_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+DISCOVERY_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 
 @dataclasses.dataclass
