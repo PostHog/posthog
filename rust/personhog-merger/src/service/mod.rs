@@ -6,6 +6,8 @@ use crate::state::{MergeState, MergeStateRepository, StartedState};
 use crate::types::{ApiResult, MergeResult, PersonDistinctIdsApi, PersonPropertiesApi};
 
 #[cfg(test)]
+mod sequence_tests;
+#[cfg(test)]
 mod tests;
 
 /// Executes merge operations using a state machine pattern.

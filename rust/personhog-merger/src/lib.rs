@@ -22,7 +22,7 @@ pub use types::{
 };
 
 #[cfg(test)]
-pub use testing::{Breakpoint, SequenceExecutor};
+pub use testing::{Breakpoint, CallGuard, ExpectedCall, MockMethod, SequenceExecutor};
 
 #[cfg(test)]
 pub use state::breakpointed::{

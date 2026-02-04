@@ -1,7 +1,16 @@
+pub mod mock;
+pub mod mock_apis;
+
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::oneshot;
+
+pub use mock::{CallGuard, ExpectedCall, MockMethod};
+
+// Re-export for convenience
+#[allow(unused_imports)]
+pub use std::sync::Arc;
 
 /// A breakpoint that can be used to coordinate async operations in tests.
 /// The `wait` future will block until `complete` is called.
