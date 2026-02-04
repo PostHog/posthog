@@ -59,7 +59,7 @@ function truncateString(str: string, num: number): string {
 }
 
 const RESOLVED_COLOR_MAP = new Map<string, string>()
-function resolveVariableColor(color: string | undefined): string | undefined {
+export function resolveVariableColor(color: string | undefined): string | undefined {
     if (!color) {
         return color
     }
@@ -688,6 +688,7 @@ export function LineGraph_({
                                 yMax: annotation.value,
                                 borderWidth: 2,
                                 borderDash: [6, 6],
+                                borderColor: resolveVariableColor(annotation.borderColor),
                                 label: {
                                     content: annotation.label,
                                     display: annotation.displayLabel ?? true,

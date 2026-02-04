@@ -28,6 +28,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
@@ -216,6 +217,7 @@ export const LineGraph = ({
                     const line: LineAnnotationOptions = {
                         borderWidth: 2,
                         borderDash: [6, 6],
+                        borderColor: resolveVariableColor(cur.borderColor),
                         label: {
                             display: cur.displayLabel ?? true,
                             content: cur.label,
