@@ -56,7 +56,7 @@ export async function loadClusterMetrics(
                     AND timestamp >= parseDateTimeBestEffort(${windowStart})
                     AND timestamp <= parseDateTimeBestEffort(${windowEnd})
                     AND toString(uuid) IN ${allItemIds}
-                LIMIT 50000
+                LIMIT ${allItemIds.length}
             `
             : hogql`
                 SELECT
@@ -72,7 +72,7 @@ export async function loadClusterMetrics(
                     AND timestamp <= parseDateTimeBestEffort(${windowEnd})
                     AND JSONExtractString(properties, '$ai_trace_id') IN ${allItemIds}
                 GROUP BY item_id
-                LIMIT 50000
+                LIMIT ${allItemIds.length}
             `,
         { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
         // Window bounds are in UTC (from backend), so compare timestamps in UTC
