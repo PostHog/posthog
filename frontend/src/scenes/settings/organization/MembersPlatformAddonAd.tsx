@@ -1,5 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -20,7 +22,7 @@ const platformAddonAdIllustrations: Record<MembersPagePlatformAddonAdKey, typeof
     'test-big-village': ThreeBearsHogs,
 }
 
-const dismissKey = 'organization-members-platform-addon-ad'
+const dismissKey = 'organization-members-platform-addon-ad-3'
 
 export function MembersPlatformAddonAd(): JSX.Element | null {
     const bannerLogic = lemonBannerLogic({ dismissKey })
@@ -28,11 +30,32 @@ export function MembersPlatformAddonAd(): JSX.Element | null {
     const { isDismissed } = useValues(bannerLogic)
     const { dismiss } = useActions(bannerLogic)
 
+    useEffect(() => {
+        if (shouldShowPlatformAddonAd && !isDismissed) {
+            posthog.capture('members page platform addon ad shown', {
+                ad_key: platformAddonAdConfig.key,
+            })
+        }
+    }, [shouldShowPlatformAddonAd, isDismissed, platformAddonAdConfig.key])
+
     if (!shouldShowPlatformAddonAd || isDismissed) {
         return null
     }
 
     const PlatformAddonAdIllustration = platformAddonAdIllustrations[platformAddonAdConfig.key]
+
+    const handleCtaClick = (): void => {
+        posthog.capture('members page platform addon ad cta clicked', {
+            ad_key: platformAddonAdConfig.key,
+        })
+    }
+
+    const handleDismiss = (): void => {
+        posthog.capture('members page platform addon ad dismissed', {
+            ad_key: platformAddonAdConfig.key,
+        })
+        dismiss()
+    }
 
     return (
         <LemonBanner type="info" hideIcon>
@@ -45,10 +68,11 @@ export function MembersPlatformAddonAd(): JSX.Element | null {
                             type="primary"
                             className="w-fit"
                             to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
+                            onClick={handleCtaClick}
                         >
                             {platformAddonAdConfig.cta}
                         </LemonButton>
-                        <LemonButton type="tertiary" onClick={() => dismiss()}>
+                        <LemonButton type="tertiary" onClick={handleDismiss}>
                             I'm not interested
                         </LemonButton>
                     </div>
