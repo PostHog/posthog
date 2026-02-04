@@ -31,15 +31,15 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
-import { displayLogic } from '../../displayLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { lineGraphLogic } from './lineGraphLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -128,8 +128,9 @@ export const LineGraph = ({
     const { getTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
-    const { hoveredDatasetIndex } = useValues(displayLogic)
-    const { setHoveredDatasetIndex } = useActions(displayLogic)
+    const logicKey = useMemo(() => uuid(), [])
+    const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
+    const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
     const isShiftPressed = useKeyHeld('Shift')
 
     useEffect(() => {

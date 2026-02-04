@@ -28,7 +28,6 @@ export const displayLogic = kea<displayLogicType>([
         }),
         removeGoalLine: (goalLineIndex: number) => ({ goalLineIndex }),
         setGoalLines: (goalLines: GoalLine[]) => ({ goalLines }),
-        setHoveredDatasetIndex: (hoveredDatasetIndex: number | null) => ({ hoveredDatasetIndex }),
     })),
     reducers({
         goalLines: [
@@ -56,12 +55,6 @@ export const displayLogic = kea<displayLogicType>([
                 setGoalLines: (_state, { goalLines }) => {
                     return goalLines
                 },
-            },
-        ],
-        hoveredDatasetIndex: [
-            null as number | null,
-            {
-                setHoveredDatasetIndex: (_, { hoveredDatasetIndex }) => hoveredDatasetIndex,
             },
         ],
     }),
