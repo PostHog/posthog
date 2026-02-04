@@ -16,12 +16,12 @@ import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
-import { counterParseError, counterRateLimited } from './metrics'
+import { counterParseError } from './metrics'
 
 export interface BatchHogFlowRequest {
     teamId: number
     hogFlowId: HogFlow['id']
-    batchJobId: string
+    parentRunId: string
     filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
 }
 
@@ -50,12 +50,14 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     }
 
     private createHogFlowInvocation({
+        parentRunId,
         hogFlow,
         team,
         personId,
         distinctId,
         defaultVariables,
     }: {
+        parentRunId: string
         hogFlow: HogFlow
         team: Team
         personId: string
@@ -80,6 +82,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id,
+            parentRunId,
             hogFlow,
             person: invocationGlobals.person,
             filterGlobals,
@@ -117,34 +120,8 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
 
         logger.info(
             '📝',
-            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.batchJobId}`
+            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
         )
-
-        const rateLimits = await instrumentFn('cdpProducer.generateBatch.hogRateLimiter.rateLimitMany', async () => {
-            return await this.hogRateLimiter.rateLimitMany([[hogFlow.id, matchingPersonsCount]])
-        })
-
-        const rateLimit = rateLimits[0][1]
-        if (rateLimit.isRateLimited || rateLimit.tokens < matchingPersonsCount) {
-            logger.info('🚨', 'Rate limiting batch HogFlow run due to exceeding rate limits', {
-                rateLimit,
-                matchingPersonsCount,
-                batchJobId: batchHogFlowRequest.batchJobId,
-            })
-            counterRateLimited.labels({ kind: 'hog_flow' }).inc()
-            this.hogFunctionMonitoringService.queueAppMetric(
-                {
-                    team_id: batchHogFlowRequest.teamId,
-                    app_source_id: batchHogFlowRequest.hogFlowId,
-                    instance_id: batchHogFlowRequest.batchJobId,
-                    metric_kind: 'failure',
-                    metric_name: 'rate_limited',
-                    count: matchingPersonsCount,
-                },
-                'hog_flow'
-            )
-            return []
-        }
 
         // Build default variables from hogFlow
         const defaultVariables =
@@ -166,6 +143,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 onPersonBatch: async (persons: { personId: string; distinctId: string }[]) => {
                     const batchInvocations = persons.map(({ personId, distinctId }) =>
                         this.createHogFlowInvocation({
+                            parentRunId: batchHogFlowRequest.parentRunId,
                             hogFlow,
                             team,
                             personId,
@@ -244,6 +222,11 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                         logger.error('Batch HogFlow request references missing team or hogflow', {
                             batchHogFlowRequest,
                         })
+                        return
+                    }
+
+                    if (teamHogFlow.status !== 'active') {
+                        logger.info('Skipping inactive HogFlow for batch request', { batchHogFlowRequest })
                         return
                     }
 

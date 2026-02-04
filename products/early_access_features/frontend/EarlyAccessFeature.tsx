@@ -42,6 +42,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import {
     CyclotronJobFiltersType,
@@ -67,7 +68,7 @@ export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? id : 'new',
     }),
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
@@ -148,21 +149,12 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     resourceType={{
                         type: 'early_access_feature',
                     }}
-                    canEdit
-                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
+                    canEdit={isNewEarlyAccessFeature || isEditingFeature}
                     onNameChange={(name) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('name', name)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, name })
-                        }
+                        setEarlyAccessFeatureValue('name', name)
                     }}
                     onDescriptionChange={(description) => {
-                        if (isNewEarlyAccessFeature) {
-                            setEarlyAccessFeatureValue('description', description)
-                        } else {
-                            saveEarlyAccessFeature({ ...earlyAccessFeature, description })
-                        }
+                        setEarlyAccessFeatureValue('description', description)
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
@@ -669,6 +661,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.ActorsQuery,
+            select: defaultDataTableColumns(NodeKind.ActorsQuery),
             fixedProperties: properties,
         },
         full: true,

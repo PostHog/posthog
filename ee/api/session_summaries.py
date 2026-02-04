@@ -1,7 +1,7 @@
 import os
 import asyncio
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -93,14 +93,27 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         return session_ids, min_timestamp, max_timestamp, extra_summary_context
 
-    def _if_video_validation_enabled(self, user: User) -> bool | None:
-        # Check if the summaries should be validated with videos
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization-video-validation",
+    def _determine_video_validation_enabled(self, user: User) -> bool | Literal["full"]:
+        """
+        Check if the user has the video validation for session summaries feature flag enabled.
+        """
+        if posthoganalytics.feature_enabled(
+            "max-session-summarization-video-as-base",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization_id)},
             group_properties={"organization": {"id": str(self.team.organization_id)}},
             send_feature_flag_events=False,
+        ):
+            return "full"  # Use video as base of summarization
+        return (
+            posthoganalytics.feature_enabled(
+                "max-session-summarization-video-validation",
+                str(user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+            or False
         )
 
     @staticmethod
@@ -110,7 +123,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         team: Team,
         min_timestamp: datetime,
         max_timestamp: datetime,
-        video_validation_enabled: bool | None,
+        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
@@ -153,7 +166,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, min_timestamp, max_timestamp, extra_summary_context = self._validate_input(request)
-        video_validation_enabled = self._if_video_validation_enabled(user)
+        video_validation_enabled = self._determine_video_validation_enabled(user)
         tracking_id = (
             generate_tracking_id()
         )  # Unified id to combine start/end, calculate duration, check success rate and so
@@ -219,7 +232,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_id: str,
         user: User,
         team: Team,
-        video_validation_enabled: bool | None,
+        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> SessionSummarySerializer | Exception:
         try:
@@ -242,7 +255,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids: list[str],
         user: User,
         team: Team,
-        video_validation_enabled: bool | None,
+        video_validation_enabled: bool | Literal["full"] | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, dict[str, Any]]:
         tasks = {}
@@ -280,7 +293,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, _, _, extra_summary_context = self._validate_input(request)
-        video_validation_enabled = self._if_video_validation_enabled(user)
+        video_validation_enabled = self._determine_video_validation_enabled(user)
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,

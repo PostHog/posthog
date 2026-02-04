@@ -1,7 +1,7 @@
 import { formatHclValue, sanitizeResourceName } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
 // Schema version this exporter targets - update when provider schema changes
-export const POSTHOG_PROVIDER_VERSION = '1.0'
+export const POSTHOG_PROVIDER_VERSION = '1.0.2'
 
 export interface HclExportResult {
     hcl: string
@@ -11,6 +11,8 @@ export interface HclExportResult {
 export interface HclExportOptions {
     /** Include import block for existing resources (default: true for saved resources) */
     includeImport?: boolean
+    /** Project ID for import block format */
+    projectId?: number
 }
 
 export interface ResourceExporter<T, O extends HclExportOptions = HclExportOptions> {
@@ -69,9 +71,12 @@ export function generateHCL<T, O extends HclExportOptions = HclExportOptions>(
 
     // Import block for existing resources only
     if (includeImport && resourceId !== undefined) {
+        // Since v1.0.2 of the TF provider (https://github.com/PostHog/terraform-provider-posthog/pull/24/)
+        // we can specify the project to which a resource belongs when importing it.
+        const importId = options.projectId ? `${options.projectId}/${resourceId}` : String(resourceId)
         lines.push(`import {`)
         lines.push(`  to = ${exporter.resourceType}.${resourceName}`)
-        lines.push(`  id = "${resourceId}"`)
+        lines.push(`  id = "${importId}"`)
         lines.push(`}`)
         lines.push('')
     }

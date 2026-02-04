@@ -48,6 +48,7 @@ def get_max_backup_bandwidth() -> str:
 
 
 SHARDED_TABLES = [
+    "sharded_events",
     "sharded_app_metrics",
     "sharded_app_metrics2",
     "sharded_heatmaps",
@@ -58,10 +59,6 @@ SHARDED_TABLES = [
     "sharded_session_replay_events",
     "sharded_sessions",
 ]
-# Continue backing up sharded_events in EU using CH BACKUP. For US we
-# already switched to Vector based approach.
-if settings.CLOUD_DEPLOYMENT == "EU":
-    SHARDED_TABLES.append("sharded_events")
 
 NON_SHARDED_TABLES = [
     "asyncdeletion",
@@ -69,24 +66,19 @@ NON_SHARDED_TABLES = [
     "cohortpeople",
     "error_tracking_issue_fingerprint_overrides",
     "events_dead_letter_queue",
-    "events_plugin_ingestion_partition_statistics_v2",
     "exchange_rate",
     "groups",
     "infi_clickhouse_orm_migrations",
     "log_entries",
-    "metrics_query_log",
     "metrics_time_to_see_data",
-    "pending_person_deletes_reporting",
     "person",
     "person_collapsing",
-    "person_distinct_id",
     "person_distinct_id2",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
     "pg_embeddings",
     "plugin_log_entries",
-    "swap_person_distinct_id",
 ]
 
 
@@ -128,13 +120,18 @@ class BackupStatus:
 class Backup:
     database: str
     date: str
+    incremental: bool = False
     table: Optional[str] = None
     id: Optional[str] = None
     base_backup: Optional["Backup"] = None
     shard: Optional[int] = None
 
     def __post_init__(self):
-        datetime.strptime(self.date, "%Y-%m-%dT%H:%M:%SZ")  # It will fail if the date is invalid
+        datetime.strptime(self.date, "%Y%m%d%H%M%S")  # It will fail if the date is invalid
+
+    @property
+    def backup_type_prefix(self) -> str:
+        return "inc" if self.incremental else "full"
 
     @property
     def path(self):
@@ -143,23 +140,24 @@ class Backup:
         if self.table:
             base_path = f"{base_path}/{self.table}"
 
-        return f"{base_path}/{shard_path}/{self.date}"
+        return f"{base_path}/{shard_path}/{self.backup_type_prefix}-{self.date}"
 
     def _bucket_base_path(self, bucket: str):
         return f"https://{bucket}.s3.amazonaws.com"
 
     @classmethod
-    def from_s3_path(cls, path: str) -> "Backup":
+    def from_s3_path(cls, path: str) -> Optional["Backup"]:
         path_regex = re.compile(
-            r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<shard>\w+)\/(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/$"
+            r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<shard>\w+)\/(?P<backup_type>full|inc)-(?P<date>\d{14})\/$"
         )
         match = path_regex.match(path)
         if not match:
-            raise ValueError(f"Could not parse backup path: {path}. It does not match the regex: {path_regex.pattern}")
+            return None
 
         return Backup(
             database=match.group("database"),
             date=match.group("date"),
+            incremental=match.group("backup_type") == "inc",
             table=match.group("table"),
             base_backup=None,
             shard=None if match.group("shard") == NO_SHARD_PATH else int(match.group("shard")),
@@ -313,6 +311,10 @@ def get_latest_backups(
 
     They are sorted from most recent to oldest.
     """
+    if not config.incremental:
+        context.log.info("Full backup requested, skipping latest backups retrieval.")
+        return []
+
     shard_path = shard if shard else NO_SHARD_PATH
 
     base_prefix = f"{config.database}/"
@@ -327,10 +329,21 @@ def get_latest_backups(
     if "CommonPrefixes" not in backups:
         return []
 
-    latest_backups = [
-        Backup.from_s3_path(backup["Prefix"])
-        for backup in sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"], reverse=True)
-    ]
+    # Parse all backups first, then sort by date (not lexicographically by prefix)
+    # to ensure correct ordering regardless of backup type (full/inc)
+    parsed_backups = []
+    for backup in backups["CommonPrefixes"]:
+        parsed = Backup.from_s3_path(backup["Prefix"])
+        if parsed is None:
+            context.log.warning(f"Could not parse backup path: {backup['Prefix']}, skipping.")
+        else:
+            parsed_backups.append(parsed)
+
+    latest_backups = sorted(
+        parsed_backups,
+        key=lambda x: x.date,
+        reverse=True,
+    )
     context.log.info(f"Found {len(latest_backups)} latest backups: {latest_backups}")
     return latest_backups[:15]
 
@@ -393,8 +406,9 @@ def run_backup(
     backup = Backup(
         id=context.run_id,
         database=config.database,
+        date=datetime.now(UTC).strftime("%Y%m%d%H%M%S"),
+        incremental=config.incremental,
         table=config.table,
-        date=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         base_backup=latest_backup if config.incremental else None,
         shard=shard,
     )
@@ -570,7 +584,7 @@ def run_backup_request(
 @dagster.schedule(
     job=sharded_backup,
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
-    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    # should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):

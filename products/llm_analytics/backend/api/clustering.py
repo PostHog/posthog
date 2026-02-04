@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -29,6 +30,8 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     WORKFLOW_NAME,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
+
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
 
@@ -146,7 +149,10 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
 
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
+    serializer_class = ClusteringRunRequestSerializer
 
+    @llma_track_latency("llma_clustering_create")
+    @monitor(feature=None, endpoint="llma_clustering_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Trigger a new clustering workflow run.
@@ -210,8 +216,8 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             trace_filters=trace_filters,
         )
 
-        # Generate unique workflow ID
-        workflow_id = f"clustering-{self.team_id}-manual-{int(time.time() * 1000)}"
+        # Generate unique workflow ID (follows naming convention from trace_clustering constants)
+        workflow_id = f"llma-trace-clustering-manual-{self.team_id}-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:

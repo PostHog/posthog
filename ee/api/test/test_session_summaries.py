@@ -100,7 +100,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     ) -> None:
         """Test successful creation of session summaries"""
         # Setup mocks
-        mock_feature_enabled.side_effect = [True, False]  # Allow summaries, but not video validation
+        mock_feature_enabled.side_effect = [True, False, False]  # Allow summaries, but not video validation (2 checks)
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),

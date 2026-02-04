@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -20,7 +20,7 @@ import {
     NPS_PROMOTER_VALUES,
 } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { NPSBreakdown, calculateNpsBreakdownFromProcessedData } from 'scenes/surveys/utils'
+import { NPSBreakdown, calculateNpsBreakdownFromProcessedData, isThumbQuestion } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -149,8 +149,78 @@ function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.
     )
 }
 
+interface ThumbsBreakdown {
+    thumbsUp: number
+    thumbsDown: number
+}
+
+function calculateThumbsBreakdown(processedData: ChoiceQuestionProcessedResponses): ThumbsBreakdown | null {
+    if (!processedData?.data || processedData.data.length !== 2) {
+        return null
+    }
+
+    const thumbsUp = processedData.data[0]?.value ?? 0
+    const thumbsDown = processedData.data[1]?.value ?? 0
+
+    return thumbsUp + thumbsDown > 0 ? { thumbsUp, thumbsDown } : null
+}
+
+function ThumbsBreakdownViz({ thumbsBreakdown }: { thumbsBreakdown: ThumbsBreakdown }): JSX.Element {
+    const total = thumbsBreakdown.thumbsUp + thumbsBreakdown.thumbsDown
+    const items = [
+        {
+            icon: IconThumbsUp,
+            count: thumbsBreakdown.thumbsUp,
+            label: 'Positive',
+            bgClass: 'bg-brand-blue/10',
+            textClass: 'text-brand-blue',
+            barClass: 'bg-brand-blue',
+        },
+        {
+            icon: IconThumbsDown,
+            count: thumbsBreakdown.thumbsDown,
+            label: 'Negative',
+            bgClass: 'bg-warning/10',
+            textClass: 'text-warning',
+            barClass: 'bg-warning',
+        },
+    ]
+
+    return (
+        <div className="flex gap-3">
+            {items.map(({ icon: Icon, count, label, bgClass, textClass, barClass }) => {
+                const percent = (count / total) * 100
+                return (
+                    <div key={label} className="flex-1 p-4 border rounded bg-bg-light">
+                        <div className="flex items-center gap-3">
+                            <div className={`flex items-center justify-center size-10 rounded-full ${bgClass}`}>
+                                <Icon className={`${textClass} size-5`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-2xl font-bold tabular-nums">{percent.toFixed(1)}%</span>
+                                    <span className="text-secondary text-sm">({count})</span>
+                                </div>
+                                <div className="text-secondary text-xs font-medium">{label}</div>
+                            </div>
+                        </div>
+                        <div className="mt-3 h-1.5 bg-border-light rounded-full overflow-hidden">
+                            <div
+                                className={`h-full ${barClass} rounded-full transition-all duration-300`}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ width: `${percent}%` }}
+                            />
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
 function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: number; questionId: string }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval, survey } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, survey, archivedResponsesPropertyFilter } =
+        useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
@@ -225,6 +295,7 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
                                                     operator: PropertyOperator.Exact,
                                                     value: survey.id,
                                                 },
+                                                ...archivedResponsesPropertyFilter,
                                             ],
                                             trendsFilter: {
                                                 formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
@@ -262,7 +333,8 @@ function RatingScoreOverTime({
     questionId: string
     scale: 3 | 5 | 7
 }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval, survey } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, survey, archivedResponsesPropertyFilter } =
+        useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     // Array to hold the event series - one series for each possible rating value
@@ -362,6 +434,7 @@ function RatingScoreOverTime({
                                                     operator: PropertyOperator.Exact,
                                                     value: survey.id,
                                                 },
+                                                ...archivedResponsesPropertyFilter,
                                             ],
                                             trendsFilter: {
                                                 formula: formula,
@@ -391,6 +464,11 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
 
     const { data } = processedData
     const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
+    const thumbsBreakdown = isThumbQuestion(question) ? calculateThumbsBreakdown(processedData) : null
+
+    if (isThumbQuestion(question)) {
+        return thumbsBreakdown ? <ThumbsBreakdownViz thumbsBreakdown={thumbsBreakdown} /> : null
+    }
 
     return (
         <>

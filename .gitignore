@@ -10,6 +10,7 @@ __pycache__/
 .eslintcache
 .mypy_cache
 .parcel-cache
+.posthog/
 .postgres-backups/
 .python-version
 .temporal-worker-settings
@@ -160,3 +161,11 @@ data/seaweedfs/
 # No env files except for the example
 .env*
 !.env.example
+
+# Ignore Agent OS (Claude Code) files
+.claude/agents/agent-os
+.claude/commands/agent-os
+agent-os/
+
+# MCP build files
+services/mcp/ui-apps-dist

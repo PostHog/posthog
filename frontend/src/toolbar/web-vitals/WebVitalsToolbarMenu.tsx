@@ -22,7 +22,7 @@ const ALL_METRICS: WebVitalsMetric[] = ['INP', 'LCP', 'FCP', 'CLS']
 
 export const WebVitalsToolbarMenu = (): JSX.Element => {
     const { localWebVitals, remoteWebVitals } = useValues(webVitalsToolbarLogic)
-    const { posthog, apiURL } = useValues(toolbarConfigLogic)
+    const { posthog, uiHost } = useValues(toolbarConfigLogic)
 
     return (
         <ToolbarMenu>
@@ -73,7 +73,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
 
             <ToolbarMenu.Footer>
                 <div className="flex flex-row justify-between w-full">
-                    <Link to={`${apiURL}${urls.webAnalyticsWebVitals()}`} target="_blank">
+                    <Link to={`${uiHost}${urls.webAnalyticsWebVitals()}`} target="_blank">
                         View all metrics
                     </Link>
                     <Link to="https://posthog.com/docs/web-analytics/web-vitals" target="_blank">

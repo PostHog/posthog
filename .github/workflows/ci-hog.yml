@@ -23,6 +23,9 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run Hog checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             hog: ${{ steps.filter.outputs.hog || 'true' }}
@@ -69,6 +72,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
@@ -116,6 +120,8 @@ jobs:
               run: |
                   python -m common.hogvm.stl.compile
                   git diff --exit-code
+              env:
+                  TEST: 1
 
             - name: Run HogVM Python tests
               run: |
@@ -133,6 +139,8 @@ jobs:
                   bin/turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
+              env:
+                  TEST: 1
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
@@ -177,6 +185,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'

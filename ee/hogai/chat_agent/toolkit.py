@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from products.experiments.backend.max_tools import ExperimentSummaryTool
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
@@ -18,6 +19,8 @@ from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
+    CreateFormTool,
+    ListDataTool,
     ManageMemoriesTool,
     ReadDataTool,
     ReadTaxonomyTool,
@@ -26,7 +29,10 @@ from ee.hogai.tools import (
     TaskTool,
     TodoWriteTool,
 )
+from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
+    has_create_form_tool_feature_flag,
+    has_experiment_summary_tool_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
@@ -38,6 +44,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
+    ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
 ]
@@ -53,6 +60,24 @@ TASK_TOOLS: list[type[MaxTool]] = [
 ]
 
 
+class ChatAgentPlanToolkit(AgentToolkit):
+    """Agent toolkit for plan mode with base tools + plan-specific tools."""
+
+    @property
+    def tools(self) -> list[type[MaxTool]]:
+        tools = [
+            ReadTaxonomyTool,
+            SearchTool,
+            TodoWriteTool,  # type: ignore[list-item]
+            SwitchModeTool,  # type: ignore[list-item]
+            CreateFormTool,
+            FinalizePlanTool,
+        ]
+        if has_memory_tool_feature_flag(self._team, self._user):
+            tools.append(ManageMemoriesTool)
+        return tools
+
+
 class ChatAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type[MaxTool]]:
@@ -63,7 +88,17 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(TaskTool)
         if has_memory_tool_feature_flag(self._team, self._user):
             tools.append(ManageMemoriesTool)
+        if has_create_form_tool_feature_flag(self._team, self._user):
+            tools.append(CreateFormTool)
+        if has_experiment_summary_tool_feature_flag(self._team, self._user):
+            tools.append(ExperimentSummaryTool)
         return tools
+
+
+class PlanModeSwitchAgentToolkit(AgentToolkit):
+    """Empty toolkit for the fictitious execution/plan modes that triggers transition to execution/plan mode."""
+
+    pass
 
 
 class ChatAgentToolkitManager(AgentToolkitManager):

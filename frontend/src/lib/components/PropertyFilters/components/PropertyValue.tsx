@@ -43,6 +43,7 @@ export interface PropertyValueProps {
     editable?: boolean
     preloadValues?: boolean
     forceSingleSelect?: boolean
+    validationError?: string | null
 }
 
 export function PropertyValue({
@@ -62,6 +63,7 @@ export function PropertyValue({
     editable = true,
     preloadValues = false,
     forceSingleSelect = false,
+    validationError = null,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -78,6 +80,10 @@ export function PropertyValue({
 
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+
+    // TODO: Add semver input validation when a semver operator is selected.
+    // This will require detecting isOperatorSemver(operator) and validating the input
+    // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
     const load = useCallback(
         (newInput: string | undefined): void => {
@@ -239,6 +245,7 @@ export function PropertyValue({
             placeholder={placeholder}
             size={size}
             disableCommaSplitting={isUserAgentProperty}
+            status={validationError ? 'danger' : 'default'}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'

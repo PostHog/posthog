@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
-import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
@@ -53,6 +53,11 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
                     label: 'Area chart',
+                },
+                {
+                    value: ChartDisplayType.TwoDimensionalHeatmap,
+                    icon: <IconHeatmap />,
+                    label: '2d heatmap',
                 },
             ],
         },

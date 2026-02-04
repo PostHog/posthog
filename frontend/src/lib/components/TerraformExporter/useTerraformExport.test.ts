@@ -1,4 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import api from '~/lib/api'
@@ -9,12 +10,17 @@ import { TerraformExportResource, useTerraformExport } from './useTerraformExpor
 
 jest.mock('~/lib/api')
 jest.mock('posthog-js')
+jest.mock('kea', () => ({
+    ...jest.requireActual('kea'),
+    useValues: jest.fn(),
+}))
 
 const mockedApi = api as jest.Mocked<typeof api>
 
 describe('useTerraformExport', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        ;(useValues as jest.Mock).mockReturnValue({ currentTeamId: 1 })
         mockedApi.alerts = {
             list: jest.fn().mockResolvedValue({ results: [] }),
         } as any

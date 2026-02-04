@@ -821,8 +821,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         import lxml
         import xmlsec
 
-        assert "1.3.14" == xmlsec.__version__
-        assert "5.2.1" == lxml.__version__
+        assert "1.3.17" == xmlsec.__version__
+        assert "6.0.2" == lxml.__version__
 
 
 class TestCustomGoogleOAuth2(APILicensedTest):

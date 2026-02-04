@@ -1,0 +1,45 @@
+syntax = "proto3";
+package personhog.service.v1;
+
+import "personhog/types/v1/person.proto";
+import "personhog/types/v1/group.proto";
+import "personhog/types/v1/cohort.proto";
+import "personhog/types/v1/feature_flag.proto";
+
+// PersonHogService is the public API exposed by the router.
+// Clients call this service; the router handles backend selection and routing.
+service PersonHogService {
+  // Person lookups by ID
+  rpc GetPerson(personhog.types.v1.GetPersonRequest) returns (personhog.types.v1.GetPersonResponse);
+  rpc GetPersons(personhog.types.v1.GetPersonsRequest) returns (personhog.types.v1.PersonsResponse);
+  rpc GetPersonByUuid(personhog.types.v1.GetPersonByUuidRequest) returns (personhog.types.v1.GetPersonResponse);
+  rpc GetPersonsByUuids(personhog.types.v1.GetPersonsByUuidsRequest) returns (personhog.types.v1.PersonsResponse);
+
+  // Person lookups by distinct ID
+  rpc GetPersonByDistinctId(personhog.types.v1.GetPersonByDistinctIdRequest) returns (personhog.types.v1.GetPersonResponse);
+  rpc GetPersonsByDistinctIdsInTeam(personhog.types.v1.GetPersonsByDistinctIdsInTeamRequest) returns (personhog.types.v1.PersonsByDistinctIdsInTeamResponse);
+  rpc GetPersonsByDistinctIds(personhog.types.v1.GetPersonsByDistinctIdsRequest) returns (personhog.types.v1.PersonsByDistinctIdsResponse);
+
+  // Distinct ID operations
+  rpc GetDistinctIdsForPerson(personhog.types.v1.GetDistinctIdsForPersonRequest) returns (personhog.types.v1.GetDistinctIdsForPersonResponse);
+  rpc GetDistinctIdsForPersons(personhog.types.v1.GetDistinctIdsForPersonsRequest) returns (personhog.types.v1.GetDistinctIdsForPersonsResponse);
+
+  // Feature flag hash key override support
+  rpc GetHashKeyOverrideContext(personhog.types.v1.GetHashKeyOverrideContextRequest) returns (personhog.types.v1.GetHashKeyOverrideContextResponse);
+  rpc UpsertHashKeyOverrides(personhog.types.v1.UpsertHashKeyOverridesRequest) returns (personhog.types.v1.UpsertHashKeyOverridesResponse);
+  rpc DeleteHashKeyOverridesByTeams(personhog.types.v1.DeleteHashKeyOverridesByTeamsRequest) returns (personhog.types.v1.DeleteHashKeyOverridesByTeamsResponse);
+
+  // Cohort membership
+  rpc CheckCohortMembership(personhog.types.v1.CheckCohortMembershipRequest) returns (personhog.types.v1.CohortMembershipResponse);
+
+  // Groups
+  rpc GetGroup(personhog.types.v1.GetGroupRequest) returns (personhog.types.v1.GetGroupResponse);
+  rpc GetGroups(personhog.types.v1.GetGroupsRequest) returns (personhog.types.v1.GroupsResponse);
+  rpc GetGroupsBatch(personhog.types.v1.GetGroupsBatchRequest) returns (personhog.types.v1.GetGroupsBatchResponse);
+
+  // Group type mappings
+  rpc GetGroupTypeMappingsByTeamId(personhog.types.v1.GetGroupTypeMappingsByTeamIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);
+  rpc GetGroupTypeMappingsByTeamIds(personhog.types.v1.GetGroupTypeMappingsByTeamIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
+  rpc GetGroupTypeMappingsByProjectId(personhog.types.v1.GetGroupTypeMappingsByProjectIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);
+  rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
+}

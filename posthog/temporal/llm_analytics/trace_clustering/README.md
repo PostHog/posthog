@@ -101,7 +101,7 @@ graph TB
 
 - `team_id` (required): Team ID to cluster traces for
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
-- `max_samples` (optional): Maximum traces to sample (default: 1000)
+- `max_samples` (optional): Maximum traces to sample (default: 2500)
 - `min_k` (optional): Minimum clusters for k-means (default: 2)
 - `max_k` (optional): Maximum clusters for k-means (default: 10)
 - `embedding_normalization` (optional): L2 normalize embeddings - "none" or "l2" (default: "l2")
@@ -140,7 +140,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 2 (Label)** - LangGraph agent:
 
-- Runs a multi-turn LangGraph agent powered by Claude Sonnet 4 (`claude-sonnet-4-20250514`)
+- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.1`)
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
@@ -187,7 +187,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 **`labeling_agent/`** - LangGraph agent for cluster labeling:
 
 - Multi-turn agent that explores clusters and generates distinctive labels
-- Uses Claude Sonnet 4 with 6 tools for cluster exploration
+- Uses OpenAI GPT-5.1 with 6 tools for cluster exploration
 - See `labeling_agent/README.md` for detailed architecture
 
 **`event_emission.py`** - Event building and emission:
@@ -202,10 +202,10 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 
 ```python
 {
-    "$ai_clustering_run_id": "1_20250123_000000",
+    "$ai_clustering_run_id": "1_trace_20250123_000000",
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
-    "$ai_total_traces_analyzed": 315,
+    "$ai_total_items_analyzed": 315,
 
     # Clustering parameters used for this run (for debugging/analysis)
     "$ai_clustering_params": {
@@ -341,11 +341,11 @@ Key constants in `constants.py`:
 | `WORKFLOW_NAME`                     | llma-trace-clustering             | Temporal workflow name                        |
 | `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name            |
 | `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze              |
-| `DEFAULT_MAX_SAMPLES`               | 1000                              | Maximum traces to sample                      |
+| `DEFAULT_MAX_SAMPLES`               | 2500                              | Maximum traces to sample                      |
 | `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
 | `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
-| `LABELING_AGENT_MODEL`              | claude-sonnet-4-20250514          | Claude model for labeling agent               |
+| `LABELING_AGENT_MODEL`              | gpt-5.1                           | OpenAI model for labeling agent               |
 | `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization      |
 | `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
 | `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
@@ -420,7 +420,7 @@ Test coverage:
 - **hdbscan**: Density-based clustering algorithm
 - **umap-learn**: Dimensionality reduction for clustering and visualization
 - **numpy**: Vector operations and distance calculations
-- **langchain-anthropic**: Claude API integration for labeling agent
+- **langchain-openai**: OpenAI API integration for labeling agent
 - **langgraph**: Agent orchestration framework
 - **Temporal**: Workflow orchestration
 

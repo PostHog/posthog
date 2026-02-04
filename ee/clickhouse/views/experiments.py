@@ -192,6 +192,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if len(variants) >= 21:
             raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
+            if len(variants) < 2:
+                raise ValidationError(
+                    "Feature flag must have at least 2 variants (control and at least one test variant)"
+                )
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
 
@@ -200,12 +204,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
-        if len(variants) and len(variants) > 1:
-            if variants[0].get("key") != "control":
-                raise ValidationError("Feature flag must have control as the first variant.")
-            return True
+        if len(variants) < 2:
+            raise ValidationError("Feature flag must have at least 2 variants (control and at least one test variant)")
 
-        raise ValidationError("Feature flag is not eligible for experiments.")
+        if "control" not in [variant["key"] for variant in variants]:
+            raise ValidationError("Feature flag must have a variant with key 'control'")
+
+        return feature_flag
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         if not exposure_criteria:
@@ -293,13 +298,27 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             feature_flag = feature_flag_serializer.save()
 
         # Ensure stats_config has a method set, preserving any other fields passed from frontend
-        stats_config = validated_data.get("stats_config", {})
+        stats_config = validated_data.get("stats_config", {}) or {}
+        team = Team.objects.get(id=self.context["team_id"])
+
         if not stats_config.get("method"):
-            # Get organization's default stats method setting
-            team = Team.objects.get(id=self.context["team_id"])
-            default_method = team.organization.default_experiment_stats_method
+            # Get team's default stats method setting
+            default_method = team.default_experiment_stats_method or "bayesian"
             stats_config["method"] = default_method
-            validated_data["stats_config"] = stats_config
+
+        # Set default confidence level from team setting if not already set
+        if team.default_experiment_confidence_level is not None:
+            confidence_level = float(team.default_experiment_confidence_level)
+            bayesian_config = stats_config.get("bayesian") or {}
+            frequentist_config = stats_config.get("frequentist") or {}
+            # Set for Bayesian if ci_level not already configured
+            if bayesian_config.get("ci_level") is None:
+                stats_config["bayesian"] = {**bayesian_config, "ci_level": confidence_level}
+            # Set for Frequentist if alpha not already configured
+            if frequentist_config.get("alpha") is None:
+                stats_config["frequentist"] = {**frequentist_config, "alpha": 1 - confidence_level}
+
+        validated_data["stats_config"] = stats_config
 
         # Add fingerprints to metrics
         # UI creates experiments without metrics (adds them later in draft mode)
@@ -766,6 +785,13 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
 
 class ExperimentStatus(str, Enum):
+    """
+    Note: The frontend also uses a "ProgressStatus.Paused" status, but this is purely a
+    virtual status to have better UX for the user. Technically, paused experiments have
+    feature flags disabled while the experiment is still "running" in the backend, i.e.
+    they have start_date but no end_date).
+    """
+
     DRAFT = "draft"
     RUNNING = "running"
     COMPLETE = "complete"

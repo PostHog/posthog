@@ -1,8 +1,13 @@
+import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconArrowLeft, IconEye, IconPlus, IconShield, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { JudgeHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +22,7 @@ interface TemplateCardProps {
 }
 
 function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
-    const iconClass = 'w-6 h-6'
+    const iconClass = 'w-6 h-6 text-primary-3000'
     switch (icon) {
         case 'target':
             return <IconTarget className={iconClass} />
@@ -40,6 +45,10 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     const isBlank = template === 'blank'
 
     const handleClick = (): void => {
+        posthog.capture('llm evaluation template selected', {
+            template_key: isBlank ? 'blank' : template.key,
+        })
+
         if (isBlank) {
             router.actions.push(urls.llmAnalyticsEvaluation('new'))
         } else {
@@ -55,12 +64,8 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
             onClick={handleClick}
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
-                <div className="bg-primary-3000/10 rounded-lg p-3 flex-shrink-0">
-                    {isBlank ? (
-                        <IconPlus className="w-6 h-6 text-primary-3000" />
-                    ) : (
-                        <div className="text-primary-3000">{getTemplateIcon(template.icon)}</div>
-                    )}
+                <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
+                    {isBlank ? <IconPlus className="w-6 h-6 text-primary-3000" /> : getTemplateIcon(template.icon)}
                 </div>
                 <div className="flex-1 flex flex-col justify-start">
                     <div className="flex items-center justify-center gap-2 mb-2">
@@ -88,6 +93,8 @@ interface TemplateGridProps {
     title: string
     description: string
     showBackButton?: boolean
+    showHog?: boolean
+    learnMoreUrl?: string
     minHeight?: '60vh' | '80vh'
 }
 
@@ -95,6 +102,8 @@ function TemplateGrid({
     title,
     description,
     showBackButton = false,
+    showHog = false,
+    learnMoreUrl,
     minHeight = '60vh',
 }: TemplateGridProps): JSX.Element {
     return (
@@ -114,8 +123,23 @@ function TemplateGrid({
                 )}
                 <div className="space-y-8">
                     <div className="text-center space-y-3">
+                        {showHog && (
+                            <div className="flex justify-center mb-4">
+                                <JudgeHog className="w-32 h-32" />
+                            </div>
+                        )}
                         <h1 className="text-3xl font-bold">{title}</h1>
-                        <p className="text-base text-secondary max-w-2xl mx-auto">{description}</p>
+                        <p className="text-base text-secondary max-w-2xl mx-auto">
+                            {description}
+                            {learnMoreUrl && (
+                                <>
+                                    {' '}
+                                    <Link to={learnMoreUrl} target="_blank">
+                                        Learn more
+                                    </Link>
+                                </>
+                            )}
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -141,12 +165,47 @@ export function EvaluationTemplatesScene(): JSX.Element {
     )
 }
 
+interface EmptyStateVariant {
+    title: string
+    description: string
+    showHog: boolean
+}
+
+const EMPTY_STATE_VARIANTS: Record<string, EmptyStateVariant> = {
+    control: {
+        title: 'Create your first evaluation',
+        description: 'Select a pre-configured template to get started quickly, or create your own from scratch.',
+        showHog: false,
+    },
+    'test-b': {
+        title: 'Create your first evaluation',
+        description:
+            'Automatically score your LLM outputs for quality, safety, and accuracy. Choose a template or build your own.',
+        showHog: true,
+    },
+    'test-c': {
+        title: 'Catch issues before your users do',
+        description:
+            'Set up automated evaluations to monitor your LLM outputs for quality, safety, and accuracy in real-time.',
+        showHog: true,
+    },
+}
+
 export function EvaluationTemplatesEmptyState(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const experimentVariant = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_ONBOARDING_EXPERIMENT]
+    const variant =
+        typeof experimentVariant === 'string' && experimentVariant in EMPTY_STATE_VARIANTS
+            ? EMPTY_STATE_VARIANTS[experimentVariant]
+            : EMPTY_STATE_VARIANTS['control']
+
     return (
         <TemplateGrid
-            title="Create your first evaluation"
-            description="Select a pre-configured template to get started quickly, or create your own from scratch"
+            title={variant.title}
+            description={variant.description}
             showBackButton={false}
+            showHog={variant.showHog}
+            learnMoreUrl="https://posthog.com/docs/llm-analytics/evaluations"
             minHeight="60vh"
         />
     )

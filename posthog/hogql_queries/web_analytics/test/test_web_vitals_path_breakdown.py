@@ -280,3 +280,47 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             results,
         )
+
+    def test_path_cleaning_filters(self):
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/cleaned/123", 50),
+                        ("2025-01-10", "/cleaned/456", 50),
+                        ("2025-01-10", "/not-cleaned", 150),
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        self.team.path_cleaning_filters = [
+            {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/<id>"},
+        ]
+        self.team.save()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                metric=WebVitalsMetric.INP,
+                percentile=PropertyMathType.P75,
+                thresholds=(100, 200),
+                properties=[],
+                doPathCleaning=True,
+            )
+
+            runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
+            results = runner.calculate().results
+
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[WebVitalsPathBreakdownResultItem(path="/cleaned/<id>", value=50)],
+                    needs_improvements=[WebVitalsPathBreakdownResultItem(path="/not-cleaned", value=150)],
+                    poor=[],
+                )
+            ],
+            results,
+        )

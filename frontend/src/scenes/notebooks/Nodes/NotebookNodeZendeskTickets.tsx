@@ -1,11 +1,15 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconX } from '@posthog/icons'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
 
 import { Query } from '~/queries/Query/Query'
 
 import { ZendeskTicketsFilters } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/ZendeskTicketsFilters'
 import { zendeskTicketsFiltersLogic } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/zendeskTicketsFiltersLogic'
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import {
     useZendeskTicketsQueryContext,
     zendeskGroupTicketsQuery,
@@ -19,7 +23,20 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsAttributes>): JSX.Element | null => {
     const { personId, groupKey, nodeId } = attributes
     const { expanded } = useValues(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const { status, priority, orderBy, orderDirection } = useValues(zendeskTicketsFiltersLogic({ logicKey: nodeId }))
+    const { removeNode } = useActions(customerProfileLogic)
+
+    useOnMountEffect(() => {
+        setMenuItems([
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.ZendeskTickets),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     const query = personId
         ? zendeskPersonTicketsQuery({ personId, status, priority, orderBy, orderDirection })

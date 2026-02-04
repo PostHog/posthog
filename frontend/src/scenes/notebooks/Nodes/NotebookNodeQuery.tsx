@@ -50,6 +50,7 @@ const Component = ({
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
+    const { canvasFiltersOverride } = useValues(notebookLogic)
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
@@ -107,8 +108,13 @@ const Component = ({
             modifiedQuery.embedded = true
         }
 
+        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
+            modifiedQuery.source.fixedProperties = canvasFiltersOverride
+            updateAttributes({ ...attributes, isDefaultFilterApplied: true })
+        }
+
         return modifiedQuery
-    }, [query])
+    }, [query]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!expanded) {
         return null
@@ -143,6 +149,7 @@ type NotebookNodeQueryAttributes = {
     query: QuerySchema
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
+    showSettings?: boolean
 }
 
 export const Settings = ({
@@ -274,6 +281,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         isDefaultFilterApplied: {
             default: false,
         },
+        showSettings: {
+            default: false,
+        },
     },
     href: ({ query }) =>
         isSavedInsightNode(query)
@@ -282,6 +292,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               ? urls.insightNew({ query })
               : undefined,
     Settings,
+    settingsPlacement: 'inline',
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {
@@ -318,9 +329,7 @@ export function buildNodeQueryContent(query: QuerySchema): JSONContent {
         type: NotebookNodeType.Query,
         attrs: {
             query: query,
-            __init: {
-                showSettings: true,
-            },
+            showSettings: true,
         },
     }
 }

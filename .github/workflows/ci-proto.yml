@@ -1,0 +1,100 @@
+name: Proto CI
+on:
+    workflow_dispatch:
+    push:
+        branches: [master]
+    pull_request:
+    merge_group:
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run proto checks
+        outputs:
+            proto: ${{ steps.filter.outputs.proto || 'true' }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  filters: |
+                      proto:
+                        - 'proto/**'
+                        - '.github/workflows/ci-proto.yml'
+
+    lint:
+        name: Lint proto definitions
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+
+            - name: Install buf
+              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              with:
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Lint protos
+              run: buf lint proto/
+
+    breaking:
+        name: Check for breaking changes
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+
+            - name: Install buf
+              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              with:
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Check for breaking changes
+              run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
+
+    proto_checks:
+        needs: [changes, lint, breaking]
+        name: Proto Checks Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check all proto jobs
+              run: |
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.proto }}" != "true" ]]; then
+                    echo "Proto checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
+                    echo "Proto lint failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
+                    echo "Proto breaking change check failed."
+                    exit 1
+                  fi
+
+                  echo "All proto checks passed."

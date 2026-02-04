@@ -1,0 +1,120 @@
+syntax = "proto3";
+package personhog.types.v1;
+
+import "personhog/types/v1/common.proto";
+
+// Person represents a user profile with properties
+message Person {
+  int64 id = 1;
+  string uuid = 2;
+  int64 team_id = 3;
+  bytes properties = 4;
+  bytes properties_last_updated_at = 5;
+  bytes properties_last_operation = 6;
+  int64 created_at = 7;
+  int64 version = 8;
+  bool is_identified = 9;
+  bool is_user_id = 10;
+}
+
+// DistinctIdWithVersion pairs a distinct_id with its version for consistency tracking
+message DistinctIdWithVersion {
+  string distinct_id = 1;
+  optional int64 version = 2;
+}
+
+// PersonWithDistinctIds pairs a lookup distinct_id with its resolved person
+message PersonWithDistinctIds {
+  string distinct_id = 1;
+  optional Person person = 2;
+}
+
+// PersonDistinctIds contains all distinct_ids for a single person
+message PersonDistinctIds {
+  int64 person_id = 1;
+  repeated DistinctIdWithVersion distinct_ids = 2;
+}
+
+// PersonWithTeamDistinctId pairs a cross-team lookup key with its resolved person
+message PersonWithTeamDistinctId {
+  TeamDistinctId key = 1;
+  optional Person person = 2;
+}
+
+message GetPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetPersonResponse {
+  optional Person person = 1;
+}
+
+message GetPersonsRequest {
+  int64 team_id = 1;
+  repeated int64 person_ids = 2;
+  ReadOptions read_options = 3;
+}
+
+message PersonsResponse {
+  repeated Person persons = 1;
+  repeated int64 missing_ids = 2;
+}
+
+message GetPersonByUuidRequest {
+  int64 team_id = 1;
+  string uuid = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetPersonsByUuidsRequest {
+  int64 team_id = 1;
+  repeated string uuids = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetPersonByDistinctIdRequest {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetPersonsByDistinctIdsInTeamRequest {
+  int64 team_id = 1;
+  repeated string distinct_ids = 2;
+  ReadOptions read_options = 3;
+}
+
+message PersonsByDistinctIdsInTeamResponse {
+  repeated PersonWithDistinctIds results = 1;
+}
+
+message GetPersonsByDistinctIdsRequest {
+  repeated TeamDistinctId team_distinct_ids = 1;
+  ReadOptions read_options = 2;
+}
+
+message PersonsByDistinctIdsResponse {
+  repeated PersonWithTeamDistinctId results = 1;
+}
+
+message GetDistinctIdsForPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetDistinctIdsForPersonResponse {
+  repeated DistinctIdWithVersion distinct_ids = 1;
+}
+
+message GetDistinctIdsForPersonsRequest {
+  int64 team_id = 1;
+  repeated int64 person_ids = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetDistinctIdsForPersonsResponse {
+  repeated PersonDistinctIds person_distinct_ids = 1;
+}

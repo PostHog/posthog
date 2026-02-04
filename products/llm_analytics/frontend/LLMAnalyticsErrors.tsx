@@ -14,11 +14,13 @@ import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setErrorsSort } = useActions(llmAnalyticsLogic)
-    const { errorsQuery, errorsSort } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { setErrorsSort } = useActions(llmAnalyticsErrorsLogic)
+    const { errorsQuery, errorsSort } = useValues(llmAnalyticsErrorsLogic)
     const { searchParams } = useValues(router)
 
     const { renderSortableColumnTitle } = useSortableColumns(errorsSort, setErrorsSort)
@@ -85,6 +87,7 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                 }).url
                                             }
                                             className="font-mono text-sm"
+                                            data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}
                                         </Link>

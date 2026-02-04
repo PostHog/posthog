@@ -31,6 +31,10 @@ function isSequenceKeybind(keybind: string[]): boolean {
     return keybind.includes('then')
 }
 
+function isSingleKeyKeybind(keybind: string[]): boolean {
+    return keybind.length === 1 && !['command', 'option', 'shift', 'ctrl'].includes(keybind[0])
+}
+
 function getSequenceKeys(keybind: string[]): string[] {
     return keybind.filter((key) => key !== 'then')
 }
@@ -45,7 +49,13 @@ function triggerShortcut(shortcut: AppShortcutType): void {
     }
 }
 
-function isEditableElement(target: EventTarget | null): boolean {
+function isEditableElement(event: KeyboardEvent): boolean {
+    // Use composedPath to get the actual target element, even through shadow DOM boundaries
+    // This is necessary because event.target gets retargeted to the shadow host when events
+    // bubble up from inside a shadow DOM (e.g., surveys product inputs)
+    const path = event.composedPath()
+    const target = path[0] as HTMLElement | null
+
     if (!target || !(target instanceof HTMLElement)) {
         return false
     }
@@ -139,12 +149,30 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             }
 
             // Handle sequence shortcuts (no modifier keys, not in editable elements)
-            if (isEditableElement(event.target) || event.altKey) {
+            if (isEditableElement(event) || event.altKey) {
                 return
             }
 
             const now = Date.now()
             const key = event.key.toLowerCase()
+
+            // Check for single-key shortcuts first (immediate trigger, no sequence)
+            // Since single key shortcuts trigger eagerly, sequence shortcuts need to
+            // check for collisions before being implemented. We could also make this
+            // "lazy" but that would result in a noticeable lag in app for single key
+            // shortcuts. My preference is the eager way
+            const singleKeyMatch = values.registeredAppShortcuts.find((shortcut) =>
+                shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
+            )
+
+            if (singleKeyMatch) {
+                event.preventDefault()
+                event.stopPropagation()
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+                triggerShortcut(singleKeyMatch)
+                return
+            }
 
             // Reset if too much time has passed (1.5s)
             if (now - cache.sequenceLastKeyTime > 1500) {

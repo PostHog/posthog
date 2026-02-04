@@ -209,6 +209,8 @@ AGENT_PROMPT = """
 
 {{{tool_usage_policy}}}
 
+{{{switching_to_plan}}}
+
 {{{billing_context}}}
 
 {{{groups_prompt}}}

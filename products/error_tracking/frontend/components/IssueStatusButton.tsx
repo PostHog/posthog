@@ -16,6 +16,7 @@ export const IssueStatusButton = ({
             type="primary"
             onClick={() => onChange(status === 'active' ? 'resolved' : 'active')}
             tooltip={status === 'active' ? STATUS_INTENT_LABEL['resolved'] : STATUS_INTENT_LABEL['active']}
+            data-attr="error-tracking-resolve"
             sideAction={
                 status === 'active'
                     ? {

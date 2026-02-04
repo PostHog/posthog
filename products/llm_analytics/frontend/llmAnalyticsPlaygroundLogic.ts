@@ -4,7 +4,8 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { RateLimitError } from 'lib/api'
+import api, { ApiError, RateLimitError } from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -150,10 +151,26 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setResponseError: (hasError: boolean) => ({ hasError }),
         clearResponseError: true,
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
+        setSubscriptionRequired: (required: boolean) => ({ required }),
     }),
 
     reducers({
         model: ['', { setModel: (_, { model }) => model }],
+        modelOptionsErrorStatus: [
+            null as number | null,
+            {
+                loadModelOptions: () => null,
+                loadModelOptionsSuccess: () => null,
+                loadModelOptionsFailure: (_, { error }) => {
+                    const err = error as unknown
+                    if (err instanceof ApiError) {
+                        return err.status ?? null
+                    }
+
+                    return null
+                },
+            },
+        ],
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
         maxTokens: [null as number | null, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
         thinking: [false, { setThinking: (_, { thinking }) => thinking }],
@@ -285,26 +302,31 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 setRateLimited: (_, { retryAfterSeconds }) => Date.now() + retryAfterSeconds * 1000,
             },
         ],
+        subscriptionRequired: [
+            false as boolean,
+            {
+                setSubscriptionRequired: (_, { required }) => required,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                try {
-                    const response = await api.get('/api/llm_proxy/models/')
-                    if (!response) {
-                        return []
-                    }
-                    const options = response as ModelOption[]
-                    const closestMatch = matchClosestModel(values.model, options)
-                    if (values.model !== closestMatch) {
-                        llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
-                    }
-                    return options
-                } catch (error) {
-                    console.error('Error loading model options:', error)
-                    return values.modelOptions
+                const response = await api.get('/api/llm_proxy/models/')
+
+                if (!response) {
+                    return []
                 }
+
+                const options = response as ModelOption[]
+                const closestMatch = matchClosestModel(values.model, options)
+
+                if (values.model !== closestMatch) {
+                    llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                }
+
+                return options
             },
         },
     })),
@@ -321,6 +343,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     actions.addFinalizedContent(separator + toolCallsText)
                 }
             }
+
             actions.clearToolCalls()
         },
         submitPrompt: async (_, breakpoint) => {
@@ -356,10 +379,18 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 // Start timer for latency? Might be inaccurate due to network etc.
                 startTime = performance.now()
 
+                const selectedModel = values.modelOptions.find((m) => m.id === requestModel)
+                if (!selectedModel?.provider) {
+                    lemonToast.error('Selected model not found in available models')
+                    actions.finalizeAssistantMessage()
+                    return
+                }
+
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                     model: requestModel,
+                    provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
                 }
 
@@ -422,6 +453,11 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         if (err instanceof RateLimitError) {
                             return handleRateLimitError(err)
                         }
+                        if (err instanceof ApiError && err.status === 402) {
+                            actions.setSubscriptionRequired(true)
+                            actions.finalizeAssistantMessage()
+                            return
+                        }
                         actions.addAssistantMessageChunk(
                             `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
                         )
@@ -429,10 +465,19 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         actions.finalizeAssistantMessage()
                     },
                 })
+
+                // Once we've finished streaming - successfuly - mark the task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAIPlayground)
+
                 actions.finalizeAssistantMessage()
             } catch (error) {
                 if (error instanceof RateLimitError) {
                     return handleRateLimitError(error)
+                }
+                if (error instanceof ApiError && error.status === 402) {
+                    actions.setSubscriptionRequired(true)
+                    actions.finalizeAssistantMessage()
+                    return
                 }
                 actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
                 actions.setResponseError(true)
