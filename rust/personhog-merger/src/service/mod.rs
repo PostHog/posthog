@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::state::{MergeState, MergeStateRepository, MergeStep};
 use crate::types::{
     ApiResult, DistinctIdInfo, MergeConflict, MergeResult, MergeStatus, Person,
     PersonDistinctIdsApi, PersonPropertiesApi, SetMergingSourceResult, SetMergingTargetResult,
@@ -18,20 +19,36 @@ mod tests;
 /// 4. Update distinct ID mappings
 /// 5. Clear merge status on target
 /// 6. Delete source persons
-pub struct PersonMergeService {
+/// 7. Completed
+pub struct PersonMergeService<S: MergeStateRepository> {
     person_properties_api: Arc<dyn PersonPropertiesApi>,
     person_distinct_ids_api: Arc<dyn PersonDistinctIdsApi>,
+    state_repository: Arc<S>,
 }
 
-impl PersonMergeService {
+impl<S: MergeStateRepository> PersonMergeService<S> {
     pub fn new(
         person_properties_api: Arc<dyn PersonPropertiesApi>,
         person_distinct_ids_api: Arc<dyn PersonDistinctIdsApi>,
+        state_repository: Arc<S>,
     ) -> Self {
         Self {
             person_properties_api,
             person_distinct_ids_api,
+            state_repository,
         }
+    }
+
+    async fn update_state(&self, state: &mut MergeState, step: MergeStep) -> ApiResult<()> {
+        state.step = step;
+        self.state_repository.set(state.clone()).await
+    }
+
+    #[allow(dead_code)]
+    async fn set_failed(&self, state: &mut MergeState, error: String) -> ApiResult<()> {
+        state.step = MergeStep::Failed;
+        state.error = Some(error);
+        self.state_repository.set(state.clone()).await
     }
 
     pub async fn merge(
@@ -77,6 +94,16 @@ impl PersonMergeService {
                 });
             }
         };
+
+        // Initialize merge state
+        let mut state = MergeState::new(
+            target_person_uuid.clone(),
+            target_distinct_id.to_string(),
+            source_distinct_ids.to_vec(),
+            version,
+        );
+        self.update_state(&mut state, MergeStep::TargetMarked)
+            .await?;
 
         // 2. Mark all source distinct IDs as merging source
         //
@@ -125,18 +152,32 @@ impl PersonMergeService {
             }
         }
 
+        // Update state with valid sources mapping and deduplicated person UUIDs
+        state.valid_sources = ok_results
+            .iter()
+            .map(|(did, uuid)| (did.clone(), uuid.clone()))
+            .collect();
+        state.source_person_uuids = ok_results
+            .iter()
+            .map(|(_, uuid)| uuid.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        self.update_state(&mut state, MergeStep::SourcesMarked)
+            .await?;
+
         if ok_results.is_empty() {
             self.person_distinct_ids_api
                 .set_merged(target_distinct_id, &target_person_uuid, version)
                 .await?;
+            self.update_state(&mut state, MergeStep::Completed).await?;
             return Ok(MergeResult {
                 merged: Vec::new(),
                 conflicts,
             });
         }
 
-        let valid_source_distinct_ids: Vec<String> =
-            ok_results.iter().map(|(d, _)| d.clone()).collect();
+        let valid_source_distinct_ids: Vec<String> = state.valid_source_distinct_ids();
 
         // 3. Copy properties from source persons to target person
         //
@@ -146,19 +187,13 @@ impl PersonMergeService {
         // Using `get_persons_for_merge` which marks the source persons as being merged into the
         // target. Once marked, the persons API rejects writes to these source persons until
         // the merge completes.
-        let source_person_uuids: Vec<String> = ok_results
-            .iter()
-            .map(|(_, uuid)| uuid.clone())
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-
         let merge_result = self
             .person_properties_api
-            .get_persons_for_merge(&target_person_uuid, &source_person_uuids)
+            .get_persons_for_merge(&target_person_uuid, &state.source_person_uuids)
             .await?;
 
-        let source_persons: Vec<Person> = source_person_uuids
+        let source_persons: Vec<Person> = state
+            .source_person_uuids
             .iter()
             .filter_map(|uuid| merge_result.source_persons.get(uuid).cloned())
             .collect();
@@ -168,6 +203,9 @@ impl PersonMergeService {
                 .merge_person_properties(&target_person_uuid, &source_persons)
                 .await?;
         }
+
+        self.update_state(&mut state, MergeStep::PropertiesMerged)
+            .await?;
 
         // 4. Second phase of distinct ID update - move source distinct IDs to the target person
         //    and mark the merge as finished. After this, the distinct IDs point to the target
@@ -182,18 +220,28 @@ impl PersonMergeService {
 
         futures::future::try_join_all(set_merged_futures).await?;
 
+        self.update_state(&mut state, MergeStep::DistinctIdsMerged)
+            .await?;
+
         // 5. Clear merge status on target (also marks the merge as finished for the target)
         self.person_distinct_ids_api
             .set_merged(target_distinct_id, &target_person_uuid, version)
             .await?;
 
+        self.update_state(&mut state, MergeStep::TargetCleared)
+            .await?;
+
         // 6. Delete source persons
-        let delete_futures: Vec<_> = source_person_uuids
+        let delete_futures: Vec<_> = state
+            .source_person_uuids
             .iter()
             .map(|person_uuid| self.person_properties_api.delete_person(person_uuid))
             .collect();
 
         futures::future::try_join_all(delete_futures).await?;
+
+        self.update_state(&mut state, MergeStep::SourcesDeleted)
+            .await?;
 
         let merged: Vec<DistinctIdInfo> = valid_source_distinct_ids
             .into_iter()
@@ -202,6 +250,8 @@ impl PersonMergeService {
                 person_uuid: target_person_uuid.clone(),
             })
             .collect();
+
+        self.update_state(&mut state, MergeStep::Completed).await?;
 
         Ok(MergeResult { merged, conflicts })
     }

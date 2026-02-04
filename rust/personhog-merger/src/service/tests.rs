@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
+use crate::state::InMemoryMergeStateRepository;
 use crate::testing::Breakpoint;
 use crate::types::{
     ApiResult, DistinctIdInfo, GetPersonsForMergeResult, MergeConflict, MergeStatus, Person,
@@ -371,7 +372,8 @@ async fn test_merges_single_source_into_target() {
     properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
         .merge(
@@ -488,7 +490,8 @@ async fn test_merges_multiple_sources_into_target() {
     properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
         .merge(target_distinct_id, &source_distinct_ids, version)
@@ -547,7 +550,8 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
     properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let _result = merge_service
         .merge(target_distinct_id, &source_distinct_ids, version)
@@ -589,7 +593,8 @@ async fn test_handles_source_person_with_no_properties() {
     let target_person = create_person(target_person_uuid, vec![]);
     properties_api.set_get_persons_for_merge_result(target_person, HashMap::new());
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let _result = merge_service
         .merge(
@@ -660,7 +665,8 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
     properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
         .merge(target_distinct_id, &source_distinct_ids, version)
@@ -739,7 +745,8 @@ async fn test_clears_target_merge_status_when_all_sources_conflict() {
         },
     ]);
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
         .merge(target_distinct_id, &source_distinct_ids, version)
@@ -778,7 +785,8 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
         merging_into_distinct_id: "other-target-distinct-id".to_string(),
     });
 
-    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
         .merge(target_distinct_id, &source_distinct_ids, version)
@@ -807,4 +815,78 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
 
     // No persons should be deleted
     assert!(properties_api.get_delete_person_calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_state_is_tracked_throughout_merge() {
+    use crate::state::{MergeStateRepository, MergeStep};
+
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_person_uuid = "source-person-uuid";
+    let version = 8000;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+
+    distinct_ids_api.set_merging_target_result(SetMergingTargetResult::Ok {
+        distinct_id: target_distinct_id.to_string(),
+        person_uuid: target_person_uuid.to_string(),
+    });
+
+    distinct_ids_api.set_merging_source_result(vec![SetMergingSourceResult::Ok {
+        distinct_id: source_distinct_id.to_string(),
+        person_uuid: source_person_uuid.to_string(),
+    }]);
+
+    let target_person = create_person(target_person_uuid, vec![]);
+    let source_person = create_person(
+        source_person_uuid,
+        vec![("email", serde_json::json!("test@example.com"), 1)],
+    );
+    let mut source_persons_map = HashMap::new();
+    source_persons_map.insert(source_person_uuid.to_string(), source_person);
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
+    properties_api.set_merge_person_properties_result(Ok(()));
+
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+    let merge_service =
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo.clone());
+
+    let result = merge_service
+        .merge(
+            target_distinct_id,
+            &[source_distinct_id.to_string()],
+            version,
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.merged.is_empty());
+    assert!(result.conflicts.is_empty());
+
+    // Verify final state
+    let final_state = state_repo.get(target_person_uuid).await.unwrap();
+    assert!(final_state.is_some());
+
+    let state = final_state.unwrap();
+    assert_eq!(state.target_person_uuid, target_person_uuid);
+    assert_eq!(state.target_distinct_id, target_distinct_id);
+    assert_eq!(state.source_distinct_ids, vec![source_distinct_id]);
+    assert_eq!(state.source_person_uuids, vec![source_person_uuid]);
+    assert_eq!(state.step, MergeStep::Completed);
+    assert_eq!(state.version, version);
+    assert!(state.error.is_none());
+
+    // Verify valid_sources mapping is populated
+    assert_eq!(state.valid_sources.len(), 1);
+    assert_eq!(
+        state.valid_sources.get(source_distinct_id),
+        Some(&source_person_uuid.to_string())
+    );
+    assert_eq!(
+        state.valid_source_distinct_ids(),
+        vec![source_distinct_id.to_string()]
+    );
 }
