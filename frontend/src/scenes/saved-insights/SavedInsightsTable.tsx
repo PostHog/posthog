@@ -1,6 +1,9 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { IconCheck } from '@posthog/icons'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,34 +13,90 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
 import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 
 interface SavedInsightsTableProps {
-    /** Render function for the action column (add/remove button) */
-    renderActionColumn: (insight: QueryBasedInsightModel) => JSX.Element
+    dashboardId?: number
+    renderActionColumn?: (insight: QueryBasedInsightModel) => JSX.Element
+    title?: string
 }
 
-export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTableProps): JSX.Element {
-    const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
-    const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
+export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
+    const { modalPage, insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =
+        useValues(addSavedInsightsModalLogic)
+    const { setModalPage, setModalFilters, addInsightToDashboard, removeInsightFromDashboard } =
+        useActions(addSavedInsightsModalLogic)
+    const { dashboard } = useValues(dashboardLogic)
     const summarizeInsight = useSummarizeInsight()
+
+    const [optimisticState, setOptimisticState] = useState<Record<number, boolean>>({})
 
     const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
 
+    const useDashboardMode = dashboardId !== undefined && !renderActionColumn
+
+    useEffect(() => {
+        if (!useDashboardMode) {
+            return
+        }
+        setOptimisticState((prev) => {
+            const next = { ...prev }
+            let changed = false
+            for (const idStr of Object.keys(next)) {
+                const id = Number(idStr)
+                const actuallyInDashboard =
+                    dashboard?.tiles.some((tile: DashboardTile) => tile.insight?.id === id) ?? false
+                if (next[id] === actuallyInDashboard) {
+                    delete next[id]
+                    changed = true
+                }
+            }
+            return changed ? next : prev
+        })
+    }, [dashboard?.tiles, useDashboardMode])
+
+    const isInsightInDashboard = (insight: QueryBasedInsightModel): boolean => {
+        if (insight.id in optimisticState) {
+            return optimisticState[insight.id]
+        }
+        return dashboard?.tiles.some((tile: DashboardTile) => tile.insight?.id === insight.id) ?? false
+    }
+
+    const handleRowClick = (insight: QueryBasedInsightModel): void => {
+        if (!useDashboardMode) {
+            return
+        }
+        if (dashboardUpdatesInProgress[insight.id]) {
+            return
+        }
+        const currentlyIn = isInsightInDashboard(insight)
+        setOptimisticState((prev) => ({ ...prev, [insight.id]: !currentlyIn }))
+        if (currentlyIn) {
+            removeInsightFromDashboard(insight, dashboardId || 0)
+        } else {
+            addInsightToDashboard(insight, dashboardId || 0)
+        }
+    }
+
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
-        {
-            width: 0,
-            render: (_, insight) => renderActionColumn(insight),
-        },
+        ...(renderActionColumn
+            ? [
+                  {
+                      width: 0,
+                      render: (_: unknown, insight: QueryBasedInsightModel) => renderActionColumn(insight),
+                  },
+              ]
+            : []),
         {
             key: 'id',
             width: 32,
@@ -55,15 +114,22 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                 return (
                     <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex min-w-0">
-                            <Tooltip title={displayName}>
-                                <Link
-                                    to={urls.insightView(insight.short_id)}
-                                    target="_blank"
-                                    className="w-0 flex-1 min-w-0"
-                                >
+                            {useDashboardMode ? (
+                                <Tooltip title={displayName}>
                                     <span className="block truncate">{name || <i>{displayName}</i>}</span>
-                                </Link>
-                            </Tooltip>
+                                </Tooltip>
+                            ) : (
+                                <Tooltip title={displayName}>
+                                    <Link
+                                        to={urls.insightView(insight.short_id)}
+                                        target="_blank"
+                                        className="w-0 flex-1 min-w-0"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <span className="block truncate">{name || <i>{displayName}</i>}</span>
+                                    </Link>
+                                </Tooltip>
+                            )}
                         </div>
                         {insight.description && (
                             <div className="text-xs text-tertiary truncate">{insight.description}</div>
@@ -92,11 +158,31 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                 )
             },
         },
+        ...(useDashboardMode
+            ? [
+                  {
+                      key: 'status',
+                      width: 32,
+                      render: function renderStatus(_: unknown, insight: QueryBasedInsightModel) {
+                          return isInsightInDashboard(insight) ? <IconCheck className="text-success text-xl" /> : null
+                      },
+                  },
+              ]
+            : []),
     ]
 
     return (
         <div className="saved-insights">
-            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
+            {title ? (
+                <div className="flex items-center gap-4 mb-2">
+                    <h4 className="font-semibold m-0 shrink-0">{title}</h4>
+                    <div className="flex-1">
+                        <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
+                    </div>
+                </div>
+            ) : (
+                <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
+            )}
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-secondary">
@@ -131,6 +217,24 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                     rowKey="id"
                     loadingSkeletonRows={INSIGHTS_PER_PAGE}
                     nouns={['insight', 'insights']}
+                    rowClassName={
+                        useDashboardMode
+                            ? (insight) =>
+                                  isInsightInDashboard(insight)
+                                      ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
+                                      : 'cursor-pointer hover:bg-primary-highlight border-l-2 border-l-transparent hover:border-l-primary'
+                            : undefined
+                    }
+                    onRow={
+                        useDashboardMode
+                            ? (insight) => ({
+                                  onClick: () => handleRowClick(insight),
+                                  title: isInsightInDashboard(insight)
+                                      ? 'Click to remove from dashboard'
+                                      : 'Click to add to dashboard',
+                              })
+                            : undefined
+                    }
                 />
             )}
         </div>

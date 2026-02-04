@@ -16,12 +16,12 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
 export function AddInsightToDashboardModal(): JSX.Element {
-    const isTest = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT', 'test')
+    const isNewModal = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
 
-    if (isTest) {
+    if (isNewModal) {
         return <AddInsightToDashboardModalNew />
     }
 

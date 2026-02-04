@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { IconFunnels, IconPlus, IconRetention, IconTrends, IconUserPaths } from '@posthog/icons'
+import { IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { urls } from 'scenes/urls'
@@ -15,13 +16,11 @@ import { InsightType } from '~/types'
 
 import { addInsightToDashboardLogic } from '../addInsightToDashboardModalLogic'
 import { dashboardLogic } from '../dashboardLogic'
-import { StreamlinedInsightsTable } from './StreamlinedInsightsTable'
 
 const QUICK_CREATE_TYPES = [
     { type: InsightType.TRENDS, icon: IconTrends, label: 'Trend' },
     { type: InsightType.FUNNELS, icon: IconFunnels, label: 'Funnel' },
     { type: InsightType.RETENTION, icon: IconRetention, label: 'Retention' },
-    { type: InsightType.PATHS, icon: IconUserPaths, label: 'Path' },
 ]
 
 export function AddInsightToDashboardModalNew(): JSX.Element {
@@ -102,10 +101,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                         </div>
                     </div>
 
-                    <div>
-                        <h4 className="font-semibold mb-3">Add an existing insight</h4>
-                        <StreamlinedInsightsTable dashboardId={dashboard?.id} />
-                    </div>
+                    <AddSavedInsightsToDashboard />
                 </div>
             </LemonModal>
         </BindLogic>
