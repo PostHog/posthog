@@ -111,15 +111,17 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                     </LemonButton>
                 )}
 
-                {currentView && hasUnsavedChanges && canEditCurrentView && (
+                {currentView && hasUnsavedChanges && (
                     <LemonButton
                         icon={<IconDownload />}
                         size="small"
                         type="secondary"
                         tooltip="Update current view with changes"
+                        disabledReason={!canEditCurrentView ? 'You can only edit views you created' : undefined}
                         loading={viewsLoading}
                         onClick={() => {
-                            updateView(currentView.id, {}) // Empty object triggers update with current state
+                            // Empty object triggers update with current state
+                            updateView(currentView.id, {})
                         }}
                     >
                         Update "{currentView.name}"

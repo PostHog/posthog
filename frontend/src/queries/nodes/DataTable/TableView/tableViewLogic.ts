@@ -5,11 +5,11 @@ import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
@@ -200,7 +200,6 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 if (!currentView || !user) {
                     return false
                 }
-                // Only the creator of the view can edit it
                 return currentView.created_by === user.id
             },
         ],
