@@ -32,6 +32,7 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("SENTRY_ENVIRONMENT"),
         }
         posthoganalytics.capture_exception_code_variables = True
+        posthoganalytics.debug = True
 
         # Thread-safe mode for Temporal workers and other highly concurrent environments.
         # The posthoganalytics SDK has thread-safety issues in versions 7.x where global

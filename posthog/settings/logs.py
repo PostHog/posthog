@@ -107,5 +107,6 @@ LOGGING = {
         "temporalio.client": {"level": "DEBUG"},
         "temporalio.core": {"level": "DEBUG"},
         "grpc": {"level": "DEBUG"},  # gRPC logs
+        "posthog": {"level": "DEBUG"},  # posthog logs
     },
 }
