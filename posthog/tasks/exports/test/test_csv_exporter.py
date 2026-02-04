@@ -1728,7 +1728,5 @@ class TestNestedColumnExport(APIBaseTest):
             assert b"Second message" in exported_asset.content
             assert b"web" in exported_asset.content
             # Nested objects should be flattened to dot-notation columns
-            assert (
-                b"inputState.messages.0.content" in exported_asset.content
-                or b"inputState.messages.1.content" in exported_asset.content
-            ), "Expected flattened column names in header"
+            assert b"inputState.messages.0.content" in exported_asset.content
+            assert b"inputState.messages.1.content" in exported_asset.content
