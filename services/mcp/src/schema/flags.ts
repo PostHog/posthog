@@ -104,10 +104,25 @@ export const MultivariateSchema = z
 
 export type Multivariate = z.infer<typeof MultivariateSchema>
 
-export const FilterGroupsSchema = z.object({
-    groups: z.array(FiltersSchema).min(1, 'At least one group is required'),
-    multivariate: MultivariateSchema.optional().describe('Multivariate configuration with variant definitions'),
-})
+export const FilterGroupsSchema = z
+    .object({
+        groups: z.array(FiltersSchema).min(1, 'At least one group is required'),
+        multivariate: MultivariateSchema.optional().describe('Multivariate configuration with variant definitions'),
+    })
+    .superRefine((data, ctx) => {
+        if (data.multivariate) {
+            const variantKeys = new Set(data.multivariate.variants.map((v) => v.key))
+            data.groups.forEach((group, idx) => {
+                if (group.variant && !variantKeys.has(group.variant)) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: `Group ${idx} references variant '${group.variant}' which does not exist in multivariate.variants`,
+                        path: ['groups', idx, 'variant'],
+                    })
+                }
+            })
+        }
+    })
 
 export type FilterGroups = z.infer<typeof FilterGroupsSchema>
 
