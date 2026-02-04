@@ -12,7 +12,7 @@ use crate::{
         exception::ExceptionResolver, frame::FrameResolver, properties::PropertiesResolver,
         symbol::SymbolResolver,
     },
-    types::{batch::Batch, event::ExceptionEvent, stage::Stage},
+    types::{batch::Batch, pipeline::ExceptionEventPipelineItem, stage::Stage},
 };
 
 #[derive(Clone)]
@@ -29,7 +29,7 @@ impl From<&Arc<AppContext>> for ResolutionStage {
 }
 
 impl Stage for ResolutionStage {
-    type Item = ExceptionEvent;
+    type Item = ExceptionEventPipelineItem;
 
     async fn process(self, batch: Batch<Self::Item>) -> Result<Batch<Self::Item>, UnhandledError> {
         batch

@@ -9,7 +9,7 @@ use crate::{
     error::UnhandledError,
     stages::grouping::fingerprint::FingerprintGenerator,
     teams::TeamManager,
-    types::{batch::Batch, event::ExceptionEvent, stage::Stage},
+    types::{batch::Batch, pipeline::ExceptionEventPipelineItem, stage::Stage},
 };
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ impl From<&Arc<AppContext>> for GroupingStage {
 }
 
 impl Stage for GroupingStage {
-    type Item = ExceptionEvent;
+    type Item = ExceptionEventPipelineItem;
 
     async fn process(self, batch: Batch<Self::Item>) -> Result<Batch<Self::Item>, UnhandledError> {
         batch.apply_operator(FingerprintGenerator, self).await

@@ -6,11 +6,15 @@ use tracing::warn;
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
     fingerprinting::Fingerprint,
     issue_resolution::{resolve_issue, Issue},
     stages::linking::LinkingStage,
-    types::{event::ExceptionEvent, operator::Operator, FingerprintedErrProps},
+    types::{
+        event::ExceptionEvent,
+        operator::{OperatorResult, ValueOperator},
+        FingerprintedErrProps,
+    },
 };
 
 #[derive(Clone)]
@@ -57,16 +61,17 @@ impl IssueLinker {
     }
 }
 
-impl Operator for IssueLinker {
+impl ValueOperator for IssueLinker {
     type Item = ExceptionEvent;
     type Context = LinkingStage;
-    type Error = UnhandledError;
+    type HandledError = EventError;
+    type UnhandledError = UnhandledError;
 
-    async fn execute(
+    async fn execute_value(
         &self,
-        mut input: ExceptionEvent,
+        mut input: Self::Item,
         ctx: LinkingStage,
-    ) -> Result<ExceptionEvent, UnhandledError> {
+    ) -> OperatorResult<Self> {
         let fingerprint = input.fingerprint.clone().unwrap();
         let cloned_input = input.clone();
         let issue: Issue = ctx
@@ -78,7 +83,7 @@ impl Operator for IssueLinker {
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
 
         input.issue_id = Some(issue.id);
-        Ok(input)
+        Ok(Ok(input))
     }
 }
 

@@ -9,7 +9,7 @@ use crate::{
     error::UnhandledError,
     issue_resolution::Issue,
     stages::linking::issue::IssueLinker,
-    types::{batch::Batch, event::ExceptionEvent, operator::TeamId, stage::Stage},
+    types::{batch::Batch, operator::TeamId, pipeline::ExceptionEventPipelineItem, stage::Stage},
 };
 
 #[derive(Clone)]
@@ -19,7 +19,7 @@ pub struct LinkingStage {
 }
 
 impl Stage for LinkingStage {
-    type Item = ExceptionEvent;
+    type Item = ExceptionEventPipelineItem;
 
     async fn process(self, batch: Batch<Self::Item>) -> Result<Batch<Self::Item>, UnhandledError> {
         batch.apply_operator(IssueLinker, self).await

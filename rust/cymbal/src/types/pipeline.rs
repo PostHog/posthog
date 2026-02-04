@@ -2,7 +2,7 @@ use std::{future::Future, sync::Arc};
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
     stages::{grouping::GroupingStage, linking::LinkingStage, resolution::ResolutionStage},
     types::{batch::Batch, event::ExceptionEvent},
 };
@@ -19,8 +19,11 @@ pub trait Pipeline {
 
 pub struct ExceptionEventPipeline {}
 
+pub type ExceptionEventPipelineItem = Result<ExceptionEvent, EventError>;
+pub type ValueOperatorResult = Result<ExceptionEventPipelineItem, UnhandledError>;
+
 impl Pipeline for ExceptionEventPipeline {
-    type Item = ExceptionEvent;
+    type Item = ExceptionEventPipelineItem;
 
     async fn run(
         &self,

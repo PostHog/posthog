@@ -1,8 +1,13 @@
 use crate::{
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
     frames::RawFrame,
     stages::resolution::ResolutionStage,
-    types::{batch::Batch, event::ExceptionEvent, operator::Operator, Exception, ExceptionList},
+    types::{
+        batch::Batch,
+        event::ExceptionEvent,
+        operator::{OperatorResult, ValueOperator},
+        Exception, ExceptionList,
+    },
 };
 
 #[derive(Clone)]
@@ -26,16 +31,17 @@ impl ExceptionResolver {
     }
 }
 
-impl Operator for ExceptionResolver {
+impl ValueOperator for ExceptionResolver {
     type Context = ResolutionStage;
     type Item = ExceptionEvent;
-    type Error = UnhandledError;
+    type HandledError = EventError;
+    type UnhandledError = UnhandledError;
 
-    async fn execute(
+    async fn execute_value(
         &self,
         mut evt: ExceptionEvent,
         ctx: ResolutionStage,
-    ) -> Result<Self::Item, UnhandledError> {
+    ) -> OperatorResult<Self> {
         evt.exception_list = Batch::from(evt.exception_list.0)
             .apply_func(
                 move |exc, ctx| async move {
@@ -57,6 +63,6 @@ impl Operator for ExceptionResolver {
             .await
             .map(|v| ExceptionList::from(Vec::from(v)))?;
 
-        Ok(evt)
+        Ok(Ok(evt))
     }
 }

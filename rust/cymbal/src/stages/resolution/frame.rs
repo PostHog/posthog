@@ -3,8 +3,8 @@ use crate::{
     frames::{Frame, RawFrame},
     stages::resolution::ResolutionStage,
     types::{
-        batch::Batch, event::ExceptionEvent, operator::Operator, Exception, ExceptionList,
-        Stacktrace,
+        batch::Batch, operator::Operator, pipeline::ExceptionEventPipelineItem, Exception,
+        ExceptionList, Stacktrace,
     },
 };
 
@@ -61,17 +61,21 @@ impl FrameResolver {
 
 impl Operator for FrameResolver {
     type Context = ResolutionStage;
-    type Item = ExceptionEvent;
+    type Item = ExceptionEventPipelineItem;
     type Error = UnhandledError;
 
     async fn execute(
         &self,
-        mut input: ExceptionEvent,
+        item: ExceptionEventPipelineItem,
         ctx: ResolutionStage,
-    ) -> Result<ExceptionEvent, UnhandledError> {
-        input.exception_list =
-            FrameResolver::resolve_exception_list_frames(input.team_id, input.exception_list, ctx)
+    ) -> Result<ExceptionEventPipelineItem, UnhandledError> {
+        let mut evt = match item {
+            Err(_) => return Ok(item),
+            Ok(value) => value,
+        };
+        evt.exception_list =
+            FrameResolver::resolve_exception_list_frames(evt.team_id, evt.exception_list, ctx)
                 .await?;
-        Ok(input)
+        Ok(Ok(evt))
     }
 }

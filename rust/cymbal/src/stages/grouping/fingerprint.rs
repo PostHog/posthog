@@ -1,25 +1,29 @@
 use sha2::{Digest, Sha512};
 
 use crate::{
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
     fingerprinting::{grouping_rules::evaluate_grouping_rules, Fingerprint, FingerprintRecordPart},
     stages::grouping::GroupingStage,
-    types::{event::ExceptionEvent, operator::Operator},
+    types::{
+        event::ExceptionEvent,
+        operator::{OperatorResult, ValueOperator},
+    },
 };
 
 #[derive(Clone, Default)]
 pub struct FingerprintGenerator;
 
-impl Operator for FingerprintGenerator {
+impl ValueOperator for FingerprintGenerator {
     type Context = GroupingStage;
     type Item = ExceptionEvent;
-    type Error = UnhandledError;
+    type HandledError = EventError;
+    type UnhandledError = UnhandledError;
 
-    async fn execute(
+    async fn execute_value(
         &self,
         mut input: ExceptionEvent,
         ctx: GroupingStage,
-    ) -> Result<ExceptionEvent, UnhandledError> {
+    ) -> OperatorResult<Self> {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules)
         let props = serde_json::to_value(&input)?;
         let mut conn = ctx.connection.acquire().await?;
@@ -42,6 +46,6 @@ impl Operator for FingerprintGenerator {
             }
         }
 
-        Ok(input)
+        Ok(Ok(input))
     }
 }
