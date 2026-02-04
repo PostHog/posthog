@@ -64,6 +64,7 @@ ALLOWED_TEAM_IDS: list[int] = [
     140227,
     237906,
     294356,
+    21999,
 ]
 
 # Temporal configuration
