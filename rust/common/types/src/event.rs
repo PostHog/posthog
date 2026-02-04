@@ -155,15 +155,15 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: historical_migration_str.as_deref(),
             })
             .insert(Header {
-                key: "dlq_reason",
+                key: "dlq-reason",
                 value: headers.dlq_reason.as_deref(),
             })
             .insert(Header {
-                key: "dlq_step",
+                key: "dlq-step",
                 value: headers.dlq_step.as_deref(),
             })
             .insert(Header {
-                key: "dlq_timestamp",
+                key: "dlq-timestamp",
                 value: headers.dlq_timestamp.as_deref(),
             })
     }
@@ -194,9 +194,9 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             historical_migration: headers_map
                 .get("historical_migration")
                 .and_then(|v| v.parse::<bool>().ok()),
-            dlq_reason: headers_map.get("dlq_reason").cloned(),
-            dlq_step: headers_map.get("dlq_step").cloned(),
-            dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
+            dlq_reason: headers_map.get("dlq-reason").cloned(),
+            dlq_step: headers_map.get("dlq-step").cloned(),
+            dlq_timestamp: headers_map.get("dlq-timestamp").cloned(),
         }
     }
 }
