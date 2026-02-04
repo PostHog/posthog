@@ -1,4 +1,5 @@
 def format_seconds_as_mm_ss(seconds: float) -> str:
+    # TODO: Make it support sub-second precision or don't use the format at all
     minutes = int(seconds // 60)
     secs = int(seconds % 60)
     return f"{minutes:02d}:{secs:02d}"
