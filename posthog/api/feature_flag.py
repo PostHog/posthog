@@ -1313,6 +1313,10 @@ class MyFlagsResponseSerializer(serializers.Serializer):
     value = serializers.JSONField()
 
 
+class MyFlagsResponseListSerializer(serializers.ListSerializer):
+    child = MyFlagsResponseSerializer()
+
+
 class LocalEvaluationResponseSerializer(serializers.Serializer):
     flags: serializers.ListSerializer = serializers.ListSerializer(child=MinimalFeatureFlagSerializer())
     group_type_mapping = serializers.DictField(child=serializers.CharField())
@@ -1738,7 +1742,7 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
-            200: OpenApiResponse(response=MyFlagsResponseSerializer(many=True)),
+            200: OpenApiResponse(response=MyFlagsResponseListSerializer),
         },
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
