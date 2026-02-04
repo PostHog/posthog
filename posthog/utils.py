@@ -630,7 +630,16 @@ def get_default_event_name(team: "Team") -> str | None:
         return "$pageview"
     elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
-    return None  # None means "all events"
+
+    # Only default to "all events" (None) if the team has other events
+    # This avoids the race condition where a new user sends their first pageview
+    # but we've already computed the default as "all events"
+    has_any_events = EventDefinition.objects.filter(team=team).exists()
+    if has_any_events:
+        return None  # None means "all events"
+
+    # No events at all - default to $pageview (most common case for new teams)
+    return "$pageview"
 
 
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
