@@ -2,10 +2,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.external_tool import ExternalTool, register_external_tool
 from ee.hogai.tool_errors import MaxToolRetryableError
-
-from .core import HogQLValidationError, execute_hogql_query, validate_hogql
 
 
 class ExecuteSQLExternalToolArgs(BaseModel):
@@ -13,7 +14,7 @@ class ExecuteSQLExternalToolArgs(BaseModel):
 
 
 @register_external_tool(scopes=["insight:read", "query:read"])
-class ExecuteSQLExternalTool(ExternalTool[ExecuteSQLExternalToolArgs]):
+class ExecuteSQLExternalTool(HogQLOutputParserMixin, ExternalTool[ExecuteSQLExternalToolArgs]):
     """
     External version of ExecuteSQLTool for API/MCP callers.
 
@@ -25,15 +26,16 @@ class ExecuteSQLExternalTool(ExternalTool[ExecuteSQLExternalToolArgs]):
 
     async def execute(self, args: ExecuteSQLExternalToolArgs) -> tuple[str, dict[str, Any] | None]:
         try:
-            validated_query = await validate_hogql(args.query, self._team)
-        except HogQLValidationError as e:
-            raise MaxToolRetryableError(f"Query validation failed: {e}")
+            validated_query = await self._validate_hogql_query(args.query)
+        except PydanticOutputParserException as e:
+            raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
 
-        result = await execute_hogql_query(
+        insight_context = InsightContext(
             team=self._team,
             query=validated_query,
             name="",
             description="",
         )
+        result = await insight_context.execute_and_format()
 
         return result, {"query": args.query}
