@@ -18,7 +18,7 @@ export function WrappingLoadingSkeleton({
     return (
         <div
             className={cn(
-                '[&>*]:opacity-0 flex flex-col gap-px w-fit',
+                'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit',
                 fullWidth && 'w-full',
                 inset && 'py-0.5',
                 className
@@ -26,7 +26,7 @@ export function WrappingLoadingSkeleton({
             aria-hidden
             data-attr="wrapping-loading-skeleton"
         >
-            <span className="wrapping-loading-skeleton rounded flex">{children}</span>
+            <span className="flex">{children}</span>
         </div>
     )
 }
