@@ -29,6 +29,7 @@ import getAllExperiments from './experiments/getAll'
 import getExperimentResults from './experiments/getResults'
 import updateExperiment from './experiments/update'
 // Feature Flags
+import getFeatureFlagActivity from './featureFlags/activity'
 import createFeatureFlag from './featureFlags/create'
 import deleteFeatureFlag from './featureFlags/delete'
 import getAllFeatureFlags from './featureFlags/getAll'
@@ -79,6 +80,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Feature Flags
     'feature-flag-get-definition': getFeatureFlagDefinition,
     'feature-flag-get-all': getAllFeatureFlags,
+    'feature-flag-activity-get': getFeatureFlagActivity,
     'create-feature-flag': createFeatureFlag,
     'update-feature-flag': updateFeatureFlag,
     'delete-feature-flag': deleteFeatureFlag,

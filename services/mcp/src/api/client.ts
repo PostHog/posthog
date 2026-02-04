@@ -119,6 +119,36 @@ export const SearchResponseSchema = z.object({
 })
 export type SearchResponse = z.infer<typeof SearchResponseSchema>
 
+// Activity Log types
+export const ActivityLogUserSchema = z.object({
+    id: z.number(),
+    uuid: z.string().optional(),
+    distinct_id: z.string().optional(),
+    first_name: z.string().optional(),
+    last_name: z.string().optional(),
+    email: z.string(),
+})
+export type ActivityLogUser = z.infer<typeof ActivityLogUserSchema>
+
+export const ActivityLogEntrySchema = z.object({
+    id: z.string(),
+    user: ActivityLogUserSchema.nullable(),
+    activity: z.string(),
+    scope: z.string(),
+    item_id: z.string().nullable(),
+    detail: z.record(z.any()).nullable(),
+    created_at: z.string(),
+    unread: z.boolean().optional(),
+})
+export type ActivityLogEntry = z.infer<typeof ActivityLogEntrySchema>
+
+export const ActivityLogResponseSchema = z.object({
+    results: z.array(ActivityLogEntrySchema),
+    next: z.string().nullable().optional(),
+    previous: z.string().nullable().optional(),
+})
+export type ActivityLogResponse = z.infer<typeof ActivityLogResponseSchema>
+
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
 export interface ApiConfig {
@@ -1726,6 +1756,57 @@ export class ApiClient {
                 const url = `${this.baseUrl}/api/projects/${projectId}/search/${searchParams.toString() ? `?${searchParams}` : ''}`
 
                 return this.fetchWithSchema(url, SearchResponseSchema)
+            },
+        }
+    }
+
+    /**
+     * Activity log for tracking changes to resources
+     */
+    activityLog({ projectId }: { projectId: string }): Endpoint {
+        return {
+            /**
+             * List activity log entries
+             * @param scope - Filter by scope (e.g., 'FeatureFlag', 'Experiment')
+             * @param itemId - Filter by specific item ID
+             * @param startDate - Filter by start date (ISO 8601)
+             * @param endDate - Filter by end date (ISO 8601)
+             * @param page - Page number for pagination
+             */
+            list: async ({
+                scope,
+                itemId,
+                startDate,
+                endDate,
+                page,
+            }: {
+                scope?: string
+                itemId?: string | number
+                startDate?: string
+                endDate?: string
+                page?: number
+            } = {}): Promise<Result<ActivityLogResponse>> => {
+                const searchParams = new URLSearchParams()
+
+                if (scope) {
+                    searchParams.append('scope', scope)
+                }
+                if (itemId !== undefined) {
+                    searchParams.append('item_id', String(itemId))
+                }
+                if (startDate) {
+                    searchParams.append('start_date', startDate)
+                }
+                if (endDate) {
+                    searchParams.append('end_date', endDate)
+                }
+                if (page !== undefined) {
+                    searchParams.append('page', String(page))
+                }
+
+                const url = `${this.baseUrl}/api/projects/${projectId}/activity_log/${searchParams.toString() ? `?${searchParams}` : ''}`
+
+                return this.fetchWithSchema(url, ActivityLogResponseSchema)
             },
         }
     }

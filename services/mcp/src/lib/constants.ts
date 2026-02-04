@@ -68,4 +68,5 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'survey:write',
     'error_tracking:read',
     'logs:read',
+    'activity_log:read',
 ] as const

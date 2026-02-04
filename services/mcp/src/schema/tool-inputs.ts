@@ -287,6 +287,19 @@ export const FeatureFlagGetAllSchema = z.object({
         .optional(),
 })
 
+export const FeatureFlagActivityGetSchema = z.object({
+    flagId: z.number().int().positive().optional().describe('Filter by specific feature flag ID'),
+    startDate: z
+        .string()
+        .optional()
+        .describe('Start date for filtering activity (ISO 8601 format, e.g., "2024-01-01T00:00:00Z")'),
+    endDate: z
+        .string()
+        .optional()
+        .describe('End date for filtering activity (ISO 8601 format, e.g., "2024-01-31T23:59:59Z")'),
+    limit: z.number().int().min(1).max(100).optional().default(50).describe('Maximum number of activities to return'),
+})
+
 export const FeatureFlagGetDefinitionSchema = z.object({
     flagId: z.number().int().positive().optional(),
     flagKey: z.string().optional(),

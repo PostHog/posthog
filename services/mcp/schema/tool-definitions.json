@@ -209,6 +209,20 @@
             "readOnlyHint": false
         }
     },
+    "feature-flag-activity-get": {
+        "description": "Get the activity log for feature flags, showing who made changes and when. Can filter by specific flag ID and date range. Use this to audit feature flag changes, see who enabled/disabled flags, or track rollout percentage modifications.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag change history and audit log.",
+        "title": "Get feature flag activity",
+        "required_scopes": ["feature_flag:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-get-all": {
         "description": "Get all experiments in the project.",
         "category": "Experiments",
