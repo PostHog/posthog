@@ -1200,6 +1200,12 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
+        key: 'Last 28 days',
+        values: ['-28d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(28, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
         key: 'Last 30 days',
         values: ['-30d'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
