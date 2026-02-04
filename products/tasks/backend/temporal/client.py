@@ -35,36 +35,51 @@ async def execute_task_processing_workflow_async(
     user_id: Optional[int] = None,
     create_pr: bool = True,
     slack_thread_context: Optional[Any] = None,
+    skip_user_check: bool = False,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
     Use this from async contexts (e.g., within Temporal activities).
+
+    Args:
+        skip_user_check: If True, skip user-based feature flag check. Use for automated/system tasks.
     """
     logger.info(f"execute_task_processing_workflow_async called for task {task_id}, run {run_id}")
     try:
-        if not user_id:
-            logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
-            return
-
-        logger.info(f"Fetching team {team_id} and user {user_id}")
         team = await Team.objects.select_related("organization").aget(id=team_id)
-        user = await User.objects.aget(id=user_id)
 
-        logger.info(f"Checking feature flag for user {user.distinct_id}, org {team.organization_id}")
-        tasks_enabled = posthoganalytics.feature_enabled(
-            "tasks",
-            user.distinct_id,
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        if skip_user_check:
+            logger.info(f"Skipping user check for automated task {task_id}")
+            tasks_enabled = posthoganalytics.feature_enabled(
+                "tasks",
+                f"team_{team_id}",
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        else:
+            if not user_id:
+                logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
+                return
+
+            logger.info(f"Fetching team {team_id} and user {user_id}")
+            user = await User.objects.aget(id=user_id)
+
+            logger.info(f"Checking feature flag for user {user.distinct_id}, org {team.organization_id}")
+            tasks_enabled = posthoganalytics.feature_enabled(
+                "tasks",
+                user.distinct_id,
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+
         logger.info(f"Feature flag 'tasks' enabled: {tasks_enabled}")
 
         if not tasks_enabled:
-            logger.warning(
-                f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for user {user_id}"
-            )
+            logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
 
         workflow_id = f"task-processing-{task_id}-{run_id}"
@@ -103,32 +118,46 @@ def execute_task_processing_workflow(
     user_id: Optional[int] = None,
     create_pr: bool = True,
     slack_thread_context: Optional["SlackThreadContext"] = None,
+    skip_user_check: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
+
+    Args:
+        skip_user_check: If True, skip user-based feature flag check. Use for automated/system tasks.
     """
     try:
-        if not user_id:
-            logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
-            return
-
         team = Team.objects.get(id=team_id)
-        user = User.objects.get(id=user_id)
 
-        tasks_enabled = posthoganalytics.feature_enabled(
-            "tasks",
-            user.distinct_id,
-            groups={"organization": str(team.organization.id)},
-            group_properties={"organization": {"id": str(team.organization.id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        if skip_user_check:
+            logger.info(f"Skipping user check for automated task {task_id}")
+            tasks_enabled = posthoganalytics.feature_enabled(
+                "tasks",
+                f"team_{team_id}",
+                groups={"organization": str(team.organization.id)},
+                group_properties={"organization": {"id": str(team.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        else:
+            if not user_id:
+                logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
+                return
+
+            user = User.objects.get(id=user_id)
+
+            tasks_enabled = posthoganalytics.feature_enabled(
+                "tasks",
+                user.distinct_id,
+                groups={"organization": str(team.organization.id)},
+                group_properties={"organization": {"id": str(team.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
 
         if not tasks_enabled:
-            logger.warning(
-                f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for user {user_id}"
-            )
+            logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
 
         workflow_id = f"task-processing-{task_id}-{run_id}"
