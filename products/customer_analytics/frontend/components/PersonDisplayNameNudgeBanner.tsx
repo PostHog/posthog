@@ -53,6 +53,7 @@ export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNud
         setIsBannerLoading(dataLoading && !isRefresh)
         const persons = getPersonsFromResponse(response as ActorsQueryResponse | null)
         if (!persons.length) {
+            setShowDisplayNameNudge(false)
             return
         }
         const uuidCount = persons.filter((person) => {
