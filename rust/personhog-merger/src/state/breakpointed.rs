@@ -215,7 +215,7 @@ impl<R: MergeStateRepository> MergeStateRepository for BreakpointedRepository<R>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{InMemoryMergeStateRepository, StartedData, TargetMarkedData};
+    use crate::state::{InMemoryMergeStateRepository, StartedState, TargetMarkedState};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{timeout, Duration};
 
@@ -233,8 +233,8 @@ mod tests {
 
         let repo_clone = repo.clone();
         let handle = tokio::spawn(async move {
-            let state = MergeState::TargetMarked(TargetMarkedData {
-                started: StartedData {
+            let state = MergeState::TargetMarked(TargetMarkedState {
+                started: StartedState {
                     merge_id: "merge-1".to_string(),
                     target_distinct_id: "target".to_string(),
                     source_distinct_ids: vec![],

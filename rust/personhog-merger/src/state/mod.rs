@@ -22,16 +22,16 @@ pub enum MergeStep {
     Failed,
 }
 
-/// Data available at the Started step - the initial request parameters.
+/// State: merge has started with initial request parameters.
 #[derive(Debug, Clone, PartialEq)]
-pub struct StartedData {
+pub struct StartedState {
     pub merge_id: String,
     pub target_distinct_id: String,
     pub source_distinct_ids: Vec<String>,
     pub version: i64,
 }
 
-impl StartedData {
+impl StartedState {
     pub fn new(
         merge_id: String,
         target_distinct_id: String,
@@ -47,34 +47,89 @@ impl StartedData {
     }
 }
 
-/// Data available after target is marked - we now know the target person UUID.
+/// State: target has been marked for merging.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TargetMarkedData {
-    pub started: StartedData,
+pub struct TargetMarkedState {
+    pub started: StartedState,
     pub target_person_uuid: String,
 }
 
-/// Data available after sources are marked - we know which sources are valid.
+/// State: sources have been marked, ready to merge properties.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SourcesMarkedData {
-    pub target_marked: TargetMarkedData,
-    /// Mapping of successfully marked source distinct IDs to their person UUIDs.
+pub struct SourcesMarkedState {
+    pub merge_id: String,
+    pub target_distinct_id: String,
+    pub source_distinct_ids: Vec<String>,
+    pub version: i64,
+    pub target_person_uuid: String,
     pub valid_sources: HashMap<String, String>,
-    /// Deduplicated list of source person UUIDs to be merged.
     pub source_person_uuids: Vec<String>,
+    pub conflicts: Vec<crate::types::MergeConflict>,
+}
+
+/// State: properties have been merged, ready to update distinct IDs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertiesMergedState {
+    pub merge_id: String,
+    pub target_distinct_id: String,
+    pub source_distinct_ids: Vec<String>,
+    pub version: i64,
+    pub target_person_uuid: String,
+    pub valid_sources: HashMap<String, String>,
+    pub source_person_uuids: Vec<String>,
+    pub conflicts: Vec<crate::types::MergeConflict>,
+}
+
+/// State: distinct IDs have been updated, ready to clear target.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistinctIdsMergedState {
+    pub merge_id: String,
+    pub target_distinct_id: String,
+    pub source_distinct_ids: Vec<String>,
+    pub version: i64,
+    pub target_person_uuid: String,
+    pub valid_sources: HashMap<String, String>,
+    pub source_person_uuids: Vec<String>,
+    pub conflicts: Vec<crate::types::MergeConflict>,
+}
+
+/// State: target has been cleared, ready to delete source persons.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TargetClearedState {
+    pub merge_id: String,
+    pub target_distinct_id: String,
+    pub source_distinct_ids: Vec<String>,
+    pub version: i64,
+    pub target_person_uuid: String,
+    pub valid_sources: HashMap<String, String>,
+    pub source_person_uuids: Vec<String>,
+    pub conflicts: Vec<crate::types::MergeConflict>,
+}
+
+/// State: merge completed successfully.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompletedState {
+    pub merge_id: String,
+    pub target_distinct_id: String,
+    pub source_distinct_ids: Vec<String>,
+    pub version: i64,
+    pub target_person_uuid: String,
+    pub valid_sources: HashMap<String, String>,
+    pub source_person_uuids: Vec<String>,
+    pub conflicts: Vec<crate::types::MergeConflict>,
 }
 
 /// State of a merge operation as a union type.
 /// Each variant carries only the fields relevant to that step.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MergeState {
-    Started(StartedData),
-    TargetMarked(TargetMarkedData),
-    SourcesMarked(SourcesMarkedData),
-    PropertiesMerged(SourcesMarkedData),
-    DistinctIdsMerged(SourcesMarkedData),
-    TargetCleared(SourcesMarkedData),
-    Completed(SourcesMarkedData),
+    Started(StartedState),
+    TargetMarked(TargetMarkedState),
+    SourcesMarked(SourcesMarkedState),
+    PropertiesMerged(PropertiesMergedState),
+    DistinctIdsMerged(DistinctIdsMergedState),
+    TargetCleared(TargetClearedState),
+    Completed(CompletedState),
     Failed { merge_id: String, error: String },
 }
 
@@ -86,7 +141,7 @@ impl MergeState {
         source_distinct_ids: Vec<String>,
         version: i64,
     ) -> Self {
-        MergeState::Started(StartedData {
+        MergeState::Started(StartedState {
             merge_id,
             target_distinct_id,
             source_distinct_ids,
@@ -97,13 +152,13 @@ impl MergeState {
     /// Get the merge ID for this state.
     pub fn merge_id(&self) -> &str {
         match self {
-            MergeState::Started(d) => &d.merge_id,
-            MergeState::TargetMarked(d) => &d.started.merge_id,
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => &d.target_marked.started.merge_id,
+            MergeState::Started(s) => &s.merge_id,
+            MergeState::TargetMarked(s) => &s.started.merge_id,
+            MergeState::SourcesMarked(s) => &s.merge_id,
+            MergeState::PropertiesMerged(s) => &s.merge_id,
+            MergeState::DistinctIdsMerged(s) => &s.merge_id,
+            MergeState::TargetCleared(s) => &s.merge_id,
+            MergeState::Completed(s) => &s.merge_id,
             MergeState::Failed { merge_id, .. } => merge_id,
         }
     }
@@ -125,27 +180,27 @@ impl MergeState {
     /// Get the version number for this merge operation.
     pub fn version(&self) -> i64 {
         match self {
-            MergeState::Started(d) => d.version,
-            MergeState::TargetMarked(d) => d.started.version,
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => d.target_marked.started.version,
-            MergeState::Failed { .. } => 0, // Failed states don't need version
+            MergeState::Started(s) => s.version,
+            MergeState::TargetMarked(s) => s.started.version,
+            MergeState::SourcesMarked(s) => s.version,
+            MergeState::PropertiesMerged(s) => s.version,
+            MergeState::DistinctIdsMerged(s) => s.version,
+            MergeState::TargetCleared(s) => s.version,
+            MergeState::Completed(s) => s.version,
+            MergeState::Failed { .. } => 0,
         }
     }
 
     /// Get the target distinct ID.
     pub fn target_distinct_id(&self) -> Option<&str> {
         match self {
-            MergeState::Started(d) => Some(&d.target_distinct_id),
-            MergeState::TargetMarked(d) => Some(&d.started.target_distinct_id),
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => Some(&d.target_marked.started.target_distinct_id),
+            MergeState::Started(s) => Some(&s.target_distinct_id),
+            MergeState::TargetMarked(s) => Some(&s.started.target_distinct_id),
+            MergeState::SourcesMarked(s) => Some(&s.target_distinct_id),
+            MergeState::PropertiesMerged(s) => Some(&s.target_distinct_id),
+            MergeState::DistinctIdsMerged(s) => Some(&s.target_distinct_id),
+            MergeState::TargetCleared(s) => Some(&s.target_distinct_id),
+            MergeState::Completed(s) => Some(&s.target_distinct_id),
             MergeState::Failed { .. } => None,
         }
     }
@@ -153,13 +208,13 @@ impl MergeState {
     /// Get the source distinct IDs.
     pub fn source_distinct_ids(&self) -> Option<&[String]> {
         match self {
-            MergeState::Started(d) => Some(&d.source_distinct_ids),
-            MergeState::TargetMarked(d) => Some(&d.started.source_distinct_ids),
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => Some(&d.target_marked.started.source_distinct_ids),
+            MergeState::Started(s) => Some(&s.source_distinct_ids),
+            MergeState::TargetMarked(s) => Some(&s.started.source_distinct_ids),
+            MergeState::SourcesMarked(s) => Some(&s.source_distinct_ids),
+            MergeState::PropertiesMerged(s) => Some(&s.source_distinct_ids),
+            MergeState::DistinctIdsMerged(s) => Some(&s.source_distinct_ids),
+            MergeState::TargetCleared(s) => Some(&s.source_distinct_ids),
+            MergeState::Completed(s) => Some(&s.source_distinct_ids),
             MergeState::Failed { .. } => None,
         }
     }
@@ -168,12 +223,12 @@ impl MergeState {
     pub fn target_person_uuid(&self) -> Option<&str> {
         match self {
             MergeState::Started(_) => None,
-            MergeState::TargetMarked(d) => Some(&d.target_person_uuid),
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => Some(&d.target_marked.target_person_uuid),
+            MergeState::TargetMarked(s) => Some(&s.target_person_uuid),
+            MergeState::SourcesMarked(s) => Some(&s.target_person_uuid),
+            MergeState::PropertiesMerged(s) => Some(&s.target_person_uuid),
+            MergeState::DistinctIdsMerged(s) => Some(&s.target_person_uuid),
+            MergeState::TargetCleared(s) => Some(&s.target_person_uuid),
+            MergeState::Completed(s) => Some(&s.target_person_uuid),
             MergeState::Failed { .. } => None,
         }
     }
@@ -184,11 +239,11 @@ impl MergeState {
             MergeState::Started(_) | MergeState::TargetMarked(_) | MergeState::Failed { .. } => {
                 Vec::new()
             }
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => d.valid_sources.keys().cloned().collect(),
+            MergeState::SourcesMarked(s) => s.valid_sources.keys().cloned().collect(),
+            MergeState::PropertiesMerged(s) => s.valid_sources.keys().cloned().collect(),
+            MergeState::DistinctIdsMerged(s) => s.valid_sources.keys().cloned().collect(),
+            MergeState::TargetCleared(s) => s.valid_sources.keys().cloned().collect(),
+            MergeState::Completed(s) => s.valid_sources.keys().cloned().collect(),
         }
     }
 
@@ -196,11 +251,11 @@ impl MergeState {
     pub fn source_person_uuids(&self) -> Option<&[String]> {
         match self {
             MergeState::Started(_) | MergeState::TargetMarked(_) | MergeState::Failed { .. } => None,
-            MergeState::SourcesMarked(d)
-            | MergeState::PropertiesMerged(d)
-            | MergeState::DistinctIdsMerged(d)
-            | MergeState::TargetCleared(d)
-            | MergeState::Completed(d) => Some(&d.source_person_uuids),
+            MergeState::SourcesMarked(s) => Some(&s.source_person_uuids),
+            MergeState::PropertiesMerged(s) => Some(&s.source_person_uuids),
+            MergeState::DistinctIdsMerged(s) => Some(&s.source_person_uuids),
+            MergeState::TargetCleared(s) => Some(&s.source_person_uuids),
+            MergeState::Completed(s) => Some(&s.source_person_uuids),
         }
     }
 
@@ -306,14 +361,14 @@ mod tests {
         assert_eq!(retrieved, Some(merge_state));
 
         // Update state to TargetMarked
-        let started_data = StartedData {
+        let started_state = StartedState {
             merge_id: "merge-1".to_string(),
             target_distinct_id: "target-did".to_string(),
             source_distinct_ids: vec!["source-did".to_string()],
             version: 1000,
         };
-        let updated_state = MergeState::TargetMarked(TargetMarkedData {
-            started: started_data,
+        let updated_state = MergeState::TargetMarked(TargetMarkedState {
+            started: started_state,
             target_person_uuid: "target-uuid".to_string(),
         });
         repo.set(updated_state.clone()).await.unwrap();
@@ -368,18 +423,15 @@ mod tests {
         repo.set(started).await.unwrap();
 
         // Add a completed state
-        let completed = MergeState::Completed(SourcesMarkedData {
-            target_marked: TargetMarkedData {
-                started: StartedData {
-                    merge_id: "merge-2".to_string(),
-                    target_distinct_id: "target-2".to_string(),
-                    source_distinct_ids: vec!["source-2".to_string()],
-                    version: 2000,
-                },
-                target_person_uuid: "uuid-2".to_string(),
-            },
+        let completed = MergeState::Completed(CompletedState {
+            merge_id: "merge-2".to_string(),
+            target_distinct_id: "target-2".to_string(),
+            source_distinct_ids: vec!["source-2".to_string()],
+            version: 2000,
+            target_person_uuid: "uuid-2".to_string(),
             valid_sources: HashMap::new(),
             source_person_uuids: Vec::new(),
+            conflicts: Vec::new(),
         });
         repo.set(completed).await.unwrap();
 

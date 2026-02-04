@@ -1,4 +1,5 @@
 mod lock;
+mod process;
 mod service;
 mod state;
 mod types;
@@ -7,10 +8,12 @@ mod types;
 mod testing;
 
 pub use lock::{InMemoryLockService, LockError, LockService};
-pub use service::PersonMergeService;
+pub use process::{MergeContext, ProcessResult, Processable};
+pub use service::{MergeExecutor, PersonMergeService};
 pub use state::{
-    InMemoryMergeStateRepository, MergeState, MergeStateRepository, MergeStep, SourcesMarkedData,
-    StartedData, TargetMarkedData,
+    CompletedState, DistinctIdsMergedState, InMemoryMergeStateRepository, MergeState,
+    MergeStateRepository, MergeStep, PropertiesMergedState, SourcesMarkedState, StartedState,
+    TargetClearedState, TargetMarkedState,
 };
 pub use types::{
     DistinctIdInfo, GetPersonsForMergeResult, MergeConflict, MergeResult, MergeStatus, Person,

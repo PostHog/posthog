@@ -5,8 +5,9 @@ use async_trait::async_trait;
 
 use crate::lock::InMemoryLockService;
 use crate::state::{
-    InMemoryMergeStateRepository, MergeState, MergeStateRepository, MergeStep, SourcesMarkedData,
-    StartedData, TargetMarkedData,
+    CompletedState, DistinctIdsMergedState, InMemoryMergeStateRepository, MergeState,
+    MergeStateRepository, MergeStep, PropertiesMergedState, SourcesMarkedState, StartedState,
+    TargetClearedState, TargetMarkedState,
 };
 use crate::testing::Breakpoint;
 use crate::types::{
@@ -375,16 +376,16 @@ fn create_person(person_uuid: &str, properties: Vec<(&str, serde_json::Value, i6
     }
 }
 
-/// Helper to create a TargetMarkedData
-fn create_target_marked_data(
+/// Helper to create a TargetMarkedState
+fn create_target_marked_state(
     merge_id: &str,
     target_distinct_id: &str,
     source_distinct_ids: Vec<String>,
     version: i64,
     target_person_uuid: &str,
-) -> TargetMarkedData {
-    TargetMarkedData {
-        started: StartedData {
+) -> TargetMarkedState {
+    TargetMarkedState {
+        started: StartedState {
             merge_id: merge_id.to_string(),
             target_distinct_id: target_distinct_id.to_string(),
             source_distinct_ids,
@@ -394,8 +395,8 @@ fn create_target_marked_data(
     }
 }
 
-/// Helper to create a SourcesMarkedData
-fn create_sources_marked_data(
+/// Helper to create a SourcesMarkedState
+fn create_sources_marked_state(
     merge_id: &str,
     target_distinct_id: &str,
     source_distinct_ids: Vec<String>,
@@ -403,17 +404,104 @@ fn create_sources_marked_data(
     target_person_uuid: &str,
     valid_sources: HashMap<String, String>,
     source_person_uuids: Vec<String>,
-) -> SourcesMarkedData {
-    SourcesMarkedData {
-        target_marked: create_target_marked_data(
-            merge_id,
-            target_distinct_id,
-            source_distinct_ids,
-            version,
-            target_person_uuid,
-        ),
+) -> SourcesMarkedState {
+    SourcesMarkedState {
+        merge_id: merge_id.to_string(),
+        target_distinct_id: target_distinct_id.to_string(),
+        source_distinct_ids,
+        version,
+        target_person_uuid: target_person_uuid.to_string(),
         valid_sources,
         source_person_uuids,
+        conflicts: Vec::new(),
+    }
+}
+
+/// Helper to create a PropertiesMergedState
+fn create_properties_merged_state(
+    merge_id: &str,
+    target_distinct_id: &str,
+    source_distinct_ids: Vec<String>,
+    version: i64,
+    target_person_uuid: &str,
+    valid_sources: HashMap<String, String>,
+    source_person_uuids: Vec<String>,
+) -> PropertiesMergedState {
+    PropertiesMergedState {
+        merge_id: merge_id.to_string(),
+        target_distinct_id: target_distinct_id.to_string(),
+        source_distinct_ids,
+        version,
+        target_person_uuid: target_person_uuid.to_string(),
+        valid_sources,
+        source_person_uuids,
+        conflicts: Vec::new(),
+    }
+}
+
+/// Helper to create a DistinctIdsMergedState
+fn create_distinct_ids_merged_state(
+    merge_id: &str,
+    target_distinct_id: &str,
+    source_distinct_ids: Vec<String>,
+    version: i64,
+    target_person_uuid: &str,
+    valid_sources: HashMap<String, String>,
+    source_person_uuids: Vec<String>,
+) -> DistinctIdsMergedState {
+    DistinctIdsMergedState {
+        merge_id: merge_id.to_string(),
+        target_distinct_id: target_distinct_id.to_string(),
+        source_distinct_ids,
+        version,
+        target_person_uuid: target_person_uuid.to_string(),
+        valid_sources,
+        source_person_uuids,
+        conflicts: Vec::new(),
+    }
+}
+
+/// Helper to create a TargetClearedState
+fn create_target_cleared_state(
+    merge_id: &str,
+    target_distinct_id: &str,
+    source_distinct_ids: Vec<String>,
+    version: i64,
+    target_person_uuid: &str,
+    valid_sources: HashMap<String, String>,
+    source_person_uuids: Vec<String>,
+) -> TargetClearedState {
+    TargetClearedState {
+        merge_id: merge_id.to_string(),
+        target_distinct_id: target_distinct_id.to_string(),
+        source_distinct_ids,
+        version,
+        target_person_uuid: target_person_uuid.to_string(),
+        valid_sources,
+        source_person_uuids,
+        conflicts: Vec::new(),
+    }
+}
+
+/// Helper to create a CompletedState
+fn create_completed_state(
+    merge_id: &str,
+    target_distinct_id: &str,
+    source_distinct_ids: Vec<String>,
+    version: i64,
+    target_person_uuid: &str,
+    valid_sources: HashMap<String, String>,
+    source_person_uuids: Vec<String>,
+) -> CompletedState {
+    CompletedState {
+        merge_id: merge_id.to_string(),
+        target_distinct_id: target_distinct_id.to_string(),
+        source_distinct_ids,
+        version,
+        target_person_uuid: target_person_uuid.to_string(),
+        valid_sources,
+        source_person_uuids,
+        conflicts: Vec::new(),
     }
 }
 
@@ -1212,7 +1300,7 @@ async fn test_resume_from_target_marked_step() {
 
     // Pre-populate state at TargetMarked step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let initial_state = MergeState::TargetMarked(create_target_marked_data(
+    let initial_state = MergeState::TargetMarked(create_target_marked_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -1272,7 +1360,7 @@ async fn test_resume_from_sources_marked_step() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::SourcesMarked(create_sources_marked_data(
+    let initial_state = MergeState::SourcesMarked(create_sources_marked_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -1331,7 +1419,7 @@ async fn test_resume_from_properties_merged_step() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::PropertiesMerged(create_sources_marked_data(
+    let initial_state = MergeState::PropertiesMerged(create_properties_merged_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -1384,7 +1472,7 @@ async fn test_resume_from_target_cleared_step() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::TargetCleared(create_sources_marked_data(
+    let initial_state = MergeState::TargetCleared(create_target_cleared_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -1423,7 +1511,7 @@ async fn test_resume_skips_completed_and_failed_states() {
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
 
     // Add a completed state
-    let completed_state = MergeState::Completed(create_sources_marked_data(
+    let completed_state = MergeState::Completed(create_completed_state(
         "completed-merge",
         "completed-did",
         vec![],
@@ -1464,7 +1552,7 @@ async fn test_resume_multiple_incomplete_merges() {
     // Add first incomplete state at DistinctIdsMerged
     let mut valid_sources1 = HashMap::new();
     valid_sources1.insert("source-1".to_string(), "source-person-1".to_string());
-    let state1 = MergeState::DistinctIdsMerged(create_sources_marked_data(
+    let state1 = MergeState::DistinctIdsMerged(create_distinct_ids_merged_state(
         "merge-1",
         "did-1",
         vec!["source-1".to_string()],
@@ -1478,7 +1566,7 @@ async fn test_resume_multiple_incomplete_merges() {
     // Add second incomplete state at TargetCleared
     let mut valid_sources2 = HashMap::new();
     valid_sources2.insert("source-2".to_string(), "source-person-2".to_string());
-    let state2 = MergeState::TargetCleared(create_sources_marked_data(
+    let state2 = MergeState::TargetCleared(create_target_cleared_state(
         "merge-2",
         "did-2",
         vec!["source-2".to_string()],
@@ -1916,7 +2004,7 @@ async fn test_lock_lost_at_sources_marked_step_returns_error() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::SourcesMarked(create_sources_marked_data(
+    let initial_state = MergeState::SourcesMarked(create_sources_marked_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -1969,7 +2057,7 @@ async fn test_lock_lost_at_properties_merged_step_returns_error() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::PropertiesMerged(create_sources_marked_data(
+    let initial_state = MergeState::PropertiesMerged(create_properties_merged_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -2022,7 +2110,7 @@ async fn test_lock_lost_at_distinct_ids_merged_step_returns_error() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::DistinctIdsMerged(create_sources_marked_data(
+    let initial_state = MergeState::DistinctIdsMerged(create_distinct_ids_merged_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
@@ -2074,7 +2162,7 @@ async fn test_lock_lost_at_target_cleared_step_returns_error() {
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
     );
-    let initial_state = MergeState::TargetCleared(create_sources_marked_data(
+    let initial_state = MergeState::TargetCleared(create_target_cleared_state(
         "merge-1",
         target_distinct_id,
         vec![source_distinct_id.to_string()],
