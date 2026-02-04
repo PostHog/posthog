@@ -558,11 +558,13 @@ export const searchLogic = kea<searchLogicType>([
                     // Create a search item for each settings section
                     const levelPrefix = toSentenceCase(section.level)
 
-                    const settings = section.settings.flatMap((setting) => [
-                        toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                        ...(typeof setting.title === 'string' ? [setting.title] : []),
-                        ...(typeof setting.description === 'string' ? [setting.description] : []),
-                    ])
+                    const settings = section.settings
+                        .filter((setting) => !!setting.title)
+                        .flatMap((setting) => [
+                            toSentenceCase(setting.id.replace(/[-]/g, ' ')),
+                            ...(typeof setting.title === 'string' ? [setting.title] : []),
+                            ...(typeof setting.description === 'string' ? [setting.description] : []),
+                        ])
 
                     // Create the display name for each settings section
                     const displayName =
