@@ -303,13 +303,14 @@ export function OverViewTab({
                 />
             ),
             render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
-                if (featureFlag.id === null) {
+                const flagId = featureFlag.id
+                if (flagId === null) {
                     return null
                 }
                 return (
                     <LemonCheckbox
-                        checked={selectedFlagIds.includes(featureFlag.id)}
-                        onChange={() => toggleFlagSelection(featureFlag.id, index)}
+                        checked={selectedFlagIds.includes(flagId)}
+                        onChange={() => toggleFlagSelection(flagId, index)}
                     />
                 )
             },
