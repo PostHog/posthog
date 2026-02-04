@@ -5748,6 +5748,7 @@ export enum SDKKey {
     TANSTACK_START = 'tanstack_start',
     TOGETHER_AI = 'together_ai',
     VERCEL_AI = 'vercel_ai',
+    VERCEL_AI_GATEWAY = 'vercel_ai_gateway',
     VITE = 'vite',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',

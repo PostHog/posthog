@@ -36,6 +36,7 @@ import { SemanticKernelInstallation } from '@posthog/shared-onboarding/llm-analy
 import { SmolagentsInstallation } from '@posthog/shared-onboarding/llm-analytics/smolagents'
 import { TogetherAIInstallation } from '@posthog/shared-onboarding/llm-analytics/together-ai'
 import { VercelAIInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai'
+import { VercelAIGatewayInstallation } from '@posthog/shared-onboarding/llm-analytics/vercel-ai-gateway'
 import { XAIInstallation } from '@posthog/shared-onboarding/llm-analytics/xai'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
@@ -87,6 +88,10 @@ const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VercelAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMVercelAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VercelAIGatewayInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
 const LLMInstructorInstructionsWrapper = withOnboardingDocsWrapper({
@@ -199,6 +204,7 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
     [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
     [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
+    [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,
     [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
     [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,
     [SDKKey.OPENROUTER]: LLMOpenRouterInstructionsWrapper,

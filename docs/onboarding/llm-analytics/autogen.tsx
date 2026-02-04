@@ -74,9 +74,6 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             openai_client = OpenAI(
                                 api_key="your_openai_api_key",
                                 posthog_client=posthog,
-                                posthog_distinct_id="user_123",
-                                posthog_trace_id="trace_123",
-                                posthog_properties={"conversation_id": "abc123"},
                             )
 
                             model_client = OpenAIChatCompletionClient(

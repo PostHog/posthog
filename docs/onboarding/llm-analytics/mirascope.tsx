@@ -40,7 +40,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install "mirascope[openai]"
+                            pip install mirascope openai
                         `}
                     />
                 </>
@@ -54,13 +54,13 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <Markdown>
                         Initialize PostHog with your project API key and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
-                        pass it to Mirascope's call decorator via the `client` parameter.
+                        pass it to Mirascope's `@call` decorator via the `client` parameter.
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from mirascope.core import openai, prompt_template
+                            from mirascope.llm import call
                             from posthog.ai.openai import OpenAI
                             from posthog import Posthog
 
@@ -78,7 +78,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            Mirascope's call decorators accept a `client` parameter for passing a custom OpenAI client.
+                            Mirascope's `@call` decorator accepts a `client` parameter for passing a custom OpenAI client.
                             PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it works directly.
                             PostHog captures `$ai_generation` events automatically without proxying your calls.
                         </Markdown>
@@ -99,9 +99,9 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            @openai.call(model="gpt-4o-mini", client=openai_client)
-                            @prompt_template("Recommend a {genre} book.")
-                            def recommend_book(genre: str): ...
+                            @call(model="openai/gpt-4o-mini", client=openai_client)
+                            def recommend_book(genre: str):
+                                return f"Recommend a {genre} book."
 
                             response = recommend_book(
                                 "fantasy",

@@ -17,10 +17,22 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                     </Markdown>
 
                     <CodeBlock
-                        language="bash"
-                        code={dedent`
-                            npm install @posthog/ai posthog-node openai
-                        `}
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'Python',
+                                code: dedent`
+                                    pip install posthog openai
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'Node',
+                                code: dedent`
+                                    npm install @posthog/ai posthog-node openai
+                                `,
+                            },
+                        ]}
                     />
                 </>
             ),
@@ -38,29 +50,58 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
-                        code={dedent`
-                            import { AzureOpenAI } from '@posthog/ai'
-                            import { PostHog } from 'posthog-node'
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    from posthog.ai.openai import AzureOpenAI
+                                    from posthog import Posthog
 
-                            const phClient = new PostHog(
-                              '<ph_project_api_key>',
-                              { host: '<ph_client_api_host>' }
-                            );
+                                    posthog = Posthog(
+                                        "<ph_project_api_key>",
+                                        host="<ph_client_api_host>"
+                                    )
 
-                            const client = new AzureOpenAI({
-                              apiKey: '<azure_openai_api_key>',
-                              apiVersion: '2024-10-21',
-                              endpoint: 'https://<your-resource>.openai.azure.com',
-                              posthog: phClient,
-                            });
+                                    client = AzureOpenAI(
+                                        api_key="<azure_openai_api_key>",
+                                        api_version="2024-10-21",
+                                        azure_endpoint="https://<your-resource>.openai.azure.com",
+                                        posthog_client=posthog
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    import { AzureOpenAI } from '@posthog/ai'
+                                    import { PostHog } from 'posthog-node'
 
-                            // ... your code here ...
+                                    const phClient = new PostHog(
+                                      '<ph_project_api_key>',
+                                      { host: '<ph_client_api_host>' }
+                                    );
 
-                            // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
-                            phClient.shutdown()
-                        `}
+                                    const client = new AzureOpenAI({
+                                      apiKey: '<azure_openai_api_key>',
+                                      apiVersion: '2024-10-21',
+                                      endpoint: 'https://<your-resource>.openai.azure.com',
+                                      posthog: phClient,
+                                    });
+
+                                    // ... your code here ...
+
+                                    // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
+                                    phClient.shutdown()
+                                `,
+                            },
+                        ]}
                     />
+
+                    <Blockquote>
+                        <Markdown>**Note:** This also works with the `AsyncAzureOpenAI` client.</Markdown>
+                    </Blockquote>
 
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
@@ -85,27 +126,51 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                     </Markdown>
 
                     <CodeBlock
-                        language="ts"
-                        code={dedent`
-                            const completion = await client.chat.completions.create({
-                                model: "<your-deployment-name>",
-                                messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
-                                posthogDistinctId: "user_123", // optional
-                                posthogTraceId: "trace_123", // optional
-                                posthogProperties: { conversation_id: "abc123", paid: true }, // optional
-                                posthogGroups: { company: "company_id_in_your_db" }, // optional
-                                posthogPrivacyMode: false // optional
-                            });
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    response = client.chat.completions.create(
+                                        model="<your-deployment-name>",
+                                        messages=[
+                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
+                                        ],
+                                        posthog_distinct_id="user_123", # optional
+                                        posthog_trace_id="trace_123", # optional
+                                        posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+                                        posthog_groups={"company": "company_id_in_your_db"},  # optional
+                                        posthog_privacy_mode=False # optional
+                                    )
 
-                            console.log(completion.choices[0].message.content)
-                        `}
+                                    print(response.choices[0].message.content)
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    const completion = await client.chat.completions.create({
+                                        model: "<your-deployment-name>",
+                                        messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
+                                        posthogDistinctId: "user_123", // optional
+                                        posthogTraceId: "trace_123", // optional
+                                        posthogProperties: { conversation_id: "abc123", paid: true }, // optional
+                                        posthogGroups: { company: "company_id_in_your_db" }, // optional
+                                        posthogPrivacyMode: false // optional
+                                    });
+
+                                    console.log(completion.choices[0].message.content)
+                                `,
+                            },
+                        ]}
                     />
 
                     <Blockquote>
                         <Markdown>
                             {dedent`
                             **Notes:**
-                            - This works with responses where \`stream=true\`.
+                            - This works with responses where \`stream=True\`.
                             - If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request.
 
                             See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.

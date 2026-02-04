@@ -99,9 +99,9 @@ export const getOpenRouterSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     )
 
                                     client = OpenAI(
-                                        baseURL="https://openrouter.ai/api/v1",
+                                        base_url="https://openrouter.ai/api/v1",
                                         api_key="<openrouter_api_key>",
-                                        posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                                        posthog_client=posthog  # This is an optional parameter. If it is not provided, a default client will be used.
                                     )
                                 `,
                             },

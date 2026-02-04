@@ -1,19 +1,26 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { StepDefinition } from '../steps'
 
-export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, Blockquote, dedent, snippets } = ctx
+export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
     return [
         {
-            title: 'Install PostHog and Anthropic SDKs',
+            title: 'Install the PostHog SDK',
             badge: 'required',
             content: (
                 <>
+                    <CalloutBox type="fyi" icon="IconInfo" title="About Vercel AI Gateway">
+                        <Markdown>
+                            Vercel AI Gateway provides a unified OpenAI-compatible API for accessing multiple LLM providers. It handles routing, caching, and rate limiting for your AI requests.
+                        </Markdown>
+                    </CalloutBox>
+
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog and Anthropic SDKs.
+                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works
+                        best with our Python and Node SDKs.
                     </Markdown>
 
                     <CodeBlock
@@ -22,14 +29,14 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install posthog anthropic
+                                    pip install posthog
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node @anthropic-ai/sdk @anthropic-ai/bedrock-sdk
+                                    npm install @posthog/ai posthog-node
                                 `,
                             },
                         ]}
@@ -38,15 +45,43 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             ),
         },
         {
-            title: 'Initialize PostHog and Bedrock client',
+            title: 'Install the OpenAI SDK',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The PostHog SDK **does not** proxy your calls.</Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: 'Python',
+                                code: dedent`
+                                    pip install openai
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'Node',
+                                code: dedent`
+                                    npm install openai
+                                `,
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Initialize PostHog and OpenAI client',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        We call Amazon Bedrock through the Anthropic client and generate a response. We'll use PostHog's
-                        Anthropic Bedrock provider to capture all the details of the call. Initialize PostHog with your
-                        PostHog project API key and host from [your project settings](https://app.posthog.com/settings/project),
-                        then pass the PostHog client along with your AWS region to our Anthropic Bedrock wrapper.
+                        We call Vercel AI Gateway through the OpenAI client and generate a response. We'll use PostHog's OpenAI
+                        provider to capture all the details of the call. Initialize PostHog with your PostHog project API
+                        key and host from [your project settings](https://app.posthog.com/settings/project), then pass the
+                        PostHog client along with the Vercel AI Gateway base URL to our OpenAI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -55,7 +90,7 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog.ai.anthropic import AnthropicBedrock
+                                    from posthog.ai.openai import OpenAI
                                     from posthog import Posthog
 
                                     posthog = Posthog(
@@ -63,8 +98,9 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         host="<ph_client_api_host>"
                                     )
 
-                                    client = AnthropicBedrock(
-                                        aws_region="us-east-1",
+                                    client = OpenAI(
+                                        base_url="https://gateway.ai.vercel.app/v1",
+                                        api_key="<your_api_key>",
                                         posthog_client=posthog
                                     )
                                 `,
@@ -73,7 +109,7 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { AnthropicBedrock } from '@posthog/ai'
+                                    import { OpenAI } from '@posthog/ai'
                                     import { PostHog } from 'posthog-node'
 
                                     const phClient = new PostHog(
@@ -81,8 +117,9 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                       { host: '<ph_client_api_host>' }
                                     );
 
-                                    const client = new AnthropicBedrock({
-                                      awsRegion: 'us-east-1',
+                                    const openai = new OpenAI({
+                                      baseURL: 'https://gateway.ai.vercel.app/v1',
+                                      apiKey: '<your_api_key>',
                                       posthog: phClient,
                                     });
 
@@ -96,18 +133,27 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     />
 
                     <Blockquote>
-                        <Markdown>**Note:** This also works with the `AsyncAnthropicBedrock` client.</Markdown>
+                        <Markdown>**Note:** This also works with the `AsyncOpenAI` client.</Markdown>
                     </Blockquote>
+
+                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
+                        <Markdown>
+                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but you
+                            will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
         {
-            title: 'Call Amazon Bedrock',
+            title: 'Call Vercel AI Gateway',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Now, when you call Amazon Bedrock with the Anthropic SDK, PostHog automatically captures an
+                        Now, when you call Vercel AI Gateway with the OpenAI SDK, PostHog automatically captures an
                         `$ai_generation` event. You can also capture or modify additional properties with the distinct ID,
                         trace ID, properties, groups, and privacy mode parameters.
                     </Markdown>
@@ -118,9 +164,8 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    message = client.messages.create(
-                                        model="anthropic.claude-sonnet-4-20250514",
-                                        max_tokens=1024,
+                                    response = client.chat.completions.create(
+                                        model="gpt-4o-mini",
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -131,30 +176,24 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         posthog_privacy_mode=False # optional
                                     )
 
-                                    print(message.content[0].text)
+                                    print(response.choices[0].message.content)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const message = await client.messages.create({
-                                      model: "anthropic.claude-sonnet-4-20250514",
-                                      maxTokens: 1024,
-                                      messages: [
-                                        {
-                                          role: "user",
-                                          content: "Tell me a fun fact about hedgehogs"
-                                        }
-                                      ],
-                                      posthogDistinctId: "user_123", // optional
-                                      posthogTraceId: "trace_123", // optional
-                                      posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                                      posthogGroups: { company: "company_id_in_your_db" }, // optional
-                                      posthogPrivacyMode: false // optional
+                                    const completion = await openai.chat.completions.create({
+                                        model: "gpt-4o-mini",
+                                        messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
+                                        posthogDistinctId: "user_123", // optional
+                                        posthogTraceId: "trace_123", // optional
+                                        posthogProperties: { conversation_id: "abc123", paid: true }, // optional
+                                        posthogGroups: { company: "company_id_in_your_db" }, // optional
+                                        posthogPrivacyMode: false // optional
                                     });
 
-                                    console.log(message.content[0].text)
+                                    console.log(completion.choices[0].message.content)
                                 `,
                             },
                         ]}
@@ -164,6 +203,7 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                         <Markdown>
                             {dedent`
                             **Notes:**
+                            - We also support the old \`chat.completions\` API.
                             - This works with responses where \`stream=True\`.
                             - If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request.
 
@@ -185,4 +225,4 @@ export const getBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinitio
     ]
 }
 
-export const BedrockInstallation = createInstallation(getBedrockSteps)
+export const VercelAIGatewayInstallation = createInstallation(getVercelAIGatewaySteps)

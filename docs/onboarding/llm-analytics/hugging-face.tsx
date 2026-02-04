@@ -94,7 +94,7 @@ export const getHuggingFaceSteps = (ctx: OnboardingComponentsContext): StepDefin
                                     )
 
                                     client = OpenAI(
-                                        base_url="https://api-inference.huggingface.co/v1/",
+                                        base_url="https://router.huggingface.co/v1/",
                                         api_key="<huggingface_api_key>",
                                         posthog_client=posthog
                                     )
@@ -113,7 +113,7 @@ export const getHuggingFaceSteps = (ctx: OnboardingComponentsContext): StepDefin
                                     );
 
                                     const openai = new OpenAI({
-                                      baseURL: 'https://api-inference.huggingface.co/v1/',
+                                      baseURL: 'https://router.huggingface.co/v1/',
                                       apiKey: '<huggingface_api_key>',
                                       posthog: phClient,
                                     });

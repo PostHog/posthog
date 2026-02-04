@@ -159,7 +159,7 @@ export const getCohereSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'Python',
                                 code: dedent`
                                     response = client.chat.completions.create(
-                                        model="command-r-plus",
+                                        model="command-a-03-2025",
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -178,7 +178,7 @@ export const getCohereSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.chat.completions.create({
-                                        model: "command-r-plus",
+                                        model: "command-a-03-2025",
                                         messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
                                         posthogDistinctId: "user_123", // optional
                                         posthogTraceId: "trace_123", // optional
