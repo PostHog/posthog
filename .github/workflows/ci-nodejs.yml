@@ -233,6 +233,10 @@ jobs:
                   docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
                   bin/check_kafka_clickhouse_up
 
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              run: git fetch origin ${{ github.base_ref }} --depth=1
+
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
