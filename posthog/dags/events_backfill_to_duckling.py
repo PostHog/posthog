@@ -124,50 +124,57 @@ duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_even
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
 
 # SQL for creating the events table in DuckLake if it doesn't exist
-# Types are chosen to match the Parquet output from ClickHouse
+# Note: Using TIMESTAMP instead of TIMESTAMPTZ because ducklake_add_data_files
+# expects plain timestamps (TIMESTAMP_NS/TIMESTAMP/TIMESTAMP_MS/TIMESTAMP_S),
+# not TIMESTAMP WITH TIME ZONE. ClickHouse exports DateTime64 as TZ-aware
+# Parquet timestamps, but DuckLake doesn't handle the TZ mapping for file registration.
 EVENTS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     uuid VARCHAR,
     event VARCHAR,
     properties VARCHAR,
-    timestamp TIMESTAMPTZ,
+    timestamp TIMESTAMP,
     team_id BIGINT,
     project_id BIGINT,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at TIMESTAMPTZ,
+    created_at TIMESTAMP,
     person_id VARCHAR,
-    person_created_at TIMESTAMPTZ,
+    person_created_at TIMESTAMP,
     person_properties VARCHAR,
     group0_properties VARCHAR,
     group1_properties VARCHAR,
     group2_properties VARCHAR,
     group3_properties VARCHAR,
     group4_properties VARCHAR,
-    group0_created_at TIMESTAMPTZ,
-    group1_created_at TIMESTAMPTZ,
-    group2_created_at TIMESTAMPTZ,
-    group3_created_at TIMESTAMPTZ,
-    group4_created_at TIMESTAMPTZ,
+    group0_created_at TIMESTAMP,
+    group1_created_at TIMESTAMP,
+    group2_created_at TIMESTAMP,
+    group3_created_at TIMESTAMP,
+    group4_created_at TIMESTAMP,
     person_mode VARCHAR,
     historical_migration BOOLEAN,
-    _inserted_at TIMESTAMPTZ
+    _inserted_at TIMESTAMP
 )
 """
 
 # SQL for creating the persons table in DuckLake if it doesn't exist
+# Note: Using TIMESTAMP instead of TIMESTAMPTZ because ducklake_add_data_files
+# expects plain timestamps (TIMESTAMP_NS/TIMESTAMP/TIMESTAMP_MS/TIMESTAMP_S),
+# not TIMESTAMP WITH TIME ZONE. ClickHouse exports DateTime64 as TZ-aware
+# Parquet timestamps, but DuckLake doesn't handle the TZ mapping for file registration.
 PERSONS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     team_id BIGINT,
     distinct_id VARCHAR,
     id VARCHAR,
     properties VARCHAR,
-    created_at TIMESTAMPTZ,
+    created_at TIMESTAMP,
     is_identified BOOLEAN,
     person_distinct_id_version BIGINT,
     person_version BIGINT,
-    _timestamp TIMESTAMPTZ,
-    _inserted_at TIMESTAMPTZ
+    _timestamp TIMESTAMP,
+    _inserted_at TIMESTAMP
 )
 """
 

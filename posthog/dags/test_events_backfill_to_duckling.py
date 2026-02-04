@@ -291,7 +291,7 @@ class TestSetTablePartitioning:
         conn.execute("INSTALL ducklake; LOAD ducklake;")
         conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
         conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMPTZ, event VARCHAR)")
+        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
 
         mock_context = MagicMock()
 
@@ -321,7 +321,7 @@ class TestSetTablePartitioning:
         conn.execute("INSTALL ducklake; LOAD ducklake;")
         conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
         conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMPTZ, event VARCHAR)")
+        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
 
         mock_context = MagicMock()
 
@@ -339,7 +339,7 @@ class TestSetTablePartitioning:
         conn = duckdb.connect()
         # Don't load ducklake - table won't support SET PARTITIONED BY
         conn.execute("CREATE SCHEMA posthog")
-        conn.execute("CREATE TABLE posthog.events (timestamp TIMESTAMPTZ, event VARCHAR)")
+        conn.execute("CREATE TABLE posthog.events (timestamp TIMESTAMP, event VARCHAR)")
 
         mock_context = MagicMock()
 
