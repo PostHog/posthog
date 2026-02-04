@@ -152,7 +152,7 @@ jobs:
         name: Playwright E2E tests
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-latest-16
+        runs-on: depot-ubuntu-latest-8
         timeout-minutes: 30
         steps:
             - uses: actions/checkout@v6
@@ -396,8 +396,8 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
-              # Run 4 Playwright workers against 2 granian workers
-              # Testing reduced parallelism to isolate backend contention issues
+              # Run 4 Playwright workers against 2 granian workers on 8-core runner
+              # Testing if smaller runner works with tuned parallelism
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
