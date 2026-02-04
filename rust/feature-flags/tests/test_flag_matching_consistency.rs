@@ -12,7 +12,7 @@ use feature_flags::{
 };
 use serde_json::json;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     let flags = create_flag_from_json(Some(
         json!([{
@@ -156,7 +156,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     let flags = create_flag_from_json(Some(
         json!([{
