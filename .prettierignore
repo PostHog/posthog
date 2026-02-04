@@ -30,10 +30,8 @@ frontend/src/products.tsx
 frontend/src/products.json
 frontend/src/layout.html
 **/fixtures/**
-services/mcp/schema/**/*
-services/mcp/python/**/*
 services/mcp/**/generated.ts
-services/mcp/typescript/worker-configuration.d.ts
+services/mcp/worker-configuration.d.ts
 frontend/src/taxonomy/core-filter-definitions-by-group.json
 frontend/dist/
 frontend/**/*LogicType.ts

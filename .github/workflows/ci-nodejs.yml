@@ -27,6 +27,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
+        permissions:
+            contents: read
+            pull-requests: read
         outputs:
             nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
         steps:
