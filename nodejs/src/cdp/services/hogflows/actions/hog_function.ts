@@ -95,7 +95,7 @@ export class HogFunctionHandler implements ActionHandler {
                     {
                         level: 'info',
                         timestamp: DateTime.now(),
-                        message: `Recipient opted out for action ${action.id}`,
+                        message: `Recipient has opted out, skipping message delivery.`,
                     },
                 ],
                 metrics: [],
