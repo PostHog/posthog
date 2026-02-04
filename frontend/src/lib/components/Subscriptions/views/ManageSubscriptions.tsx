@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 
@@ -83,6 +84,13 @@ export function ManageSubscriptions({
 
     const { subscriptions, subscriptionsLoading } = useValues(logic)
     const { deleteSubscription } = useActions(logic)
+
+    // Auto-redirect to create new subscription when there are none
+    useEffect(() => {
+        if (!subscriptionsLoading && subscriptions.length === 0) {
+            onSelect('new')
+        }
+    }, [subscriptionsLoading, subscriptions.length, onSelect])
 
     return (
         <>
