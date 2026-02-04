@@ -623,14 +623,14 @@ async def initialize_self_capture_api_token():
         posthoganalytics.host = settings.SITE_URL
 
 
-def get_default_event_name(team: "Team"):
+def get_default_event_name(team: "Team") -> str | None:
     from posthog.models import EventDefinition
 
     if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
     elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
-    return "$pageview"
+    return None  # None means "all events"
 
 
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:

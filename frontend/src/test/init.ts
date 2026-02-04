@@ -27,6 +27,8 @@ export function initKeaTests(
         ...window.POSTHOG_APP_CONTEXT,
         current_team: teamForWindowContext,
         current_project: projectForWindowContext,
+        // Default to $pageview in tests (simulating a team that has pageview events)
+        default_event_name: '$pageview',
     } as unknown as AppContext
     posthog.init('no token', {
         autocapture: false,

@@ -288,8 +288,9 @@ class TestRelativeDateParse(TestCase):
 
 
 class TestDefaultEventName(BaseTest):
-    def test_no_events(self):
-        self.assertEqual(get_default_event_name(self.team), "$pageview")
+    def test_no_events_returns_none_for_all_events(self):
+        # When team has no $pageview or $screen events, return None to indicate "all events"
+        self.assertIsNone(get_default_event_name(self.team))
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)

@@ -4357,7 +4357,7 @@ export interface AppContext {
     current_project: ProjectType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
-    default_event_name: string
+    default_event_name: string | null
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>

@@ -45,9 +45,11 @@ import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilte
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
+    // When event is null (all events), we need to use null as the id but provide a display name
+    const displayName = event === null ? 'All events' : event
     return {
-        id: event,
-        name: event,
+        id: event as string, // null is valid for "all events" - the type will be updated
+        name: displayName,
         type: EntityTypes.EVENTS,
         order: 0,
     }
