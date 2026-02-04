@@ -26,7 +26,7 @@ class TestCohortAdminActions(BaseTest):
         request = self.factory.get(path)
         request.user = self.user
         # Mock messages framework with a simple list
-        request._messages = []
+        request._messages = []  # type: ignore[attr-defined]
         return request
 
     @patch("posthog.admin.admins.cohort_admin.increment_version_and_enqueue_calculate_cohort")
