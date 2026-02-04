@@ -1,8 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -36,8 +34,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             ['currentProject'],
             teamLogic,
             ['currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
     actions({
@@ -126,16 +122,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
-            (s) => [
-                s.preflight,
-                s.sceneConfig,
-                s.activeSceneId,
-                s.user,
-                s.currentProject,
-                s.currentTeam,
-                s.featureFlags,
-            ],
-            (preflight, sceneConfig, activeSceneId, user, currentProject, currentTeam, featureFlags) => {
+            (s) => [s.preflight, s.sceneConfig, s.activeSceneId, s.user, s.currentProject, s.currentTeam],
+            (preflight, sceneConfig, activeSceneId, user, currentProject, currentTeam) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeSceneId || !sceneConfig) {
                     return breadcrumbs
@@ -167,8 +155,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     }
                     breadcrumbs.push({
                         key: 'project',
-                        name: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentProject.name : currentTeam.name,
-                        tag: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentTeam.name : null,
+                        name: currentTeam.name,
+                        tag: null,
                         isPopoverProject: true,
                     })
                 }
