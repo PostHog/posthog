@@ -24,7 +24,7 @@ use crate::pipelines::processor::{
     get_result_labels, get_store_or_drop, StoreResult,
 };
 use crate::pipelines::traits::DeduplicationKeyExtractor;
-use crate::pipelines::{DeduplicationResult, DuplicateReason};
+use crate::pipelines::{DeduplicationResult, DuplicateReason, EnrichedEvent};
 use crate::store::DeduplicationStoreConfig;
 use crate::store_manager::StoreManager;
 
@@ -36,12 +36,6 @@ use crate::pipelines::traits::EventParser;
 #[derive(Debug, Clone)]
 pub struct ClickHouseEventsConfig {
     pub store_config: DeduplicationStoreConfig,
-}
-
-/// Enriched event with deduplication key
-struct EnrichedEvent<'a> {
-    event: &'a ClickHouseEvent,
-    dedup_key_bytes: Vec<u8>,
 }
 
 /// Batch processor for ClickHouse events with timestamp-based deduplication.
@@ -158,11 +152,11 @@ impl ClickHouseEventsBatchProcessor {
         };
 
         // Step 1: Extract dedup keys
-        let enriched_events: Vec<EnrichedEvent> = events
+        let enriched_events: Vec<EnrichedEvent<ClickHouseEvent>> = events
             .into_iter()
             .map(|event| EnrichedEvent {
-                event,
                 dedup_key_bytes: event.extract_dedup_key(),
+                event,
             })
             .collect();
 

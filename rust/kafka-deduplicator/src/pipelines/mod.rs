@@ -69,5 +69,5 @@ pub use processor::{
     get_result_labels, get_store_or_drop, DeduplicationResult, DeduplicationResultLabels,
     DuplicateReason, StoreResult,
 };
-pub use results::{DedupFieldName, EventSimilarity, PropertyDifference};
+pub use results::{DedupFieldName, EnrichedEvent, EventSimilarity, PropertyDifference};
 pub use traits::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};
