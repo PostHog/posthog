@@ -853,8 +853,9 @@ class FeatureFlagSerializer(
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
-        # SessionAuthentication is the default (and only) authentication class for web requests
-        # If that ever changes (seems unlikely), we'll need to update this.
+        # SessionAuthentication is used for standard browser-based web UI requests.
+        # All other authentication methods (API keys, OAuth tokens, toolbar tokens, etc.)
+        # are classified as "api" for analytics purposes.
         is_web_auth = isinstance(request.successful_authenticator, SessionAuthentication)
         analytics_metadata["source"] = "web" if is_web_auth else "api"
         report_user_action(request.user, "feature flag created", analytics_metadata)
