@@ -1,15 +1,16 @@
 # ruff: noqa: T201 allow print statements
 
-import json
 import os
+import json
 import datetime as dt
 from time import monotonic, sleep
 from typing import Any, Literal, cast
 
-import psutil
 from django.conf import settings
 from django.core import exceptions
 from django.db import IntegrityError, transaction
+
+import psutil
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team

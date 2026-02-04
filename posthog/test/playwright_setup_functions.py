@@ -1,16 +1,16 @@
 """Playwright setup functions for test data creation."""
 
-import logging
 import os
-import secrets
 import time
+import logging
+import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-import psutil
 from django.utils import timezone
 
+import psutil
 from pydantic import BaseModel
 
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult

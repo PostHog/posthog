@@ -9,9 +9,10 @@ from time import monotonic
 from typing import Optional
 from urllib.parse import quote
 
-import psutil
 from django.core import exceptions
 from django.core.management.base import BaseCommand
+
+import psutil
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.matrix import Matrix, MatrixManager
@@ -258,11 +259,13 @@ class Command(BaseCommand):
                     f"http://localhost:8010/signup?email={quote(user.email)}\n"
                 )
             )
+            log_perf("========== generate_demo_data completed ==========", overall_start)
 
             if options["say_on_complete"]:
                 os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
+            log_perf("========== generate_demo_data dry run completed ==========", overall_start)
             if options["say_on_complete"]:
                 os.system('say "demo data dry run completed" || true')
 
