@@ -397,7 +397,7 @@ function SearchRoot({
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
                     inline
-                    autoHighlight="always"
+                    autoHighlight
                     openOnInputClick={false}
                     defaultOpen
                 >
