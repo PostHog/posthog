@@ -1,12 +1,10 @@
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel
 
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 
 
@@ -19,7 +17,7 @@ class ReadDataWarehouseSchemaMCPToolArgs(BaseModel):
 
 
 @mcp_tool_registry.register(scopes=["insight:read", "query:read"])
-class ReadDataWarehouseSchemaMCPTool(MCPTool[ReadDataWarehouseSchemaMCPToolArgs]):
+class ReadDataWarehouseSchemaMCPTool(HogQLDatabaseMixin, MCPTool[ReadDataWarehouseSchemaMCPToolArgs]):
     """
     MCP tool that returns core PostHog table schemas (events, groups, persons, sessions).
 
@@ -29,18 +27,13 @@ class ReadDataWarehouseSchemaMCPTool(MCPTool[ReadDataWarehouseSchemaMCPToolArgs]
     name = "read_data_warehouse_schema"
     args_schema = ReadDataWarehouseSchemaMCPToolArgs
 
-    async def execute(self, args: ReadDataWarehouseSchemaMCPToolArgs) -> tuple[str, dict[str, Any] | None]:
-        result = await self._build_tables_list()
-        return result, {"tables": ["events", "groups", "persons", "sessions"]}
+    async def execute(self, args: ReadDataWarehouseSchemaMCPToolArgs) -> str:
+        return await self._build_tables_list()
 
     @database_sync_to_async(thread_sensitive=False)
     def _build_tables_list(self) -> str:
-        database = Database.create_for(team=self._team)
-        hogql_context = HogQLContext(
-            team=self._team,
-            enable_select_queries=True,
-            database=database,
-        )
+        database = self._get_database()
+        hogql_context = self._get_default_hogql_context(database)
 
         core_tables = {"events", "groups", "persons", "sessions"}
         serialized = database.serialize(hogql_context, include_only=core_tables)
