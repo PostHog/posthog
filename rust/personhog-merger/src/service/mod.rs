@@ -16,7 +16,8 @@ mod tests;
 /// 2. Mark sources as merging source
 /// 3. Copy properties from source persons to target
 /// 4. Update distinct ID mappings
-/// 5. Delete source persons (handled by garbage collection)
+/// 5. Clear merge status on target
+/// 6. Delete source persons
 pub struct PersonMergeService {
     person_properties_api: Arc<dyn PersonPropertiesApi>,
     person_distinct_ids_api: Arc<dyn PersonDistinctIdsApi>,
@@ -186,8 +187,13 @@ impl PersonMergeService {
             .set_merged(target_distinct_id, &target_person_uuid, version)
             .await?;
 
-        // Source persons are not deleted here - they will be garbage collected by a separate
-        // process that identifies persons with no distinct IDs pointing to them.
+        // 6. Delete source persons
+        let delete_futures: Vec<_> = source_person_uuids
+            .iter()
+            .map(|person_uuid| self.person_properties_api.delete_person(person_uuid))
+            .collect();
+
+        futures::future::try_join_all(delete_futures).await?;
 
         let merged: Vec<DistinctIdInfo> = valid_source_distinct_ids
             .into_iter()

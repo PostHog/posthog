@@ -45,11 +45,18 @@ struct MergePersonPropertiesCall {
     source_persons: Vec<Person>,
 }
 
+#[derive(Clone, Debug)]
+struct DeletePersonCall {
+    #[allow(dead_code)]
+    person_uuid: String,
+}
+
 struct MockPersonPropertiesApi {
     get_persons_for_merge_result: Mutex<Option<ApiResult<GetPersonsForMergeResult>>>,
     merge_person_properties_result: Mutex<Option<ApiResult<()>>>,
     get_persons_for_merge_calls: CallRecorder<GetPersonsForMergeCall>,
     merge_person_properties_calls: CallRecorder<MergePersonPropertiesCall>,
+    delete_person_calls: CallRecorder<DeletePersonCall>,
     #[allow(dead_code)]
     get_persons_for_merge_breakpoint: Mutex<Option<Breakpoint<()>>>,
     #[allow(dead_code)]
@@ -63,6 +70,7 @@ impl MockPersonPropertiesApi {
             merge_person_properties_result: Mutex::new(None),
             get_persons_for_merge_calls: Arc::new(Mutex::new(Vec::new())),
             merge_person_properties_calls: Arc::new(Mutex::new(Vec::new())),
+            delete_person_calls: Arc::new(Mutex::new(Vec::new())),
             get_persons_for_merge_breakpoint: Mutex::new(None),
             merge_person_properties_breakpoint: Mutex::new(None),
         }
@@ -98,6 +106,10 @@ impl MockPersonPropertiesApi {
 
     fn get_merge_person_properties_calls(&self) -> Vec<MergePersonPropertiesCall> {
         self.merge_person_properties_calls.lock().unwrap().clone()
+    }
+
+    fn get_delete_person_calls(&self) -> Vec<DeletePersonCall> {
+        self.delete_person_calls.lock().unwrap().clone()
     }
 }
 
@@ -149,6 +161,17 @@ impl PersonPropertiesApi for MockPersonPropertiesApi {
             .unwrap()
             .take()
             .unwrap_or(Ok(()))
+    }
+
+    async fn delete_person(&self, person_uuid: &str) -> ApiResult<()> {
+        self.delete_person_calls
+            .lock()
+            .unwrap()
+            .push(DeletePersonCall {
+                person_uuid: person_uuid.to_string(),
+            });
+
+        Ok(())
     }
 }
 
@@ -404,6 +427,11 @@ async fn test_merges_single_source_into_target() {
     assert!(set_merged_calls
         .iter()
         .any(|c| c.distinct_id == target_distinct_id && c.person_uuid == target_person_uuid));
+
+    // Source person should be deleted
+    let delete_person_calls = properties_api.get_delete_person_calls();
+    assert_eq!(delete_person_calls.len(), 1);
+    assert_eq!(delete_person_calls[0].person_uuid, source_person_uuid);
 }
 
 #[tokio::test]
@@ -475,6 +503,10 @@ async fn test_merges_multiple_sources_into_target() {
 
     let set_merged_calls = distinct_ids_api.get_set_merged_calls();
     assert_eq!(set_merged_calls.len(), 4); // 3 sources + 1 target
+
+    // All 3 source persons should be deleted
+    let delete_person_calls = properties_api.get_delete_person_calls();
+    assert_eq!(delete_person_calls.len(), 3);
 }
 
 #[tokio::test]
@@ -525,6 +557,11 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
     // Should only fetch the person once even though two distinct IDs reference it
     assert_eq!(properties_api.get_persons_for_merge_call_count(), 1);
     assert_eq!(properties_api.merge_person_properties_call_count(), 1);
+
+    // Should only delete the person once (deduplicated)
+    let delete_person_calls = properties_api.get_delete_person_calls();
+    assert_eq!(delete_person_calls.len(), 1);
+    assert_eq!(delete_person_calls[0].person_uuid, shared_source_person_uuid);
 }
 
 #[tokio::test]
@@ -720,6 +757,9 @@ async fn test_clears_target_merge_status_when_all_sources_conflict() {
 
     // get_persons_for_merge should NOT be called
     assert_eq!(properties_api.get_persons_for_merge_call_count(), 0);
+
+    // No persons should be deleted since no merges succeeded
+    assert!(properties_api.get_delete_person_calls().is_empty());
 }
 
 #[tokio::test]
@@ -764,4 +804,7 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
 
     // set_merged should NOT be called
     assert!(distinct_ids_api.get_set_merged_calls().is_empty());
+
+    // No persons should be deleted
+    assert!(properties_api.get_delete_person_calls().is_empty());
 }

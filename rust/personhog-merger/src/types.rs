@@ -84,9 +84,6 @@ pub struct GetPersonsForMergeResult {
 }
 
 /// Trait for person properties operations.
-///
-/// Note: deletePerson is not part of this interface - orphaned persons (with no distinct IDs
-/// pointing to them) are garbage collected by a separate background process.
 #[async_trait]
 pub trait PersonPropertiesApi: Send + Sync {
     /// Fetches persons for merge and marks them as being merged.
@@ -105,6 +102,9 @@ pub trait PersonPropertiesApi: Send + Sync {
         target_person_uuid: &str,
         source_persons: &[Person],
     ) -> ApiResult<()>;
+
+    /// Deletes a person after their distinct IDs have been merged into another person.
+    async fn delete_person(&self, person_uuid: &str) -> ApiResult<()>;
 }
 
 /// Trait for distinct ID operations during merge.
