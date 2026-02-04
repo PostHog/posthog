@@ -81,7 +81,7 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
             render: function renderName(name: string, insight) {
                 const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex flex-col gap-1 min-w-0 max-w-[280px]">
                         <div className="flex min-w-0">
                             {isExperimentEnabled ? (
                                 <Tooltip title={displayName}>
@@ -101,7 +101,9 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
                             )}
                         </div>
                         {insight.description && (
-                            <div className="text-xs text-tertiary truncate">{insight.description}</div>
+                            <Tooltip title={insight.description}>
+                                <div className="text-xs text-tertiary truncate">{insight.description}</div>
+                            </Tooltip>
                         )}
                     </div>
                 )
