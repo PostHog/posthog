@@ -287,6 +287,7 @@ class RemoteConfig(UUIDTModel):
                 "identificationFormDescription": conv_settings.get("widget_identification_form_description")
                 or "Please provide your details so we can help you better.",
                 "placeholderText": conv_settings.get("widget_placeholder_text") or "Type your message...",
+                "widgetPosition": conv_settings.get("widget_position") or "bottom_right",
             }
         else:
             config["conversations"] = False

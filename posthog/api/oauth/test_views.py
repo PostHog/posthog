@@ -2289,6 +2289,86 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
+    def test_claude_code_client_gets_extended_token_expiry(self):
+        """Claude Code clients should get 7-day token expiry instead of 1 hour."""
+        self.public_application.name = "Claude Code MCP Client"
+        self.public_application.save()
+
+        auth_data = {
+            "client_id": self.public_application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        data = token_response.json()
+
+        # Verify expires_in is 7 days (604800 seconds), not 1 hour (3600)
+        self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
+
+        # Also verify the actual token in DB has correct expiry
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        time_diff = abs((access_token.expires - expected_expiry).total_seconds())
+        self.assertLess(time_diff, 60)  # Within 1 minute tolerance
+
+    def test_non_claude_client_gets_default_token_expiry(self):
+        """Non-Claude clients should get the default 1-hour token expiry."""
+        self.public_application.name = "Some Other App"
+        self.public_application.save()
+
+        auth_data = {
+            "client_id": self.public_application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        data = token_response.json()
+
+        # Verify expires_in is the default (1 hour = 3600 seconds)
+        self.assertEqual(data["expires_in"], 60 * 60)
+
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):
     """Tests for OAuth 2.0 Authorization Server Metadata (RFC 8414)."""

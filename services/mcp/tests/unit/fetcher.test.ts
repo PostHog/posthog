@@ -300,26 +300,23 @@ describe('buildApiFetcher', () => {
     })
 
     describe('HTTP methods', () => {
-        it.each(['post', 'put', 'patch', 'delete'] as const)(
-            'should include body for %s requests',
-            async (method) => {
-                const mockResponse = new Response('{}', { status: 200 })
-                vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
+        it.each(['post', 'put', 'patch', 'delete'] as const)('should include body for %s requests', async (method) => {
+            const mockResponse = new Response('{}', { status: 200 })
+            vi.mocked(global.fetch).mockResolvedValueOnce(mockResponse)
 
-                const fetcher = buildApiFetcher(mockConfig)
-                await fetcher.fetch({
-                    ...baseFetchInput,
-                    method,
-                    parameters: {
-                        body: { test: 'data' },
-                    },
-                })
+            const fetcher = buildApiFetcher(mockConfig)
+            await fetcher.fetch({
+                ...baseFetchInput,
+                method,
+                parameters: {
+                    body: { test: 'data' },
+                },
+            })
 
-                const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
-                expect(fetchCall[1]?.body).toBe(JSON.stringify({ test: 'data' }))
-                expect(fetchCall[1]?.method).toBe(method.toUpperCase())
-            }
-        )
+            const fetchCall = vi.mocked(global.fetch).mock.calls[0]!
+            expect(fetchCall[1]?.body).toBe(JSON.stringify({ test: 'data' }))
+            expect(fetchCall[1]?.method).toBe(method.toUpperCase())
+        })
 
         it('should not include body for GET requests', async () => {
             const mockResponse = new Response('{}', { status: 200 })

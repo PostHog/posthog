@@ -89,6 +89,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
     useMountedLogic(workflowsLogic)
     const { filteredWorkflows, archivedWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
     const {
+        loadWorkflows,
         toggleWorkflowStatus,
         duplicateWorkflow,
         archiveWorkflow,
@@ -105,6 +106,10 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
         const newWorkflowLogic = workflowLogic.findMounted({ id: 'new', tabId: props.tabId })
         newWorkflowLogic?.unmount()
+
+        // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
+        // when the component re-mounts
+        loadWorkflows()
     })
 
     const columns: LemonTableColumns<HogFlow> = [
