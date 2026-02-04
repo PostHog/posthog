@@ -3694,7 +3694,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
     let distinct_id = "test.user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
+    let pg_client = setup_pg_reader_client(None);
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -4395,7 +4395,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
     let distinct_id = "test_user_with_77_days".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
+    let pg_client = setup_pg_reader_client(None);
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
@@ -4938,7 +4938,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
     let distinct_id = "test_user_and_cohort".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let pg_client = setup_pg_reader_client(None).await;
+    let pg_client = setup_pg_reader_client(None);
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
 
