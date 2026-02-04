@@ -1833,6 +1833,7 @@ export async function onEventImplementation(
         }
     } else if (event === AssistantEventType.Approval) {
         const parsedResponse = parseResponse<PendingApproval>(data)
+
         if (!parsedResponse) {
             return
         }
