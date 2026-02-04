@@ -279,7 +279,7 @@ build:
         services:
             - frontend
     build:schema-json:
-        cmd: pnpm --filter=@posthog/frontend run schema:build:json
+        cmd: bin/turbo --filter=@posthog/frontend schema:build:json
         description: Generate schema.json from frontend
     build:schema-python:
         bin_script: build-schema-python.sh

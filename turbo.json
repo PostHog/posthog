@@ -42,6 +42,9 @@
         "openapi:types": {
             "inputs": ["$TURBO_DEFAULT$", "tmp/openapi.json"],
             "env": ["OPENAPI_SCHEMA_PATH"]
+        },
+        "schema:build:json": {
+            "inputs": ["$TURBO_DEFAULT$", "src/queries/schema/**"]
         }
     }
 }
