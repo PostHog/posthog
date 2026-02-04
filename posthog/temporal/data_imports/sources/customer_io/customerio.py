@@ -2,6 +2,7 @@ from collections.abc import Generator
 from typing import Any
 
 import requests
+import structlog
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
@@ -9,6 +10,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
 from posthog.temporal.data_imports.sources.customer_io.settings import CUSTOMERIO_ENDPOINTS
+
+logger = structlog.get_logger(__name__)
 
 
 def get_base_url(region: str) -> str:
@@ -119,24 +122,17 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, str | None]:
         return False, str(e)
 
 
-def _fetch_customers_via_segments(
-    api_key: str,
-    region: str,
+def _get_all_customer_ids_from_segments(
+    base_url: str,
+    headers: dict[str, str],
     page_size: int = 100,
-) -> Generator[dict[str, Any], None, None]:
+) -> set[str]:
     """
-    Fetch all customers by iterating through all segments.
-    Customer.io doesn't have a direct /customers endpoint, so we need to:
-    1. Fetch all segments
-    2. For each segment, fetch all customers in that segment
+    Collect all unique customer cio_ids by iterating through all segments.
+    Returns a set of cio_ids.
     """
-    base_url = get_base_url(region)
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-
-    # Track seen customer IDs to avoid duplicates (customers can be in multiple segments)
     seen_customer_ids: set[str] = set()
 
-    # First, fetch all segments
     segments_url = f"{base_url}/segments"
     segments_cursor: str | None = None
 
@@ -149,13 +145,12 @@ def _fetch_customers_via_segments(
         response.raise_for_status()
         data = response.json()
 
-        segments = data.get("segments", [])
+        segments = data.get("segments") or []
         for segment in segments:
             segment_id = segment.get("id")
             if not segment_id:
                 continue
 
-            # Fetch customers for this segment using the membership endpoint
             membership_url = f"{base_url}/segments/{segment_id}/membership"
             membership_cursor: str | None = None
 
@@ -170,27 +165,108 @@ def _fetch_customers_via_segments(
                 membership_response.raise_for_status()
                 membership_data = membership_response.json()
 
-                # The membership endpoint returns 'identifiers' array with cio_id (always present), id and email (nullable)
-                # Use `or []` to handle explicit null values in the response
                 identifiers = membership_data.get("identifiers") or []
                 for identifier in identifiers:
-                    # cio_id is always present and unique, use it for deduplication
                     cio_id = identifier.get("cio_id")
-                    if cio_id and cio_id not in seen_customer_ids:
+                    if cio_id:
                         seen_customer_ids.add(cio_id)
-                        # Add segment_id to the record for reference
-                        identifier["_segment_id"] = segment_id
-                        yield _convert_timestamps(identifier)
 
-                # Check for next page of members
                 membership_cursor = membership_data.get("next")
                 if not membership_cursor:
                     break
 
-        # Check for next page of segments
         segments_cursor = data.get("next")
         if not segments_cursor:
             break
+
+    return seen_customer_ids
+
+
+def _fetch_customer_attributes_batch(
+    base_url: str,
+    headers: dict[str, str],
+    cio_ids: list[str],
+) -> list[dict[str, Any]]:
+    """
+    Fetch full customer attributes for a batch of up to 100 cio_ids.
+    Uses POST /v1/customers/attributes endpoint with raw cio_id values.
+    """
+    url = f"{base_url}/customers/attributes"
+    payload = {"ids": cio_ids}
+
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+    data = response.json()
+
+    customers = data.get("customers") or []
+
+    results = []
+    for customer_wrapper in customers:
+        # Handle both nested {"customer": {...}} and flat {...} structures
+        if isinstance(customer_wrapper, dict) and "customer" in customer_wrapper:
+            customer = customer_wrapper.get("customer", {})
+        else:
+            customer = customer_wrapper
+
+        if not customer:
+            continue
+
+        record: dict[str, Any] = {}
+
+        identifiers = customer.get("identifiers", {})
+        record["cio_id"] = identifiers.get("cio_id")
+        record["id"] = identifiers.get("id")
+        record["email"] = identifiers.get("email")
+
+        attributes = customer.get("attributes", {})
+        for key, value in attributes.items():
+            if key not in ("cio_id", "id", "email"):
+                record[key] = value
+
+        record["unsubscribed"] = customer.get("unsubscribed", False)
+
+        timestamps = customer.get("timestamps", {})
+        if timestamps.get("cio_id"):
+            record["created_at"] = timestamps["cio_id"]
+
+        results.append(record)
+
+    return results
+
+
+def _fetch_customers_via_segments(
+    api_key: str,
+    region: str,
+    page_size: int = 100,
+) -> Generator[dict[str, Any], None, None]:
+    """
+    Fetch all customers with full attributes by:
+    1. Collecting all unique customer cio_ids from segment memberships
+    2. Fetching full attributes in batches of 100 using POST /v1/customers/attributes
+    """
+    base_url = get_base_url(region)
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    # Step 1: Collect all unique customer IDs from segments
+    all_cio_ids = _get_all_customer_ids_from_segments(base_url, headers, page_size)
+    logger.info(f"Customer.io: collected {len(all_cio_ids)} unique customer IDs from segments")
+
+    if not all_cio_ids:
+        return
+
+    # Step 2: Fetch full attributes in batches of 100
+    cio_ids_list = list(all_cio_ids)
+    batch_size = 100
+    total_yielded = 0
+
+    for i in range(0, len(cio_ids_list), batch_size):
+        batch = cio_ids_list[i : i + batch_size]
+        customers = _fetch_customer_attributes_batch(base_url, headers, batch)
+        for customer in customers:
+            total_yielded += 1
+            yield _convert_timestamps(customer)
+
+    logger.info(f"Customer.io: completed - yielded {total_yielded} customers")
 
 
 def customerio_source(
