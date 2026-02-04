@@ -82,8 +82,11 @@ export class LogsRateLimiterService {
         return result
     }
 
-    private rateLimitArgs(id: string, cost: number): [string, number, number, number, number, number] {
-        const nowSeconds = Math.round(Date.now() / 1000)
+    private rateLimitArgs(
+        id: string,
+        cost: number,
+        nowSeconds: number
+    ): [string, number, number, number, number, number] {
         const teamId = parseInt(id, 10)
 
         return [
@@ -96,10 +99,36 @@ export class LogsRateLimiterService {
         ]
     }
 
-    public async rateLimitMany(idCosts: [string, number][]): Promise<[string, LogsRateLimit][]> {
+    private getHeaderValue(headers: any[] | undefined, key: string): string | undefined {
+        if (!headers || !Array.isArray(headers)) {
+            return undefined
+        }
+
+        for (const header of headers) {
+            if (header[key]) {
+                // Convert Buffer to string
+                return Buffer.from(header[key]).toString('utf8')
+            }
+        }
+        return undefined
+    }
+
+    private getTimestampFromMessage(message: LogsIngestionMessage): number {
+        const createdAtHeader = this.getHeaderValue(message.message.headers, 'created_at')
+        if (createdAtHeader) {
+            const timestamp = parseInt(createdAtHeader, 10)
+            if (!isNaN(timestamp)) {
+                return Math.round(timestamp / 1000) // Convert to seconds if needed
+            }
+        }
+        // Fallback to current time
+        return Math.round(Date.now() / 1000)
+    }
+
+    public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, LogsRateLimit][]> {
         const res = await this.redis.usePipeline({ name: 'logs-rate-limiter', failOpen: true }, (pipeline) => {
-            idCosts.forEach(([id, cost]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
+            idCosts.forEach(([id, cost, nowSeconds]) => {
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
             })
         })
 
@@ -107,7 +136,7 @@ export class LogsRateLimiterService {
             throw new Error('Failed to rate limit')
         }
 
-        return idCosts.map(([id], index) => {
+        return idCosts.map(([id, ,], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             const tokensBefore = Number(tokenRes[1]?.[0] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
             const tokensAfter = Number(tokenRes[1]?.[1] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
@@ -145,6 +174,8 @@ export class LogsRateLimiterService {
     public async filterMessages(messages: LogsIngestionMessage[]): Promise<FilteredMessages> {
         // Group messages by team to calculate total cost per team (only for teams with rate limiting enabled)
         const teamCosts = new Map<number, number>()
+        const teamTimestamps = new Map<number, number>()
+
         for (const message of messages) {
             if (!this.isRateLimitingEnabledForTeam(message.teamId)) {
                 continue
@@ -153,11 +184,20 @@ export class LogsRateLimiterService {
             // Cost is in KB (uncompressed bytes / 1000)
             const costKb = Math.ceil(message.bytesUncompressed / 1000)
             teamCosts.set(message.teamId, currentCost + costKb)
+
+            // Store the timestamp for this team (use the first message's timestamp)
+            if (!teamTimestamps.has(message.teamId)) {
+                teamTimestamps.set(message.teamId, this.getTimestampFromMessage(message))
+            }
         }
 
         // Check rate limits for all teams
         const rateLimitResults = await this.rateLimitMany(
-            Array.from(teamCosts.entries()).map(([teamId, cost]) => [teamId.toString(), cost])
+            Array.from(teamCosts.entries()).map(([teamId, cost]) => [
+                teamId.toString(),
+                cost,
+                teamTimestamps.get(teamId) ?? Math.round(Date.now() / 1000),
+            ])
         )
 
         // Build a map of team rate limit results

@@ -55,25 +55,25 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should consume tokens and return before/after values', async () => {
-            const res = await rateLimiter.rateLimitMany([[teamId1, 10]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 10, Math.round(now / 1000)]])
 
             expect(res).toEqual([[teamId1, { tokensBefore: 100, tokensAfter: 90, isRateLimited: false }]])
         })
 
         it('should rate limit when tokens are exhausted', async () => {
-            let res = await rateLimiter.rateLimitMany([[teamId1, 99]])
+            let res = await rateLimiter.rateLimitMany([[teamId1, 99, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(100)
             expect(res[0][1].tokensAfter).toBe(1)
             expect(res[0][1].isRateLimited).toBe(false)
 
-            res = await rateLimiter.rateLimitMany([[teamId1, 1]])
+            res = await rateLimiter.rateLimitMany([[teamId1, 1, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(1)
             expect(res[0][1].tokensAfter).toBe(0)
             expect(res[0][1].isRateLimited).toBe(true)
 
-            res = await rateLimiter.rateLimitMany([[teamId1, 20]])
+            res = await rateLimiter.rateLimitMany([[teamId1, 20, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(0)
             expect(res[0][1].tokensAfter).toBe(-1)
@@ -81,27 +81,27 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should allow partial allowance calculation from tokensBefore', async () => {
-            // First exhaust most of the bucket
-            await rateLimiter.rateLimitMany([[teamId1, 70]])
+            // First, consume 70 tokens, leaving 30
+            await rateLimiter.rateLimitMany([[teamId1, 70, Math.round(now / 1000)]])
 
             // Request 50KB but only 30KB available - tokensBefore tells us how much to allow
-            const res = await rateLimiter.rateLimitMany([[teamId1, 50]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 50, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(30)
             expect(res[0][1].tokensAfter).toBe(-1)
             expect(res[0][1].isRateLimited).toBe(true)
 
-            // Can calculate: allow 30KB out of 50KB requested (60%)
+            // Can calculate allowance ratio: 30KB available / 50KB requested = 60% allowance
             const allowedKb = res[0][1].tokensBefore
             const requestedKb = 50
             const allowanceRatio = allowedKb / requestedKb
-            expect(allowanceRatio).toBe(0.6)
+            expect(allowanceRatio).toBeCloseTo(0.6)
         })
 
         it('should handle multiple teams independently', async () => {
             const res = await rateLimiter.rateLimitMany([
-                [teamId1, 10],
-                [teamId2, 50],
+                [teamId1, 10, Math.round(now / 1000)],
+                [teamId2, 50, Math.round(now / 1000)],
             ])
 
             expect(res).toEqual([
@@ -110,8 +110,8 @@ describe('LogsRateLimiterService', () => {
             ])
 
             const res2 = await rateLimiter.rateLimitMany([
-                [teamId1, 5],
-                [teamId2, 0],
+                [teamId1, 5, Math.round(now / 1000)],
+                [teamId2, 0, Math.round(now / 1000)],
             ])
 
             expect(res2).toEqual([
@@ -121,14 +121,14 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should refill tokens over time at configured rate', async () => {
-            const res = await rateLimiter.rateLimitMany([[teamId1, 50]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 50, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(100)
             expect(res[0][1].tokensAfter).toBe(50)
 
             advanceTime(1000) // 1 second = 10KB refilled
 
-            const res2 = await rateLimiter.rateLimitMany([[teamId1, 5]])
+            const res2 = await rateLimiter.rateLimitMany([[teamId1, 5, Math.round(now / 1000)]])
 
             expect(res2[0][1].tokensBefore).toBe(60) // 50 + 10 refilled
             expect(res2[0][1].tokensAfter).toBe(55)
@@ -136,7 +136,7 @@ describe('LogsRateLimiterService', () => {
 
             advanceTime(4000) // 4 seconds = 40KB refilled
 
-            const res3 = await rateLimiter.rateLimitMany([[teamId1, 0]])
+            const res3 = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
             expect(res3[0][1].tokensBefore).toBe(95) // 55 + 40, capped at 100
             expect(res3[0][1].tokensAfter).toBe(95)
@@ -144,24 +144,25 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should not refill above bucket size', async () => {
-            const res = await rateLimiter.rateLimitMany([[teamId1, 10]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 10, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensAfter).toBe(90)
 
             advanceTime(5000) // 5 seconds = 50KB refilled, but capped at 100
 
-            const res2 = await rateLimiter.rateLimitMany([[teamId1, 0]])
+            const res2 = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
             expect(res2[0][1].tokensBefore).toBe(100) // capped at bucket size
             expect(res2[0][1].tokensAfter).toBe(100)
+            expect(res2[0][1].isRateLimited).toBe(false)
         })
 
         it('should handle sequential requests for same team in single call', async () => {
             const res = await rateLimiter.rateLimitMany([
-                [teamId1, 90],
-                [teamId1, 9],
-                [teamId1, 1],
-                [teamId1, 2],
+                [teamId1, 90, Math.round(now / 1000)],
+                [teamId1, 9, Math.round(now / 1000)],
+                [teamId1, 1, Math.round(now / 1000)],
+                [teamId1, 2, Math.round(now / 1000)],
             ])
 
             expect(res).toEqual([
@@ -173,23 +174,24 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should handle zero cost requests', async () => {
-            const res = await rateLimiter.rateLimitMany([[teamId1, 0]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
             expect(res).toEqual([[teamId1, { tokensBefore: 100, tokensAfter: 100, isRateLimited: false }]])
         })
 
         it('should recover from negative pool over time', async () => {
             // Exhaust the bucket completely
-            await rateLimiter.rateLimitMany([[teamId1, 100]])
-            const res = await rateLimiter.rateLimitMany([[teamId1, 50]])
+            await rateLimiter.rateLimitMany([[teamId1, 100, Math.round(now / 1000)]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 50, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(0)
             expect(res[0][1].tokensAfter).toBe(-1)
+            expect(res[0][1].isRateLimited).toBe(true)
 
             // Wait for refill (2 seconds = 20KB)
             advanceTime(2000)
 
-            const res2 = await rateLimiter.rateLimitMany([[teamId1, 0]])
+            const res2 = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
             // Pool was -1, refills by 20, so now 19
             expect(res2[0][1].tokensBefore).toBe(19)
@@ -198,7 +200,7 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should handle cost exceeding bucket size on first request', async () => {
-            const res = await rateLimiter.rateLimitMany([[teamId1, 200]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 200, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(100)
             expect(res[0][1].tokensAfter).toBe(-1)
@@ -206,18 +208,19 @@ describe('LogsRateLimiterService', () => {
         })
 
         it('should not refill within same second', async () => {
-            const res = await rateLimiter.rateLimitMany([[teamId1, 50]])
+            const res = await rateLimiter.rateLimitMany([[teamId1, 50, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensAfter).toBe(50)
 
             // Advance less than 1 second (use 400ms to avoid rounding to next second)
             advanceTime(400)
 
-            const res2 = await rateLimiter.rateLimitMany([[teamId1, 0]])
+            const res2 = await rateLimiter.rateLimitMany([[teamId1, 0, Math.round(now / 1000)]])
 
             // No refill should occur
             expect(res2[0][1].tokensBefore).toBe(50)
             expect(res2[0][1].tokensAfter).toBe(50)
+            expect(res2[0][1].isRateLimited).toBe(false)
         })
     })
 
@@ -474,7 +477,7 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB = config
             const rateLimiter = new LogsRateLimiterService(hub, redis)
 
-            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0]])
+            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0, Math.round(Date.now() / 1000)]])
 
             expect(result.tokensBefore).toBe(expectedBucket)
         })
@@ -486,9 +489,9 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND = config
             const rateLimiter = new LogsRateLimiterService(hub, redis)
 
-            await rateLimiter.rateLimitMany([[teamId, 50]])
+            await rateLimiter.rateLimitMany([[teamId, 50, Math.round(Date.now() / 1000)]])
             mockNow.mockReturnValue(Date.now() + 2000)
-            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0]])
+            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0, Math.round(Date.now() / 1000)]])
 
             expect(result.tokensBefore).toBe(50 + expectedRefill)
         })
@@ -502,7 +505,7 @@ describe('LogsRateLimiterService', () => {
             hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB = config
             const rateLimiter = new LogsRateLimiterService(hub, redis)
 
-            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0]])
+            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0, Math.round(Date.now() / 1000)]])
 
             expect(result.tokensBefore).toBe(DEFAULT_BUCKET_SIZE_KB)
         })
