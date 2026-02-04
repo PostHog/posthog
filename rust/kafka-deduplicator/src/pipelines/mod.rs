@@ -58,7 +58,16 @@
 //!     └── duplicate_event.rs # Duplicate event publishing format
 //! ```
 
+pub mod clickhouse_events;
 pub mod ingestion_events;
+pub mod processor;
+pub mod results;
 pub mod traits;
 
+pub use processor::{
+    batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
+    get_result_labels, get_store_or_drop, DeduplicationResult, DeduplicationResultLabels,
+    DuplicateReason, StoreResult,
+};
+pub use results::{DedupFieldName, EventSimilarity, PropertyDifference};
 pub use traits::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};
