@@ -79,11 +79,14 @@ def collect_bare_fields(node: ast.AST) -> set[str]:
 
 
 def get_table_alias_for_lazy_join(lazy_join_type: ast.LazyJoinType) -> str | None:
-    """Get the table alias that a LazyJoinType belongs to (e.g., 'e2' for e2's override)."""
+    """Get the table alias or table name that a LazyJoinType belongs to."""
     table_type = lazy_join_type.table_type
     while table_type:
         if isinstance(table_type, ast.TableAliasType):
             return table_type.alias
+        if isinstance(table_type, ast.TableType):
+            # No alias, use the table name directly
+            return table_type.table.to_printed_hogql()
         if isinstance(table_type, (ast.VirtualTableType, ast.LazyJoinType)):
             table_type = table_type.table_type
         else:
