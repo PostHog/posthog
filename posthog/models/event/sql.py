@@ -435,10 +435,10 @@ SETTINGS ttl_only_drop_parts = 1
     )
 
 
-def DISTRIBUTED_SHARDED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_SHARDED_EVENTS_RECENT_TABLE_SQL():
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="distributed_sharded_events_recent",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(
             data_table=SHARDED_EVENTS_RECENT_DATA_TABLE,
             sharding_key="sipHash64(distinct_id)",
