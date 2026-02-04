@@ -10,7 +10,7 @@ export type TextfitProps = {
 export const Textfit = ({ min, max, children }: TextfitProps): JSX.Element => {
     const parentRef = useRef<HTMLDivElement>(null)
     const childRef = useRef<HTMLDivElement>(null)
-    const fontSizeRef = useRef<number>(min)
+    const fontSizeRef = useRef<number>(max)
 
     let resizeTimer: NodeJS.Timeout
 
