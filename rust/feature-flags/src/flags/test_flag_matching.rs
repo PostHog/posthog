@@ -6034,18 +6034,15 @@ mod tests {
             )
             .await;
 
-        // Base flag should be disabled
-        let base_result = result.flags.get("base_flag").unwrap();
+        // Disabled base flag should NOT be in the response (only active flags are returned)
         assert!(
-            !base_result.enabled,
-            "Disabled base flag should not be enabled"
-        );
-        assert_eq!(
-            base_result.reason.code, "flag_disabled",
-            "Base flag reason should be flag_disabled"
+            !result.flags.contains_key("base_flag"),
+            "Disabled flags should not be included in the response"
         );
 
-        // Dependent flag should evaluate to false because the base flag is disabled
+        // Dependent flag should evaluate to false because its dependency is disabled
+        // This confirms that dependency resolution works even though the disabled flag
+        // is not in the response (it's evaluated internally)
         let dependent_result = result.flags.get("dependent_flag").unwrap();
         assert!(
             !dependent_result.enabled,
@@ -6053,8 +6050,100 @@ mod tests {
         );
         assert_ne!(
             dependent_result.reason.code, "flag_disabled",
-            "Dependent flag should not have flag_disabled reason"
+            "Dependent flag should not have flag_disabled reason (it's not disabled, its dependency is)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_disabled_flags_not_dependencies_excluded_from_response() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Create a disabled standalone flag (not a dependency of any active flag)
+        let disabled_standalone: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "disabled_standalone",
+                "key": "disabled_standalone",
+                "active": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Create an active flag that doesn't depend on anything
+        let active_flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 2,
+                "team_id": team.id,
+                "name": "active_flag",
+                "key": "active_flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let flags = FeatureFlagList {
+            flags: vec![disabled_standalone, active_flag],
+        };
+
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
+            .await;
+
+        // Disabled standalone flag should NOT be in the response
+        assert!(
+            !result.flags.contains_key("disabled_standalone"),
+            "Disabled standalone flags should be excluded from response"
+        );
+
+        // Active flag should be in the response
+        let active_result = result.flags.get("active_flag").unwrap();
+        assert!(active_result.enabled, "Active flag should be enabled");
     }
 
     // ======== Integration tests for experience continuity optimization ========
@@ -6958,6 +7047,307 @@ mod tests {
         assert!(
             !result.errors_while_computing_flags,
             "No errors should occur"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_super_condition_matches_with_override_no_person_in_db() {
+        // Test that super_condition can match using person_property_overrides
+        // even when the person doesn't exist in the database.
+        // This is a key scenario for early access feature enrollment.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Early Access Flag".to_string()),
+            Some("early_access_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$feature_enrollment/my-flag".to_string(),
+                        value: Some(json!(["true"])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+        let person_property_overrides =
+            HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        reset_fetch_calls_count();
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            "new_user_not_in_db".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            Some(person_property_overrides),
+            None,
+            None,
+            Uuid::new_v4(),
+            None,
+            false,
+        )
+        .await;
+
+        // Verify no DB fetch was needed since all required properties are in overrides
+        let fetch_calls = get_fetch_calls_count();
+        assert_eq!(
+            fetch_calls, 0,
+            "Should not need DB fetch when super_group properties are in overrides"
+        );
+        assert!(
+            !result.errors_while_computing_flags,
+            "Should not have errors"
+        );
+
+        let flag_result = result.flags.get("early_access_flag").unwrap();
+        assert_eq!(
+            flag_result.to_value(),
+            FlagValue::Boolean(true),
+            "Flag should match via super_condition override even without person in DB"
+        );
+        assert_eq!(
+            flag_result.reason.code,
+            FeatureFlagMatchReason::SuperConditionValue.to_string(),
+            "Match reason should be SuperConditionValue"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_super_condition_override_takes_precedence_over_db() {
+        // Test that person_property_overrides take precedence over DB values
+        // for super_condition evaluation.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Early Access Flag".to_string()),
+            Some("early_access_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$feature_enrollment/my-flag".to_string(),
+                        value: Some(json!(["true"])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Person exists in DB with enrollment set to FALSE
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({
+                    "email": "test@example.com",
+                    "$feature_enrollment/my-flag": "false"
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Override says TRUE - this should win
+        let person_property_overrides =
+            HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            Some(person_property_overrides),
+            None,
+            None,
+            Uuid::new_v4(),
+            None,
+            false,
+        )
+        .await;
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "Should not have errors"
+        );
+        let flag_result = result.flags.get("early_access_flag").unwrap();
+        assert_eq!(
+            flag_result.to_value(),
+            FlagValue::Boolean(true),
+            "Override should take precedence over DB value for super_condition"
+        );
+        assert_eq!(
+            flag_result.reason.code,
+            FeatureFlagMatchReason::SuperConditionValue.to_string(),
+            "Match reason should be SuperConditionValue"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_super_condition_with_override_person_exists_without_property() {
+        // Test that super_condition matches when person exists in DB
+        // but doesn't have the enrollment property, and we provide it via override.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Early Access Flag".to_string()),
+            Some("early_access_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$feature_enrollment/my-flag".to_string(),
+                        value: Some(json!(["true"])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Person exists in DB but does NOT have the enrollment property
+        context
+            .insert_person(
+                team.id,
+                "test_user".to_string(),
+                Some(json!({
+                    "email": "test@example.com"
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Override provides the enrollment property
+        let person_property_overrides =
+            HashMap::from([("$feature_enrollment/my-flag".to_string(), json!("true"))]);
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let router = context.create_postgres_router();
+        let result = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        )
+        .evaluate_all_feature_flags(
+            flags,
+            Some(person_property_overrides),
+            None,
+            None,
+            Uuid::new_v4(),
+            None,
+            false,
+        )
+        .await;
+
+        assert!(
+            !result.errors_while_computing_flags,
+            "Should not have errors"
+        );
+        let flag_result = result.flags.get("early_access_flag").unwrap();
+        assert_eq!(
+            flag_result.to_value(),
+            FlagValue::Boolean(true),
+            "Override should provide missing property for super_condition match"
+        );
+        assert_eq!(
+            flag_result.reason.code,
+            FeatureFlagMatchReason::SuperConditionValue.to_string(),
+            "Match reason should be SuperConditionValue"
         );
     }
 }

@@ -577,6 +577,15 @@ class Team(UUIDTClassicModel):
         help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
     )
 
+    default_experiment_stats_method = models.CharField(
+        max_length=20,
+        choices=Organization.DefaultExperimentStatsMethod.choices,
+        default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
+        help_text="Default statistical method for new experiments in this environment.",
+        null=True,
+        blank=True,
+    )
+
     business_model = models.CharField(
         max_length=10,
         choices=BusinessModel.choices,
@@ -773,6 +782,14 @@ class Team(UUIDTClassicModel):
                 ],
             ),
         )
+
+        self._notify_vercel_of_token_rotation()
+
+    def _notify_vercel_of_token_rotation(self) -> None:
+        """Push updated API token to Vercel integrations in the background."""
+        from posthog.tasks.integrations import push_vercel_secrets
+
+        push_vercel_secrets.delay(self.id)
 
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity

@@ -43,10 +43,15 @@ resources_by_env = {
         ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
-        # Clay webhook for sending enriched contact data
-        "clay_webhook": ClayWebhookResource(
-            webhook_url=dagster.EnvVar("CLAY_WEBHOOK_URL"),
-            api_key=dagster.EnvVar("CLAY_API_KEY"),
+        # Clay webhook for job switchers pipeline
+        "clay_webhook_job_switchers": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_JOB_SWITCHERS_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_JOB_SWITCHERS_API_KEY"),
+        ),
+        # Clay webhook for product-led outbound pipeline
+        "clay_webhook_plo": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_API_KEY"),
         ),
     },
     "local": {
@@ -74,10 +79,15 @@ resources_by_env = {
         ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
-        # Clay webhook for sending enriched contact data
-        "clay_webhook": ClayWebhookResource(
-            webhook_url=dagster.EnvVar("CLAY_WEBHOOK_URL"),
-            api_key=dagster.EnvVar("CLAY_API_KEY"),
+        # Clay webhook for job switchers pipeline
+        "clay_webhook_job_switchers": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_JOB_SWITCHERS_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_JOB_SWITCHERS_API_KEY"),
+        ),
+        # Clay webhook for product-led outbound pipeline
+        "clay_webhook_plo": ClayWebhookResource(
+            webhook_url=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_WEBHOOK_URL"),
+            api_key=dagster.EnvVar("CLAY_PRODUCT_LED_OUTBOUND_API_KEY"),
         ),
     },
 }

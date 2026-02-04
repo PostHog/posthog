@@ -352,6 +352,8 @@ interface PolicySnapshot {
     users?: number[]
     roles?: string[]
     allow_self_approve?: boolean
+    bypass_org_membership_levels?: string[]
+    bypass_roles?: string[]
     conditions?: {
         type?: string
         field?: string

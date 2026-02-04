@@ -102,7 +102,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
 
-        sendMessage: (content: string, onSuccess?: () => void) => ({ content, onSuccess }),
+        sendMessage: (
+            content: string,
+            richContent: Record<string, unknown> | null,
+            isPrivate: boolean,
+            onSuccess?: () => void
+        ) => ({
+            content,
+            richContent,
+            isPrivate,
+            onSuccess,
+        }),
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
@@ -281,10 +291,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return {
                         id: message.id,
                         content: message.content || '',
+                        richContent: message.rich_content,
                         authorType: authorType === 'support' ? 'human' : authorType,
                         authorName: displayName,
                         createdBy: message.created_by,
                         createdAt: message.created_at,
+                        isPrivate: message.item_context?.is_private || false,
                     }
                 }),
         ],
@@ -412,7 +424,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setOlderMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
+        sendMessage: async ({ content, richContent, isPrivate, onSuccess }) => {
             if (props.id === 'new') {
                 actions.setMessageSending(false)
                 return
@@ -421,16 +433,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await api.comments.create(
                     {
                         content,
+                        rich_content: richContent,
                         scope: 'conversations_ticket',
                         item_id: props.id.toString(),
                         item_context: {
                             author_type: 'support',
-                            is_private: false,
+                            is_private: isPrivate,
                         },
                     },
                     {}
                 )
-                lemonToast.success('Message sent')
+                lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
                 setTimeout(() => {

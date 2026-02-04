@@ -258,7 +258,7 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay', 'shadow'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
