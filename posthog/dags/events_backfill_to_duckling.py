@@ -375,16 +375,68 @@ def table_exists(
         return False
 
 
+def _set_table_partitioning(
+    conn: duckdb.DuckDBPyConnection,
+    alias: str,
+    table: str,
+    partition_expr: str,
+    context: AssetExecutionContext,
+    team_id: int,
+) -> bool:
+    """Set partitioning on a DuckLake table.
+
+    This operation is idempotent - calling it multiple times with the same
+    partition expression is safe and will succeed.
+
+    Args:
+        conn: DuckDB connection with catalog attached.
+        alias: Catalog alias.
+        table: Table name (must be alphanumeric/underscore only).
+        partition_expr: Partition expression (e.g., "year(timestamp), month(timestamp)").
+        context: Dagster asset execution context.
+        team_id: Team ID for logging.
+
+    Returns:
+        True if partitioning was set successfully, False if it failed.
+    """
+    _validate_identifier(alias)
+    _validate_identifier(table)
+
+    context.log.info(f"Setting partitioning on {table} table...")
+    try:
+        conn.execute(f"ALTER TABLE {alias}.posthog.{table} SET PARTITIONED BY ({partition_expr})")
+        context.log.info(f"Successfully set partitioning on {table} table")
+        logger.info(
+            f"duckling_{table}_partitioning_set",
+            team_id=team_id,
+            partition_expr=partition_expr,
+        )
+        return True
+    except Exception as exc:
+        context.log.warning(f"Failed to set partitioning on {table} table: {exc}")
+        logger.warning(
+            f"duckling_{table}_partitioning_failed",
+            team_id=team_id,
+            partition_expr=partition_expr,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return False
+
+
 def ensure_events_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
 ) -> bool:
     """Create the events table in the duckling's DuckLake catalog if it doesn't exist.
 
+    Also ensures partitioning is set on the table (idempotent operation).
+
     Returns True if the table was created, False if it already existed.
 
     Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
-    is idempotent and handles race conditions gracefully.
+    is idempotent and handles race conditions gracefully. Partitioning is also
+    idempotent - calling SET PARTITIONED BY multiple times with the same keys succeeds.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
@@ -397,6 +449,10 @@ def ensure_events_table_exists(
 
         if table_exists(conn, alias, "posthog", "events"):
             context.log.info("Events table already exists in duckling catalog")
+            # Ensure partitioning is set even on existing tables (idempotent)
+            _set_table_partitioning(
+                conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id
+            )
             return False
 
         context.log.info("Creating posthog schema if it doesn't exist...")
@@ -410,6 +466,10 @@ def ensure_events_table_exists(
             # Check if this was a race condition (another worker created the table)
             if table_exists(conn, alias, "posthog", "events"):
                 context.log.info("Events table was created by another worker")
+                # Ensure partitioning is set even when another worker created the table
+                _set_table_partitioning(
+                    conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id
+                )
                 return False
             # Real error - log and re-raise
             context.log.exception(f"Failed to create events table: {exc}")
@@ -418,9 +478,7 @@ def ensure_events_table_exists(
         context.log.info("Successfully created events table")
 
         # Set partitioning by year/month for efficient querying
-        context.log.info("Setting partitioning on events table...")
-        conn.execute(f"ALTER TABLE {alias}.posthog.events SET PARTITIONED BY (year(timestamp), month(timestamp))")
-        context.log.info("Successfully set partitioning on events table")
+        _set_table_partitioning(conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id)
 
         logger.info(
             "duckling_events_table_created",
@@ -439,10 +497,13 @@ def ensure_persons_table_exists(
 ) -> bool:
     """Create the persons table in the duckling's DuckLake catalog if it doesn't exist.
 
+    Also ensures partitioning is set on the table (idempotent operation).
+
     Returns True if the table was created, False if it already existed.
 
     Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
-    is idempotent and handles race conditions gracefully.
+    is idempotent and handles race conditions gracefully. Partitioning is also
+    idempotent - calling SET PARTITIONED BY multiple times with the same keys succeeds.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
@@ -455,6 +516,10 @@ def ensure_persons_table_exists(
 
         if table_exists(conn, alias, "posthog", "persons"):
             context.log.info("Persons table already exists in duckling catalog")
+            # Ensure partitioning is set even on existing tables (idempotent)
+            _set_table_partitioning(
+                conn, alias, "persons", "year(_timestamp), month(_timestamp)", context, catalog.team_id
+            )
             return False
 
         context.log.info("Creating posthog schema if it doesn't exist...")
@@ -468,12 +533,20 @@ def ensure_persons_table_exists(
             # Check if this was a race condition (another worker created the table)
             if table_exists(conn, alias, "posthog", "persons"):
                 context.log.info("Persons table was created by another worker")
+                # Ensure partitioning is set even when another worker created the table
+                _set_table_partitioning(
+                    conn, alias, "persons", "year(_timestamp), month(_timestamp)", context, catalog.team_id
+                )
                 return False
             # Real error - log and re-raise
             context.log.exception(f"Failed to create persons table: {exc}")
             raise
 
         context.log.info("Successfully created persons table")
+
+        # Set partitioning by year/month of _timestamp for efficient querying
+        _set_table_partitioning(conn, alias, "persons", "year(_timestamp), month(_timestamp)", context, catalog.team_id)
+
         logger.info(
             "duckling_persons_table_created",
             team_id=catalog.team_id,
@@ -969,6 +1042,7 @@ def export_persons_to_duckling_s3(
       AND toDate(p._timestamp) = '{date_str}'
       AND p.is_deleted = 0
       AND pd.is_deleted = 0
+    ORDER BY distinct_id, _timestamp
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
