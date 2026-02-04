@@ -4,7 +4,6 @@ import { PropsWithChildren } from 'react'
 import { IconX } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
