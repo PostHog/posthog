@@ -20,6 +20,17 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T")
 
 
+def _person_has_min_timestamp(person: "Person | None", min_timestamp: float | None) -> "Person | None":
+    """Return the person only if it exists and meets the minimum timestamp requirement."""
+    if person is None:
+        return None
+    if min_timestamp is not None:
+        person_timestamp = person.properties.get("$test_timestamp")
+        if person_timestamp is None or person_timestamp < min_timestamp:
+            return None
+    return person
+
+
 @dataclass
 class CapturedEvent:
     """An event retrieved from the PostHog API."""
@@ -79,28 +90,86 @@ class PostHogClient:
 
         return event_uuid
 
-    def query_event_by_uuid(
-        self,
-        event_uuid: str,
-        timeout_seconds: int | None = None,
-    ) -> CapturedEvent | None:
+    def alias(self, alias: str, distinct_id: str) -> None:
+        """Create an alias linking alias to distinct_id.
+
+        After this call, events sent to `alias` will be associated with the same
+        person as `distinct_id`.
+        """
+        logger.info("Creating alias", alias=alias, distinct_id=distinct_id)
+        self._posthog.alias(alias, distinct_id)
+        logger.info("Alias created", alias=alias, distinct_id=distinct_id)
+
+    def merge_dangerously(self, merge_into_distinct_id: str, merge_from_distinct_id: str) -> str:
+        """Merge two persons using $merge_dangerously.
+
+        This merges the person with `merge_from_distinct_id` INTO the person with
+        `merge_into_distinct_id`. The merge_from person will cease to exist and all
+        their events will be associated with merge_into.
+
+        WARNING: This is irreversible and has no safeguards!
+
+        Args:
+            merge_into_distinct_id: The distinct_id of the person to merge INTO (survives).
+            merge_from_distinct_id: The distinct_id of the person to BE merged (disappears).
+
+        Returns:
+            The event UUID of the merge event.
+        """
+        event_uuid = str(uuid.uuid4())
+
+        logger.info(
+            "Merging persons dangerously",
+            merge_into=merge_into_distinct_id,
+            merge_from=merge_from_distinct_id,
+            event_uuid=event_uuid,
+        )
+
+        self._posthog.capture(
+            distinct_id=merge_into_distinct_id,
+            event="$merge_dangerously",
+            properties={"alias": merge_from_distinct_id},
+            uuid=event_uuid,
+        )
+
+        logger.info("Merge event captured", event_uuid=event_uuid)
+
+        return event_uuid
+
+    def query_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
         """Query for an event by UUID, polling until found or timeout."""
         return self._poll_until_found(
             fetch_fn=lambda: self._fetch_event_by_uuid(event_uuid),
             description=f"event UUID '{event_uuid}'",
-            timeout_seconds=timeout_seconds,
         )
 
-    def query_person_by_distinct_id(
-        self,
-        distinct_id: str,
-        timeout_seconds: int | None = None,
-    ) -> Person | None:
-        """Query for a person by distinct_id, polling until found or timeout."""
+    def query_person_by_distinct_id(self, distinct_id: str, min_timestamp: float | None = None) -> Person | None:
+        """Query for a person by distinct_id, polling until found or timeout.
+
+        Args:
+            distinct_id: The distinct_id to search for.
+            min_timestamp: If provided, only return the person if their $test_timestamp
+                property is >= this value. This helps ensure eventual consistency by
+                waiting for person updates to propagate.
+        """
         return self._poll_until_found(
-            fetch_fn=lambda: self._fetch_person_by_distinct_id(distinct_id),
+            fetch_fn=lambda: _person_has_min_timestamp(self._fetch_person_by_distinct_id(distinct_id), min_timestamp),
             description=f"person with distinct_id '{distinct_id}'",
-            timeout_seconds=timeout_seconds,
+        )
+
+    def query_events_by_person_id(self, person_id: str, expected_count: int) -> list[CapturedEvent] | None:
+        """Query for events by person_id, polling until expected count is reached or timeout.
+
+        Args:
+            person_id: The person ID to search events for.
+            expected_count: The minimum number of events expected.
+
+        Returns:
+            List of events if expected_count is reached, None if timeout.
+        """
+        return self._poll_until_found(
+            fetch_fn=lambda: self._fetch_events_by_person_id(person_id, expected_count),
+            description=f"events for person '{person_id}'",
         )
 
     def shutdown(self) -> None:
@@ -111,13 +180,11 @@ class PostHogClient:
         self,
         fetch_fn: Callable[[], T | None],
         description: str,
-        timeout_seconds: int | None = None,
     ) -> T | None:
         """Poll until fetch_fn returns a non-None result or timeout."""
-        timeout = timeout_seconds or self.config.event_timeout_seconds
         start_time = time.time()
 
-        while time.time() - start_time < timeout:
+        while time.time() - start_time < self.config.event_timeout_seconds:
             result = fetch_fn()
             if result is not None:
                 return result
@@ -127,7 +194,14 @@ class PostHogClient:
 
     def _execute_hogql_query(self, query: str, values: dict[str, Any]) -> dict[str, Any] | None:
         """Execute a HogQL query and return the first row as a dict, or None if no results."""
-        url = f"{self.config.api_host}/api/environments/{self.config.project_id}/query/"
+        rows = self._execute_hogql_query_all(query, values)
+        if not rows:
+            return None
+        return rows[0]
+
+    def _execute_hogql_query_all(self, query: str, values: dict[str, Any]) -> list[dict[str, Any]]:
+        """Execute a HogQL query and return all rows as a list of dicts."""
+        url = f"{self.config.api_host}/api/projects/{self.config.project_id}/query/"
 
         response = requests.post(
             url,
@@ -144,17 +218,14 @@ class PostHogClient:
         )
 
         if response.status_code == 404:
-            return None
+            return []
 
         response.raise_for_status()
         data = response.json()
 
         results = data.get("results", [])
-        if not results:
-            return None
-
         columns = data.get("columns", [])
-        return dict(zip(columns, results[0]))
+        return [dict(zip(columns, row)) for row in results]
 
     def _fetch_event_by_uuid(self, event_uuid: str) -> CapturedEvent | None:
         """Fetch an event by UUID."""
@@ -204,3 +275,32 @@ class PostHogClient:
             properties=properties,
             created_at=row.get("created_at", ""),
         )
+
+    def _fetch_events_by_person_id(self, person_id: str, expected_count: int) -> list[CapturedEvent] | None:
+        """Fetch events by person_id. Returns None if fewer than expected_count events found."""
+        query = """
+            SELECT uuid, event, distinct_id, properties, timestamp
+            FROM events
+            WHERE person_id = {person_id}
+            ORDER BY timestamp ASC
+        """
+
+        rows = self._execute_hogql_query_all(query, {"person_id": person_id})
+        if len(rows) < expected_count:
+            return None
+
+        events = []
+        for row in rows:
+            properties = row.get("properties", {})
+            if isinstance(properties, str):
+                properties = json.loads(properties)
+            events.append(
+                CapturedEvent(
+                    uuid=row.get("uuid", ""),
+                    event=row.get("event", ""),
+                    distinct_id=row.get("distinct_id", ""),
+                    properties=properties,
+                    timestamp=row.get("timestamp", ""),
+                )
+            )
+        return events

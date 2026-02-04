@@ -87,7 +87,9 @@ test.describe('Trends insights', () => {
 
         await test.step('change to Unique users', async () => {
             await insight.trends.mathSelector(0).click()
-            await page.getByText('Unique users').click()
+            const uniqueUsersOption = page.getByRole('menuitem', { name: 'Unique users' })
+            await uniqueUsersOption.waitFor({ state: 'visible' })
+            await uniqueUsersOption.click()
             await insight.trends.waitForChart()
             await expect(page.getByText('Unique users').first()).toBeVisible()
         })
