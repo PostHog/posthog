@@ -25,12 +25,10 @@ export async function loadClusterMetrics(
 ): Promise<Record<number, ClusterMetrics>> {
     // Collect all item IDs from all clusters
     const allItemIds: string[] = []
-    const itemToCluster: Record<string, number> = {}
 
     for (const cluster of clusters) {
         for (const itemId of Object.keys(cluster.traces)) {
             allItemIds.push(itemId)
-            itemToCluster[itemId] = cluster.cluster_id
         }
     }
 
