@@ -67,7 +67,11 @@ jobs:
                   cache: pnpm
 
             - name: Install Ninja
-              run: sudo apt-get update && sudo apt-get install -y ninja-build unzip
+              run: |
+                  # Add alternative mirrors for resilience against primary mirror timeouts
+                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list
+                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list
+                  sudo apt-get update && sudo apt-get install -y ninja-build unzip
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
@@ -220,7 +224,11 @@ jobs:
                   cache: pnpm
 
             - name: Install build dependencies
-              run: apt-get update && apt-get install -y ninja-build unzip xz-utils
+              run: |
+                  # Add alternative mirrors for resilience against primary mirror timeouts
+                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse' >> /etc/apt/sources.list
+                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse' >> /etc/apt/sources.list
+                  apt-get update && apt-get install -y ninja-build unzip xz-utils
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
