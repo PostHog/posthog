@@ -94,7 +94,7 @@ class MatrixManager:
                     role_at_organization="engineering",
                 )
                 team = self.create_team(organization, initiating_user=new_user)
-            # Demo data generation is triggered by create_with_data(is_demo=True) via Celery task
+            self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
@@ -120,12 +120,13 @@ class MatrixManager:
 
     @staticmethod
     def create_team(organization: Organization, initiating_user: Optional["UserType"] = None, **kwargs) -> Team:
-        # Pass is_demo=True to trigger demo data generation via Celery task
-        # The task calls MatrixManager.run_on_team() which handles all demo setup
+        # Pass is_demo=True but skip automatic demo data generation
+        # MatrixManager handles demo data via run_on_team() which uses the same matrix instance
         return Team.objects.create_with_data(
             organization=organization,
             initiating_user=initiating_user,
             is_demo=True,
+            skip_demo_data_generation=True,
             **kwargs,
         )
 

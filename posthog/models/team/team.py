@@ -115,7 +115,9 @@ class TeamManager(models.Manager):
                     ]
         return filters
 
-    def create_with_data(self, *, initiating_user: Optional["User"], **kwargs) -> "Team":
+    def create_with_data(
+        self, *, initiating_user: Optional["User"], skip_demo_data_generation: bool = False, **kwargs
+    ) -> "Team":
         team = cast("Team", self.create(**kwargs))
 
         # Create test users cohort and set test account filters to exclude it
@@ -124,7 +126,7 @@ class TeamManager(models.Manager):
         test_users_cohort = get_or_create_internal_test_users_cohort(team)
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": test_users_cohort.id, "negation": True}]
 
-        if kwargs.get("is_demo"):
+        if kwargs.get("is_demo") and not skip_demo_data_generation:
             if initiating_user is None:
                 raise ValueError("initiating_user must be provided when creating a demo team")
             team.save()

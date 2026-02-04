@@ -2155,6 +2155,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "virtual": True,
         },
+        "$internal_or_test_user": {
+            "label": "Internal/test user",
+            "description": "Whether this user is an internal team member or test user. Used to filter out internal users from analytics. Learn more in [our documentation](https://posthog.com/tutorials/filter-internal-users).",
+            "examples": [True, False],
+            "type": "Boolean",
+        },
     },
     "session_properties": {
         "$session_duration": {
