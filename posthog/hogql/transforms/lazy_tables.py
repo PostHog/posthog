@@ -77,6 +77,31 @@ def collect_fields_from_table(node: ast.AST, table_alias: str) -> set[str]:
     }
 
 
+def find_lazy_join_parent_table(expr: ast.Expr) -> str | None:
+    """Find the parent table alias of any LazyJoinType in the expression.
+
+    When a field like e2.person_id references a lazy join (e.g., override),
+    the LazyJoinType's table_type will have the parent table alias (e.g., 'e2').
+    """
+
+    class LazyJoinParentFinder(TraversingVisitor):
+        def __init__(self):
+            super().__init__()
+            self.parent_tables: set[str] = set()
+
+        def visit_field(self, node: ast.Field):
+            if node.type and isinstance(node.type, ast.FieldType):
+                table_type = node.type.table_type
+                if isinstance(table_type, ast.LazyJoinType):
+                    parent = getattr(table_type.table_type, "alias", None)
+                    if parent:
+                        self.parent_tables.add(parent)
+
+    finder = LazyJoinParentFinder()
+    finder.visit(expr)
+    return next(iter(finder.parent_tables), None) if finder.parent_tables else None
+
+
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
     max_type_visits: int = 1
@@ -427,8 +452,7 @@ class LazyTableResolver(TraversingVisitor):
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
 
-            field_chain_finder = FieldFinder()
-            field_chain_finder.visit(join_to_add.constraint)
+            constraint_field_chains = find_field_chains(join_to_add.constraint)
 
             select_from_alias: str | int | None = None
             if node.select_from and node.select_from.alias:
@@ -439,7 +463,7 @@ class LazyTableResolver(TraversingVisitor):
 
             # Store all the constraint tables we've seen for this join to decide where in the order of joins the next join should be added
             constraint_tables: list[str | int] = []
-            for field_chain in field_chain_finder.field_chains:
+            for field_chain in constraint_field_chains:
                 if field_chain[0] == select_from_alias:
                     continue
 
@@ -474,12 +498,27 @@ class LazyTableResolver(TraversingVisitor):
                         constraint_expr = join_ptr.constraint.expr
                         original_alias = join_ptr.alias or str(join_ptr.table.chain[0])
 
-                        # Determine which side of the constraint references the lazy join
-                        # The side that references the lazy field (e.g., "override") should become __join_key
+                        # Determine which side of the constraint belongs to the table being wrapped
                         left_refs_lazy = lazy_field_name and references_table(constraint_expr.left, lazy_field_name)
                         right_refs_lazy = lazy_field_name and references_table(constraint_expr.right, lazy_field_name)
 
-                        if left_refs_lazy:
+                        if left_refs_lazy and right_refs_lazy:
+                            # Both sides reference lazy joins - find which side belongs to current table
+                            left_from_table = find_lazy_join_parent_table(constraint_expr.left)
+                            right_from_table = find_lazy_join_parent_table(constraint_expr.right)
+
+                            if right_from_table == original_alias:
+                                join_key_expr = constraint_expr.right
+                                other_side_expr = constraint_expr.left
+                            elif left_from_table == original_alias:
+                                join_key_expr = constraint_expr.left
+                                other_side_expr = constraint_expr.right
+                            else:
+                                raise ResolutionError(
+                                    f"Cannot resolve lazy join constraint: both sides reference lazy joins "
+                                    f"but neither can be matched to table '{original_alias}'"
+                                )
+                        elif left_refs_lazy:
                             join_key_expr = constraint_expr.left
                             other_side_expr = constraint_expr.right
                         elif right_refs_lazy:
@@ -508,6 +547,8 @@ class LazyTableResolver(TraversingVisitor):
                             ),
                         )
                         subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, []))
+                        # Resolve any lazy tables within the subquery (e.g., if join_key_expr contains a lazy join)
+                        resolve_lazy_tables(subquery, self.dialect, [subquery], self.context)
                         assert subquery.type is not None
 
                         join_ptr.table = subquery

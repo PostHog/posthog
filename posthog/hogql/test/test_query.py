@@ -455,6 +455,50 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][2], "Chrome")
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_lazy_on_both_sides(self):
+        """Test join where both sides of the constraint trigger lazy joins.
+
+        This is a self-join on events where both e1.person_id and e2.person_id
+        trigger lazy joins to person_distinct_id_overrides. Tests that the code
+        handles the case where both left and right sides of the constraint are lazy.
+        """
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            flush_persons_and_events()
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                distinct_id="person1",
+                event="click",
+                team=self.team,
+                properties={"$browser": "Firefox"},
+            )
+            flush_persons_and_events()
+
+            # Self-join on events where both sides use person_id (both trigger lazy joins)
+            response = execute_hogql_query(
+                "SELECT e1.event, e2.event "
+                "FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id "
+                "WHERE e1.event = 'pageview' AND e2.event = 'click'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            # Should find the pageview-click pair for the same person
+            self.assertEqual(len(response.results), 1)
+            self.assertEqual(response.results[0][0], "pageview")
+            self.assertEqual(response.results[0][1], "click")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
