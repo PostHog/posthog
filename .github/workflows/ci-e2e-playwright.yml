@@ -363,6 +363,23 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
+            - name: Start resource monitoring
+              run: |
+                  # Capture system resources every 5 seconds during test execution
+                  mkdir -p /tmp/resource-logs
+                  (
+                    while true; do
+                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/vmstat.log
+                      vmstat 1 1 >> /tmp/resource-logs/vmstat.log 2>&1
+                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/memory.log
+                      free -h >> /tmp/resource-logs/memory.log 2>&1
+                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/top-processes.log
+                      ps aux --sort=-%mem | head -15 >> /tmp/resource-logs/top-processes.log 2>&1
+                      sleep 5
+                    done
+                  ) &
+                  echo $! > /tmp/resource-monitor.pid
+
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
@@ -469,6 +486,18 @@ jobs:
                   if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
+            - name: Stop resource monitoring
+              if: always()
+              run: |
+                  if [ -f /tmp/resource-monitor.pid ]; then
+                    kill $(cat /tmp/resource-monitor.pid) 2>/dev/null || true
+                  fi
+                  # Capture final resource state
+                  echo "=== Final Resource State ==="
+                  echo "Memory:" && free -h
+                  echo "CPU cores:" && nproc
+                  echo "Load average:" && cat /proc/loadavg
+
             - name: Capture docker logs
               if: always()
               run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
@@ -486,6 +515,7 @@ jobs:
                       /tmp/celery.log
                       /tmp/server.log
                       /tmp/playwright-output-attempt-*.log
+                      /tmp/resource-logs/
                   retention-days: 30
                   if-no-files-found: ignore
 
