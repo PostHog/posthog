@@ -1,8 +1,8 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
 
-from posthog.models import Team, User
-
-from ee.hogai.external_tool import ExternalTool, ExternalToolResult, register_external_tool
+from ee.hogai.external_tool import ExternalTool, register_external_tool
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 from .core import HogQLValidationError, execute_hogql_query, validate_hogql
@@ -12,8 +12,8 @@ class ExecuteSQLExternalToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
 
 
-@register_external_tool
-class ExecuteSQLExternalTool(ExternalTool):
+@register_external_tool(scopes=["insight:read", "query:read"])
+class ExecuteSQLExternalTool(ExternalTool[ExecuteSQLExternalToolArgs]):
     """
     External version of ExecuteSQLTool for API/MCP callers.
 
@@ -23,42 +23,17 @@ class ExecuteSQLExternalTool(ExternalTool):
     name = "execute_sql"
     args_schema = ExecuteSQLExternalToolArgs
 
-    async def execute(self, team: Team, user: User, **args) -> ExternalToolResult:
-        query_str = args.get("query", "")
-
-        # Validate the HogQL query
+    async def execute(self, args: ExecuteSQLExternalToolArgs) -> tuple[str, dict[str, Any] | None]:
         try:
-            validated_query = await validate_hogql(query_str, team)
+            validated_query = await validate_hogql(args.query, self._team)
         except HogQLValidationError as e:
-            return ExternalToolResult(
-                success=False,
-                content=f"Query validation failed: {e}",
-                error="validation_error",
-            )
+            raise MaxToolRetryableError(f"Query validation failed: {e}")
 
-        # Execute the query
-        try:
-            result = await execute_hogql_query(
-                team=team,
-                query=validated_query,
-                name="",
-                description="",
-            )
-        except MaxToolRetryableError as e:
-            return ExternalToolResult(
-                success=False,
-                content=f"Query execution failed: {e}",
-                error="execution_error",
-            )
-        except Exception as e:
-            return ExternalToolResult(
-                success=False,
-                content=f"Unexpected error: {e}",
-                error="unexpected_error",
-            )
-
-        return ExternalToolResult(
-            success=True,
-            content=result,
-            data={"query": query_str},
+        result = await execute_hogql_query(
+            team=self._team,
+            query=validated_query,
+            name="",
+            description="",
         )
+
+        return result, {"query": args.query}

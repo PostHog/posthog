@@ -1,14 +1,13 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
-from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.external_tool import ExternalTool, ExternalToolResult, register_external_tool
+from ee.hogai.external_tool import ExternalTool, register_external_tool
 
 
 class ReadDataWarehouseSchemaQuery(BaseModel):
@@ -19,8 +18,8 @@ class ReadDataWarehouseSchemaExternalToolArgs(BaseModel):
     query: ReadDataWarehouseSchemaQuery
 
 
-@register_external_tool
-class ReadDataWarehouseSchemaExternalTool(ExternalTool):
+@register_external_tool(scopes=["insight:read", "query:read"])
+class ReadDataWarehouseSchemaExternalTool(ExternalTool[ReadDataWarehouseSchemaExternalToolArgs]):
     """
     External tool that returns core PostHog table schemas (events, groups, persons, sessions).
 
@@ -30,26 +29,15 @@ class ReadDataWarehouseSchemaExternalTool(ExternalTool):
     name = "read_data_warehouse_schema"
     args_schema = ReadDataWarehouseSchemaExternalToolArgs
 
-    async def execute(self, team: Team, user: User, **args) -> ExternalToolResult:
-        try:
-            result = await self._build_tables_list(team)
-            return ExternalToolResult(
-                success=True,
-                content=result,
-                data={"tables": ["events", "groups", "persons", "sessions"]},
-            )
-        except Exception as e:
-            return ExternalToolResult(
-                success=False,
-                content=f"Failed to read data warehouse schema: {e}",
-                error="execution_error",
-            )
+    async def execute(self, args: ReadDataWarehouseSchemaExternalToolArgs) -> tuple[str, dict[str, Any] | None]:
+        result = await self._build_tables_list()
+        return result, {"tables": ["events", "groups", "persons", "sessions"]}
 
     @database_sync_to_async(thread_sensitive=False)
-    def _build_tables_list(self, team: Team) -> str:
-        database = Database.create_for(team=team)
+    def _build_tables_list(self) -> str:
+        database = Database.create_for(team=self._team)
         hogql_context = HogQLContext(
-            team=team,
+            team=self._team,
             enable_select_queries=True,
             database=database,
         )
@@ -65,7 +53,6 @@ class ReadDataWarehouseSchemaExternalTool(ExternalTool):
                 lines.append(f"- {field.name} ({field.type})")
             lines.append("")
 
-        # Add warehouse tables, system tables, and views (names only)
         warehouse_tables = database.get_warehouse_table_names()
         system_tables = database.get_system_table_names()
         views = database.get_view_names()

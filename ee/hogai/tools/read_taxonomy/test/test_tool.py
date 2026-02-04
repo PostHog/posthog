@@ -50,6 +50,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
             node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
+        assert tool.args_schema is not None and isinstance(tool.args_schema, type)
         schema = tool.args_schema.model_json_schema()
         entity_properties_schema = schema["$defs"]["ReadEntityProperties"]["properties"]["entity"]
 

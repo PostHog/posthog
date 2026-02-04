@@ -1,5 +1,5 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
-from unittest.mock import patch
+from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, patch
 
 from mistralai_azure import AssistantMessage
 
@@ -50,7 +50,7 @@ class TestMaxToolsAPI(APIBaseTest):
         self.assertEqual(error["attr"], "insight_type")
 
 
-class TestInvokeToolAPI(ClickhouseTestMixin, APIBaseTest):
+class TestInvokeToolAPI(APIBaseTest):
     def test_invoke_tool_not_found(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/max_tools/invoke/nonexistent_tool/",
@@ -60,56 +60,66 @@ class TestInvokeToolAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 404)
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertEqual(data["error"], "tool_not_found")
+        self.assertTrue(data["isError"])
+        self.assertIn("not found", data["content"])
 
     def test_invoke_execute_sql_with_invalid_args(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/max_tools/invoke/execute_sql/",
-            {"args": {"query": ""}},  # missing viz_title and viz_description
+            {"args": {}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 400)
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertEqual(data["error"], "validation_error")
+        self.assertTrue(data["isError"])
+        self.assertIn("validation error", data["content"].lower())
 
-    def test_invoke_execute_sql_with_invalid_query(self):
+    @patch("ee.hogai.tools.execute_sql.external.ExecuteSQLExternalTool.execute", new_callable=AsyncMock)
+    def test_invoke_execute_sql_success(self, mock_execute):
+        mock_execute.return_value = ("event | cnt\ntest_event | 5", {"query": "SELECT event"})
+
         response = self.client.post(
             f"/api/environments/{self.team.id}/max_tools/invoke/execute_sql/",
-            {
-                "args": {
-                    "query": "INVALID SQL SYNTAX",
-                    "viz_title": "Test",
-                    "viz_description": "Test description",
-                }
-            },
+            {"args": {"query": "SELECT event, count() as cnt FROM events GROUP BY event"}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertFalse(data["success"])
-        self.assertEqual(data["error"], "validation_error")
-
-    def test_invoke_execute_sql_success(self):
-        _create_event(team=self.team, distinct_id="user1", event="test_event")
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/max_tools/invoke/execute_sql/",
-            {
-                "args": {
-                    "query": "SELECT event, count() as cnt FROM events GROUP BY event",
-                    "viz_title": "Event counts",
-                    "viz_description": "Count events by type",
-                }
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data["success"])
+        self.assertNotIn("isError", data)
         self.assertIn("test_event", data["content"])
         self.assertIsNotNone(data["data"])
+        mock_execute.assert_called_once()
+
+    @patch("ee.hogai.tools.execute_sql.external.ExecuteSQLExternalTool.execute", new_callable=AsyncMock)
+    def test_invoke_tool_error_returns_error_response(self, mock_execute):
+        from ee.hogai.tool_errors import MaxToolRetryableError
+
+        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/max_tools/invoke/execute_sql/",
+            {"args": {"query": "BAD QUERY"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["isError"])
+        self.assertIn("Tool failed", data["content"])
+
+    @patch("ee.hogai.tools.execute_sql.external.ExecuteSQLExternalTool.execute", new_callable=AsyncMock)
+    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
+        mock_execute.side_effect = RuntimeError("unexpected")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/max_tools/invoke/execute_sql/",
+            {"args": {"query": "SELECT 1"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["isError"])
+        self.assertIn("internal error", data["content"].lower())

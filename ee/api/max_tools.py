@@ -16,7 +16,8 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
-from ee.hogai.external_tool import get_external_tool
+from ee.hogai.external_tool import get_external_tool, get_external_tool_scopes
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
@@ -47,6 +48,15 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     renderer_classes = [SafeJSONRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
     authentication_classes = [PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if self.action == "invoke_tool":
+            import ee.hogai.tools  # noqa: F401
+
+            tool_name = self.kwargs.get("tool_name", "")
+            scopes = get_external_tool_scopes(tool_name)
+            return scopes or None
+        return None
 
     @action(
         detail=False,
@@ -79,7 +89,6 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         detail=False,
         methods=["POST"],
         url_path="invoke/(?P<tool_name>[^/.]+)",
-        required_scopes=["insight:read", "query:read"],
     )
     def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs):
         """
@@ -87,34 +96,41 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         This endpoint allows external callers (MCP, API) to invoke Max AI tools
         directly without going through the full LangChain conversation flow.
-        """
-        # Import here to ensure external tools are registered
-        import ee.hogai.tools.execute_sql.external  # noqa: F401
-        import ee.hogai.tools.read_taxonomy.external  # noqa: F401
-        import ee.hogai.tools.read_data_warehouse_schema_external  # noqa: F401
 
-        tool = get_external_tool(tool_name)
+        Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
+        """
+        import ee.hogai.tools  # noqa: F401
+
+        tool = get_external_tool(tool_name, team=self.team, user=cast(User, request.user))
         if tool is None:
             return Response(
-                {"success": False, "content": f"Tool '{tool_name}' not found", "error": "tool_not_found"},
+                {"content": f"Tool '{tool_name}' not found", "isError": True},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         args_data = request.data.get("args", {})
 
-        # Validate args against tool schema
         try:
             validated_args = tool.args_schema.model_validate(args_data)
         except pydantic.ValidationError as e:
             return Response(
-                {"success": False, "content": f"Invalid arguments: {e}", "error": "validation_error"},
+                {"content": f"There was a validation error calling the tool: {e}", "isError": True},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        result = async_to_sync(tool.execute)(
-            team=self.team,
-            user=cast(User, request.user),
-            **validated_args.model_dump(),
-        )
+        try:
+            content, data = async_to_sync(tool.execute)(validated_args)
+        except MaxToolError as e:
+            return Response({"content": f"Tool failed: {e.to_summary()}.{e.retry_hint}", "isError": True})
+        except Exception:
+            return Response(
+                {
+                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                    "isError": True,
+                }
+            )
 
-        return Response(result.model_dump())
+        response_data: dict[str, Any] = {"content": content}
+        if data is not None:
+            response_data["data"] = data
+        return Response(response_data)
