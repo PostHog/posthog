@@ -5,7 +5,7 @@ from .execute_sql.tool import ExecuteSQLTool
 from .list_data import ListDataTool
 from .manage_memories import ManageMemoriesTool
 from .read_data import ReadDataTool
-from .read_taxonomy import ReadTaxonomyTool
+from .read_taxonomy.tool import ReadTaxonomyTool
 from .search import SearchTool
 from .switch_mode import SwitchModeTool
 from .task import TaskTool

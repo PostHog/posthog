@@ -1700,7 +1700,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
     @patch(
         "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.should_compact_conversation"
     )
-    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    @patch("ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl")
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     async def test_compacting_conversation_on_the_second_turn(self, mock_model, mock_tool, mock_should_compact):
         mock_model.side_effect = cycle(  # Changed from return_value to side_effect
@@ -1760,7 +1760,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
     @patch("ee.hogai.tools.search.SearchTool._arun_impl", return_value=("Docs doubt it", None))
     @patch(
-        "ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl",
+        "ee.hogai.tools.read_taxonomy.tool.ReadTaxonomyTool._run_impl",
         return_value=("Hedgehogs have not talked yet", None),
     )
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")

@@ -9,8 +9,19 @@ from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.base import AssistantState, NodePath
+
+from .core import (
+    ReadActionProperties,
+    ReadActionSamplePropertyValues,
+    ReadEntityProperties,
+    ReadEntitySamplePropertyValues,
+    ReadEventProperties,
+    ReadEvents,
+    ReadEventSamplePropertyValues,
+    ReadTaxonomyToolArgs,
+    execute_taxonomy_query,
+)
 
 READ_TAXONOMY_TOOL_DESCRIPTION = """
 Use this tool to explore the user's taxonomy (i.e. data schema).
@@ -52,74 +63,6 @@ The assistant did not use the read_taxonomy tool because it is an informational 
 """.strip()
 
 
-class ReadEvents(BaseModel):
-    """Returns the list of available events. Events are sorted by their popularity where the most popular events are at the top."""
-
-    kind: Literal["events"] = "events"
-
-
-class ReadEventProperties(BaseModel):
-    """Returns the properties list for a provided event. Before calling this tool, ensure the event exists by reading events."""
-
-    kind: Literal["event_properties"] = "event_properties"
-    event_name: str = Field(description="The name of the event that you want to retrieve properties for.")
-
-
-class ReadEntityProperties(BaseModel):
-    """Returns the properties list for a provided entity."""
-
-    kind: Literal["entity_properties"] = "entity_properties"
-    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
-    """Keep entity as string to allow for dynamic entity types."""
-
-
-class ReadActionProperties(BaseModel):
-    """Returns the properties list for a provided action. Before calling this tool, ensure the action exists by searching actions or if it was provided in the context."""
-
-    kind: Literal["action_properties"] = "action_properties"
-    action_id: int
-
-
-class ReadEntitySamplePropertyValues(BaseModel):
-    """For a provided entity and a property, returns a list of maximum 25 sample values that the combination has."""
-
-    kind: Literal["entity_property_values"] = "entity_property_values"
-    entity: str = Field(description="The type of the entity that you want to retrieve properties for.")
-    """Keep entity as string to allow for dynamic entity types."""
-    property_name: str = Field(description="Verified property name of an entity.")
-
-
-class ReadEventSamplePropertyValues(BaseModel):
-    """For a provided event and a property, returns a list of maximum 25 sample values that the combination has."""
-
-    kind: Literal["event_property_values"] = "event_property_values"
-    event_name: str = Field(description="Verified event name")
-    property_name: str = Field(description="Verified property name of an event.")
-
-
-class ReadActionSamplePropertyValues(BaseModel):
-    """For a provided event and a property, returns a list of maximum 25 sample values that the combination has."""
-
-    kind: Literal["action_property_values"] = "action_property_values"
-    action_id: int = Field(description="Verified action ID")
-    property_name: str = Field(description="Verified property name of an action.")
-
-
-ReadTaxonomyQuery = Union[
-    ReadEvents,
-    ReadEventProperties,
-    ReadEventSamplePropertyValues,
-    ReadEntityProperties,
-    ReadEntitySamplePropertyValues,
-    ReadActionProperties,
-    ReadActionSamplePropertyValues,
-]
-
-
-class ReadTaxonomyToolArgs(BaseModel):
-    query: ReadTaxonomyQuery = Field(..., discriminator="kind")
-
-
 class ReadTaxonomyTool(MaxTool):
     name: Literal["read_taxonomy"] = "read_taxonomy"
     description: str = READ_TAXONOMY_TOOL_DESCRIPTION
@@ -131,26 +74,12 @@ class ReadTaxonomyTool(MaxTool):
         # Langchain can't parse a dynamically created Pydantic model, so we need to additionally validate the query here.
         validated_query = ReadTaxonomyToolArgs(query=query).query
         toolkit = TaxonomyAgentToolkit(self._team)
-        res = ""
-        match validated_query:
-            case ReadEvents():
-                res = format_events_yaml([], self._team)
-            case ReadEventProperties() as schema:
-                res = toolkit.retrieve_event_or_action_properties(schema.event_name)
-            case ReadEventSamplePropertyValues() as schema:
-                res = toolkit.retrieve_event_or_action_property_values(schema.event_name, schema.property_name)
-            case ReadActionProperties() as schema:
-                res = toolkit.retrieve_event_or_action_properties(schema.action_id)
-            case ReadActionSamplePropertyValues() as schema:
-                res = toolkit.retrieve_event_or_action_property_values(schema.action_id, schema.property_name)
-            case ReadEntityProperties() as schema:
-                res = toolkit.retrieve_entity_properties(schema.entity)
-            case ReadEntitySamplePropertyValues() as schema:
-                res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
-            case _:
-                raise MaxToolRetryableError(
-                    f"Invalid query type: The query structure '{type(validated_query).__name__}' is not recognized."
-                )
+
+        try:
+            res = execute_taxonomy_query(validated_query, toolkit, self._team)
+        except ValueError as e:
+            raise MaxToolRetryableError(str(e))
+
         return res, None
 
     @classmethod
