@@ -68,10 +68,15 @@ jobs:
 
             - name: Install Ninja
               run: |
-                  # Add alternative mirrors for resilience against primary mirror timeouts
-                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list
-                  echo 'deb http://us.archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list
-                  sudo apt-get update && sudo apt-get install -y ninja-build unzip
+                  # Add Azure mirrors for better reliability on GitHub Actions (noble/24.04)
+                  echo 'deb http://azure.archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list
+                  echo 'deb http://azure.archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list
+                  # Retry apt-get up to 3 times with exponential backoff
+                  for i in 1 2 3; do
+                    sudo apt-get update && sudo apt-get install -y ninja-build unzip && break
+                    echo "Attempt $i failed, retrying in $((i * 10)) seconds..."
+                    sleep $((i * 10))
+                  done
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
@@ -225,14 +230,19 @@ jobs:
 
             - name: Install build dependencies
               run: |
-                  # Replace sources.list with alternative mirrors for resilience against primary mirror timeouts
+                  # Replace sources.list with Azure mirrors for better reliability on GitHub Actions
                   # The Playwright container uses Ubuntu jammy (22.04)
                   cat > /etc/apt/sources.list << 'EOF'
-                  deb http://us.archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
-                  deb http://us.archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
-                  deb http://us.archive.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+                  deb http://azure.archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+                  deb http://azure.archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+                  deb http://azure.archive.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
                   EOF
-                  apt-get update && apt-get install -y ninja-build unzip xz-utils
+                  # Retry apt-get up to 3 times with exponential backoff
+                  for i in 1 2 3; do
+                    apt-get update && apt-get install -y ninja-build unzip xz-utils && break
+                    echo "Attempt $i failed, retrying in $((i * 10)) seconds..."
+                    sleep $((i * 10))
+                  done
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
