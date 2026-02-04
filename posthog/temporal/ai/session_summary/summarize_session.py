@@ -480,7 +480,7 @@ def calculate_video_segment_specs(
         recording_period_start = period.recording_ts_from_s
         recording_period_end = period.recording_ts_to_s
         if round(recording_period_end, 2) <= round(recording_period_start, 2):
-            msg = f"Invalid recording periodtime range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
+            msg = f"Invalid recording period time range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
             logger.error(msg, signals_type="session-summaries")
             raise ValueError(msg)
         if round(session_period_end, 2) <= round(session_period_start, 2):
