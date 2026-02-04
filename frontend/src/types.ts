@@ -606,6 +606,7 @@ export interface ConversationsSettings {
     widget_public_token?: string | null
     widget_domains?: string[] | null
     notification_recipients?: number[] | null
+    widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
 }
 
 export interface LogsSettings {

@@ -280,6 +280,7 @@ class RemoteConfig(UUIDTModel):
                 "token": conv_settings.get("widget_public_token"),
                 # NOTE: domains is cached but stripped out at the api level depending on the caller
                 "domains": conv_settings.get("widget_domains") or [],
+                "widgetPosition": conv_settings.get("widget_position") or "bottom_right",
             }
         else:
             config["conversations"] = False

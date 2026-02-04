@@ -155,6 +155,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["conversations"]["color"] == "#1d4aff"
         assert self.remote_config.config["conversations"]["token"] == "test_public_token_123"
         assert self.remote_config.config["conversations"]["domains"] == []
+        assert self.remote_config.config["conversations"]["widgetPosition"] == "bottom_right"
 
     def test_conversations_enabled_with_custom_config(self):
         self.team.conversations_enabled = True
@@ -164,6 +165,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             "widget_color": "#ff5733",
             "widget_public_token": "custom_token",
             "widget_domains": ["example.com", "test.com"],
+            "widget_position": "top_left",
         }
         self.team.save()
         self.sync_remote_config()
@@ -172,6 +174,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["conversations"]["color"] == "#ff5733"
         assert self.remote_config.config["conversations"]["token"] == "custom_token"
         assert self.remote_config.config["conversations"]["domains"] == ["example.com", "test.com"]
+        assert self.remote_config.config["conversations"]["widgetPosition"] == "top_left"
 
     def test_conversations_disabled_returns_false(self):
         self.team.conversations_enabled = False

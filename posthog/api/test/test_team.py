@@ -2006,6 +2006,14 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        def test_conversations_widget_position_setting(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_position": "top_left"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_position"] == "top_left"
+
         def test_enabling_conversations_auto_generates_token(self):
             self.team.conversations_enabled = False
             self.team.conversations_settings = None

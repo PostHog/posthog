@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonColorPicker, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonColorPicker, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -237,6 +237,27 @@ export function SupportSettingsScene(): JSX.Element {
                                             })
                                         }}
                                         showCustomColor
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-4 py-2">
+                                    <label className="w-40 shrink-0">Widget position</label>
+                                    <LemonSelect
+                                        value={currentTeam?.conversations_settings?.widget_position || 'bottom_right'}
+                                        onChange={(value) => {
+                                            updateCurrentTeam({
+                                                conversations_settings: {
+                                                    ...currentTeam?.conversations_settings,
+                                                    widget_position: value,
+                                                },
+                                            })
+                                        }}
+                                        options={[
+                                            { value: 'bottom_right', label: 'Bottom right' },
+                                            { value: 'bottom_left', label: 'Bottom left' },
+                                            { value: 'top_right', label: 'Top right' },
+                                            { value: 'top_left', label: 'Top left' },
+                                        ]}
                                     />
                                 </div>
 
