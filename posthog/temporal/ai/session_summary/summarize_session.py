@@ -531,14 +531,16 @@ def calculate_video_segment_specs(
             else:
                 current_recording_period_end = min(current_recording_period_end, recording_period_end)
             # Calculate session timestamps based on the recording timestamps
-            current_session_start = session_period_start + (current_recording_period_start - recording_period_start)
-            current_session_end = session_period_end + (current_recording_period_end - recording_period_end)
+            current_session_period_start = session_period_start + (
+                current_recording_period_start - recording_period_start
+            )
+            current_session_period_end = session_period_start + (current_recording_period_end - recording_period_start)
             # Define a new segment to process
             segments.append(
                 VideoSegmentSpec(
                     segment_index=segment_index,
-                    start_time=current_session_start,
-                    end_time=current_session_end,
+                    start_time=current_session_period_start,
+                    end_time=current_session_period_end,
                     recording_start_time=current_recording_period_start,
                     recording_end_time=current_recording_period_end,
                 )
