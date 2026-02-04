@@ -49,9 +49,6 @@ export function DataWarehouseScene(): JSX.Element {
                 }}
                 actions={
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small" data-attr="sql-editor-button">
-                            Create view
-                        </LemonButton>
                         <AppShortcut
                             name="NewDataWarehouseSource"
                             keybind={[keyBinds.new]}
