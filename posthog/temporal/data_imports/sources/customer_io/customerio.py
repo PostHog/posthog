@@ -171,7 +171,8 @@ def _fetch_customers_via_segments(
                 membership_data = membership_response.json()
 
                 # The membership endpoint returns 'identifiers' array with cio_id (always present), id and email (nullable)
-                identifiers = membership_data.get("identifiers", [])
+                # Use `or []` to handle explicit null values in the response
+                identifiers = membership_data.get("identifiers") or []
                 for identifier in identifiers:
                     # cio_id is always present and unique, use it for deduplication
                     cio_id = identifier.get("cio_id")
