@@ -285,7 +285,7 @@ export class EmailService {
         return [
             {
                 Name: 'List-Unsubscribe',
-                Value: this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient),
+                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}>`,
             },
             {
                 Name: 'List-Unsubscribe-Post',
