@@ -32,7 +32,7 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
-    const isExperimentEnabled = false
+    const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
