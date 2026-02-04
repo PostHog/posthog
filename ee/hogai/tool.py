@@ -121,7 +121,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     # -------------------------------------------------------------------------
     # Access Control (Resource-level)
     # -------------------------------------------------------------------------
-    # TODO: Implement object-level access check after retrieval in the ArtifactManager
 
     @cached_property
     def user_access_control(self) -> UserAccessControl:

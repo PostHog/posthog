@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import uuid4
 
 import pytest
@@ -16,8 +17,8 @@ from posthog.models import Dashboard, DashboardTile, Insight
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
-from ee.hogai.artifacts.types import StateArtifactResult
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
@@ -279,14 +280,17 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl(
-            {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
-        )
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
 
-        assert "Test Dashboard" in result
-        assert str(dashboard.id) in result
-        assert "A test dashboard description" in result
-        assert artifact is None
+            result, artifact = await tool._arun_impl(
+                {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
+            )
+
+            assert "Test Dashboard" in result
+            assert str(dashboard.id) in result
+            assert "A test dashboard description" in result
+            assert artifact is None
 
     async def test_read_dashboard_includes_insight_short_id_and_db_id(self):
         """Test that dashboard insights include short_id and db_id fields."""
@@ -328,13 +332,16 @@ class TestReadDataTool(BaseTest):
                 context_manager=context_manager,
             )
 
-            await tool._arun_impl(
-                {
-                    "kind": "dashboard",
-                    "dashboard_id": str(dashboard.id),
-                    "execute": False,
-                }
-            )
+            with patch.object(tool, "user_access_control") as mock_uac:
+                mock_uac.check_access_level_for_object.return_value = True
+
+                await tool._arun_impl(
+                    {
+                        "kind": "dashboard",
+                        "dashboard_id": str(dashboard.id),
+                        "execute": False,
+                    }
+                )
 
             # Verify DashboardContext was instantiated with correct arguments
             MockDashboardContext.assert_called_once()
@@ -600,3 +607,121 @@ class TestReadDataTool(BaseTest):
 
         assert "Table `nonexistent_table` not found" in result
         assert "Available tables include:" in result
+
+    async def test_read_insight_denied_when_user_lacks_object_access(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        mock_content = VisualizationArtifactContent(name="Secret Insight", query=mock_query)
+        mock_insight = MagicMock(spec=Insight)
+
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_visualization = AsyncMock(
+            return_value=ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight](
+                content=mock_content, source=ArtifactSource.INSIGHT, model=mock_insight
+            )
+        )
+
+        tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "insight", "insight_id": "restricted123", "execute": False})
+
+            mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
+
+    async def test_read_insight_allowed_when_user_has_object_access(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        mock_content = VisualizationArtifactContent(name="Allowed Insight", query=mock_query)
+        mock_insight = MagicMock(spec=Insight)
+
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_visualization = AsyncMock(
+            return_value=ModelArtifactResult[VisualizationArtifactContent, Literal[ArtifactSource.INSIGHT], Insight](
+                content=mock_content, source=ArtifactSource.INSIGHT, model=mock_insight
+            )
+        )
+
+        tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "allowed123", "execute": False})
+
+            assert "Allowed Insight" in result
+            mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
+
+    async def test_read_insight_skips_object_check_for_state_source(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        mock_content = VisualizationArtifactContent(name="State Insight", query=mock_query)
+
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_visualization = AsyncMock(
+            return_value=StateArtifactResult(content=mock_content, source=ArtifactSource.STATE)
+        )
+
+        tool = await ReadDataTool.create_tool_class(team=team, user=user, state=state, context_manager=context_manager)
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "state123", "execute": False})
+
+            assert "State Insight" in result
+            mock_uac.check_access_level_for_object.assert_not_called()
+
+    async def test_read_dashboard_denied_when_user_lacks_object_access(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Secret Dashboard")
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
+
+    async def test_read_dashboard_allowed_when_user_has_object_access(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Allowed Dashboard", description="A dashboard")
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl(
+                {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
+            )
+
+            assert "Allowed Dashboard" in result
