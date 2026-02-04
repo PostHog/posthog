@@ -536,22 +536,6 @@ export function LineGraph_({
                     return colors.axisLabel as Color
                 },
             },
-            afterTickToLabelConversion: (axis: { id: string; ticks: { value: number }[] }) => {
-                if (!axis.id.startsWith('y')) {
-                    return
-                }
-
-                const nonAnnotationTicks = axis.ticks.filter(
-                    ({ value }: { value: number }) => !goalLinesY.includes(value)
-                )
-                const annotationTicks = goalLines.map((value) => ({
-                    value: value.value,
-                    label: `⬤ ${formatYAxisTick(value.value)}`,
-                }))
-
-                // Guarantee that all annotations exist as ticks
-                axis.ticks = [...nonAnnotationTicks, ...annotationTicks]
-            },
             grid: gridOptions,
         }
 
