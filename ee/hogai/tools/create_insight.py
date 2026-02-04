@@ -582,7 +582,7 @@ class CreateInsightTool(MaxTool):
         )
 
         try:
-            dict_state = await graph.ainvoke(new_state)
+            dict_state = await graph.ainvoke(new_state, self._config)
         except SchemaGenerationException as e:
             return format_prompt_string(
                 INSIGHT_TOOL_HANDLED_FAILURE_PROMPT,

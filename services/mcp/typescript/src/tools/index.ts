@@ -75,6 +75,8 @@ import getAllSurveys from './surveys/getAll'
 import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
+// PostHog AI Tools
+import { PHAI_TOOLS_MAP } from './max-tools'
 // Misc
 import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
@@ -165,6 +167,9 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Demo
     'demo-mcp-ui-apps': demoMcpUiApps,
+
+    // PostHog AI Tools
+    ...PHAI_TOOLS_MAP,
 }
 
 export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {

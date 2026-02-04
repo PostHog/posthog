@@ -5,7 +5,9 @@
         "feature": "dashboards",
         "summary": "Add an existing insight to a dashboard.",
         "title": "Add insight to dashboard",
-        "required_scopes": ["dashboard:write"],
+        "required_scopes": [
+            "dashboard:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -19,7 +21,9 @@
         "feature": "dashboards",
         "summary": "Create a new dashboard in the project.",
         "title": "Create dashboard",
-        "required_scopes": ["dashboard:write"],
+        "required_scopes": [
+            "dashboard:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -33,7 +37,9 @@
         "feature": "dashboards",
         "summary": "Delete a dashboard by ID.",
         "title": "Delete dashboard",
-        "required_scopes": ["dashboard:write"],
+        "required_scopes": [
+            "dashboard:write"
+        ],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -47,7 +53,9 @@
         "feature": "dashboards",
         "summary": "Get a specific dashboard by ID, including insights that are on the dashboard.",
         "title": "Get dashboard",
-        "required_scopes": ["dashboard:read"],
+        "required_scopes": [
+            "dashboard:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -61,7 +69,9 @@
         "feature": "dashboards",
         "summary": "Get all dashboards in the project with optional filtering.",
         "title": "Get all dashboards",
-        "required_scopes": ["dashboard:read"],
+        "required_scopes": [
+            "dashboard:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -75,7 +85,9 @@
         "feature": "dashboards",
         "summary": "Update an existing dashboard by ID.",
         "title": "Update dashboard",
-        "required_scopes": ["dashboard:write"],
+        "required_scopes": [
+            "dashboard:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -89,7 +101,9 @@
         "feature": "dashboards",
         "summary": "Reorder tiles on a dashboard.",
         "title": "Reorder dashboard tiles",
-        "required_scopes": ["dashboard:write"],
+        "required_scopes": [
+            "dashboard:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -117,7 +131,9 @@
         "feature": "error-tracking",
         "summary": "Get the details of an error in the project.",
         "title": "Get error details",
-        "required_scopes": ["error_tracking:read"],
+        "required_scopes": [
+            "error_tracking:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -131,7 +147,9 @@
         "feature": "error-tracking",
         "summary": "List errors in the project.",
         "title": "List errors",
-        "required_scopes": ["error_tracking:read"],
+        "required_scopes": [
+            "error_tracking:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -145,7 +163,9 @@
         "feature": "flags",
         "summary": "Creates a new feature flag in the project.",
         "title": "Create feature flag",
-        "required_scopes": ["feature_flag:write"],
+        "required_scopes": [
+            "feature_flag:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -159,7 +179,9 @@
         "feature": "flags",
         "summary": "Delete a feature flag in the project.",
         "title": "Delete feature flag",
-        "required_scopes": ["feature_flag:write"],
+        "required_scopes": [
+            "feature_flag:write"
+        ],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -173,7 +195,9 @@
         "feature": "flags",
         "summary": "Get all feature flags in the project.",
         "title": "Get all feature flags",
-        "required_scopes": ["feature_flag:read"],
+        "required_scopes": [
+            "feature_flag:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -187,7 +211,9 @@
         "feature": "flags",
         "summary": "Get the definition of a feature flag.",
         "title": "Get feature flag definition",
-        "required_scopes": ["feature_flag:read"],
+        "required_scopes": [
+            "feature_flag:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -201,7 +227,9 @@
         "feature": "flags",
         "summary": "Update a feature flag in the project.",
         "title": "Update feature flag",
-        "required_scopes": ["feature_flag:write"],
+        "required_scopes": [
+            "feature_flag:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -215,7 +243,9 @@
         "feature": "experiments",
         "summary": "Get all experiments in the project.",
         "title": "Get all experiments",
-        "required_scopes": ["experiment:read"],
+        "required_scopes": [
+            "experiment:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -229,7 +259,9 @@
         "feature": "experiments",
         "summary": "Create A/B test experiment with guided metric and feature flag setup",
         "title": "Create experiment",
-        "required_scopes": ["experiment:write"],
+        "required_scopes": [
+            "experiment:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -243,7 +275,9 @@
         "feature": "experiments",
         "summary": "Delete an experiment by ID.",
         "title": "Delete experiment",
-        "required_scopes": ["experiment:write"],
+        "required_scopes": [
+            "experiment:write"
+        ],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -257,7 +291,9 @@
         "feature": "experiments",
         "summary": "Update an existing experiment with lifecycle management and restart capability.",
         "title": "Update experiment",
-        "required_scopes": ["experiment:write"],
+        "required_scopes": [
+            "experiment:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -271,7 +307,9 @@
         "feature": "experiments",
         "summary": "Get details of a specific experiment.",
         "title": "Get experiment details",
-        "required_scopes": ["experiment:read"],
+        "required_scopes": [
+            "experiment:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -285,7 +323,9 @@
         "feature": "experiments",
         "summary": "Get comprehensive experiment results including metrics and exposure data.",
         "title": "Get experiment results",
-        "required_scopes": ["experiment:read"],
+        "required_scopes": [
+            "experiment:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -299,7 +339,9 @@
         "feature": "insights",
         "summary": "Save a query as an insight.",
         "title": "Create insight from query",
-        "required_scopes": ["insight:write"],
+        "required_scopes": [
+            "insight:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -313,7 +355,9 @@
         "feature": "insights",
         "summary": "Delete an insight by ID.",
         "title": "Delete insight",
-        "required_scopes": ["insight:write"],
+        "required_scopes": [
+            "insight:write"
+        ],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -327,7 +371,9 @@
         "feature": "insights",
         "summary": "Get a specific insight by ID.",
         "title": "Get insight",
-        "required_scopes": ["insight:read"],
+        "required_scopes": [
+            "insight:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -341,7 +387,9 @@
         "feature": "insights",
         "summary": "Execute a query on an existing insight to get its results/data.",
         "title": "Query insight",
-        "required_scopes": ["query:read"],
+        "required_scopes": [
+            "query:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -355,7 +403,9 @@
         "feature": "insights",
         "summary": "Get all insights in the project with optional filtering.",
         "title": "Get all insights",
-        "required_scopes": ["insight:read"],
+        "required_scopes": [
+            "insight:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -369,7 +419,9 @@
         "feature": "insights",
         "summary": "Update an existing insight by ID.",
         "title": "Update insight",
-        "required_scopes": ["insight:write"],
+        "required_scopes": [
+            "insight:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -383,7 +435,9 @@
         "summary": "Run a trend, funnel or HogQL query.",
         "feature": "insights",
         "title": "Run query",
-        "required_scopes": ["query:read"],
+        "required_scopes": [
+            "query:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -397,7 +451,9 @@
         "summary": "Queries project's PostHog data based on a provided natural language question.",
         "feature": "insights",
         "title": "Generate SQL",
-        "required_scopes": ["query:read"],
+        "required_scopes": [
+            "query:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -411,7 +467,9 @@
         "feature": "llm-analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
-        "required_scopes": ["warehouse_table:read"],
+        "required_scopes": [
+            "warehouse_table:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -425,7 +483,9 @@
         "feature": "workspace",
         "summary": "Get the details of the active organization.",
         "title": "Get organization details",
-        "required_scopes": ["organization:read"],
+        "required_scopes": [
+            "organization:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -439,7 +499,9 @@
         "feature": "workspace",
         "summary": "Get the organizations the user has access to.",
         "title": "Get organizations",
-        "required_scopes": ["user:read"],
+        "required_scopes": [
+            "user:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -453,7 +515,9 @@
         "feature": "workspace",
         "summary": "Change the active organization from the default organization.",
         "title": "Switch active organization",
-        "required_scopes": ["organization:read"],
+        "required_scopes": [
+            "organization:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -467,7 +531,9 @@
         "feature": "workspace",
         "summary": "Fetches projects that the user has access to in the current organization.",
         "title": "Get projects",
-        "required_scopes": ["organization:read"],
+        "required_scopes": [
+            "organization:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -481,7 +547,9 @@
         "feature": "events",
         "summary": "List all event definitions in the project with optional filtering.",
         "title": "List all events",
-        "required_scopes": ["event_definition:read"],
+        "required_scopes": [
+            "event_definition:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -509,7 +577,9 @@
         "feature": "events",
         "summary": "Get properties for events or persons.",
         "title": "Get properties",
-        "required_scopes": ["property_definition:read"],
+        "required_scopes": [
+            "property_definition:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -523,7 +593,9 @@
         "feature": "workspace",
         "summary": "Get event and property definitions for the project.",
         "title": "Get property definitions",
-        "required_scopes": ["property_definition:read"],
+        "required_scopes": [
+            "property_definition:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -537,7 +609,9 @@
         "feature": "workspace",
         "summary": "Change the active project from the default project.",
         "title": "Switch active project",
-        "required_scopes": ["project:read"],
+        "required_scopes": [
+            "project:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -549,7 +623,9 @@
         "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
         "category": "Surveys",
         "summary": "Creates a new survey in the project.",
-        "required_scopes": ["survey:write"],
+        "required_scopes": [
+            "survey:write"
+        ],
         "feature": "surveys",
         "title": "Create survey",
         "annotations": {
@@ -563,7 +639,9 @@
         "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
         "category": "Surveys",
         "summary": "Get a specific survey by ID.",
-        "required_scopes": ["survey:read"],
+        "required_scopes": [
+            "survey:read"
+        ],
         "feature": "surveys",
         "title": "Get survey",
         "annotations": {
@@ -577,7 +655,9 @@
         "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
         "category": "Surveys",
         "summary": "Get all surveys in the project with optional filtering.",
-        "required_scopes": ["survey:read"],
+        "required_scopes": [
+            "survey:read"
+        ],
         "feature": "surveys",
         "title": "Get all surveys",
         "annotations": {
@@ -591,7 +671,9 @@
         "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
         "category": "Surveys",
         "summary": "Update an existing survey by ID.",
-        "required_scopes": ["survey:write"],
+        "required_scopes": [
+            "survey:write"
+        ],
         "feature": "surveys",
         "title": "Update survey",
         "annotations": {
@@ -605,7 +687,9 @@
         "description": "Delete a survey by ID (soft delete - marks as archived).",
         "category": "Surveys",
         "summary": "Delete a survey by ID.",
-        "required_scopes": ["survey:write"],
+        "required_scopes": [
+            "survey:write"
+        ],
         "feature": "surveys",
         "title": "Delete survey",
         "annotations": {
@@ -619,7 +703,9 @@
         "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
         "summary": "Get aggregated response statistics across all surveys.",
-        "required_scopes": ["survey:read"],
+        "required_scopes": [
+            "survey:read"
+        ],
         "feature": "surveys",
         "title": "Get all survey response stats",
         "annotations": {
@@ -633,7 +719,9 @@
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
         "summary": "Get response statistics for a specific survey.",
-        "required_scopes": ["survey:read"],
+        "required_scopes": [
+            "survey:read"
+        ],
         "feature": "surveys",
         "title": "Get survey response stats",
         "annotations": {
@@ -649,7 +737,9 @@
         "feature": "logs",
         "summary": "Search and query logs in the project.",
         "title": "Query logs",
-        "required_scopes": ["logs:read"],
+        "required_scopes": [
+            "logs:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -663,7 +753,9 @@
         "feature": "logs",
         "summary": "List available log attributes.",
         "title": "List log attributes",
-        "required_scopes": ["logs:read"],
+        "required_scopes": [
+            "logs:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -677,7 +769,9 @@
         "feature": "logs",
         "summary": "Get values for a log attribute.",
         "title": "List attribute values",
-        "required_scopes": ["logs:read"],
+        "required_scopes": [
+            "logs:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -691,7 +785,9 @@
         "feature": "actions",
         "summary": "Get all actions in the project.",
         "title": "Get all actions",
-        "required_scopes": ["action:read"],
+        "required_scopes": [
+            "action:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -705,7 +801,9 @@
         "feature": "actions",
         "summary": "Get a specific action by ID.",
         "title": "Get action",
-        "required_scopes": ["action:read"],
+        "required_scopes": [
+            "action:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -719,7 +817,9 @@
         "feature": "actions",
         "summary": "Create a new action in the project.",
         "title": "Create action",
-        "required_scopes": ["action:write"],
+        "required_scopes": [
+            "action:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -733,7 +833,9 @@
         "feature": "actions",
         "summary": "Update an existing action.",
         "title": "Update action",
-        "required_scopes": ["action:write"],
+        "required_scopes": [
+            "action:write"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -747,7 +849,9 @@
         "feature": "actions",
         "summary": "Delete an action by ID.",
         "title": "Delete action",
-        "required_scopes": ["action:write"],
+        "required_scopes": [
+            "action:write"
+        ],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -761,7 +865,106 @@
         "feature": "search",
         "summary": "Search for entities by name or description.",
         "title": "Search entities",
-        "required_scopes": ["project:read"],
+        "required_scopes": [
+            "project:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "phai-execute-sql": {
+        "description": "Use this tool to generate a HogQL query, which is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms \"HogQL\" and \"SQL\" interchangeably.\n\n# Important HogQL differences versus other SQL dialects\n- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.\n- JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).\n- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.\n- Conversion functions with 'OrZero' or 'OrNull' suffix (like toDateOrNull, toIntOrNull) require String arguments. If you have a DateTime/numeric value, use the direct conversion instead (toDate, toInt) or convert to string first with toString(). Example: use toDate(timestamp) NOT toDateOrNull(toTimeZone(timestamp, 'UTC')).\n- LAG()/LEAD() are not supported. Instead, use lagInFrame()/leadInFrame().\n  Caution: lagInFrame/leadInFrame behavior differs from the standard SQL LAG/LEAD window function.\n  The HogQL window functions lagInFrame/leadInFrame respect the window frame. To get behavior identical to LAG/LEAD, use `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`.\n- count() does not take * as an argument, it's just count().\n- cardinality() is not supported for bitmaps. Use bitmapCardinality() instead to get the cardinality of a bitmap.\n- toStartOfWeek() takes an optional second argument for week mode which should be a numeric constant (0 for Sunday start, 1 for Monday start), NOT a string like 'Mon' or 'Sun'. Example: toStartOfWeek(timestamp, 1) for Monday start.\n- There is no split() function in HogQL. Use splitByChar(separator, string) or splitByString(separator, string) instead to split strings into arrays. Example: splitByChar('@', email)\n- Array functions like splitByChar(), splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable. Always handle nulls first using coalesce() or ifNull(). Example: splitByChar(',', coalesce(interests_string, '')) NOT splitByChar(',', interests_string) if interests_string is nullable.\n- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!\n  This is a hard technical constraint that cannot be overridden, even if explicitly requested.\n  Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.\n  If asked to use relational operators in JOIN, you should refuse and suggest CROSS JOIN with WHERE clause.\n- A WHERE clause should be after all the JOIN clauses.\n- For performance, every SELECT from the `events` table should have a `WHERE` clause narrowing down the timestamp to the relevant period.\n- HogQL queries should not end in semicolons.\n\n# Events and properties\nStandardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.\n\n# Linked tables\n`virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.\n\n# Working with persons\nEvent metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.\nThe metadata of the person associated with an event is similarly accessed like: `events.person.properties.foo`.\n\"Person\" is a synonym of \"user\" – instead of a \"users\" table, we have a \"persons\" table.\nFor calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.\n\n# Joining persons\nThere is a known issue with queries that join multiple events tables where join constraints reference person_id fields. The person_id fields are ExpressionFields that expand to expressions referencing override tables (e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py) BEFORE lazy table processing begins. This creates forward references to override tables that don't exist yet.\n\nExample problematic HogQL:\n```sql\nSELECT MAX(e_all.timestamp) AS last_seen\nFROM events e_dl\nJOIN persons p ON e_dl.person_id = p.id\nJOIN events e_all ON e_dl.person_id = e_all.person_id\n```\n\nThe join constraint \"e_dl.person_id = e_all.person_id\" expands to:\n```sql\nif(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =\nif(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)\n```\n\nBut e_all__override is defined later in the SQL, causing a ClickHouse error.\n\nWORKAROUND: Use subqueries or rewrite queries to avoid direct joins between multiple events tables:\n```sql\nSELECT MAX(e.timestamp) AS last_seen\nFROM events e\nJOIN persons p ON e.person_id = p.id\nWHERE e.event IN (SELECT event FROM events WHERE ...)\n```\n\n# Other constraints\n- You should not make formatting or casing changes if explicitly requested by the user.\n- You should not use double curly braces (`}`) for templating. The only templating syntax allowed is single curly braces with variables in the \"variables\" namespace (for example: `}`).\n- If a filter is optional, ALWAYS implement via the variables namespace with guards:\n  - ALWAYS use the \"variables.\" prefix (e.g., variables.org, variables.browser) - never use bare variable names\n  - Use coalesce() or IS NULL checks to handle optional values\n  - Example: optional organization filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)\n  - Example: optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)\n  - Example: optional time window variable → keep WHERE timestamp guards and add variable checks only if explicitly requested\n  - Optional org filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)\n  - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)\n  - Time window should remain enforced for events; add variable guards only if explicitly asked\n- Your SQL query results are capped at 100 rows. The user sees the full results in the UI. If you need to analyze more data, paginate using LIMIT and OFFSET in subsequent queries.\n\n# Expressions guide\n\n(See PostHog documentation for supported HogQL expressions)\n\n# Supported functions\n\n(See PostHog documentation for supported HogQL functions)\n\n# Supported aggregations\n\n(See PostHog documentation for supported HogQL aggregations)\n\n# Examples\n<example>\nExample HogQL query for prompt \"weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week\":\n\n```\nSELECT week_of, countIf(weekly_event_count >= 3)\nFROM (\n   SELECT person.id AS person_id, toStartOfWeek(timestamp) AS week_of, count() AS weekly_event_count\n   FROM events\n   WHERE\n      event = 'ACTIVATION_EVENT'\n      AND properties.$current_url = 'https://example.com/foo/'\n      AND toStartOfWeek(now()) - INTERVAL 8 WEEK <= timestamp\n      AND timestamp < toStartOfWeek(now())\n   GROUP BY person.id, week_of\n)\nGROUP BY week_of\nORDER BY week_of DESC\n```\n</example>",
+        "category": "PostHog AI",
+        "feature": "phai-tools",
+        "summary": "Execute SQL queries against PostHog data",
+        "title": "Execute SQL",
+        "required_scopes": [
+            "query:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "phai-create-insight": {
+        "description": "Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. These visualizations are transient and only exist within the current conversation—they are not saved to the project. To save an insight permanently, users should click the open insight button in the conversation.\n\nThis tool can also be used to edit the visualization the user is currently viewing on the insight page. In that case, you need to generate a new plan based on the schema of the existing insight.\n\nThe tool only generates a single visualization per call. If the user asks for multiple visualizations, you need to decompose a query into multiple subqueries and call the tool for each subquery.\n\nFollow these guidelines when retrieving data:\n\n- If the same insight is already in the conversation history, reuse the retrieved data only when this does not violate the <data_analysis_guidelines> section (i.e. only when a presence-check, count, or sort on existing columns is enough).\n- If analysis results have been provided, use them to answer the user's question. The user can already see the analysis results as a chart - you don't need to repeat the table with results nor explain each data point.\n- If the retrieved data and any data earlier in the conversations allow for conclusions, answer the user's question and provide actionable feedback.\n- If there is a potential data issue, retrieve a different new analysis instead of giving a subpar summary. Note: empty data is NOT a potential data issue.\n- If the query cannot be answered with a UI-built insight type - trends, funnels, retention - choose the SQL type to answer the question (e.g. for listing events or aggregating in ways that aren't supported in trends/funnels/retention).\n\nRemember: do NOT retrieve data for the same query more than 3 times in a row.\nImportant: If the user request is about analysis of entities that are not collected data (events, properties, etc) like data warehouse entities, use SQL.\n\nCRITICAL: When planning an insight, be minimalist. Only include filters, breakdowns, and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Selecting a visualization type\n\n## Trends\n\nA trends insight visualizes events over time using time series. They're useful for finding patterns in historical data.\n\nThe trends insights have the following features:\n\n- The insight can show multiple trends in one request.\n- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.\n- Filter and break down data using multiple properties.\n- Compare with the previous period and sample data.\n- Apply various aggregation types, like sum, average, etc., and chart types.\n- And more.\n\nExamples of use cases include:\n- How the product's most important metrics change over time.\n- Long-term patterns, or cycles in product's usage.\n- The usage of different features side-by-side.\n- How the properties of events vary using aggregation (sum, average, etc).\n- Users can also visualize the same data points in a variety of ways.\n\n## Funnel\n\nA funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels REQUIRE AT LEAST TWO series (events or actions), so the conversation history should mention at least two events.\n\nThe funnel insights have the following features:\n\n- Various visualization types (steps, time-to-convert, historical trends).\n- Filter data and apply exclusion steps (events only, not actions).\n- Break down data using a single property.\n- Specify conversion windows (default 14 days), step order (strict/ordered/unordered), and attribution settings.\n- Aggregate by users, sessions, or specific group types.\n- Sample data.\n- Track first-time conversions with special math aggregations.\n- And more.\n\nExamples of use cases include:\n\n- Conversion rates between steps.\n- Drop off steps (which step loses most users).\n- Steps with the highest friction and time to convert.\n- If product changes are improving their funnel over time.\n- Average/median/histogram of time to convert.\n- Conversion trends over time (using trends visualization type).\n- First-time user conversions (using first_time_for_user math).\n\n## Retention\n\nA retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.\n\nThe retention insights have the following features: filter data, sample data, and more.\n\nExamples of use cases include:\n- How many users come back and perform an action after their first visit.\n- How many users come back to perform action X after performing action Y.\n- How often users return to use a specific feature.\n\n# Data narrowing\n\n<property_filters>\nUse property filters to provide a narrowed results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed to answer the question. Properties have one of the four types: String, Numeric, Boolean, and DateTime.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you must:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs because neither the user nor you can retrieve the data. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups must be one of the following: event, person, session, group type.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`). The operators are listed below.\n- If the operator requires a value, use the tool to find the property values. Verify that you can answer the question with given property values. If you can't, try to find a different property or event.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group. You must make sure that the property name matches the lookup value, e.g. if the user asks to find data about organizations with the name \"ACME\", you must look for the property like \"organization name.\"\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n</property_filters>\n\n<time_period_and_property_filters>\nYou must not filter events by time, so you must not look for time-related properties. Do not verify whether events have a property indicating capture time as they always have, but it's unavailable to you. Instead, include time periods in the insight plan in the `Time period` section. If the question doesn't mention time, use `last 30 days` as a default time period.\nExamples:\n\n- If the user asks you \"find events that happened between March 1st, 2025, and 2025-03-07\", you must include `Time period: from 2025-03-01 to 2025-03-07` in the insight plan.\n- If the user asks you \"find events for the last month\", you must include `Time period: from last month` in the insight plan.\n  </time_period_and_property_filters>\n\n# Trends guidelines\n\n<general_knowledge>\nTrends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights do not require breakdowns or filters by default.\n</general_knowledge>\n\n<aggregation>\n**Determine the math aggregation** the user is asking for, such as totals, averages, ratios, or custom formulas. If not specified, choose a reasonable default based on the event type (e.g., total count). By default, the total count should be used. You can aggregate data by events, event's property values, group types, or users. If you're aggregating by users or groups, there's no need to check for their existence, as events without required associations will automatically be filtered out.\n\nAvailable math aggregations types for the event count are:\n\n- total count\n- average\n- minimum\n- maximum\n- median\n- 90th percentile\n- 95th percentile\n- 99th percentile\n- unique users\n- unique sessions\n- weekly active users\n- daily active users\n- first time for a user\n  \n- unique group types (requires `math_group_type_index` to be set to the group type index from the group mapping)\n  \nAvailable math aggregation types for event's property values are:\n\n- average\n- sum\n- minimum\n- maximum\n- median\n- 90th percentile\n- 95th percentile\n- 99th percentile\n\nAvailable math aggregation types counting number of events completed per user (intensity of usage) are:\n\n- average\n- minimum\n- maximum\n- median\n- 90th percentile\n- 95th percentile\n- 99th percentile\n\nExamples of using aggregation types:\n\n- `unique users` to find how many distinct users have logged the event per a day.\n- `average` by the `$session_diration` property to find out what was the average session duration of an event.\n- `99th percentile by users` to find out what was the 99th percentile of the event count by users.\n  </aggregation>\n\n<math_formulas>\nIf the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.\n\nWhen using a formula, you must:\n\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.\n\nExamples of using math formulas:\n\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B * 100`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).\n- To calculate conversion rate: `A / B * 100` where A is conversions and B is total events\n- To calculate average value: `A / B` where A is sum of property and B is count\n  </math_formulas>\n\n<time_interval>\nSpecify the time interval (group by's by time) in the `Time interval` section on the plan. Available intervals are: `hour`, `day`, `week`, `month`.\nUnless the user has specified otherwise, use the following default interval:\n\n- If the time period is less than two days, use the `hour` interval.\n- If the time period is less than a month, use the `day` interval.\n- If the time period is less than three months, use the `week` interval.\n- Otherwise, use the `month` interval.\n  </time_interval>\n\n<breakdowns>\nBreakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user's question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question.\n\nWhen using breakdowns, you must:\n\n- **Identify the property group** and name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the property value accurately reflects the intended criteria**.\n\nExamples of using breakdowns:\n\n- page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.\n  </breakdowns>\n\n<plan_example>\nSeries:\n\n- series 1: event name\n    - math operation: total\n    - custom name: (optional) custom display name for this series\n    - property filter 1:\n        - entity\n        - property name\n        - property type\n        - operator\n        - property value\n    - property filter 2... Repeat for each property filter.\n- series 2: action name\n    - action id: `numeric id`\n    - math operation: average by `property name`.\n    - custom name: (optional) custom display name for this series\n    - property filter 1:\n        - entity\n        - property name\n        - property type\n        - operator\n        - property value\n    - property filter 2... Repeat for each property filter.\n- Repeat for each event.\n\n(if a formula is used)\nFormula:\n`A/B`, where `A` is the first event and `B` is the second event.\n\n(if a breakdown is used)\nBreakdown by:\n\n- breakdown 1:\n    - entity\n    - property name\n- Repeat for each breakdown.\n\n(if comparing to previous period is needed)\nCompare to previous period: yes/no\nCompare to: (optional) specific relative date like `-1y`, `-14d`, `-30h`\n\n(if a time period or interval is explicitly mentioned)\nTime period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.\nTime interval: hour/day/week/month/year\n\n(optional visualization settings)\nDisplay type: (ActionsLineGraph/ActionsBar/ActionsAreaGraph/ActionsLineGraphCumulative/BoldNumber/ActionsBarValue/ActionsPie/ActionsTable/WorldMap)\nShow legend: yes/no\nShow values on series: yes/no\nY-axis scale: linear/log10\nAxis format: numeric/duration/duration_ms/percentage/percentage_scaled/currency\nAxis prefix: (e.g., \"$\")\nAxis postfix: (e.g., \" clicks\")\nDecimal places: (number)\n</plan_example>\n\n# Funnel guidelines\n\n<general_knowledge>\nFunnel insights help stakeholders understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels are perfect for finding conversion rates, average and median conversion time, conversion trends, and distribution of conversion time.\n</general_knowledge>\n\n<exclusion_steps>\nUsers may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is 1 (after first step) and the maximum index is the number of steps in the funnel. Exclusion events cannot be actions, only events.\n\nIMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.\n\nFor example, there is a sequence with three steps: sign up (step 1), finish onboarding (step 2), purchase (step 3). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be:\n\n```\nExclusions:\n- $pageleave\n    - start index: 1 (after sign up)\n    - end index: 2 (before finish onboarding)\n```\n\n</exclusion_steps>\n\n<breakdown>\nA breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user's question**. You must not add a breakdown if the question can be addressed without additional segmentation.\n\nWhen using breakdowns, you must:\n\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**.\n\nExamples of using a breakdown:\n\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.\n  </breakdown>\n\n<reminders>\n- You MUST ALWAYS use AT LEAST TWO series (events or actions) in the funnel plan.\n</reminders>\n\n<plan_example>'\nSequence:\n\n1. event: event name 1\n    - custom name: (optional) custom display name for this step\n    - math operation: (optional) first_time_for_user or first_time_for_user_with_filters\n    - property filter 1:\n        - entity\n        - property name\n        - property type\n        - operator\n        - property value\n    - property filter 2... Repeat for each property filter.\n2. action: action name 2\n    - action id: `numeric id`\n    - custom name: (optional) custom display name for this step\n    - math operation: (optional) first_time_for_user or first_time_for_user_with_filters\n    - property filter 1:\n        - entity\n        - property name\n        - property type\n        - operator\n        - property value\n    - property filter 2... Repeat for each property filter.\n3. Repeat for each event or action...\n\n(if exclusion steps are used)\nExclusions:\n\n- exclusion event name 1\n    - start index: 1\n    - end index: 2\n- exclusion event name 2... Repeat for each exclusion...\n\n(if a breakdown is used)\nBreakdown by:\n\n- entity\n- property name\n\n(if aggregating by groups instead of users)\nAggregate by: group type index from group mapping\n\n(if a time period is explicitly mentioned)\nTime period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.\n\n(optional funnel settings)\nVisualization type: steps/time_to_convert/trends\nConversion window: number and unit (e.g., 14 days, 1 hour)\nStep order: strict/ordered/unordered\nStep reference: total/previous (for conversion percentages)\nLayout: vertical/horizontal\nBin count: (only for time_to_convert, number of histogram bins)\n</plan_example>\n\n# Retention guidelines\n\n<general_knowledge>\nRetention is a type of insight that shows you how many users return during subsequent periods.\n\nThey're useful for answering questions like:\n\n- Are new sign ups coming back to use your product after trying it?\n- Have recent changes improved retention?\n  </general_knowledge>\n\n<retention_plan>\nPlans of retention insights must always have two events or actions:\n\n- The activation event – an event or action that determines if the user is a part of a cohort (when they \"start\").\n- The retention event – an event or action that determines whether a user has been retained (when they \"return\").\n\nFor activation and retention events, use the `$pageview` event by default or the equivalent for mobile apps `$screen`. Avoid infrequent or inconsistent events like `signed in` unless asked explicitly, as they skew the data.\n\nThe activation and retention events can be the same (e.g., both `$pageview` to see if users who viewed pages come back to view pages again) or different (e.g., activation is `signed up` and retention is `completed purchase` to see if sign-ups convert to purchases over time).\n</retention_plan>\n\n<plan_example>\nActivation:\n(if an event is used)\n\n- event: chosen event name\n  (or if an action is used)\n- action id: `numeric id`\n- action name: action name\n\nRetention:\n\n- event: chosen event name (can be the same as activation event, or different)\n  (or if an action is used)\n- action id: `numeric id`\n- action name: action name\n\n(if filters are used)\nFilters: - property filter 1: - entity - property name - property type - operator - property value - property filter 2... Repeat for each property filter.\n\n(if a time period is explicitly mentioned)\nTime period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.\n</plan_example>\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution that effectively answers the user's question.\n- When using group aggregations (unique groups), always set `math_group_type_index` to the appropriate group type index from the group mapping.\n- Custom names for series or steps are optional and should only be used when the user explicitly wants to rename them or when the default name would be unclear.\n- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer to the user's question.\n- The default funnel step order is `ordered` (events in sequence but with other events allowed in between). Use `strict` when events must happen consecutively with no events in between. Use `unordered` when order doesn't matter.\n- Exclusion events in funnels only exclude conversions where the event happened between the specified steps, not before or after the funnel.\n\n# Summary\n\n1. Select an insight type\n2. Follow the guidelines and create a structured plan\n3. Pass the structured plan and insight type to this tool.",
+        "category": "PostHog AI",
+        "feature": "phai-tools",
+        "summary": "Generate insights from natural language",
+        "title": "Create insight",
+        "required_scopes": [
+            "insight:write",
+            "query:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "phai-upsert-dashboard": {
+        "description": "Use this tool to create or update a dashboard with provided insights.\n\n# How to use this tool\n\n## Create vs update\nProactively use search and list_data tools to check if the dashboard already exists.\nThe user might provide you the dashboard–read its data and understand the structure of the dashboard.\nYou should ask for clarification if the request is ambiguous whether you need to create a new dashboard or update an existing one.\n\n## Insights selection\nProactively use list_data and search tools to find existing insights.\nIf there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.\nNext, read the data schema and data warehouse schema and create new insights or SQL queries.\n\n## Finalize\nCall this tool when you have enough information to create or update the dashboard.\n\n# Understanding dashboard update with insight_ids\n\nWhen `insight_ids` is provided, it replaces all dashboard insights with the provided insights.\nLayouts are preserved positionally: the first insight takes the first tile's position, etc.\nYou can use insight_ids to add, replace, or remove insights.\n\nExample: Dashboard has [A, B, C] (in layout order). Use `insight_ids=[A', C']`.\nResult: A' takes A's layout, C' takes B's layout, B is removed.\n\n# When to use this tool\n- The user asks to create or update a dashboard.\n- The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.\n- The user wants to modify insights on an existing dashboard (add, remove, or replace).\n\n<example>\nUser: create a dashboard for file activity metrics\nAssistant: I'll create a new dashboard for file activity metrics.\n<reasoning>The user clearly wants to create a new dashboard.</reasoning>\n</example>\n\n<example>\nUser: I want a dashboard of how my business is doing\nAssistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?\nUser: I want you to add MRR to that dashboard.\n<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights. To add MRR, include all existing insights plus the new MRR insight in insight_ids.</reasoning>\n</example>\n\n<example>\nUser: get my financial metrics together\nAssistant: I'll search for existing dashboards. I didn't find any relevant dashboards. Let me search for related insights. I found some insights, but I should list the existing insights to make sure I haven't missed due to different naming. Perfect! I found more relevant insights.\n<reasoning>The assistant has to list the existing insights to make sure it hasn't missed any relevant insights due to specifics of the search tool using full-text search.</reasoning>\n</example>\n\n# When NOT to use this tool\n- The user wants to save a single insight.\n\n# Guidelines\n- Use a minimal set of insights to reflect the changes the user requested.\n- When updating dashboard or insight names or descriptions, use the original insight names or descriptions as a reference.",
+        "category": "PostHog AI",
+        "feature": "phai-tools",
+        "summary": "Create or update dashboards",
+        "title": "Upsert dashboard",
+        "required_scopes": [
+            "dashboard:write"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "phai-filter-session-recordings": {
+        "description": "Use this tool to retrieve a list of filtered session recordings by creating a recordings query. The list is shown to the user as a widget.\n        # When to use the tool:\n        - The user asks to update session recordings filters\n          - \"update\" synonyms: \"change\", \"modify\", \"adjust\", and similar\n          - \"session recordings\" synonyms: \"sessions\", \"recordings\", \"replays\", \"user sessions\", and similar\n        - The user asks to search for session recordings\n          - \"search for\" synonyms: \"find\", \"look up\", and similar\n        - The user asks to summarize session recordings\n\n        When on the replay page, the tool will update the filters in the page.\n\nUser's question converted into a recordings query.\n\n        <agent_info>\nYou're Max, PostHog's agent.\nYou are an expert at creating filters for PostHog's session replay product based on the taxonomy of the user's data. Your job is to understand what users want to see in their data and translate that into precise filter configurations.\nTransform natural language requests like \"show me users from mobile devices who completed signup\" into structured filter objects that will find exactly what users are looking for.\n</agent_info>\n\n<session_replay_details>\nA session recording is a timeline of many events along with related entities a user has interacted with (directly or indirectly). When you apply a filter using an event property, the system returns any recording that contains at least one event matching that property/value pair.\n</session_replay_details>\n\n        <examples_and_rules>\n## Examples and Rules\n\n1. Combining Filters with the AND Operator\n\nIf you need to combine multiple filter conditions using the AND operator, structure them as follows:\n\njson\n{\n\"data\": {\n    \"date_from\": \"<date_from>\",\n    \"date_to\": \"<date_to>\",\n    \"duration\": [{\"key\": \"duration\", \"type\": \"recording\", \"value\": 60, \"operator\": PropertyOperator.GreaterThan}], // Always include the duration filter.\n    \"filter_group\": {\n    \"type\": FilterLogicalOperator.AND,\n    \"values\": [\n        {\n        \"type\": FilterLogicalOperator.AND,\n        \"values\": [\n            {\n            \"key\": \"<key>\",\n            \"type\": \"person\",  // e.g., PropertyFilterType.Person\n            \"value\": [\"<value>\"],\n            \"operator\": \"icontains\" // e.g., PropertyOperator.Exact or PropertyOperator.IContains\n            }\n        ]\n        }\n    ]\n    }\n}\n}\nNotes\n- Use FilterLogicalOperator.AND to ensure that all specified conditions must be met.\n- The inner \"values\": [] array can include multiple filter items if needed.\n\n2. Combining Filters with the OR Operator\n\nWhen multiple conditions are acceptable (i.e., at least one must match), use the OR operator. The structure is similar, but with multiple groups in the outer array:\n\njson\n{\n\"data\": {\n    \"date_from\": \"<date_from>\",\n    \"date_to\": \"<date_to>\",\n    \"duration\": [{\"key\": \"duration\", \"type\": \"recording\", \"value\": <duration>, \"operator\": PropertyOperator.GreaterThan}],  // Use \"gt\", \"lt\", \"gte\", \"lte\"\n    \"filter_group\": {\n    \"type\": FilterLogicalOperator.OR,\n    \"values\": [\n        {\n        \"type\": FilterLogicalOperator.AND,\n        \"values\": [\n            {\n            \"key\": \"<key>\",\n            \"type\": PropertyFilterType.<Type>,\n            \"value\": [\"<value>\"],\n            \"operator\": PropertyOperator.<Operator>\n            }\n        ]\n        },\n        {\n        \"type\": FilterLogicalOperator.AND,\n        \"values\": [\n            {\n            \"key\": \"<key>\",\n            \"type\": PropertyFilterType.<Type>,\n            \"value\": [\"<value>\"],\n            \"operator\": PropertyOperator.<Operator>\n            }\n        ]\n        }\n    ]\n    }\n}\n}\n\nNotes:\n- The outer group uses FilterLogicalOperator.OR, while each nested group uses FilterLogicalOperator.AND for its individual conditions.\n- Multiple nested groups allow combining different filter criteria.\n\n3. Operator Selection Guidelines\n\n- Default Operators:\nIn most cases, the operator can be either exact or contains:\n- For instance, if a user says, *\"show me recordings where people visit login page\"*, use the contains operator (\"PropertyOperator.IContains\") since the URL may include parameters.\n\n- Exact Matching Example:\nIf a user says, *\"show me recordings where people use mobile phone\"*, use the exact operator to target a specific device type. For example:\n\njson\n{\n    \"date_from\": \"<date_from>\",\n    \"date_to\": \"<date_to>\",\n    \"duration\": [{\"key\": \"duration\", \"type\": \"recording\", \"value\": 60, \"operator\": PropertyOperator.GreaterThan}],\n    \"filter_test_accounts\": \"<boolean>\",\n    \"filter_group\": {\n        \"type\": FilterLogicalOperator.AND,\n        \"values\": [\n        {\n            \"type\": FilterLogicalOperator.AND,\n            \"values\": [\n            {\n                \"key\": \"$device_type\",\n                \"type\": \"person\",\n                \"value\": [\"Mobile\"],\n                \"operator\": \"exact\"\n            }\n            ]\n        }\n        ]\n    }\n}\n\n4. Special Cases\n\n- Frustrated Users (Rageclicks):\nIf the query is to show recordings of people who are frustrated, filter for recordings containing a rageclick event. For example, use the event with:\n- \"id\": \"$rageclick\", \"name\": \"$rageclick\", \"type\": \"event\"\n\n- Users Facing Bugs/Errors/Problems:\nFor queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:\n- Key: \"level\", Type: PropertyFilterType.Log_entry, Value: [\"error\"], Operator: PropertyOperator.Exact.\n\n- Default Filter Group:\nThe blank, default `filter_group` value you can use is:\n\njson\n{\n    \"type\": \"AND\",\n    \"values\": [\n        {\n            \"type\": \"AND\",\n            \"values\": []\n        }\n    ]\n}\n\n- Show all recordings / clean filters:\nReturn a default filter with default date range and no duration.\n\njson\n{\n    \"data\":\n    {\n            \"order\": \"start_time\",\n            \"date_to\": \"null\",\n            \"duration\": [{\"key\": \"duration\", \"type\": \"recording\", \"value\": 60, \"operator\": PropertyOperator.GreaterThan}],\n            \"date_from\": \"-3d\",\n            \"filter_group\": {\"type\": \"AND\", \"values\": [{\"type\": \"AND\", \"values\": []}]},\n            \"filter_test_accounts\": \"true\",\n        }\n}\n</examples_and_rules>\n\n        <filter_fields_taxonomy>\nFor the filter fields, you will find information on how to correctly discover the type of the filter field.\n\n<key> Field\n\n- Purpose:\nThe <key> represents the name of the property on which the filter is applied.\n\n- Type Determination:\nThe expected data type can be inferred from the property_type field provided in each property object:\n- \"String\" indicates the value should be a string.\n- \"Numeric\" indicates a numeric value.\n- \"Boolean\" indicates a boolean value.\n- \"DateTime\", \"Duration\" and other types should follow their respective formats.\n- A null value for property_type means the type is flexible or unspecified; in such cases, rely on the property name's context.\n</key>\n\n<value> Field\n\n- Purpose:\nThe <value> field is an array containing one or more values that the filter should match.\n\n- Data Type Matching:\nEnsure the values in this array match the expected type of the property identified by <key>. For example:\n- For a property with property_type \"String\", the value should be provided as a string (e.g., [\"Mobile\"]).\n- For a property with property_type \"Numeric\", the value should be a number (e.g., [10]).\n- For a property with property_type \"Boolean\", the value should be either true or false (e.g., [true]).\n\n- Multiple Values:\nThe <value> array can contain multiple items when the filter should match any one of several potential values.\n\n<supported_operators>\nSupported operators for the String or Numeric types are:\n- equals\n- doesn't equal\n- contains\n- doesn't contain\n- matches regex\n- doesn't match regex\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n- equals\n- doesn't equal\n- greater than\n- less than\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values.\n</supported_operators>\n\n</filter_fields_taxonomy>\n\n        <date_fields>\nBelow is a refined description for the date fields and their types:\n\n<date_from>\n- Relative Date (Days): Use the format \"-Nd\" for the last N days (e.g., \"last 5 days\" becomes \"-5d\", \"yesterday\" becomes \"-1d\").\n- Relative Date (Hours): Use the format \"-Nh\" for the last N hours (e.g., \"last 5 hours\" becomes \"-5h\").\n- Custom Date: If a specific start date is provided, use the format \"YYYY-MM-DDT00:00:00:000\".\n- If a date is provided but without a year or month, use the current year and month.\n- Default Behavior: If the user does not specify a date range, default to the last 3 days (i.e., use \"-5d\"). date_from MUST be set.\n</date_from>\n\n<date_to>\n- Default Value: Set as null when the date range extends to today. Set as null when the user does not specify an end date.\n- Custom Date: If a specific end date is required, use the format \"YYYY-MM-DDT23:59:59:999\".\n</date_to>\n</date_fields>\n\n        # Property Types and Discovery\n\n        A session recording contains events and entities. When filtering, you must understand which property type to use:\n\n        **ENTITY PROPERTIES** (person, session, group):\n        - **Person properties**: User attributes (email, name, country, custom fields). **MUST use read_taxonomy to discover available person properties.**\n        - **Session properties**: Session-level data (device type, browser, OS, screen size, start timestamp). **MUST use read_taxonomy to discover available session properties.**\n        - **Group properties**: Organization/account attributes (plan tier, company name). **MUST use read_taxonomy to discover group properties for specific group types.** The defined group types are: {{}} {{group type}}s,{{}}.\n\n        **EVENT PROPERTIES**:\n        - Properties of specific events that occurred during the recording (e.g., URL visited, button clicked). **MUST use read_taxonomy to discover properties for specific event names.**\n\n        **RECORDING PROPERTIES**:\n        - Recording-level metrics (console_error_count, click_count, activity_score). These are built-in and don't require discovery.\n\n        **CRITICAL**: ALWAYS use read_taxonomy to discover properties before creating filters. Never assume property names or values exist without verification. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.\n\n        # Property Value Matching\n\n        When using discovered property values:\n        - **Related but not synonyms**: Use the user's original value. Example: User asks for browser \"Chrome\", tool returns [\"Firefox\", \"Safari\"] -> use \"Chrome\" (related concept)\n        - **Synonyms or variants**: Use the discovered value. Example: User asks for city \"New York\", tool returns [\"New York City\", \"NYC\"] -> use \"New York City\" (synonym)\n\n        # Common Properties\n\n        **Event**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`, `$current_url`, `$pathname`\n        **Session**: `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`\n        **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields\n        **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`\n\n        # Filter Completion Strategy\n\n        Always aim to complete filters as much as possible:\n        - **FIRST**: Use read_taxonomy to discover ALL relevant properties and events\n        - If you found most properties but are missing some, return what you have (user can refine later)\n        - If you've found very few properties, use read_taxonomy again or ask for clarification\n        - Don't get stuck on perfect matches - use reasonable approximations when appropriate\n        - **Remember**: Property discovery with read_taxonomy is MANDATORY before filter creation\n\n        # Filter Structure\n\n        ## filter_group (REQUIRED)\n        Two-level nested structure with AND/OR logic.\n        **Empty filter** (all recordings):\n        ```json\n        {{\"type\":\"AND\",\"values\":[{{\"type\":\"AND\",\"values\":[]}}]}}\n        ```\n\n        ## duration (REQUIRED)\n        Array of duration constraints. Default to `[]` unless user asks about recording length.\n        Duration types: \"duration\", \"active_seconds\", \"inactive_seconds\"\n        Example (longer than 5 minutes):\n        ```json\n        {{\"duration\":[{{\"key\":\"duration\",\"type\":\"recording\",\"operator\":\"gt\",\"value\":300}}]}}\n        ```\n\n        ## Date Range\n        - **date_from**: \"-7d\" (relative), \"2025-01-15\" (absolute). Default: \"-3d\"\n        - **date_to**: null (current time, default) or \"2025-01-20\" (absolute)\n\n        ## Ordering\n        - **order**: \"start_time\" (default), \"duration\", \"console_error_count\", \"activity_score\", etc.\n        - **order_direction**: \"DESC\" (default), \"ASC\"\n\n        ## Test Accounts\n        - **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)\n\n        # Operators by Data Type\n        **String**: \"exact\", \"is_not\", \"icontains\", \"not_icontains\", \"regex\", \"not_regex\", \"is_set\", \"is_not_set\"\n        **Numeric**: \"exact\", \"is_not\", \"gt\", \"gte\", \"lt\", \"lte\", \"is_set\", \"is_not_set\"\n        **DateTime**: \"is_date_exact\", \"is_not\", \"is_date_before\", \"is_date_after\", \"is_set\", \"is_not_set\"\n        **Boolean**: \"exact\", \"is_not\", \"is_set\", \"is_not_set\"\n        Note: \"exact\" and \"is_not\" accept arrays of multiple values.\n        **Operator Selection Tips:**\n        - Use \"icontains\" for URLs (handles parameters/query strings)\n        - Use \"exact\" for enumerated values (device type, browser, country codes)\n        - Use \"gt\"/\"lt\" for counts and metrics\n\n        <filter_examples>\n# Logical Grouping\n**AND**: All criteria must match (narrower results). Example: \"mobile users from US\" -> mobile AND US\n**OR**: Any criteria can match (broader results). Example: \"users from US or UK\" -> US OR UK\n**Simple AND** (most common):\n```json\n{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Mobile\"]},{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]}]}]}\n```\n**Simple OR**:\n```json\n{\"type\":\"OR\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]}]},{\"type\":\"AND\",\"values\":[{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"UK\"]}]}]}\n```\n**Complex (A OR B) AND (C OR D)**:\n```json\n{\"type\":\"AND\",\"values\":[{\"type\":\"OR\",\"values\":[{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Mobile\"]},{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Tablet\"]}]},{\"type\":\"OR\",\"values\":[{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]},{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"UK\"]}]}]}\n```\n**Complex (A AND B) OR (C AND D)**:\n```json\n{\"type\":\"OR\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Mobile\"]},{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]}]},{\"type\":\"AND\",\"values\":[{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Desktop\"]},{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"UK\"]}]}]}\n```\n\n# Common Properties\n**Session**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`\n**Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields\n**Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`\n**Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`\n\n# Special Patterns\n**Frustrated users (rageclicks)**:\n```json\n{\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"$event_type\",\"type\":\"event\",\"operator\":\"exact\",\"value\":[\"$rageclick\"]}]}]}}\n```\n**Users with errors**:\n```json\n{\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"console_error_count\",\"type\":\"recording\",\"operator\":\"gt\",\"value\":[0]}]}]},\"order\":\"console_error_count\",\"order_direction\":\"DESC\"}\n```\n**Clear all filters**:\n```json\n{\"date_from\":\"-3d\",\"date_to\":null,\"duration\":[],\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[]}]},\"filter_test_accounts\":true,\"order\":\"start_time\",\"order_direction\":\"DESC\"}\n```\n\n# Complete Examples\n**Mobile users from US (last 3 days)**:\n```json\n{\"date_from\":\"-3d\",\"date_to\":null,\"duration\":[],\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Mobile\"]},{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]}]}]},\"filter_test_accounts\":true}\n```\n**US or UK users (last week)**:\n```json\n{\"date_from\":\"-7d\",\"date_to\":null,\"duration\":[],\"filter_group\":{\"type\":\"OR\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]}]},{\"type\":\"AND\",\"values\":[{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"UK\"]}]}]},\"filter_test_accounts\":true}\n```\n**Long mobile sessions from paid customers on pricing page**:\n```json\n{\"date_from\":\"-7d\",\"date_to\":null,\"duration\":[{\"key\":\"duration\",\"type\":\"recording\",\"operator\":\"gt\",\"value\":300}],\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"plan_type\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"paid\"]},{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Mobile\"]},{\"key\":\"$current_url\",\"type\":\"event\",\"operator\":\"icontains\",\"value\":[\"/pricing\"]}]}]},\"order\":\"duration\",\"order_direction\":\"DESC\",\"filter_test_accounts\":true}\n```\n**Error tracking (yesterday)**:\n```json\n{\"date_from\":\"-1d\",\"date_to\":null,\"duration\":[],\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"console_error_count\",\"type\":\"recording\",\"operator\":\"gt\",\"value\":[0]}]}]},\"order\":\"console_error_count\",\"order_direction\":\"DESC\",\"filter_test_accounts\":true}\n```\n**(Mobile OR Tablet) AND (US OR UK)**:\n```json\n{\"date_from\":\"-3d\",\"date_to\":null,\"duration\":[],\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"OR\",\"values\":[{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Mobile\"]},{\"key\":\"$device_type\",\"type\":\"session\",\"operator\":\"exact\",\"value\":[\"Tablet\"]}]},{\"type\":\"OR\",\"values\":[{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"US\"]},{\"key\":\"$geoip_country_code\",\"type\":\"person\",\"operator\":\"exact\",\"value\":[\"UK\"]}]}]},\"filter_test_accounts\":true}\n</filter_examples>\n\n        # Critical Reminders\n\n        1. **Property discovery**: ALWAYS use read_taxonomy to discover ALL properties and events before creating filters - never assume they exist\n        2. **Don't repeat tool calls**: If a property isn't found, try the next best option\n        3. **Minimalism**: Only include essential filters\n        4. **Defaults**: date_from=\"-3d\", duration=[], filter_test_accounts=true\n        5. **Duration placement**: Duration filters go in `duration` array, NOT filter_group\n        6. **Value types**: Arrays for \"exact\"/\"is_not\", single values for comparisons\n        7. **Output format**: Valid JSON object only, no markdown or explanatory text\n        8. **Silence**: Do not output when performing taxonomy exploration, just use the tools",
+        "category": "PostHog AI",
+        "feature": "phai-tools",
+        "summary": "Filter session recordings",
+        "title": "Filter session recordings",
+        "required_scopes": [
+            "session_recording:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "phai-summarize-sessions": {
+        "description": "Use this tool to summarize session recordings by analyzing the events within those sessions (and the visual recordings) to find patterns and issues.\n\n        If explicit session IDs to summarize were not specified by the user, you should first use the filter_session_recordings tool to filter for relevant recordings.\n        Do not use this tool if the preceding filter_session_recordings call returned no results.\n\n        To use session summarization, get the filters right rather than accepting subpar ones (no results is likely a filtering issue rather than a data issue)",
+        "category": "PostHog AI",
+        "feature": "phai-tools",
+        "summary": "Summarize session recordings",
+        "title": "Summarize sessions",
+        "required_scopes": [
+            "session_recording:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "phai-search-error-tracking-issues": {
+        "description": "Search for error tracking issues based on criteria like status, search text, date range, and ordering.\n\n        # When to use this tool:\n        - User asks to find, search, or list error tracking issues\n        - User asks about errors, exceptions, or issues in their application\n        - User wants to filter errors by status, date, frequency, or other criteria\n        - User asks questions like \"show me recent errors\" or \"what are the most common issues\"\n        - User asks to \"show more\" or see \"next page\" of results (use the cursor from previous results)\n\n        # What this tool returns:\n        A formatted list of matching issues with their name, status, occurrence count, and other key metrics.\n        If more results are available, a cursor will be provided for pagination.\n        All timestamps are in UTC timezone.\n\nUser's question converted into an error tracking query.\n\n        IMPORTANT: When the user asks to \"show more\" or \"next page\", you should pass the cursor\n        from the previous response to continue pagination. Do NOT modify the query parameters.",
+        "category": "PostHog AI",
+        "feature": "phai-tools",
+        "summary": "Search error tracking issues",
+        "title": "Search error tracking issues",
+        "required_scopes": [
+            "error_tracking:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
