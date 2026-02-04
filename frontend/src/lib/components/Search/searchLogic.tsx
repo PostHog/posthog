@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
+import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { ActivityTab, Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 
@@ -45,19 +46,8 @@ export interface SearchLogicProps {
     logicKey: string
 }
 
-export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
-
 export const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
-
-function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
-    return response.results.map((row) => ({
-        group_key: row[response.columns.indexOf('key')],
-        group_properties: {
-            name: row[response.columns.indexOf('group_name')],
-        },
-    }))
-}
 
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
