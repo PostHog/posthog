@@ -495,7 +495,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
 
         recipient.preferences = preferences_dict
-        recipient.save()
+        recipient.save(update_fields=["preferences"])
 
         if request.method == "POST":
             return HttpResponse(status=200)
