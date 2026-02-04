@@ -22,6 +22,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     ALLOWED_TEAM_IDS,
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
+    GENERATION_CHILD_WORKFLOW_ID_PREFIX,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     AnalysisLevel,
@@ -110,6 +111,9 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         # Process teams in batches for controlled parallelism
         max_concurrent = inputs.max_concurrent_teams
+        child_id_prefix = (
+            GENERATION_CHILD_WORKFLOW_ID_PREFIX if inputs.analysis_level == "generation" else CHILD_WORKFLOW_ID_PREFIX
+        )
 
         for batch_start in range(0, len(team_ids), max_concurrent):
             batch = team_ids[batch_start : batch_start + max_concurrent]
@@ -127,7 +131,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                         min_k=inputs.min_k,
                         max_k=inputs.max_k,
                     ),
-                    id=f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{temporalio.workflow.now().isoformat()}",
+                    id=f"{child_id_prefix}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,

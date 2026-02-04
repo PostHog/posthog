@@ -83,6 +83,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
+    [Scene.SqlVariableEdit]: () => import('./data-management/variables/SqlVariableEditScene'),
     [Scene.ReplayFilePlayback]: () => import('./session-recordings/file-playback/SessionRecordingFilePlaybackScene'),
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
     [Scene.ReplaySettings]: () => import('./session-recordings/settings/SessionRecordingsSettingsScene'),
