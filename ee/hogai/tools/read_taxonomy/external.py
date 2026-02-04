@@ -3,16 +3,16 @@ from typing import Any
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
-from ee.hogai.external_tool import ExternalTool, register_external_tool
+from ee.hogai.external_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 from .core import ReadTaxonomyToolArgs, execute_taxonomy_query
 
 
-@register_external_tool(scopes=["insight:read", "query:read"])
-class ReadTaxonomyExternalTool(ExternalTool[ReadTaxonomyToolArgs]):
+@mcp_tool_registry.register(scopes=["insight:read", "query:read"])
+class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
     """
-    External version of ReadTaxonomyTool for API/MCP callers.
+    MCP version of ReadTaxonomyTool.
 
     Explores the user's taxonomy (events, actions, properties, and property values).
     """

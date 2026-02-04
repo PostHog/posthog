@@ -1,15 +1,15 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.execute_sql.external import ExecuteSQLExternalTool, ExecuteSQLExternalToolArgs
+from ee.hogai.tools.execute_sql.external import ExecuteSQLExternalToolArgs, ExecuteSQLMCPTool
 
 
-class TestExecuteSQLExternalTool(ClickhouseTestMixin, NonAtomicBaseTest):
+class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
         super().setUp()
-        self.tool = ExecuteSQLExternalTool(team=self.team, user=self.user)
+        self.tool = ExecuteSQLMCPTool(team=self.team, user=self.user)
 
     async def test_successful_execution(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")

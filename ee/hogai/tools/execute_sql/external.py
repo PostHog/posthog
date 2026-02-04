@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.external_tool import ExternalTool, register_external_tool
+from ee.hogai.external_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 
@@ -13,10 +13,10 @@ class ExecuteSQLExternalToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
 
 
-@register_external_tool(scopes=["insight:read", "query:read"])
-class ExecuteSQLExternalTool(HogQLOutputParserMixin, ExternalTool[ExecuteSQLExternalToolArgs]):
+@mcp_tool_registry.register(scopes=["insight:read", "query:read"])
+class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLExternalToolArgs]):
     """
-    External version of ExecuteSQLTool for API/MCP callers.
+    MCP version of ExecuteSQLTool.
 
     Executes HogQL queries without LangChain context or artifact creation.
     """

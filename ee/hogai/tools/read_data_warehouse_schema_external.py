@@ -7,7 +7,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.external_tool import ExternalTool, register_external_tool
+from ee.hogai.external_tool import MCPTool, mcp_tool_registry
 
 
 class ReadDataWarehouseSchemaQuery(BaseModel):
@@ -18,10 +18,10 @@ class ReadDataWarehouseSchemaExternalToolArgs(BaseModel):
     query: ReadDataWarehouseSchemaQuery
 
 
-@register_external_tool(scopes=["insight:read", "query:read"])
-class ReadDataWarehouseSchemaExternalTool(ExternalTool[ReadDataWarehouseSchemaExternalToolArgs]):
+@mcp_tool_registry.register(scopes=["insight:read", "query:read"])
+class ReadDataWarehouseSchemaMCPTool(MCPTool[ReadDataWarehouseSchemaExternalToolArgs]):
     """
-    External tool that returns core PostHog table schemas (events, groups, persons, sessions).
+    MCP tool that returns core PostHog table schemas (events, groups, persons, sessions).
 
     This provides the data model information needed for writing HogQL queries.
     """

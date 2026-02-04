@@ -16,7 +16,7 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
-from ee.hogai.external_tool import get_external_tool, get_external_tool_scopes
+from ee.hogai.external_tool import mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
@@ -54,7 +54,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             import ee.hogai.tools  # noqa: F401
 
             tool_name = self.kwargs.get("tool_name", "")
-            scopes = get_external_tool_scopes(tool_name)
+            scopes = mcp_tool_registry.get_scopes(tool_name)
             return scopes or None
         return None
 
@@ -92,16 +92,16 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     def invoke_tool(self, request: Request, tool_name: str, *args, **kwargs):
         """
-        Invoke an external tool by name.
+        Invoke an MCP tool by name.
 
-        This endpoint allows external callers (MCP, API) to invoke Max AI tools
-        directly without going through the full LangChain conversation flow.
+        This endpoint allows MCP callers to invoke Max AI tools directly
+        without going through the full LangChain conversation flow.
 
         Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
         """
         import ee.hogai.tools  # noqa: F401
 
-        tool = get_external_tool(tool_name, team=self.team, user=cast(User, request.user))
+        tool = mcp_tool_registry.get(tool_name, team=self.team, user=cast(User, request.user))
         if tool is None:
             return Response(
                 {"content": f"Tool '{tool_name}' not found", "isError": True},

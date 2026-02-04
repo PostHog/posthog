@@ -9,9 +9,9 @@ from posthog.models import Team, User
 ArgsT = TypeVar("ArgsT", bound=BaseModel)
 
 
-class ExternalTool(ABC, Generic[ArgsT]):
+class MCPTool(ABC, Generic[ArgsT]):
     """
-    Base class for tools executable via external callers (MCP, API).
+    Base class for tools executable via MCP callers.
 
     Unlike MaxTool, this interface:
     - Only takes args (no LangChain state, config, context_manager)
@@ -43,44 +43,52 @@ class ExternalTool(ABC, Generic[ArgsT]):
 
 
 @dataclass(frozen=True)
-class ExternalToolRegistration:
-    tool_cls: type[ExternalTool[Any]]
+class MCPToolRegistration:
+    tool_cls: type[MCPTool[Any]]
     scopes: list[str]
 
 
-# Registry for external tools
-EXTERNAL_TOOL_REGISTRY: dict[str, ExternalToolRegistration] = {}
+class MCPToolRegistry:
+    """Singleton registry for MCP tools."""
+
+    _instance: "MCPToolRegistry | None" = None
+    _tools: dict[str, MCPToolRegistration]
+
+    def __new__(cls) -> "MCPToolRegistry":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._tools = {}
+        return cls._instance
+
+    def register(self, scopes: list[str] | None = None):
+        """Decorator factory to register an MCP tool with optional scopes."""
+
+        def decorator[T: MCPTool[Any]](cls: type[T]) -> type[T]:
+            self._tools[cls.name] = MCPToolRegistration(
+                tool_cls=cls,
+                scopes=scopes or [],
+            )
+            return cls
+
+        return decorator
+
+    def get(self, name: str, team: Team, user: User) -> MCPTool[Any] | None:
+        """Get an MCP tool instance by name, constructed with team/user."""
+        registration = self._tools.get(name)
+        if registration:
+            return registration.tool_cls(team=team, user=user)
+        return None
+
+    def get_scopes(self, name: str) -> list[str]:
+        """Get the required scopes for a registered MCP tool."""
+        registration = self._tools.get(name)
+        if registration:
+            return registration.scopes
+        return []
+
+    def get_names(self) -> list[str]:
+        """Get list of registered MCP tool names."""
+        return list(self._tools.keys())
 
 
-def register_external_tool(scopes: list[str] | None = None):
-    """Decorator factory to register an external tool with optional scopes."""
-
-    def decorator[T: ExternalTool[Any]](cls: type[T]) -> type[T]:
-        EXTERNAL_TOOL_REGISTRY[cls.name] = ExternalToolRegistration(
-            tool_cls=cls,
-            scopes=scopes or [],
-        )
-        return cls
-
-    return decorator
-
-
-def get_external_tool(name: str, team: Team, user: User) -> ExternalTool[Any] | None:
-    """Get an external tool instance by name, constructed with team/user."""
-    registration = EXTERNAL_TOOL_REGISTRY.get(name)
-    if registration:
-        return registration.tool_cls(team=team, user=user)
-    return None
-
-
-def get_external_tool_scopes(name: str) -> list[str]:
-    """Get the required scopes for a registered external tool."""
-    registration = EXTERNAL_TOOL_REGISTRY.get(name)
-    if registration:
-        return registration.scopes
-    return []
-
-
-def get_external_tool_names() -> list[str]:
-    """Get list of registered external tool names."""
-    return list(EXTERNAL_TOOL_REGISTRY.keys())
+mcp_tool_registry = MCPToolRegistry()
