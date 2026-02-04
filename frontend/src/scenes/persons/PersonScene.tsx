@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -155,6 +155,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
 }
 
 export function PersonScene(): JSX.Element | null {
+    const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
         person,
@@ -168,9 +169,9 @@ export function PersonScene(): JSX.Element | null {
         eventsQuery,
         exceptionsQuery,
         surveyResponsesQuery,
-    } = useValues(personsLogic)
+    } = useValues(mountedPersonsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
-        useActions(personsLogic)
+        useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
@@ -250,7 +251,7 @@ export function PersonScene(): JSX.Element | null {
                         ? {
                               key: PersonsTabType.PROFILE,
                               label: <span data-attr="persons-profile-tab">Profile</span>,
-                              content: <PersonProfileCanvas person={person} />,
+                              content: <PersonProfileCanvas person={person} attachTo={mountedPersonsLogic} />,
                           }
                         : false,
                     {
