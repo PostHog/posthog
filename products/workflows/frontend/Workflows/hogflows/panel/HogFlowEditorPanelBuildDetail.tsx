@@ -21,7 +21,7 @@ import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySele
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isOptOutEligibleAction } from '../steps/types'
+import { CyclotronInputType, isOptOutEligibleAction } from '../steps/types'
 import { HogFlowAction } from '../types'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
@@ -90,11 +90,19 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 )}
                                 <CategorySelect
                                     onChange={(categoryId) => {
+                                        const isTransactionalEmail = categoryId
+                                            ? categories.find((cat) => cat.id === categoryId)?.category_type ===
+                                                  'transactional' || false
+                                            : false
                                         setWorkflowAction(action.id, {
                                             ...action,
                                             config: {
                                                 ...action.config,
                                                 message_category_id: categoryId,
+                                                inputs: {
+                                                    ...action.config.inputs,
+                                                    isTransactionalEmail,
+                                                } as CyclotronInputType,
                                             },
                                         } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
                                     }}

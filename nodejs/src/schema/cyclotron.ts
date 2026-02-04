@@ -83,6 +83,7 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     preheader: z.string().optional(),
     text: z.string(),
     html: z.string(),
+    isTransactionalEmail: z.boolean().optional(),
 })
 
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>

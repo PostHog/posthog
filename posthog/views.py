@@ -521,7 +521,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             {
                 "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
                 "name": "All marketing communications",
-                "description": "Unsubscribe from all marketing emails. Overrides individual preferences.",
+                "description": "Unsubscribing here overrides individual preferences.",
                 "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
             },
         ],
