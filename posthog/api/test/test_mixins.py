@@ -871,6 +871,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
             responses={
                 200: OpenApiResponse(response=EventCaptureResponseSerializer()),  # Instance
             },
+            strict_response_validation=True,
         )
         def mock_endpoint(view_self, request):
             return Response(
@@ -893,3 +894,73 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.data["status"] == "ok"
         assert response.data["distinct_id"] == "user_123"
+
+    def test_response_serializer_with_many_true(self):
+        """Response serializer should support many=True (ListSerializer)"""
+        # This test reproduces the bug from PR #46849
+        # When MySerializer(many=True) is passed, DRF wraps it in a ListSerializer
+        # The decorator should handle this case without raising TypeError
+
+        class ItemSerializer(serializers.Serializer):
+            id = serializers.IntegerField()
+            name = serializers.CharField()
+
+        @validated_request(
+            responses={
+                200: OpenApiResponse(response=ItemSerializer(many=True)),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                [
+                    {"id": 1, "name": "first"},
+                    {"id": 2, "name": "second"},
+                ],
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        # This should not raise TypeError: 'ListSerializer' object is not callable
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 2
+        assert response.data[0]["name"] == "first"
+        assert response.data[1]["name"] == "second"
+
+    def test_response_serializer_class(self):
+        """Response serializer can be provided as class (e.g., MySerializer)"""
+
+        class ItemSerializer(serializers.Serializer):
+            id = serializers.IntegerField()
+            name = serializers.CharField()
+
+        @validated_request(
+            responses={
+                200: OpenApiResponse(response=ItemSerializer),  # Class
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                {"id": 1, "name": "test"},
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["id"] == 1
+        assert response.data["name"] == "test"

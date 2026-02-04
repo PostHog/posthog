@@ -192,19 +192,31 @@ def validated_request(
                 context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
 
                 # Handle both class and instance to match DRF Spectacular's behavior
-                serializer_class = (
-                    type(response_serializer)
-                    if isinstance(response_serializer, serializers.Serializer)
-                    else response_serializer
-                )
-                serialized = serializer_class(data=data, context=context)
+                # Handles list serializers and (many=True)
+                if isinstance(response_serializer, serializers.ListSerializer):
+                    child_class = type(response_serializer.child)
+                    serialized = serializers.ListSerializer(data=data, child=child_class(), context=context)
+                    serializer_class_name = f"{child_class.__name__}(many=True)"
+                # Handles instances like MySerializer()
+                elif isinstance(response_serializer, serializers.Serializer):
+                    serializer_class = type(response_serializer)
+                    serialized = serializer_class(data=data, context=context)
+                    serializer_class_name = serializer_class.__name__
+                # Handles classes like MySerializer
+                else:
+                    serialized = response_serializer(data=data, context=context)
+                    serializer_class_name = (
+                        response_serializer.__name__
+                        if hasattr(response_serializer, "__name__")
+                        else str(type(response_serializer).__name__)
+                    )
 
                 if not serialized.is_valid(raise_exception=strict_response_validation):
                     logger.warning(
                         f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
                         view_func=view_func.__name__,
                         status_code=status_code,
-                        serializer_class=serializer_class.__name__,
+                        serializer_class=serializer_class_name,
                         validation_errors=serialized.errors,
                     )
 
