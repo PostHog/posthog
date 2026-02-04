@@ -53,10 +53,7 @@ export function VariantTimeseriesChart({
                             ticks: {
                                 callback: (value) => {
                                     const num = Number(value)
-                                    if (Math.abs(num) < 1) {
-                                        return `${(num * 100).toFixed(1)}%`
-                                    }
-                                    return num.toFixed(2)
+                                    return `${(num * 100).toFixed(0)}%`
                                 },
                             },
                             afterBuildTicks: (axis) => {
