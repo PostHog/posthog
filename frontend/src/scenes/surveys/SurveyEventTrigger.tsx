@@ -161,33 +161,31 @@ function SurveyEventSelector({
                                     panels={[
                                         {
                                             key: `${conditionField}-event-${index}`,
-                                            header: {
-                                                children: (
-                                                    <div className="flex items-center justify-between flex-1">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-semibold text-sm">{event.name}</span>
-                                                            {hasPropertyFilters && (
-                                                                <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
-                                                                    {Object.keys(event.propertyFilters!).length} filter
-                                                                    {Object.keys(event.propertyFilters!).length !== 1
-                                                                        ? 's'
-                                                                        : ''}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <LemonButton
-                                                            size="xsmall"
-                                                            icon={<IconX />}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation()
-                                                                removeEventAtIndex(index)
-                                                            }}
-                                                            type="tertiary"
-                                                            status="alt"
-                                                        />
+                                            header: (
+                                                <div className="flex items-center justify-between flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-semibold text-sm">{event.name}</span>
+                                                        {hasPropertyFilters && (
+                                                            <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
+                                                                {Object.keys(event.propertyFilters!).length} filter
+                                                                {Object.keys(event.propertyFilters!).length !== 1
+                                                                    ? 's'
+                                                                    : ''}
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                ),
-                                            },
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        icon={<IconX />}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            removeEventAtIndex(index)
+                                                        }}
+                                                        type="tertiary"
+                                                        status="alt"
+                                                    />
+                                                </div>
+                                            ),
                                             content: (
                                                 <div>
                                                     <div className="text-xs font-medium text-muted-alt mb-2 uppercase tracking-wide">

@@ -287,7 +287,7 @@ export function Playlist({
                                     panels={sections.map((s) => {
                                         return {
                                             key: s.key,
-                                            header: s.title ?? '',
+                                            header: String(s.title),
                                             content: (
                                                 <SectionContent
                                                     section={s}

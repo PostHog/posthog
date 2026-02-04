@@ -14,7 +14,7 @@ pub mod common;
 /// Integration test for legacy decide v1 format
 /// Tests that when X-Original-Endpoint: decide header is present and v=1 query param is passed,
 /// the response contains featureFlags as an array of strings (active flag keys only)
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_legacy_decide_v1_format() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
@@ -164,7 +164,7 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
 /// Integration test for legacy decide v2 format
 /// Tests that when X-Original-Endpoint: decide header is present and v=2 query param is passed,
 /// the response contains featureFlags as an object with flag values (booleans or strings)
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_legacy_decide_v2_format() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
@@ -287,7 +287,7 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
 }
 
 /// Test that X-Original-Endpoint: decide header changes how v query parameter is interpreted
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_decide_header_changes_version_interpretation() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
