@@ -9293,3 +9293,29 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         flag.refresh_from_db()
         assert flag.deleted is True
         assert flag.key == f"flag_with_deleted_exp:deleted:{flag.id}"
+
+    def test_bulk_delete_cross_project_isolation(self):
+        other_team = Team.objects.create(
+            organization=self.organization, api_token="token_other_bulk", name="Other Team"
+        )
+        other_flag = FeatureFlag.objects.create(
+            team=other_team,
+            created_by=self.user,
+            key="other_team_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [other_flag.id]},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 0
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["reason"] == "Flag not found"
+
+        other_flag.refresh_from_db()
+        assert other_flag.deleted is False

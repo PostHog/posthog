@@ -20,7 +20,7 @@ ${flagList}
 
 For each flag:
 1. Find all usages (isFeatureEnabled, useFeatureFlag, posthog.isFeatureEnabled, etc.)
-2. Replace with the default value (true for 100% rollout flags)
+2. Replace with the appropriate default value
 3. Remove the flag check entirely if possible
 4. Clean up any dead code branches`
 }

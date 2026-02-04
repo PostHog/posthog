@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -8,6 +8,8 @@ import { FeatureFlagType } from '~/types'
 
 import { featureFlagsLogic } from './featureFlagsLogic'
 import type { flagSelectionLogicType } from './flagSelectionLogicType'
+
+let shiftKeyHandler: ((event: KeyboardEvent) => void) | null = null
 
 export interface BulkDeleteResult {
     deleted: Array<{ id: number; key: string }>
@@ -19,7 +21,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
 
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], featureFlagsLogic({}), ['displayedFlags']],
-        actions: [featureFlagsLogic({}), ['loadFeatureFlags']],
+        actions: [featureFlagsLogic({}), ['loadFeatureFlags', 'setFeatureFlagsFilters']],
     })),
 
     actions({
@@ -107,17 +109,23 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             const { selectedFlagIds, shiftKeyHeld, previouslyCheckedIndex, displayedFlags } = values
 
             if (shiftKeyHeld && previouslyCheckedIndex !== null) {
-                // Shift-click: select range
+                // Shift-click: select range, following the anchor's direction
                 const start = Math.min(previouslyCheckedIndex, index)
                 const end = Math.max(previouslyCheckedIndex, index)
-                const flagsInRange = displayedFlags
+                const flagIdsInRange = displayedFlags
                     .slice(start, end + 1)
                     .map((f: FeatureFlagType) => f.id)
-                    .filter((id: number | null): id is number => id !== null)
+                    .filter((fid: number | null): fid is number => fid !== null)
 
-                // Add all flags in range to selection
-                const newSelection = [...new Set([...selectedFlagIds, ...flagsInRange])]
-                actions.setSelectedFlagIds(newSelection)
+                // Determine direction from anchor: if the clicked flag was already selected,
+                // we're deselecting the range; otherwise we're selecting it
+                const isDeselecting = selectedFlagIds.includes(id)
+                if (isDeselecting) {
+                    const rangeSet = new Set(flagIdsInRange)
+                    actions.setSelectedFlagIds(selectedFlagIds.filter((fid: number) => !rangeSet.has(fid)))
+                } else {
+                    actions.setSelectedFlagIds([...new Set([...selectedFlagIds, ...flagIdsInRange])])
+                }
             } else {
                 // Normal click: toggle single flag
                 const isSelected = selectedFlagIds.includes(id)
@@ -136,6 +144,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 .filter((id: number | null): id is number => id !== null)
             actions.setSelectedFlagIds(flagIds)
         },
+        setFeatureFlagsFilters: () => {
+            actions.clearSelection()
+        },
         bulkDeleteFlagsSuccess: ({ bulkDeleteResponse }) => {
             if (bulkDeleteResponse) {
                 actions.showResultsModal(bulkDeleteResponse)
@@ -146,18 +157,18 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        const onKeyChange = (event: KeyboardEvent): void => {
+        shiftKeyHandler = (event: KeyboardEvent): void => {
             actions.setShiftKeyHeld(event.shiftKey)
         }
+        window.addEventListener('keydown', shiftKeyHandler)
+        window.addEventListener('keyup', shiftKeyHandler)
+    }),
 
-        // Register shift key listener
-        window.addEventListener('keydown', onKeyChange)
-        window.addEventListener('keyup', onKeyChange)
-
-        // Return cleanup function that will be called on unmount
-        return () => {
-            window.removeEventListener('keydown', onKeyChange)
-            window.removeEventListener('keyup', onKeyChange)
+    beforeUnmount(() => {
+        if (shiftKeyHandler) {
+            window.removeEventListener('keydown', shiftKeyHandler)
+            window.removeEventListener('keyup', shiftKeyHandler)
+            shiftKeyHandler = null
         }
     }),
 ])

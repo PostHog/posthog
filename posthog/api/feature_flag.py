@@ -49,7 +49,7 @@ from posthog.helpers.encrypted_flag_payloads import (
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext
+from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
@@ -95,6 +95,29 @@ LOCAL_EVALUATION_ETAG_COUNTER = Counter(
     "Local evaluation ETag cache results",
     labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
 )
+
+
+def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
+    """Find all active flags that depend on the given flag via flag-type filter properties."""
+    return list(
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
+        .exclude(id=flag_to_check.id)
+        .extra(
+            where=[
+                """
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
+                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        WHERE prop->>'type' = 'flag'
+                        AND prop->>'key' = %s
+                    )
+                    """
+            ],
+            params=[str(flag_to_check.id)],
+        )
+        .order_by("key")
+    )
 
 
 def extract_etag_from_header(header_value: str | None) -> str | None:
@@ -1053,25 +1076,7 @@ class FeatureFlagSerializer(
 
     def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
-        return list(
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
-            .exclude(id=flag_to_check.id)
-            .extra(
-                where=[
-                    """
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
-                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
-                        WHERE prop->>'type' = 'flag'
-                        AND prop->>'key' = %s
-                    )
-                    """
-                ],
-                params=[str(flag_to_check.id)],
-            )
-            .order_by("key")
-        )
+        return find_dependent_flags(flag_to_check)
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
@@ -1726,8 +1731,7 @@ class FeatureFlagViewSet(
     def dependent_flags(self, request: request.Request, **kwargs):
         """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
-        serializer = self.serializer_class()
-        dependent_flags = serializer._find_dependent_flags(feature_flag)
+        dependent_flags = find_dependent_flags(feature_flag)
         return Response(
             [
                 {
@@ -1905,9 +1909,6 @@ class FeatureFlagViewSet(
             if flag_id not in flags_by_id:
                 errors.append({"id": flag_id, "reason": "Flag not found"})
 
-        # Get the serializer to use its dependency checking methods
-        serializer = self.serializer_class()
-
         # Process each flag
         for flag_id, flag in flags_by_id.items():
             # Check for linked early access features
@@ -1935,7 +1936,7 @@ class FeatureFlagViewSet(
                 continue
 
             # Check for other flags that depend on this flag
-            dependent_flags = serializer._find_dependent_flags(flag)
+            dependent_flags = find_dependent_flags(flag)
             if dependent_flags:
                 dependent_flag_names = [f"{f.key} (ID: {f.id})" for f in dependent_flags[:3]]
                 if len(dependent_flags) > 3:
@@ -1965,7 +1966,7 @@ class FeatureFlagViewSet(
                 organization_id=flag.team.organization_id,
                 team_id=flag.team_id,
                 user=request.user if request.user.is_authenticated else None,
-                was_impersonated=False,
+                was_impersonated=is_impersonated_session(request),
                 item_id=flag.id,
                 scope="FeatureFlag",
                 activity="deleted",
