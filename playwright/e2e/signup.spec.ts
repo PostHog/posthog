@@ -155,7 +155,9 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-role-at-organization]').click()
         await page.locator('.Popover li:first-child').click()
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
+        const retrySignupPromise = page.waitForResponse('/api/signup/')
         await page.locator('[data-attr=signup-submit]').click()
+        await retrySignupPromise
 
         await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*/)
     })

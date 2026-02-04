@@ -7,6 +7,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -22,8 +23,9 @@ export function GlobalShortcuts(): null {
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
-    const { toggleAccountMenu } = useActions(newAccountMenuLogic)
+    const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
+    const { toggleHealthMenu } = useActions(healthMenuLogic)
 
     useAppShortcut({
         name: 'Search',
@@ -91,11 +93,35 @@ export function GlobalShortcuts(): null {
     })
 
     useAppShortcut({
+        name: 'toggle-health-menu',
+        keybind: [keyBinds.healthMenu],
+        intent: 'Toggle health menu',
+        interaction: 'function',
+        callback: () => toggleHealthMenu(),
+    })
+
+    useAppShortcut({
         name: 'toggle-new-account-menu',
         keybind: [keyBinds.newAccountMenu],
         intent: 'Toggle new account menu',
         interaction: 'function',
         callback: () => toggleAccountMenu(),
+    })
+
+    useAppShortcut({
+        name: 'toggle-project-switcher',
+        keybind: [keyBinds.projectSwitcher],
+        intent: 'Toggle project switcher',
+        interaction: 'function',
+        callback: () => toggleProjectSwitcher(),
+    })
+
+    useAppShortcut({
+        name: 'toggle-org-switcher',
+        keybind: [keyBinds.orgSwitcher],
+        intent: 'Toggle organization switcher',
+        interaction: 'function',
+        callback: () => toggleOrgSwitcher(),
     })
 
     return null

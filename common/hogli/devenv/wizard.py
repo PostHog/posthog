@@ -5,11 +5,46 @@ Guides users through selecting intents and generates mprocs.yaml directly.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
-from .generator import DevenvConfig, MprocsGenerator, get_generated_mprocs_path, load_devenv_config
+from .generator import (
+    DevenvConfig,
+    MprocsGenerator,
+    get_generated_mprocs_path,
+    get_main_repo_from_worktree,
+    load_devenv_config,
+)
 from .registry import create_mprocs_registry
 from .resolver import IntentMap, IntentResolver
+
+
+def _choose_config_location(local_path: Path) -> Path:
+    """Ask where to save config if in a worktree."""
+    main_repo = get_main_repo_from_worktree()
+    if not main_repo:
+        return local_path  # Not in a worktree
+
+    main_path = main_repo / ".posthog" / ".generated" / "mprocs.yaml"
+
+    click.echo("You're in a git worktree. Where should the config be saved?")
+    click.echo("  1. This worktree only")
+    click.echo("  2. Main repo (symlinked here, shared across worktrees)")
+    click.echo("")
+
+    choice = click.prompt("Choice", type=click.Choice(["1", "2"]), default="2")
+    if choice == "1":
+        return local_path
+
+    # Create symlink from worktree to main repo (config file created after this)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    main_path.parent.mkdir(parents=True, exist_ok=True)
+    # exists() is False for broken symlinks, so check both
+    if local_path.exists() or local_path.is_symlink():
+        local_path.unlink()
+    local_path.symlink_to(main_path)
+    return main_path
 
 
 def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> DevenvConfig | None:
@@ -24,7 +59,7 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     """
     registry = create_mprocs_registry()
     resolver = IntentResolver(intent_map, registry)
-    output_path = get_generated_mprocs_path()
+    local_path = get_generated_mprocs_path()
 
     click.echo("")
     click.echo(click.style("PostHog Developer Environment Setup", fg="green", bold=True))
@@ -32,14 +67,21 @@ def run_setup_wizard(intent_map: IntentMap, log_to_files: bool = False) -> Deven
     click.echo("Configure which services to start based on the products you're working on.")
     click.echo("")
 
-    # Check for existing config
-    existing = load_devenv_config(output_path)
+    # Check for existing config (follows symlinks)
+    existing = load_devenv_config(local_path)
     if existing:
-        click.echo("You have an existing config:")
+        if local_path.is_symlink():
+            click.echo("Found config (symlinked from main repo):")
+        else:
+            click.echo("Found existing config:")
         _show_config_summary(existing)
         click.echo("")
         if not click.confirm("Replace it?", default=True):
             return None
+        output_path = local_path.resolve()  # Follow symlink for actual save location
+    else:
+        # No config - ask where to save if in worktree
+        output_path = _choose_config_location(local_path)
 
     # Select products/intents
     config = _setup_from_intents(intent_map)
@@ -105,9 +147,10 @@ def _show_config_summary(config: DevenvConfig) -> None:
 
 def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
     """Set up by selecting specific intents."""
+    select_all = "all"
     click.echo("")
     click.echo(click.style("Products", fg="cyan"))
-    click.echo("Select products (comma-separated numbers).")
+    click.echo(f"Select products (comma-separated numbers, or '{select_all}').")
     click.echo("")
 
     intents = list(intent_map.intents.items())
@@ -116,17 +159,20 @@ def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
 
     click.echo("")
 
-    selection = click.prompt("Enter numbers (e.g., 1,3,5)", default="1")
+    selection = click.prompt(f"Enter numbers (e.g., 1,3,5) or '{select_all}'", default="1")
 
     selected_intents = []
-    try:
-        indices = [int(x.strip()) for x in selection.split(",")]
-        for idx in indices:
-            if 1 <= idx <= len(intents):
-                selected_intents.append(intents[idx - 1][0])
-    except ValueError:
-        click.echo("Invalid selection, using product_analytics.")
-        selected_intents = ["product_analytics"]
+    if selection.strip().lower() == select_all:
+        selected_intents = [name for name, _ in intents]
+    else:
+        try:
+            indices = [int(x.strip()) for x in selection.split(",")]
+            for idx in indices:
+                if 1 <= idx <= len(intents):
+                    selected_intents.append(intents[idx - 1][0])
+        except ValueError:
+            click.echo("Invalid selection, using product_analytics.")
+            selected_intents = ["product_analytics"]
 
     if not selected_intents:
         selected_intents = ["product_analytics"]

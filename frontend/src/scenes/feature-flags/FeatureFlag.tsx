@@ -603,7 +603,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             )}
                             <SceneDivider />
-                            <SceneSection title="Tags & Evaluation Contexts">
+                            <SceneSection
+                                title={
+                                    featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
+                                        ? 'Tags & evaluation contexts'
+                                        : 'Tags'
+                                }
+                            >
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                     <div className="text-secondary text-sm mb-2">
                                         Use tags to organize and filter your feature flags. Mark specific tags as{' '}
@@ -756,7 +762,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
+                                        router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
                                     }}
                                     menuItem
                                     data-attr={`${RESOURCE_TYPE}-duplicate`}

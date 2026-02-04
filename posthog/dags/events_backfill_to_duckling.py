@@ -30,7 +30,9 @@ Partition Strategy:
     - date is the partition date (YYYY-MM-DD)
 """
 
-from datetime import datetime, timedelta
+import json
+import calendar
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -124,48 +126,48 @@ duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_per
 # SQL for creating the events table in DuckLake if it doesn't exist
 # Types are chosen to match the Parquet output from ClickHouse
 EVENTS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {catalog}.main.events (
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     uuid VARCHAR,
     event VARCHAR,
     properties VARCHAR,
-    timestamp TIMESTAMP,
+    timestamp TIMESTAMPTZ,
     team_id BIGINT,
     project_id BIGINT,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPTZ,
     person_id VARCHAR,
-    person_created_at TIMESTAMP,
+    person_created_at TIMESTAMPTZ,
     person_properties VARCHAR,
     group0_properties VARCHAR,
     group1_properties VARCHAR,
     group2_properties VARCHAR,
     group3_properties VARCHAR,
     group4_properties VARCHAR,
-    group0_created_at TIMESTAMP,
-    group1_created_at TIMESTAMP,
-    group2_created_at TIMESTAMP,
-    group3_created_at TIMESTAMP,
-    group4_created_at TIMESTAMP,
+    group0_created_at TIMESTAMPTZ,
+    group1_created_at TIMESTAMPTZ,
+    group2_created_at TIMESTAMPTZ,
+    group3_created_at TIMESTAMPTZ,
+    group4_created_at TIMESTAMPTZ,
     person_mode VARCHAR,
-    historical_migration VARCHAR,
-    _inserted_at TIMESTAMP
+    historical_migration BOOLEAN,
+    _inserted_at TIMESTAMPTZ
 )
 """
 
 # SQL for creating the persons table in DuckLake if it doesn't exist
 PERSONS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {catalog}.main.persons (
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     team_id BIGINT,
     distinct_id VARCHAR,
     id VARCHAR,
     properties VARCHAR,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPTZ,
     is_identified BOOLEAN,
     person_distinct_id_version BIGINT,
     person_version BIGINT,
-    _timestamp TIMESTAMP,
-    _inserted_at TIMESTAMP
+    _timestamp TIMESTAMPTZ,
+    _inserted_at TIMESTAMPTZ
 )
 """
 
@@ -178,6 +180,7 @@ class DucklingBackfillConfig(Config):
     skip_schema_validation: bool = False
     cleanup_prior_run_files: bool = True
     create_tables_if_missing: bool = True
+    delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
 
 
@@ -186,6 +189,7 @@ def parse_partition_key(key: str) -> tuple[int, str]:
 
     Args:
         key: Partition key in format "{team_id}_{date}" (e.g., "12345_2024-01-15")
+             or "{team_id}_{month}" (e.g., "12345_2024-01")
 
     Returns:
         Tuple of (team_id, date_str)
@@ -195,7 +199,7 @@ def parse_partition_key(key: str) -> tuple[int, str]:
     """
     parts = key.rsplit("_", 1)
     if len(parts) != 2:
-        raise ValueError(f"Invalid partition key format: {key}. Expected 'team_id_YYYY-MM-DD'")
+        raise ValueError(f"Invalid partition key format: {key}. Expected 'team_id_YYYY-MM-DD' or 'team_id_YYYY-MM'")
 
     team_id_str, date_str = parts
 
@@ -204,12 +208,51 @@ def parse_partition_key(key: str) -> tuple[int, str]:
     except ValueError as e:
         raise ValueError(f"Invalid team_id in partition key: {team_id_str}") from e
 
+    # Try daily format first, then monthly
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError as e:
-        raise ValueError(f"Invalid date in partition key: {date_str}") from e
+    except ValueError:
+        try:
+            datetime.strptime(date_str, "%Y-%m")
+        except ValueError as e:
+            raise ValueError(f"Invalid date in partition key: {date_str}. Expected YYYY-MM-DD or YYYY-MM") from e
 
     return team_id, date_str
+
+
+def parse_partition_key_dates(key: str) -> tuple[int, list[datetime]]:
+    """Parse a partition key and return the list of dates to process.
+
+    For daily partitions (YYYY-MM-DD): returns a single date (or empty if future)
+    For monthly partitions (YYYY-MM): returns all dates in that month up to yesterday
+
+    Args:
+        key: Partition key in format "{team_id}_{date}" or "{team_id}_{month}"
+
+    Returns:
+        Tuple of (team_id, list of datetime objects to process)
+    """
+    team_id, date_str = parse_partition_key(key)
+    yesterday = (timezone.now() - timedelta(days=1)).date()
+
+    # Check if it's a monthly partition (YYYY-MM) or daily (YYYY-MM-DD)
+    if len(date_str) == 7:  # YYYY-MM format
+        year, month = int(date_str[:4]), int(date_str[5:7])
+        _, last_day = calendar.monthrange(year, month)
+
+        dates = []
+        for day in range(1, last_day + 1):
+            d = datetime(year, month, day)
+            # Don't process future dates
+            if d.date() <= yesterday:
+                dates.append(d)
+        return team_id, dates
+    else:  # YYYY-MM-DD format
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        # Don't process future dates
+        if d.date() > yesterday:
+            return team_id, []
+        return team_id, [d]
 
 
 def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str) -> str:
@@ -339,30 +382,39 @@ def ensure_events_table_exists(
     """Create the events table in the duckling's DuckLake catalog if it doesn't exist.
 
     Returns True if the table was created, False if it already existed.
+
+    Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
+    is idempotent and handles race conditions gracefully.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
 
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            # Catalog may already be attached from a previous operation in this session
-            if alias not in str(exc):
-                raise
-            context.log.debug(f"Catalog '{alias}' already attached, continuing")
-
-        if table_exists(conn, alias, "main", "events"):
+        if table_exists(conn, alias, "posthog", "events"):
             context.log.info("Events table already exists in duckling catalog")
             return False
 
+        context.log.info("Creating posthog schema if it doesn't exist...")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
+
         context.log.info("Creating events table in duckling catalog...")
         ddl = EVENTS_TABLE_DDL.format(catalog=alias)
-        conn.execute(ddl)
+        try:
+            conn.execute(ddl)
+        except duckdb.CatalogException as exc:
+            # Check if this was a race condition (another worker created the table)
+            if table_exists(conn, alias, "posthog", "events"):
+                context.log.info("Events table was created by another worker")
+                return False
+            # Real error - log and re-raise
+            context.log.exception(f"Failed to create events table: {exc}")
+            raise
+
         context.log.info("Successfully created events table")
         logger.info(
             "duckling_events_table_created",
@@ -382,33 +434,118 @@ def ensure_persons_table_exists(
     """Create the persons table in the duckling's DuckLake catalog if it doesn't exist.
 
     Returns True if the table was created, False if it already existed.
+
+    Note: This function is safe to call concurrently - CREATE TABLE IF NOT EXISTS
+    is idempotent and handles race conditions gracefully.
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
 
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            # Catalog may already be attached from a previous operation in this session
-            if alias not in str(exc):
-                raise
-            context.log.debug(f"Catalog '{alias}' already attached, continuing")
-
-        if table_exists(conn, alias, "main", "persons"):
+        if table_exists(conn, alias, "posthog", "persons"):
             context.log.info("Persons table already exists in duckling catalog")
             return False
 
+        context.log.info("Creating posthog schema if it doesn't exist...")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
+
         context.log.info("Creating persons table in duckling catalog...")
         ddl = PERSONS_TABLE_DDL.format(catalog=alias)
-        conn.execute(ddl)
+        try:
+            conn.execute(ddl)
+        except duckdb.CatalogException as exc:
+            # Check if this was a race condition (another worker created the table)
+            if table_exists(conn, alias, "posthog", "persons"):
+                context.log.info("Persons table was created by another worker")
+                return False
+            # Real error - log and re-raise
+            context.log.exception(f"Failed to create persons table: {exc}")
+            raise
+
         context.log.info("Successfully created persons table")
         logger.info(
             "duckling_persons_table_created",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def delete_events_table(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Delete the events table from the duckling's DuckLake catalog.
+
+    WARNING: This will permanently delete all events data in the duckling.
+
+    Returns True if the table was deleted, False if it didn't exist.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if not table_exists(conn, alias, "posthog", "events"):
+            context.log.info("Events table does not exist, nothing to delete")
+            return False
+
+        context.log.warning("Deleting events table from duckling catalog...")
+        _validate_identifier(alias)
+        conn.execute(f"DROP TABLE {alias}.posthog.events")
+        context.log.warning("Successfully deleted events table")
+        logger.warning(
+            "duckling_events_table_deleted",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        return True
+
+    finally:
+        conn.close()
+
+
+def delete_persons_table(
+    context: AssetExecutionContext,
+    catalog: DuckLakeCatalog,
+) -> bool:
+    """Delete the persons table from the duckling's DuckLake catalog.
+
+    WARNING: This will permanently delete all persons data in the duckling.
+
+    Returns True if the table was deleted, False if it didn't exist.
+    """
+    destination = catalog.to_cross_account_destination()
+    catalog_config = get_team_config(catalog.team_id)
+    alias = "ducklake"
+
+    conn = duckdb.connect()
+    try:
+        configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
+
+        if not table_exists(conn, alias, "posthog", "persons"):
+            context.log.info("Persons table does not exist, nothing to delete")
+            return False
+
+        context.log.warning("Deleting persons table from duckling catalog...")
+        _validate_identifier(alias)
+        conn.execute(f"DROP TABLE {alias}.posthog.persons")
+        context.log.warning("Successfully deleted persons table")
+        logger.warning(
+            "duckling_persons_table_deleted",
             team_id=catalog.team_id,
             bucket=catalog.bucket,
         )
@@ -429,19 +566,14 @@ def validate_duckling_schema(
     """
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
 
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
-
-        result = conn.execute(f"DESCRIBE {alias}.main.events").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.events").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
@@ -483,19 +615,14 @@ def validate_duckling_persons_schema(
     """Validate that the duckling's persons table schema matches our export columns."""
     destination = catalog.to_cross_account_destination()
     catalog_config = get_team_config(catalog.team_id)
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
+        attach_catalog(conn, catalog_config, alias=alias)
 
-        try:
-            attach_catalog(conn, catalog_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
-
-        result = conn.execute(f"DESCRIBE {alias}.main.persons").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.persons").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
@@ -750,7 +877,7 @@ def register_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -770,7 +897,7 @@ def register_file_with_duckling(
 
         # Register the file
         context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.events', '{escape(s3_path)}')")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
 
         context.log.info(f"Successfully registered: {s3_path}")
         logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -879,7 +1006,7 @@ def register_persons_file_with_duckling(
         return False
 
     destination = catalog.to_cross_account_destination()
-    alias = "duckling"
+    alias = "ducklake"
 
     conn = duckdb.connect()
 
@@ -893,7 +1020,7 @@ def register_persons_file_with_duckling(
         attach_catalog(conn, catalog_config, alias=alias)
 
         context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.persons', '{escape(s3_path)}')")
+        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')")
 
         context.log.info(f"Successfully registered persons: {s3_path}")
         logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -916,24 +1043,27 @@ def register_persons_file_with_duckling(
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
 
+    Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
+    For monthly partitions, processes all days in the month.
+
     This asset:
-    1. Parses the partition key to get team_id and date
+    1. Parses the partition key to get team_id and date(s)
     2. Looks up the DuckLakeCatalog for the team
     3. Creates the events table if it doesn't exist (optional, enabled by default)
     4. Validates the duckling's schema compatibility (optional)
-    5. Cleans up orphaned files from prior failed runs (optional)
-    6. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
-    7. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
+    5. For each date in the partition:
+       a. Cleans up orphaned files from prior failed runs (optional)
+       b. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
+       c. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
-    team_id, date_str = parse_partition_key(context.partition_key)
-    partition_date = datetime.strptime(date_str, "%Y-%m-%d")
+    team_id, dates = parse_partition_key_dates(context.partition_key)
     run_id = context.run.run_id[:8]
 
-    context.log.info(f"Starting duckling backfill for team_id={team_id}, date={date_str}")
+    context.log.info(f"Starting duckling backfill for team_id={team_id}, dates={len(dates)} day(s)")
     logger.info(
         "duckling_backfill_start",
         team_id=team_id,
-        date=date_str,
+        date_count=len(dates),
         run_id=run_id,
     )
 
@@ -944,6 +1074,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
+    # Delete events table if requested (dangerous - loses all data)
+    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.warning("delete_tables=True: Deleting events table...")
+        delete_events_table(context, catalog)
+
     # Create events table if it doesn't exist
     if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
         context.log.info("Ensuring events table exists in duckling catalog...")
@@ -953,11 +1088,6 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
         context.log.info("Validating duckling schema compatibility...")
         validate_duckling_schema(context, catalog)
-
-    # Clean up orphaned files from prior failed runs
-    if config.cleanup_prior_run_files and not config.dry_run:
-        context.log.info("Cleaning up orphaned files from prior runs...")
-        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_EVENTS_S3_PREFIX)
 
     # Prepare ClickHouse settings
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -970,50 +1100,66 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
-    def do_export(client: Client) -> str | None:
-        with tags_context(kind="dagster", dagster=tags):
-            return export_events_to_duckling_s3(
-                context=context,
-                client=client,
-                config=config,
-                catalog=catalog,
-                team_id=team_id,
-                date=partition_date,
-                run_id=run_id,
-                settings=merged_settings,
-            )
+    # Process each date in the partition
+    total_exported = 0
+    total_registered = 0
+    s3_paths: list[str] = []
 
-    s3_path = cluster.any_host_by_role(
-        fn=do_export,
-        workload=workload,
-        node_role=NodeRole.DATA,
-    ).result()
+    for partition_date in dates:
+        date_str = partition_date.strftime("%Y-%m-%d")
+        context.log.info(f"Processing date {date_str}...")
 
-    # Register with DuckLake if we have a file
-    registered = False
-    if s3_path:
-        registered = register_file_with_duckling(context, catalog, s3_path, config)
+        # Clean up orphaned files from prior failed runs
+        if config.cleanup_prior_run_files and not config.dry_run:
+            cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_EVENTS_S3_PREFIX)
+
+        def do_export(client: Client, date: datetime = partition_date) -> str | None:
+            with tags_context(kind="dagster", dagster=tags):
+                return export_events_to_duckling_s3(
+                    context=context,
+                    client=client,
+                    config=config,
+                    catalog=catalog,
+                    team_id=team_id,
+                    date=date,
+                    run_id=run_id,
+                    settings=merged_settings,
+                )
+
+        s3_path = cluster.any_host_by_role(
+            fn=do_export,
+            workload=workload,
+            node_role=NodeRole.DATA,
+        ).result()
+
+        # Register with DuckLake if we have a file
+        if s3_path:
+            total_exported += 1
+            s3_paths.append(s3_path)
+            if register_file_with_duckling(context, catalog, s3_path, config):
+                total_registered += 1
 
     context.add_output_metadata(
         {
             "team_id": team_id,
-            "partition_date": date_str,
-            "s3_path": s3_path or "(dry run)",
-            "registered": registered,
+            "partition_key": context.partition_key,
+            "dates_processed": len(dates),
+            "files_exported": total_exported,
+            "files_registered": total_registered,
             "bucket": catalog.bucket,
         }
     )
 
     context.log.info(
-        f"Completed duckling backfill for team_id={team_id}, date={date_str}: "
-        f"exported={'yes' if s3_path else 'no'}, registered={'yes' if registered else 'no'}"
+        f"Completed duckling backfill for team_id={team_id}: "
+        f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
     )
     logger.info(
         "duckling_backfill_complete",
         team_id=team_id,
-        date=date_str,
-        s3_path=s3_path,
-        registered=registered,
+        dates_processed=len(dates),
+        files_exported=total_exported,
+        files_registered=total_registered,
     )
 
 
@@ -1025,28 +1171,31 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
 
+    Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
+    For monthly partitions, processes all days in the month.
+
     This asset exports persons joined with person_distinct_id2 to include all
     distinct_ids associated with each person. Uses _timestamp for date partitioning
     since persons don't have a natural event timestamp.
 
     Steps:
-    1. Parses the partition key to get team_id and date
+    1. Parses the partition key to get team_id and date(s)
     2. Looks up the DuckLakeCatalog for the team
     3. Creates the persons table if it doesn't exist (optional, enabled by default)
     4. Validates the duckling's persons schema compatibility (optional)
-    5. Cleans up orphaned files from prior failed runs (optional)
-    6. Exports persons+distinct_ids to the duckling's S3 bucket
-    7. Registers the Parquet file with the duckling's DuckLake catalog
+    5. For each date in the partition:
+       a. Cleans up orphaned files from prior failed runs (optional)
+       b. Exports persons+distinct_ids to the duckling's S3 bucket
+       c. Registers the Parquet file with the duckling's DuckLake catalog
     """
-    team_id, date_str = parse_partition_key(context.partition_key)
-    partition_date = datetime.strptime(date_str, "%Y-%m-%d")
+    team_id, dates = parse_partition_key_dates(context.partition_key)
     run_id = context.run.run_id[:8]
 
-    context.log.info(f"Starting duckling persons backfill for team_id={team_id}, date={date_str}")
+    context.log.info(f"Starting duckling persons backfill for team_id={team_id}, dates={len(dates)} day(s)")
     logger.info(
         "duckling_persons_backfill_start",
         team_id=team_id,
-        date=date_str,
+        date_count=len(dates),
         run_id=run_id,
     )
 
@@ -1056,6 +1205,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
+    # Delete persons table if requested (dangerous - loses all data)
+    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+        context.log.warning("delete_tables=True: Deleting persons table...")
+        delete_persons_table(context, catalog)
+
     # Create persons table if it doesn't exist
     if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
         context.log.info("Ensuring persons table exists in duckling catalog...")
@@ -1064,10 +1218,6 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
         context.log.info("Validating duckling persons schema compatibility...")
         validate_duckling_persons_schema(context, catalog)
-
-    if config.cleanup_prior_run_files and not config.dry_run:
-        context.log.info("Cleaning up orphaned persons files from prior runs...")
-        cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_PERSONS_S3_PREFIX)
 
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
     merged_settings.update(settings_with_log_comment(context))
@@ -1079,49 +1229,62 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     tags = dagster_tags(context)
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
-    def do_export(client: Client) -> str | None:
-        with tags_context(kind="dagster", dagster=tags):
-            return export_persons_to_duckling_s3(
-                context=context,
-                client=client,
-                config=config,
-                catalog=catalog,
-                team_id=team_id,
-                date=partition_date,
-                run_id=run_id,
-                settings=merged_settings,
-            )
+    # Process each date in the partition
+    total_exported = 0
+    total_registered = 0
 
-    s3_path = cluster.any_host_by_role(
-        fn=do_export,
-        workload=workload,
-        node_role=NodeRole.DATA,
-    ).result()
+    for partition_date in dates:
+        date_str = partition_date.strftime("%Y-%m-%d")
+        context.log.info(f"Processing persons for date {date_str}...")
 
-    registered = False
-    if s3_path:
-        registered = register_persons_file_with_duckling(context, catalog, s3_path, config)
+        if config.cleanup_prior_run_files and not config.dry_run:
+            cleanup_prior_run_files(context, catalog, team_id, partition_date, run_id, BACKFILL_PERSONS_S3_PREFIX)
+
+        def do_export(client: Client, date: datetime = partition_date) -> str | None:
+            with tags_context(kind="dagster", dagster=tags):
+                return export_persons_to_duckling_s3(
+                    context=context,
+                    client=client,
+                    config=config,
+                    catalog=catalog,
+                    team_id=team_id,
+                    date=date,
+                    run_id=run_id,
+                    settings=merged_settings,
+                )
+
+        s3_path = cluster.any_host_by_role(
+            fn=do_export,
+            workload=workload,
+            node_role=NodeRole.DATA,
+        ).result()
+
+        if s3_path:
+            total_exported += 1
+            if register_persons_file_with_duckling(context, catalog, s3_path, config):
+                total_registered += 1
 
     context.add_output_metadata(
         {
             "team_id": team_id,
-            "partition_date": date_str,
-            "s3_path": s3_path or "(dry run)",
-            "registered": registered,
+            "partition_key": context.partition_key,
+            "dates_processed": len(dates),
+            "files_exported": total_exported,
+            "files_registered": total_registered,
             "bucket": catalog.bucket,
         }
     )
 
     context.log.info(
-        f"Completed duckling persons backfill for team_id={team_id}, date={date_str}: "
-        f"exported={'yes' if s3_path else 'no'}, registered={'yes' if registered else 'no'}"
+        f"Completed duckling persons backfill for team_id={team_id}: "
+        f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
     )
     logger.info(
         "duckling_persons_backfill_complete",
         team_id=team_id,
-        date=date_str,
-        s3_path=s3_path,
-        registered=registered,
+        dates_processed=len(dates),
+        files_exported=total_exported,
+        files_registered=total_registered,
     )
 
 
@@ -1221,111 +1384,163 @@ def duckling_backfill_discovery_sensor(context: SensorEvaluationContext) -> Sens
     )
 
 
+# Number of monthly partitions to create per sensor tick (to avoid timeout)
+BACKFILL_MONTHS_PER_TICK = 3
+
+
+def get_months_in_range(start_date: date, end_date: date) -> list[str]:
+    """Generate list of month strings (YYYY-MM) between start and end dates."""
+    months = []
+    current = date(start_date.year, start_date.month, 1)
+    end_month = date(end_date.year, end_date.month, 1)
+
+    while current <= end_month:
+        months.append(current.strftime("%Y-%m"))
+        # Move to next month
+        if current.month == 12:
+            current = date(current.year + 1, 1, 1)
+        else:
+            current = date(current.year, current.month + 1, 1)
+
+    return months
+
+
 @sensor(
     name="duckling_full_backfill_sensor",
-    minimum_interval_seconds=86400,  # Run daily when enabled
+    minimum_interval_seconds=30,  # Run frequently to process backlog quickly
     job_name="duckling_events_backfill_job",
-    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+    default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical backfill sensor - disabled by default.
+    """Full historical backfill sensor - creates MONTHLY partitions for efficiency.
 
-    This sensor is meant to be manually enabled via the Dagster UI when you need
-    to do a full historical backfill for a new customer. It will:
+    Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
+    Each monthly partition processes all days in that month.
 
-    1. Query ClickHouse for the earliest event date for each team with a DuckLakeCatalog
-    2. Create partitions for dates from earliest event to yesterday (batched)
-    3. Trigger backfill runs for historical partitions
+    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
 
-    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation to avoid OOM/timeout issues. Keep the sensor enabled until all
-    partitions are created, then disable it.
+    Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
+    to stay within the 60-second timeout limit.
 
-    After the full backfill completes, you should disable this sensor and let
-    the daily `duckling_backfill_discovery_sensor` handle ongoing daily top-ups.
-
-    Usage:
-        1. Create a DuckLakeCatalog entry for the customer in Django admin
-        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
-        3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete (when no new partitions are created)
+    Manual trigger:
+        To restart from scratch, reset the cursor in Dagster UI:
+        Sensors -> duckling_full_backfill_sensor -> Reset cursor
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
-    existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+
+    # Parse cursor - tracks where we left off
+    cursor_data: dict = {}
+    if context.cursor:
+        try:
+            cursor_data = json.loads(context.cursor)
+        except json.JSONDecodeError:
+            cursor_data = {}
+
+    # Get list of teams to process
+    catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    if not catalogs:
+        context.log.info("No DuckLakeCatalog entries found")
+        return SensorResult(run_requests=[])
+
+    # Find where to resume from
+    resume_team_id = cursor_data.get("team_id")
+    resume_month = cursor_data.get("next_month")
+    cached_earliest = cursor_data.get("earliest")
+
+    # Find the catalog to resume from (or start from first)
+    start_idx = 0
+    if resume_team_id:
+        for i, cat in enumerate(catalogs):
+            if cat.team_id == resume_team_id:
+                start_idx = i
+                break
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
-    total_partitions_created = 0
 
-    for catalog in DuckLakeCatalog.objects.all():
-        # Stop if we've hit the batch limit
-        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-            context.log.info(
-                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue in next sensor evaluation"
-            )
+    # Process catalogs starting from where we left off
+    for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
+        if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
+            context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
 
         team_id = catalog.team_id
 
-        # Query ClickHouse for the earliest event date
-        earliest_date = get_earliest_event_date_for_team(team_id)
-        if earliest_date is None:
-            context.log.info(f"No events found for team_id={team_id}, skipping")
-            continue
+        # Determine start month - use cached value if resuming same team
+        if team_id == resume_team_id and cached_earliest:
+            earliest_month = cached_earliest
+            current_month = resume_month if resume_month else earliest_month
+        else:
+            # Query ClickHouse for earliest date (only once per team)
+            earliest_dt = get_earliest_event_date_for_team(team_id)
+            if earliest_dt is None:
+                context.log.info(f"No events found for team_id={team_id}, skipping")
+                continue
+            earliest_month = earliest_dt.strftime("%Y-%m")
+            current_month = earliest_month
 
-        earliest = earliest_date.date()
-        team_partition_count = 0
+        # Generate monthly partitions for this team
+        end_month = yesterday.strftime("%Y-%m")
+        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
 
-        # Generate partitions from earliest date to yesterday
-        current_date = earliest
-        while current_date <= yesterday:
-            # Stop if we've hit the batch limit
-            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+        for month in all_months:
+            if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
                 break
 
-            date_str = current_date.strftime("%Y-%m-%d")
-            partition_key = f"{team_id}_{date_str}"
-
-            if partition_key not in existing:
-                new_partitions.append(partition_key)
-                run_requests.append(
-                    RunRequest(
-                        partition_key=partition_key,
-                        run_key=f"{partition_key}_full_backfill",
-                    )
+            partition_key = f"{team_id}_{month}"
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_full_backfill",
                 )
-                team_partition_count += 1
-                total_partitions_created += 1
-
-            current_date += timedelta(days=1)
-
-        if team_partition_count > 0:
-            context.log.info(f"Team {team_id}: created {team_partition_count} new partitions (earliest: {earliest})")
-            logger.info(
-                "duckling_full_backfill_team_partitions",
-                team_id=team_id,
-                partition_count=team_partition_count,
-                earliest_date=earliest.isoformat(),
-                latest_date=yesterday.isoformat(),
             )
+            current_month = month
+
+        # Update cursor for next tick
+        # Move to next month after the last one we processed
+        last_processed = datetime.strptime(current_month, "%Y-%m").date()
+        if last_processed.month == 12:
+            next_month_date = date(last_processed.year + 1, 1, 1)
+        else:
+            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
+        next_month = next_month_date.strftime("%Y-%m")
+
+        if next_month <= end_month:
+            # More months to process for this team
+            cursor_data = {
+                "team_id": team_id,
+                "next_month": next_month,
+                "earliest": earliest_month,
+            }
+        else:
+            # Done with this team, move to next
+            next_idx = catalog_idx + 1
+            if next_idx < len(catalogs):
+                cursor_data = {"team_id": catalogs[next_idx].team_id}
+            else:
+                # All teams done - reset cursor to check again tomorrow
+                cursor_data = {"completed": timezone.now().date().isoformat()}
+
+    # Check if we're in "completed" state and should skip until new data
+    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
+        context.log.debug("Full backfill complete for today")
+        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
 
     if new_partitions:
-        context.log.info(f"Full backfill: creating {len(new_partitions)} partitions this evaluation")
+        context.log.info(f"Creating {len(new_partitions)} monthly partitions")
         logger.info(
-            "duckling_full_backfill_discovered",
+            "duckling_full_backfill_batch",
             partition_count=len(new_partitions),
-            run_count=len(run_requests),
-            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+            cursor=cursor_data,
         )
-    else:
-        context.log.info("Full backfill: no new partitions to create (all up to date)")
 
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_events_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
+        cursor=json.dumps(cursor_data),
     )
 
 
@@ -1426,101 +1641,139 @@ def duckling_persons_discovery_sensor(context: SensorEvaluationContext) -> Senso
 
 @sensor(
     name="duckling_persons_full_backfill_sensor",
-    minimum_interval_seconds=86400,  # Run daily when enabled
+    minimum_interval_seconds=30,  # Run frequently to process backlog quickly
     job_name="duckling_persons_backfill_job",
-    default_status=DefaultSensorStatus.STOPPED,  # Disabled by default
+    default_status=DefaultSensorStatus.RUNNING,
 )
 def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    """Full historical persons backfill sensor - disabled by default.
+    """Full historical persons backfill sensor - creates MONTHLY partitions for efficiency.
 
-    Similar to duckling_full_backfill_sensor but for persons data.
-    Queries min(_timestamp) from the person table to find the earliest date.
+    Uses monthly partitions (YYYY-MM) instead of daily to reduce partition count.
+    Each monthly partition processes all days in that month.
 
-    The sensor creates at most MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION partitions
-    per evaluation to avoid OOM/timeout issues.
+    Cursor format: {"team_id": X, "next_month": "YYYY-MM", "earliest": "YYYY-MM"}
 
-    Usage:
-        1. Create a DuckLakeCatalog entry for the customer in Django admin
-        2. Enable this sensor via Dagster UI (Sensors tab -> Toggle on)
-        3. Monitor the backfill progress in the Runs tab
-        4. Disable this sensor once complete (when no new partitions are created)
+    Each tick creates up to BACKFILL_MONTHS_PER_TICK partitions (default 3)
+    to stay within the 60-second timeout limit.
+
+    Manual trigger:
+        To restart from scratch, reset the cursor in Dagster UI:
+        Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
-    existing = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+
+    # Parse cursor - tracks where we left off
+    cursor_data: dict = {}
+    if context.cursor:
+        try:
+            cursor_data = json.loads(context.cursor)
+        except json.JSONDecodeError:
+            cursor_data = {}
+
+    # Get list of teams to process
+    catalogs = list(DuckLakeCatalog.objects.all().order_by("team_id"))
+    if not catalogs:
+        context.log.info("No DuckLakeCatalog entries found")
+        return SensorResult(run_requests=[])
+
+    # Find where to resume from
+    resume_team_id = cursor_data.get("team_id")
+    resume_month = cursor_data.get("next_month")
+    cached_earliest = cursor_data.get("earliest")
+
+    # Find the catalog to resume from (or start from first)
+    start_idx = 0
+    if resume_team_id:
+        for i, cat in enumerate(catalogs):
+            if cat.team_id == resume_team_id:
+                start_idx = i
+                break
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
-    total_partitions_created = 0
 
-    for catalog in DuckLakeCatalog.objects.all():
-        # Stop if we've hit the batch limit
-        if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
-            context.log.info(
-                f"Reached batch limit of {MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION} partitions, "
-                "will continue in next sensor evaluation"
-            )
+    # Process catalogs starting from where we left off
+    for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
+        if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
+            context.log.info(f"Batch limit reached, will continue from team {catalog.team_id}")
             break
 
         team_id = catalog.team_id
 
-        earliest_date = get_earliest_person_date_for_team(team_id)
-        if earliest_date is None:
-            context.log.info(f"No persons found for team_id={team_id}, skipping")
-            continue
+        # Determine start month - use cached value if resuming same team
+        if team_id == resume_team_id and cached_earliest:
+            earliest_month = cached_earliest
+            current_month = resume_month if resume_month else earliest_month
+        else:
+            # Query ClickHouse for earliest date (only once per team)
+            earliest_dt = get_earliest_person_date_for_team(team_id)
+            if earliest_dt is None:
+                context.log.info(f"No persons found for team_id={team_id}, skipping")
+                continue
+            earliest_month = earliest_dt.strftime("%Y-%m")
+            current_month = earliest_month
 
-        earliest = earliest_date.date()
-        team_partition_count = 0
+        # Generate monthly partitions for this team
+        end_month = yesterday.strftime("%Y-%m")
+        all_months = get_months_in_range(datetime.strptime(current_month, "%Y-%m").date(), yesterday)
 
-        current_date = earliest
-        while current_date <= yesterday:
-            # Stop if we've hit the batch limit
-            if total_partitions_created >= MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION:
+        for month in all_months:
+            if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
                 break
 
-            date_str = current_date.strftime("%Y-%m-%d")
-            partition_key = f"{team_id}_{date_str}"
-
-            if partition_key not in existing:
-                new_partitions.append(partition_key)
-                run_requests.append(
-                    RunRequest(
-                        partition_key=partition_key,
-                        run_key=f"{partition_key}_persons_full_backfill",
-                    )
+            partition_key = f"{team_id}_{month}"
+            new_partitions.append(partition_key)
+            run_requests.append(
+                RunRequest(
+                    partition_key=partition_key,
+                    run_key=f"{partition_key}_persons_full_backfill",
                 )
-                team_partition_count += 1
-                total_partitions_created += 1
-
-            current_date += timedelta(days=1)
-
-        if team_partition_count > 0:
-            context.log.info(
-                f"Team {team_id}: created {team_partition_count} new persons partitions (earliest: {earliest})"
             )
-            logger.info(
-                "duckling_persons_full_backfill_team_partitions",
-                team_id=team_id,
-                partition_count=team_partition_count,
-                earliest_date=earliest.isoformat(),
-                latest_date=yesterday.isoformat(),
-            )
+            current_month = month
+
+        # Update cursor for next tick
+        last_processed = datetime.strptime(current_month, "%Y-%m").date()
+        if last_processed.month == 12:
+            next_month_date = date(last_processed.year + 1, 1, 1)
+        else:
+            next_month_date = date(last_processed.year, last_processed.month + 1, 1)
+        next_month = next_month_date.strftime("%Y-%m")
+
+        if next_month <= end_month:
+            # More months to process for this team
+            cursor_data = {
+                "team_id": team_id,
+                "next_month": next_month,
+                "earliest": earliest_month,
+            }
+        else:
+            # Done with this team, move to next
+            next_idx = catalog_idx + 1
+            if next_idx < len(catalogs):
+                cursor_data = {"team_id": catalogs[next_idx].team_id}
+            else:
+                # All teams done - reset cursor to check again tomorrow
+                cursor_data = {"completed": timezone.now().date().isoformat()}
+
+    # Check if we're in "completed" state and should skip until new data
+    if cursor_data.get("completed") == timezone.now().date().isoformat() and not new_partitions:
+        context.log.debug("Persons full backfill complete for today")
+        return SensorResult(run_requests=[], cursor=json.dumps(cursor_data))
 
     if new_partitions:
-        context.log.info(f"Persons full backfill: creating {len(new_partitions)} partitions this evaluation")
+        context.log.info(f"Creating {len(new_partitions)} monthly persons partitions")
         logger.info(
-            "duckling_persons_full_backfill_discovered",
+            "duckling_persons_full_backfill_batch",
             partition_count=len(new_partitions),
-            run_count=len(run_requests),
-            batch_limit=MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION,
+            cursor=cursor_data,
         )
-    else:
-        context.log.info("Persons full backfill: no new partitions to create (all up to date)")
 
     return SensorResult(
         run_requests=run_requests,
         dynamic_partitions_requests=[duckling_persons_partitions_def.build_add_request(new_partitions)]
         if new_partitions
         else [],
+        cursor=json.dumps(cursor_data),
     )
 
 

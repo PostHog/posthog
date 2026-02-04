@@ -7,6 +7,7 @@ from django.conf import settings
 
 import psycopg
 import temporalio.activity
+from psycopg import sql
 from structlog import get_logger
 
 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -82,21 +83,29 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
         limit_clause = f"LIMIT {inputs.limit}" if inputs.limit else ""
         person_ids_clause = "AND id IN %(person_ids)s" if inputs.person_ids else ""
 
+        # We use argMax/max with GROUP BY instead of FINAL for more consistent deduplication.
+        # FINAL can return inconsistent results depending on merge state, which could cause
+        # persons with valid distinct_ids to be incorrectly identified as orphaned.
+        # Note: We use aliases (tid, ver) that differ from column names to avoid ClickHouse
+        # confusing output aliases with column references in WHERE/HAVING/argMax clauses.
         query = f"""
             SELECT
                 id AS person_id,
-                team_id,
-                toString(created_at) AS created_at,
-                version
-            FROM person FINAL
+                any(team_id) AS tid,
+                toString(argMax(created_at, version)) AS created_at,
+                max(version) AS ver
+            FROM person
             WHERE team_id = %(team_id)s
-              AND is_deleted = 0
-              AND id NOT IN (
-                SELECT DISTINCT person_id
-                FROM person_distinct_id2 FINAL
-                WHERE team_id = %(team_id)s
-              )
               {person_ids_clause}
+            GROUP BY id
+            HAVING argMax(is_deleted, version) = 0
+              AND id NOT IN (
+                SELECT person_id
+                FROM person_distinct_id2
+                WHERE team_id = %(team_id)s
+                GROUP BY person_id, distinct_id
+                HAVING argMax(is_deleted, version) = 0
+              )
             ORDER BY created_at ASC
             {limit_clause}
             FORMAT JSONEachRow
@@ -122,9 +131,9 @@ async def find_orphaned_persons(inputs: FindOrphanedPersonsInputs) -> FindOrphan
                     orphaned_persons.append(
                         OrphanedPerson(
                             person_id=data["person_id"],
-                            team_id=int(data["team_id"]),
+                            team_id=int(data["tid"]),
                             created_at=data["created_at"],
-                            version=int(data["version"]),
+                            version=int(data["ver"]),
                         )
                     )
 
@@ -151,6 +160,7 @@ class LookupPgDistinctIdsInputs:
     team_id: int
     person_uuids: list[str]
     categorize_not_found: bool = False  # If True, run extra query to distinguish truly orphaned vs CH-only
+    pg_statement_timeout_seconds: int = 5
 
 
 @dataclasses.dataclass
@@ -178,20 +188,25 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
                 pdi.distinct_id,
                 COALESCE(pdi.version, 0) as version
             FROM posthog_person p
-            JOIN posthog_persondistinctid pdi ON pdi.person_id = p.id
-            WHERE p.team_id = %(team_id)s
-              AND p.uuid = ANY(%(person_uuids)s::uuid[])
+            JOIN posthog_persondistinctid pdi
+                ON pdi.person_id = p.id
+                AND pdi.team_id = p.team_id
+            WHERE p.team_id = %s
+              AND p.uuid IN (SELECT unnest(%s::uuid[]))
             ORDER BY p.uuid, pdi.id
         """
+        params = [inputs.team_id, inputs.person_uuids]
 
         persons_db_url = get_persons_database_url()
         conn = await psycopg.AsyncConnection.connect(persons_db_url)
         async with conn:
+            # Set statement timeout to avoid long-running queries
+            timeout_stmt = sql.SQL("SET statement_timeout = {}").format(
+                sql.Literal(f"{inputs.pg_statement_timeout_seconds}s")
+            )
+            await conn.execute(timeout_stmt)
             async with conn.cursor() as cursor:
-                await cursor.execute(
-                    query,
-                    {"team_id": inputs.team_id, "person_uuids": inputs.person_uuids},
-                )
+                await cursor.execute(query, params)
                 rows = await cursor.fetchall()
 
         person_to_distinct_ids: dict[str, dict[str, int]] = {}
@@ -226,16 +241,19 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
             categorize_query = """
                 SELECT uuid::text
                 FROM posthog_person
-                WHERE team_id = %(team_id)s
-                  AND uuid = ANY(%(person_uuids)s::uuid[])
+                WHERE team_id = %s
+                  AND uuid IN (SELECT unnest(%s::uuid[]))
             """
+            params = [inputs.team_id, persons_not_found]
+
             conn = await psycopg.AsyncConnection.connect(persons_db_url)
             async with conn:
+                timeout_stmt = sql.SQL("SET statement_timeout = {}").format(
+                    sql.Literal(f"{inputs.pg_statement_timeout_seconds}s")
+                )
+                await conn.execute(timeout_stmt)
                 async with conn.cursor() as cursor:
-                    await cursor.execute(
-                        categorize_query,
-                        {"team_id": inputs.team_id, "person_uuids": persons_not_found},
-                    )
+                    await cursor.execute(categorize_query, params)
                     rows = await cursor.fetchall()
 
             persons_in_pg = {row[0] for row in rows}

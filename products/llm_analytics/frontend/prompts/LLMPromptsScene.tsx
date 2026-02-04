@@ -35,7 +35,7 @@ export function LLMPromptsScene(): JSX.Element {
             render: function renderName(_, prompt) {
                 return (
                     <Link
-                        to={urls.llmAnalyticsPrompt(prompt.id)}
+                        to={urls.llmAnalyticsPrompt(prompt.name)}
                         className="font-semibold"
                         data-attr="prompt-name-link"
                     >
@@ -78,7 +78,7 @@ export function LLMPromptsScene(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.llmAnalyticsPrompt(prompt.id)}
+                                    to={urls.llmAnalyticsPrompt(prompt.name)}
                                     data-attr="prompt-dropdown-view"
                                     fullWidth
                                 >

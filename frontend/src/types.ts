@@ -150,7 +150,6 @@ export enum AvailableFeature {
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    ENVIRONMENTS = 'environments',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
@@ -606,6 +605,12 @@ export interface ConversationsSettings {
     widget_public_token?: string | null
     widget_domains?: string[] | null
     notification_recipients?: number[] | null
+    widget_require_email?: boolean
+    widget_collect_name?: boolean
+    widget_identification_form_title?: string
+    widget_identification_form_description?: string
+    widget_placeholder_text?: string
+    widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
 }
 
 export interface LogsSettings {
@@ -854,8 +859,6 @@ export enum PropertyOperator {
 
 export enum SavedInsightsTabs {
     All = 'all',
-    Yours = 'yours',
-    Favorites = 'favorites',
     History = 'history',
     Alerts = 'alerts',
 }
@@ -3631,6 +3634,9 @@ export interface SurveyAppearance {
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
+    // supported in the js sdk, NOT user-configurable.
+    // only used for survey branching display.
+    hideCancelButton?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -3787,7 +3793,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
-    status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    status: 'ACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
@@ -3818,7 +3824,6 @@ export type OrganizationFeatureFlags = {
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
-    INACTIVE = 'inactive',
     STALE = 'stale',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
@@ -3980,6 +3985,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    auth_brand?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -6229,6 +6235,22 @@ export interface PendingApproval {
     payload: Record<string, unknown>
     original_tool_call_id?: string
     message_id?: string
+}
+
+export interface ConversationQueueMessage {
+    id: string
+    content: string
+    created_at: string
+    contextual_tools?: Record<string, any> | null
+    ui_context?: Record<string, any> | null
+    billing_context?: Record<string, any> | null
+    agent_mode?: string | null
+    session_id?: string | null
+}
+
+export interface ConversationQueueResponse {
+    messages: ConversationQueueMessage[]
+    max_queue_messages: number
 }
 
 export interface Conversation {

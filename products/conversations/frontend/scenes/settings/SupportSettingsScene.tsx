@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonColorPicker, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonColorPicker, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -123,6 +123,12 @@ export function SupportSettingsScene(): JSX.Element {
         setWidgetEnabledLoading,
         setGreetingInputValue,
         saveGreetingText,
+        setIdentificationFormTitleValue,
+        saveIdentificationFormTitle,
+        setIdentificationFormDescriptionValue,
+        saveIdentificationFormDescription,
+        setPlaceholderTextValue,
+        savePlaceholderText,
         setNotificationRecipients,
     } = useActions(supportSettingsLogic)
     const {
@@ -131,6 +137,9 @@ export function SupportSettingsScene(): JSX.Element {
         conversationsEnabledLoading,
         widgetEnabledLoading,
         greetingInputValue,
+        identificationFormTitleValue,
+        identificationFormDescriptionValue,
+        placeholderTextValue,
         notificationRecipients,
     } = useValues(supportSettingsLogic)
 
@@ -241,6 +250,27 @@ export function SupportSettingsScene(): JSX.Element {
                                 </div>
 
                                 <div className="flex items-center gap-4 py-2">
+                                    <label className="w-40 shrink-0">Widget position</label>
+                                    <LemonSelect
+                                        value={currentTeam?.conversations_settings?.widget_position || 'bottom_right'}
+                                        onChange={(value) => {
+                                            updateCurrentTeam({
+                                                conversations_settings: {
+                                                    ...currentTeam?.conversations_settings,
+                                                    widget_position: value,
+                                                },
+                                            })
+                                        }}
+                                        options={[
+                                            { value: 'bottom_right', label: 'Bottom right' },
+                                            { value: 'bottom_left', label: 'Bottom left' },
+                                            { value: 'top_right', label: 'Top right' },
+                                            { value: 'top_left', label: 'Top left' },
+                                        ]}
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-4 py-2">
                                     <label className="w-40 shrink-0">Greeting message</label>
                                     <div className="flex gap-2 flex-1">
                                         <LemonInput
@@ -263,6 +293,127 @@ export function SupportSettingsScene(): JSX.Element {
                                             Save
                                         </LemonButton>
                                     </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 py-2">
+                                    <label className="w-40 shrink-0">Placeholder text</label>
+                                    <div className="flex gap-2 flex-1">
+                                        <LemonInput
+                                            value={
+                                                placeholderTextValue ??
+                                                currentTeam?.conversations_settings?.widget_placeholder_text ??
+                                                'Type your message...'
+                                            }
+                                            placeholder="Enter placeholder text"
+                                            onChange={setPlaceholderTextValue}
+                                            fullWidth
+                                        />
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={savePlaceholderText}
+                                            disabledReason={
+                                                !placeholderTextValue ? 'Enter placeholder text' : undefined
+                                            }
+                                        >
+                                            Save
+                                        </LemonButton>
+                                    </div>
+                                </div>
+
+                                <div className="pt-4">
+                                    <div className="flex items-center gap-4 py-2">
+                                        <label className="w-40 shrink-0">Require email</label>
+                                        <LemonSwitch
+                                            checked={!!currentTeam?.conversations_settings?.widget_require_email}
+                                            onChange={(checked) => {
+                                                updateCurrentTeam({
+                                                    conversations_settings: {
+                                                        ...currentTeam?.conversations_settings,
+                                                        widget_require_email: checked,
+                                                    },
+                                                })
+                                            }}
+                                            label="Show identification form before chat"
+                                            bordered
+                                        />
+                                    </div>
+
+                                    {currentTeam?.conversations_settings?.widget_require_email && (
+                                        <div className="ml-44 flex flex-col gap-2 mt-2 border-l pl-4">
+                                            <div className="flex items-center gap-4 py-2">
+                                                <label className="w-40 shrink-0">Collect name</label>
+                                                <LemonSwitch
+                                                    checked={!!currentTeam?.conversations_settings?.widget_collect_name}
+                                                    onChange={(checked) => {
+                                                        updateCurrentTeam({
+                                                            conversations_settings: {
+                                                                ...currentTeam?.conversations_settings,
+                                                                widget_collect_name: checked,
+                                                            },
+                                                        })
+                                                    }}
+                                                    label="Also ask for user's name"
+                                                    bordered
+                                                />
+                                            </div>
+
+                                            <div className="flex items-center gap-4 py-2">
+                                                <label className="w-40 shrink-0">Form title</label>
+                                                <div className="flex gap-2 flex-1">
+                                                    <LemonInput
+                                                        value={
+                                                            identificationFormTitleValue ??
+                                                            currentTeam?.conversations_settings
+                                                                ?.widget_identification_form_title ??
+                                                            'Before we start...'
+                                                        }
+                                                        placeholder="Enter form title"
+                                                        onChange={setIdentificationFormTitleValue}
+                                                        fullWidth
+                                                    />
+                                                    <LemonButton
+                                                        type="primary"
+                                                        onClick={saveIdentificationFormTitle}
+                                                        disabledReason={
+                                                            !identificationFormTitleValue
+                                                                ? 'Enter form title'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Save
+                                                    </LemonButton>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-4 py-2">
+                                                <label className="w-40 shrink-0">Form description</label>
+                                                <div className="flex gap-2 flex-1">
+                                                    <LemonInput
+                                                        value={
+                                                            identificationFormDescriptionValue ??
+                                                            currentTeam?.conversations_settings
+                                                                ?.widget_identification_form_description ??
+                                                            'Please provide your details so we can help you better.'
+                                                        }
+                                                        placeholder="Enter form description"
+                                                        onChange={setIdentificationFormDescriptionValue}
+                                                        fullWidth
+                                                    />
+                                                    <LemonButton
+                                                        type="primary"
+                                                        onClick={saveIdentificationFormDescription}
+                                                        disabledReason={
+                                                            !identificationFormDescriptionValue
+                                                                ? 'Enter form description'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Save
+                                                    </LemonButton>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="pt-8">

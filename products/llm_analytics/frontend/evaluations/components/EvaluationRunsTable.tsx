@@ -130,7 +130,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 loading={evaluationRunsLoading}
                 rowKey="id"
                 pagination={{
-                    pageSize: 20,
+                    pageSize: 50,
                 }}
                 emptyState={
                     <div className="text-center py-8">

@@ -83,6 +83,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
+    [Scene.SqlVariableEdit]: () => import('./data-management/variables/SqlVariableEditScene'),
     [Scene.ReplayFilePlayback]: () => import('./session-recordings/file-playback/SessionRecordingFilePlaybackScene'),
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
     [Scene.ReplaySettings]: () => import('./session-recordings/settings/SessionRecordingsSettingsScene'),
@@ -92,6 +93,9 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
+    [Scene.Health]: () => import('./health/HealthScene'),
+    [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
+    [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

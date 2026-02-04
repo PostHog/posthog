@@ -93,6 +93,9 @@ export const urls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     comments: (): string => '/data-management/comments',
     comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
+    variables: (): string => '/data-management/variables',
+    variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
+    variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
@@ -221,6 +224,9 @@ export const urls = {
     organizationDeactivated: (): string => '/organization-deactivated',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    health: (): string => '/health',
+    pipelineStatus: (): string => '/health/pipeline-status',
+    sdkDoctor: (): string => '/health/sdk-doctor',
 }
 
 export interface UrlMatcher {

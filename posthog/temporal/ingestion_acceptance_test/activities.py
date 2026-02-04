@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import structlog
+import posthoganalytics
 import temporalio.activity
 
 from posthog.temporal.ingestion_acceptance_test.client import PostHogClient
@@ -36,8 +37,22 @@ async def run_ingestion_acceptance_tests() -> dict:
     logger.info("Starting ingestion acceptance tests")
 
     config = Config()
+
+    logger.info(
+        "Loaded config",
+        api_host=config.api_host,
+        project_id=config.project_id,
+    )
+
+    posthog_sdk = posthoganalytics.Posthog(
+        config.project_api_key,
+        host=config.api_host,
+        debug=True,
+        sync_mode=True,
+    )
+
     tests = discover_tests()
-    client = PostHogClient(config)
+    client = PostHogClient(config, posthog_sdk)
     with ThreadPoolExecutor() as executor:
         result: TestSuiteResult = await asyncio.to_thread(run_tests, config, tests, client, executor)
 

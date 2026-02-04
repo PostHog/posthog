@@ -456,12 +456,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
-                actions.selectItem(
-                    values.group,
-                    values.selectedItemValue,
-                    values.selectedItem,
-                    values.swappedInQuery ? values.searchQuery : undefined
-                )
+                const selectedItem = values.selectedItem
+                // Prevent selection of disabled items using the group's getIsDisabled function
+                const isDisabledItem = selectedItem && values.group?.getIsDisabled?.(selectedItem)
+
+                if (!isDisabledItem) {
+                    actions.selectItem(
+                        values.group,
+                        values.selectedItemValue,
+                        selectedItem,
+                        values.swappedInQuery ? values.searchQuery : undefined
+                    )
+                }
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
