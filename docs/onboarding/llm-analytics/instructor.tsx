@@ -62,7 +62,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install instructor openai
+                                    npm install @instructor-ai/instructor openai zod@3
                                 `,
                             },
                         ]}

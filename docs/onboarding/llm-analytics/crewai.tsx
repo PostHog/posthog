@@ -14,8 +14,8 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK. The CrewAI integration uses
-                        PostHog's LangChain callback handler.
+                        Setting up analytics starts with installing the PostHog SDK. CrewAI uses LiteLLM under the hood,
+                        and PostHog integrates with LiteLLM's callback system.
                     </Markdown>
 
                     <CodeBlock
@@ -33,57 +33,52 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Install CrewAI. PostHog instruments your LLM calls through LangChain-compatible callback
-                        handlers that CrewAI supports.
+                        Install CrewAI. PostHog instruments your LLM calls through LiteLLM's callback system that CrewAI
+                        uses natively.
                     </Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install crewai
+                            pip install crewai litellm
                         `}
                     />
                 </>
             ),
         },
         {
-            title: 'Initialize PostHog and CrewAI',
+            title: 'Configure PostHog with LiteLLM',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
-                        settings](https://app.posthog.com/settings/project), then create a LangChain `CallbackHandler`
-                        and pass it to your CrewAI agents.
+                        Set your PostHog project API key and host as environment variables, then configure LiteLLM to
+                        use PostHog as a callback handler. You can find your API key in [your project
+                        settings](https://app.posthog.com/settings/project).
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from posthog.ai.langchain import CallbackHandler
-                            from posthog import Posthog
+                            import os
+                            import litellm
                             from crewai import Agent, Task, Crew
 
-                            posthog = Posthog(
-                                "<ph_project_api_key>",
-                                host="<ph_client_api_host>"
-                            )
+                            # Set PostHog environment variables
+                            os.environ["POSTHOG_API_KEY"] = "<ph_project_api_key>"
+                            os.environ["POSTHOG_API_URL"] = "<ph_client_api_host>"
 
-                            callback_handler = CallbackHandler(
-                                client=posthog,
-                                distinct_id="user_123", # optional
-                                trace_id="trace_456", # optional
-                                properties={"conversation_id": "abc123"}, # optional
-                                groups={"company": "company_id_in_your_db"}, # optional
-                                privacy_mode=False # optional
-                            )
+                            # Enable PostHog callbacks in LiteLLM
+                            litellm.success_callback = ["posthog"]
+                            litellm.failure_callback = ["posthog"]
                         `}
                     />
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            CrewAI supports LangChain-compatible callback handlers. PostHog's `CallbackHandler` captures
-                            `$ai_generation` events and trace hierarchy automatically without proxying your calls.
+                            CrewAI uses LiteLLM under the hood for LLM provider access. By configuring PostHog as a
+                            LiteLLM callback, all LLM calls made through CrewAI are automatically captured as
+                            `$ai_generation` events without proxying your calls.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -95,8 +90,8 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Pass the `callback_handler` when creating your agents or crew via the `callbacks` parameter.
-                        PostHog automatically captures generation events for each LLM call.
+                        Run your CrewAI agents as normal. PostHog automatically captures generation events for each LLM
+                        call.
                     </Markdown>
 
                     <CodeBlock
@@ -106,7 +101,6 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 role="Researcher",
                                 goal="Find interesting facts about hedgehogs",
                                 backstory="You are an expert wildlife researcher.",
-                                callbacks=[callback_handler],
                             )
 
                             task = Task(
@@ -127,7 +121,7 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Markdown>
                         {dedent`
-                            PostHog automatically captures \`$ai_generation\` events and creates a trace hierarchy based on how CrewAI components are nested. You can expect captured events to have the following properties:
+                            You can expect captured \`$ai_generation\` events to have the following properties:
                         `}
                     </Markdown>
 
