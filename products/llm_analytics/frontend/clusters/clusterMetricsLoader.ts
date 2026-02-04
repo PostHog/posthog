@@ -143,7 +143,7 @@ export function aggregateClusterMetrics(
             totalCost: costCount > 0 ? totalCost : null,
             errorRate: totalItemsWithData > 0 ? errorCount / totalItemsWithData : null,
             errorCount,
-            itemCount: Math.max(costCount, latencyCount, tokenCount, totalItemsWithData),
+            itemCount: totalItemsWithData,
         }
     }
 
