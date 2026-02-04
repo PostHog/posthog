@@ -13,25 +13,49 @@
 //! threads only run during `eval_parallel()` calls. The budget can slightly exceed the quota
 //! as long as peak concurrent CPU usage stays within limits.
 //!
-//! # Important: Set TOKIO_WORKER_THREADS
+//! # Safety cap
 //!
-//! Tokio's `#[tokio::main]` defaults to `num_cpus`, which reflects the HOST CPU count,
-//! not the container's CFS quota. We should set `TOKIO_WORKER_THREADS` in production to match
-//! the CFS quota, otherwise tokio will create more threads than the container can efficiently run.
+//! If `EVAL_NUM_THREADS` exceeds `std::thread::available_parallelism()` (which respects
+//! container CPU limits on Linux), the value is capped and a warning is logged. This
+//! prevents misconfiguration from causing thread over-subscription.
 
 use std::{env, sync::LazyLock};
 
-const DEFAULT_EVAL_NUM_THREADS: usize = 3;
+const DEFAULT_EVAL_NUM_THREADS: usize = 1;
 const EVAL_NUM_THREADS_ENV: &str = "EVAL_NUM_THREADS";
 
+/// Returns the available parallelism, respecting container CPU limits on Linux.
+fn available_parallelism() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or_else(|_| {
+            tracing::warn!("Failed to determine available parallelism, falling back to 1");
+            1
+        })
+}
+
 static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
-    let num_threads = env::var(EVAL_NUM_THREADS_ENV)
+    let available = available_parallelism();
+    let requested = env::var(EVAL_NUM_THREADS_ENV)
         .ok()
         .and_then(|s| s.parse().ok())
+        .filter(|i| *i > 0)
         .unwrap_or(DEFAULT_EVAL_NUM_THREADS);
+
+    let num_threads = if requested > available {
+        tracing::warn!(
+            requested,
+            available,
+            "Requested {EVAL_NUM_THREADS_ENV} exceeds available parallelism, capping to {available}"
+        );
+        available
+    } else {
+        requested
+    };
 
     tracing::info!(
         num_threads,
+        available,
         "Initializing rayon evaluation thread pool (set {EVAL_NUM_THREADS_ENV} to override)"
     );
 
@@ -51,13 +75,6 @@ static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
 /// The `block_in_place` call allows tokio to move pending tasks to other workers,
 /// keeping the async runtime responsive for connection pool operations and I/O.
 ///
-/// # Test vs production behavior
-///
-/// In tests (`#[cfg(test)]`), we skip `block_in_place` because `#[tokio::test]`
-/// defaults to a single-threaded runtime where `block_in_place` panics.
-/// The rayon parallel evaluation is still exercised; only the tokio integration
-/// wrapper differs.
-///
 /// # Example
 ///
 /// ```ignore
@@ -71,21 +88,10 @@ static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
 /// `spawn_blocking` requires `'static + Send` bounds, which would force cloning
 /// the entire `FeatureFlagMatcher` and all flag data for every evaluation.
 /// `block_in_place` runs in-place on the current thread, allowing borrows.
-#[cfg(not(test))]
 pub fn eval_parallel<F, R>(f: F) -> R
 where
     F: FnOnce() -> R + Send,
     R: Send,
 {
     tokio::task::block_in_place(|| EVAL_POOL.install(f))
-}
-
-/// Test version: skips `block_in_place` since `#[tokio::test]` uses single-threaded runtime.
-#[cfg(test)]
-pub fn eval_parallel<F, R>(f: F) -> R
-where
-    F: FnOnce() -> R + Send,
-    R: Send,
-{
-    EVAL_POOL.install(f)
 }
