@@ -407,7 +407,7 @@ def _set_table_partitioning(
         conn: DuckDB connection with catalog attached.
         alias: Catalog alias.
         table: Table name (must be alphanumeric/underscore only).
-        partition_expr: Partition expression (e.g., "year(timestamp), month(timestamp)").
+        partition_expr: Partition expression (e.g., "year(timestamp), month(timestamp), day(timestamp)").
         context: Dagster asset execution context.
         team_id: Team ID for logging.
 
@@ -466,7 +466,7 @@ def ensure_events_table_exists(
             context.log.info("Events table already exists in duckling catalog")
             # Ensure partitioning is set even on existing tables (idempotent)
             _set_table_partitioning(
-                conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id
+                conn, alias, "events", "year(timestamp), month(timestamp), day(timestamp)", context, catalog.team_id
             )
             return False
 
@@ -483,7 +483,7 @@ def ensure_events_table_exists(
                 context.log.info("Events table was created by another worker")
                 # Ensure partitioning is set even when another worker created the table
                 _set_table_partitioning(
-                    conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id
+                    conn, alias, "events", "year(timestamp), month(timestamp), day(timestamp)", context, catalog.team_id
                 )
                 return False
             # Real error - log and re-raise
@@ -492,8 +492,10 @@ def ensure_events_table_exists(
 
         context.log.info("Successfully created events table")
 
-        # Set partitioning by year/month for efficient querying
-        _set_table_partitioning(conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id)
+        # Set partitioning by year/month/day for efficient querying
+        _set_table_partitioning(
+            conn, alias, "events", "year(timestamp), month(timestamp), day(timestamp)", context, catalog.team_id
+        )
 
         logger.info(
             "duckling_events_table_created",
