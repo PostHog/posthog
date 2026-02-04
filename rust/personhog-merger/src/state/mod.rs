@@ -97,6 +97,9 @@ pub trait MergeStateRepository: Send + Sync {
 
     /// Delete the merge state for a target person.
     async fn delete(&self, target_person_uuid: &str) -> ApiResult<()>;
+
+    /// List all merge states that are not completed (for resumption).
+    async fn list_incomplete(&self) -> ApiResult<Vec<MergeState>>;
 }
 
 /// In-memory implementation of MergeStateRepository for testing.
@@ -139,6 +142,17 @@ impl MergeStateRepository for InMemoryMergeStateRepository {
     async fn delete(&self, target_person_uuid: &str) -> ApiResult<()> {
         self.states.lock().unwrap().remove(target_person_uuid);
         Ok(())
+    }
+
+    async fn list_incomplete(&self) -> ApiResult<Vec<MergeState>> {
+        Ok(self
+            .states
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|s| s.step != MergeStep::Completed && s.step != MergeStep::Failed)
+            .cloned()
+            .collect())
     }
 }
 

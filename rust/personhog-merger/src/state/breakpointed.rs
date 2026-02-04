@@ -206,6 +206,10 @@ impl<R: MergeStateRepository> MergeStateRepository for BreakpointedRepository<R>
         }
         self.inner.delete(target_person_uuid).await
     }
+
+    async fn list_incomplete(&self) -> ApiResult<Vec<MergeState>> {
+        self.inner.list_incomplete().await
+    }
 }
 
 #[cfg(test)]
