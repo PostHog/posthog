@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import { ComponentType } from 'react'
 
 import {
     IconAI,
@@ -90,7 +91,7 @@ export interface InsightTypeMetadata {
     description?: string
     /** Override the description on the insight page tab, for additional info. */
     tooltipDescription?: string
-    icon: (props?: any) => JSX.Element | null
+    icon: React.ComponentType<any>
     inMenu: boolean
     tooltipDocLink?: string
 }
@@ -592,6 +593,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use SQL to query your data.',
         icon: IconHogQL,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },
     [InsightType.JSON]: {
         name: 'Custom',
@@ -635,7 +637,7 @@ export function InsightIcon({
     insight: QueryBasedInsightModel
     className?: string
 }): JSX.Element | null {
-    let Icon: (props?: any) => JSX.Element | null = () => null
+    let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
         const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind

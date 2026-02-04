@@ -2808,6 +2808,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    skip_onboarding: bool | None = None
     use_current_time: bool | None = None
 
 
@@ -2843,6 +2844,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
+    LOGS_SETTINGS_OPENED = "logs_settings_opened"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -5261,7 +5263,6 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
-    usePresortedEventsTable: bool | None = None
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
@@ -8012,7 +8013,6 @@ class CachedFunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11278,7 +11278,6 @@ class FunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13218,7 +13217,6 @@ class QueryResponseAlternative66(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -15309,6 +15307,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None

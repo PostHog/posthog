@@ -407,7 +407,6 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    usePresortedEventsTable?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
@@ -1475,6 +1474,8 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** @default false */
     showValuesOnSeries?: boolean
+    /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
+    breakdownSorting?: string
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -1502,7 +1503,6 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
     // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
     results: any
-    isUdf?: boolean
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -5000,6 +5000,7 @@ export interface TestSetupResponse {
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
+    skip_onboarding?: boolean
 }
 
 export interface PlaywrightWorkspaceSetupResult {
@@ -5272,6 +5273,7 @@ export enum ProductIntentContext {
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
     LOGS_SET_FILTERS = 'logs_set_filters',
+    LOGS_SETTINGS_OPENED = 'logs_settings_opened',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

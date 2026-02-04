@@ -41,12 +41,15 @@ export interface PersonsLogicProps {
     fixedProperties?: PersonPropertyFilter[]
 }
 
+export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
+
 function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
         showEventsFilter: true,
-        showSavedFilters: true,
+        showTableViews: true,
+        contextKey: PERSON_EVENTS_CONTEXT_KEY,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,

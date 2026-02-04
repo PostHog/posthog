@@ -321,6 +321,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
+    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -340,6 +341,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
+            "main_query_id",
         ]
 
 
