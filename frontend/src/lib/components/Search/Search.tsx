@@ -605,7 +605,7 @@ function SearchResults({
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
-                                        <div key={i} className="px-1">
+                                        <div key={i} className="px-2">
                                             <WrappingLoadingSkeleton fullWidth>
                                                 <ButtonPrimitive fullWidth className="invisible">
                                                     &nbsp;
@@ -638,7 +638,7 @@ function SearchResults({
                                                                 highlightedItemRef.current = item
                                                             }
                                                             return (
-                                                                <div className="px-1">
+                                                                <div className="px-2">
                                                                     <Link
                                                                         to={item.href}
                                                                         buttonProps={{

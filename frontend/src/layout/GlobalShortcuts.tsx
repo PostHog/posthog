@@ -23,7 +23,7 @@ export function GlobalShortcuts(): null {
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { toggleHelpMenu } = useActions(helpMenuLogic)
-    const { toggleAccountMenu } = useActions(newAccountMenuLogic)
+    const { toggleAccountMenu, toggleProjectSwitcher, toggleOrgSwitcher } = useActions(newAccountMenuLogic)
     const { openSuperpowers } = useActions(superpowersLogic)
     const { toggleHealthMenu } = useActions(healthMenuLogic)
 
@@ -106,6 +106,22 @@ export function GlobalShortcuts(): null {
         intent: 'Toggle new account menu',
         interaction: 'function',
         callback: () => toggleAccountMenu(),
+    })
+
+    useAppShortcut({
+        name: 'toggle-project-switcher',
+        keybind: [keyBinds.projectSwitcher],
+        intent: 'Toggle project switcher',
+        interaction: 'function',
+        callback: () => toggleProjectSwitcher(),
+    })
+
+    useAppShortcut({
+        name: 'toggle-org-switcher',
+        keybind: [keyBinds.orgSwitcher],
+        intent: 'Toggle organization switcher',
+        interaction: 'function',
+        callback: () => toggleOrgSwitcher(),
     })
 
     return null
