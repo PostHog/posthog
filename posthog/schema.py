@@ -3239,6 +3239,12 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
+class AggregationType(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
+
+
 class TimeWindowMode(StrEnum):
     STRICT_CALENDAR_DATES = "strict_calendar_dates"
     FIELD_24_HOUR_WINDOWS = "24_hour_windows"
@@ -13693,6 +13699,14 @@ class RetentionEntity(BaseModel):
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    aggregationProperty: str | None = Field(
+        default=None,
+        description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationType: AggregationType | None = Field(
+        default=AggregationType.COUNT,
+        description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
