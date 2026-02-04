@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, TestCase, override_settings
 
-import httpx
+import requests
 
 from posthog.workos_radar import (
     WORKOS_RADAR_API_URL,
@@ -39,7 +39,7 @@ class TestRadarHelpers(TestCase):
 
 
 class TestRadarApiCall(TestCase):
-    @patch("posthog.workos_radar.httpx.post")
+    @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_allow_verdict(self, mock_post):
         mock_response = MagicMock()
@@ -61,7 +61,7 @@ class TestRadarApiCall(TestCase):
         assert call_args[0][0] == WORKOS_RADAR_API_URL
         assert "Bearer test_api_key" in str(call_args[1]["headers"])
 
-    @patch("posthog.workos_radar.httpx.post")
+    @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_challenge_verdict(self, mock_post):
         mock_response = MagicMock()
@@ -79,7 +79,7 @@ class TestRadarApiCall(TestCase):
 
         assert verdict == RadarVerdict.CHALLENGE
 
-    @patch("posthog.workos_radar.httpx.post")
+    @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_block_verdict(self, mock_post):
         mock_response = MagicMock()
@@ -97,7 +97,7 @@ class TestRadarApiCall(TestCase):
 
         assert verdict == RadarVerdict.BLOCK
 
-    @patch("posthog.workos_radar.httpx.post")
+    @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_handles_api_error(self, mock_post):
         mock_response = MagicMock()
@@ -114,10 +114,10 @@ class TestRadarApiCall(TestCase):
 
         assert verdict == RadarVerdict.ERROR
 
-    @patch("posthog.workos_radar.httpx.post")
+    @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_handles_timeout(self, mock_post):
-        mock_post.side_effect = httpx.TimeoutException("timeout")
+        mock_post.side_effect = requests.exceptions.Timeout("timeout")
 
         verdict = _call_radar_api(
             email="test@example.com",
@@ -129,7 +129,7 @@ class TestRadarApiCall(TestCase):
 
         assert verdict == RadarVerdict.ERROR
 
-    @patch("posthog.workos_radar.httpx.post")
+    @patch("posthog.workos_radar.requests.post")
     @override_settings(WORKOS_RADAR_API_KEY="test_api_key")
     def test_call_radar_api_handles_exception(self, mock_post):
         mock_post.side_effect = Exception("unexpected error")

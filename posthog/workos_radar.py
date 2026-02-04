@@ -17,7 +17,7 @@ from typing import Optional
 from django.conf import settings
 from django.http import HttpRequest
 
-import httpx
+import requests
 import structlog
 import posthoganalytics
 
@@ -122,7 +122,7 @@ def _call_radar_api(
     Make the actual API call to WorkOS Radar.
     """
     try:
-        response = httpx.post(
+        response = requests.post(
             WORKOS_RADAR_API_URL,
             headers={
                 "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",
@@ -163,7 +163,7 @@ def _call_radar_api(
             )
             return RadarVerdict.ERROR
 
-    except httpx.TimeoutException:
+    except requests.exceptions.Timeout:
         logger.warning(
             "workos_radar_timeout",
             email_hash=_hash_email(email),
