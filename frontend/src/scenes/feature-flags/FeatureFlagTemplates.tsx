@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheckCircle, IconEye, IconGlobe, IconPeople, IconRocket, IconShield, IconTestTube } from '@posthog/icons'
+import { IconFlask, IconPeople, IconTestTube, IconToggle } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
-
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -19,16 +17,19 @@ interface TemplateValues {
     filters?: FeatureFlagType['filters']
 }
 
+export type ModifiedField = 'key' | 'flagType' | 'rollout' | 'conditions'
+
 interface FlagTemplate {
     id: string
     name: string
     description: string
     icon: React.ReactNode
+    modifiedFields: ModifiedField[]
     getValues: (currentFlag: FeatureFlagType) => TemplateValues
 }
 
 interface FeatureFlagTemplatesProps {
-    onTemplateApplied?: (sectionsToOpen: string[]) => void
+    onTemplateApplied?: (modifiedFields: ModifiedField[]) => void
 }
 
 export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplatesProps): JSX.Element | null {
@@ -52,8 +53,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             },
         } as FeatureFlagType)
 
-        lemonToast.success(`${template.name} template applied`)
-        onTemplateApplied?.(['basics', 'targeting'])
+        onTemplateApplied?.(template.modifiedFields)
     }
 
     if (!featureFlag) {
@@ -68,29 +68,29 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
 
     const templates: FlagTemplate[] = [
         {
-            id: 'percentage-rollout',
-            name: 'Gradual Rollout',
-            description: 'Gradually roll out to a percentage of users',
-            icon: <IconRocket className="text-2xl" />,
+            id: 'simple',
+            name: 'Simple flag',
+            description: 'On/off for all users',
+            icon: <IconToggle className="text-2xl" />,
+            modifiedFields: ['key', 'rollout'],
             getValues: (flag) => ({
-                key: 'gradual-rollout',
-                name: 'Gradual rollout to 20% of users',
+                key: 'my-feature',
                 is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
                     multivariate: null,
-                    groups: [{ properties: [], rollout_percentage: 20, variant: null }],
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
                 },
             }),
         },
         {
-            id: 'internal-only',
-            name: 'Internal Only',
-            description: 'Only your team can see this',
-            icon: <IconShield className="text-2xl" />,
+            id: 'targeted',
+            name: 'Targeted release',
+            description: 'Release to specific users',
+            icon: <IconPeople className="text-2xl" />,
+            modifiedFields: ['key', 'conditions', 'rollout'],
             getValues: (flag) => ({
-                key: 'internal-only',
-                name: `Only users with @${emailDomain} emails`,
+                key: 'targeted-release',
                 is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
@@ -113,59 +113,13 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             }),
         },
         {
-            id: 'beta-users',
-            name: 'Beta Users',
-            description: 'Target users with a beta property',
-            icon: <IconPeople className="text-2xl" />,
-            getValues: (flag) => ({
-                key: 'beta-feature',
-                name: 'Only users with beta property set to true',
-                is_remote_configuration: false,
-                filters: {
-                    ...flag.filters,
-                    multivariate: null,
-                    groups: [
-                        {
-                            properties: [
-                                {
-                                    key: 'beta',
-                                    type: PropertyFilterType.Person,
-                                    value: ['true'],
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                            rollout_percentage: 100,
-                            variant: null,
-                        },
-                    ],
-                },
-            }),
-        },
-        {
-            id: 'kill-switch',
-            name: 'Kill Switch',
-            description: 'Quick on/off for incidents',
-            icon: <IconCheckCircle className="text-2xl" />,
-            getValues: (flag) => ({
-                key: 'kill-switch',
-                name: 'Emergency kill switch for…',
-                active: true,
-                is_remote_configuration: false,
-                filters: {
-                    ...flag.filters,
-                    multivariate: null,
-                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
-                },
-            }),
-        },
-        {
-            id: 'ab-test',
-            name: 'A/B Test',
-            description: '50/50 split for experiments',
+            id: 'multivariate',
+            name: 'Multivariate',
+            description: 'Multiple variants',
             icon: <IconTestTube className="text-2xl" />,
+            modifiedFields: ['key', 'flagType', 'rollout'],
             getValues: (flag) => ({
-                key: 'ab-test',
-                name: '50/50 split between control and test variants',
+                key: 'multivariate-flag',
                 is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
@@ -180,41 +134,30 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             }),
         },
         {
-            id: 'canary',
-            name: 'Canary',
-            description: '1% rollout for safe testing',
-            icon: <IconEye className="text-2xl" />,
+            id: 'targeted-multivariate',
+            name: 'Targeted multivariate',
+            description: 'Variants for specific users',
+            icon: <IconFlask className="text-2xl" />,
+            modifiedFields: ['key', 'flagType', 'conditions', 'rollout'],
             getValues: (flag) => ({
-                key: 'canary-release',
-                name: 'Canary release to 1% of users',
+                key: 'targeted-multivariate',
                 is_remote_configuration: false,
                 filters: {
                     ...flag.filters,
-                    multivariate: null,
-                    groups: [{ properties: [], rollout_percentage: 1, variant: null }],
-                },
-            }),
-        },
-        {
-            id: 'geography',
-            name: 'By Country',
-            description: 'Target users in specific countries',
-            icon: <IconGlobe className="text-2xl" />,
-            getValues: (flag) => ({
-                key: 'country-rollout',
-                name: 'Only users in the United States',
-                is_remote_configuration: false,
-                filters: {
-                    ...flag.filters,
-                    multivariate: null,
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
                     groups: [
                         {
                             properties: [
                                 {
-                                    key: '$geoip_country_code',
+                                    key: 'email',
                                     type: PropertyFilterType.Person,
-                                    value: ['US'],
-                                    operator: PropertyOperator.Exact,
+                                    value: `@${emailDomain}`,
+                                    operator: PropertyOperator.IContains,
                                 },
                             ],
                             rollout_percentage: 100,

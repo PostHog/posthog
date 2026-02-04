@@ -18,14 +18,10 @@ __pycache__/
 .mypy_cache/.ruff_cache/
 .pytest_cache/
 .ruff_cache/
-
 .env
-
 dist/
-
 .venv/
-
 .husy/
 
 # MCP UI Apps build files
-typescript/ui-apps-dist/
+ui-apps-dist/

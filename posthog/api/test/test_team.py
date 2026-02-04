@@ -2014,6 +2014,27 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["widget_position"] == "top_left"
 
+        def test_conversations_identification_settings(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "widget_require_email": True,
+                        "widget_collect_name": True,
+                        "widget_identification_form_title": "Before we start...",
+                        "widget_identification_form_description": "Please provide your details.",
+                        "widget_placeholder_text": "Type your message...",
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_require_email"] is True
+            assert settings["widget_collect_name"] is True
+            assert settings["widget_identification_form_title"] == "Before we start..."
+            assert settings["widget_identification_form_description"] == "Please provide your details."
+            assert settings["widget_placeholder_text"] == "Type your message..."
+
         def test_enabling_conversations_auto_generates_token(self):
             self.team.conversations_enabled = False
             self.team.conversations_settings = None
