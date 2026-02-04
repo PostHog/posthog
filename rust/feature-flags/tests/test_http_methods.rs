@@ -6,7 +6,7 @@ use feature_flags::config::DEFAULT_TEST_CONFIG;
 
 pub mod common;
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn it_handles_http_methods_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let server = ServerHandle::for_config(config).await;

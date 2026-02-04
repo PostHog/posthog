@@ -24,7 +24,6 @@ use crate::metrics::consts::{
     PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::properties::property_models::PropertyFilter;
-use crate::rayon_pool::eval_parallel;
 use crate::utils::graph_utils::{
     build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
     DependencyGraph, DependencyGraphResult, FilteredGraphResult,
@@ -761,33 +760,31 @@ impl FeatureFlagMatcher {
             .map(|flag| (&flag.key, *flag))
             .collect();
 
-        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = eval_parallel(|| {
-            flags_to_evaluate
-                .par_iter()
-                .map(|flag| {
-                    // Flags with missing dependencies evaluate to false (fail closed)
-                    if flags_with_missing_deps.contains(&flag.id) {
-                        return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
-                    }
+        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags_to_evaluate
+            .par_iter()
+            .map(|flag| {
+                // Flags with missing dependencies evaluate to false (fail closed)
+                if flags_with_missing_deps.contains(&flag.id) {
+                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+                }
 
-                    // If the overrides for this flag are not in the pre-computed map, assume no overrides
-                    // this shouldn't happen, but it's here to avoid panics
-                    let property_overrides = precomputed_property_overrides
-                        .get(&flag.key)
-                        .unwrap_or(&None)
-                        .clone();
-                    (
-                        flag.key.clone(),
-                        self.get_match(
-                            flag,
-                            property_overrides,
-                            hash_key_overrides.clone(),
-                            request_hash_key_override.clone(),
-                        ),
-                    )
-                })
-                .collect()
-        });
+                // If the overrides for this flag are not in the pre-computed map, assume no overrides
+                // this shouldn't happen, but it's here to avoid panics
+                let property_overrides = precomputed_property_overrides
+                    .get(&flag.key)
+                    .unwrap_or(&None)
+                    .clone();
+                (
+                    flag.key.clone(),
+                    self.get_match(
+                        flag,
+                        property_overrides,
+                        hash_key_overrides.clone(),
+                        request_hash_key_override.clone(),
+                    ),
+                )
+            })
+            .collect();
 
         for (flag_key, result) in results {
             // If flag not found in map, skip it (this shouldn't happen but is safe)
