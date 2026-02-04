@@ -210,6 +210,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if "control" not in [variant["key"] for variant in variants]:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
+        return feature_flag
+
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         if not exposure_criteria:
             return exposure_criteria
