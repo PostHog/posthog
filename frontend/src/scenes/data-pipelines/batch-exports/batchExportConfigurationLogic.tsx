@@ -968,6 +968,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             (batchExportConfigLoading, batchExportConfigTestLoading) =>
                 batchExportConfigLoading || batchExportConfigTestLoading,
         ],
+        isDatabaseDestination: [
+            (s) => [s.service],
+            (service): boolean =>
+                !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
+        ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],
             (service, isNew, config): string[] => {
