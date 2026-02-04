@@ -39,9 +39,9 @@ export function PendingChangeRequestBanner(props: ChangeRequestsLogicProps): JSX
                 </div>
                 <ChangeRequestActions
                     changeRequest={pendingChangeRequest}
-                    onApprove={approveRequest}
-                    onReject={rejectRequest}
-                    onCancel={cancelRequest}
+                    onApprove={(id) => approveRequest(id)}
+                    onReject={(id, reason) => rejectRequest(id, reason)}
+                    onCancel={(id, reason) => cancelRequest(id, reason)}
                     showViewButton={true}
                 />
             </div>

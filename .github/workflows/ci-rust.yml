@@ -18,6 +18,9 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}

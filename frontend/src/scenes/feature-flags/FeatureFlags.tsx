@@ -390,10 +390,10 @@ export function OverViewTab({
                             <Tooltip
                                 title={
                                     <>
-                                        <div className="text-sm">Flag at least 30 days old and fully rolled out</div>
+                                        <div className="text-sm">This flag is likely safe to remove</div>
                                         <div className="text-xs">
-                                            Make sure to remove any references to this flag in your code before deleting
-                                            it.
+                                            Not called in 30+ days or fully rolled out. Make sure to remove any
+                                            references in your code before deleting it.
                                         </div>
                                     </>
                                 }
