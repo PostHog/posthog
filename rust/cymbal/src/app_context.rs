@@ -18,7 +18,7 @@ use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
-    stages::resolution::symbol::{local::LocalSymbolResolver, remote::RemoteSymbolResolver},
+    stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
@@ -57,8 +57,7 @@ pub struct AppContext {
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
 
-    pub remote_symbol_resolver: Arc<RemoteSymbolResolver>,
-    pub local_symbol_resolver: Arc<LocalSymbolResolver>,
+    pub symbol_resolver: Arc<dyn SymbolResolver>,
 }
 
 impl AppContext {
@@ -106,6 +105,7 @@ impl AppContext {
             },
         )
         .await?;
+
         let issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync> =
             Arc::new(issue_buckets_redis_client);
 
@@ -202,7 +202,7 @@ impl AppContext {
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(smp_atmostonce, hmp_caching, pgp_caching);
+        let catalog = Arc::new(Catalog::new(smp_atmostonce, hmp_caching, pgp_caching));
         let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);
@@ -233,6 +233,12 @@ impl AppContext {
             _ => panic!("Invalid filter mode"),
         };
 
+        let symbol_resolver = Arc::new(LocalSymbolResolver::new(
+            config,
+            catalog.clone(),
+            posthog_pool.clone(),
+        ));
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -241,7 +247,7 @@ impl AppContext {
             immediate_producer,
             posthog_pool,
             persons_pool,
-            catalog: Arc::new(catalog),
+            catalog,
             resolver,
             config: config.clone(),
             team_manager,
@@ -250,6 +256,7 @@ impl AppContext {
             issue_buckets_redis_client,
             filtered_teams,
             filter_mode,
+            symbol_resolver,
         })
     }
 }

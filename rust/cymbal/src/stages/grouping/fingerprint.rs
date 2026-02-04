@@ -10,34 +10,15 @@ use crate::{
 #[derive(Clone, Default)]
 pub struct FingerprintGenerator;
 
-impl Operator<GroupingStage> for FingerprintGenerator {
-    type Input = ExceptionEvent;
-    type Output = ExceptionEvent;
-
-    fn validate(input: &ExceptionEvent) -> Result<(), String> {
-        input
-            .exception_functions
-            .as_ref()
-            .expect("input should have exception_functions");
-        input
-            .exception_messages
-            .as_ref()
-            .expect("input should have exception_messages");
-        input
-            .exception_types
-            .as_ref()
-            .expect("input should have exception_types");
-        input
-            .exception_sources
-            .as_ref()
-            .expect("input should have exception_sources");
-        Ok(())
-    }
+impl Operator for FingerprintGenerator {
+    type Context = GroupingStage;
+    type Item = ExceptionEvent;
+    type Error = UnhandledError;
 
     async fn execute(
         &self,
         mut input: ExceptionEvent,
-        ctx: &GroupingStage,
+        ctx: GroupingStage,
     ) -> Result<ExceptionEvent, UnhandledError> {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules)
         let props = serde_json::to_value(&input)?;

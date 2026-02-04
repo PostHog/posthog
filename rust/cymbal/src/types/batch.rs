@@ -2,87 +2,86 @@ use std::future::Future;
 
 use crate::{
     error::UnhandledError,
-    types::{
-        operator::{Operator, OperatorContext},
-        stage::Stage,
-    },
+    types::{operator::Operator, stage::Stage},
 };
 
-impl<I: IntoIterator<Item = T>, T> Batch<T> for I {}
+pub struct Batch<T>(Vec<T>);
 
-pub trait Batch<T>: Sized + IntoIterator<Item = T> {
-    async fn process_sequential<O, F, Fu>(self, func: F) -> Result<Vec<O>, UnhandledError>
-    where
-        F: Fn(T) -> Fu,
-        Fu: Future<Output = Result<O, UnhandledError>>,
-    {
-        let mut results = Vec::new();
-        let iterator = self.into_iter();
-        for item in iterator {
-            results.push(func(item).await?);
-        }
-        Ok(results)
+impl<T> IntoIterator for Batch<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
+}
 
-    async fn process_concurrent<O, F, Fu>(self, func: F) -> Result<Vec<O>, UnhandledError>
-    where
-        F: FnMut(T) -> Fu,
-        Fu: Future<Output = Result<O, UnhandledError>>,
-    {
-        let futures = self.into_iter().map(func);
-        let results = futures::future::try_join_all(futures).await?;
-        Ok(results)
+impl<T> From<Vec<T>> for Batch<T> {
+    fn from(vec: Vec<T>) -> Self {
+        Batch(vec)
     }
+}
 
-    async fn spawn<C, O, F, Fu>(self, mut func: F, ctx: &C) -> Result<Vec<O>, UnhandledError>
+impl<T> From<Batch<T>> for Vec<T> {
+    fn from(batch: Batch<T>) -> Self {
+        batch.0
+    }
+}
+
+impl<T> Batch<T> {
+    pub fn apply_func<Ctx, O, F, Fu, E>(
+        self,
+        func: F,
+        ctx: Ctx,
+    ) -> impl Future<Output = Result<Batch<O>, E>>
     where
-        C: Clone,
-        F: FnMut(T, C) -> Fu,
-        Fu: Future<Output = Result<O, UnhandledError>> + Send + 'static,
+        Ctx: Clone + Send,
+        F: Fn(T, Ctx) -> Fu + 'static,
+        Fu: Future<Output = Result<O, E>> + Send + 'static,
         O: Send + 'static,
+        E: Send + 'static,
     {
         let mut handles = vec![];
-        for item in self.into_iter() {
+        for item in self.0.into_iter() {
             let future = func(item, ctx.clone());
             handles.push(tokio::spawn(future));
         }
-        futures::future::try_join_all(handles)
-            .await
-            .expect("failed to join tasks")
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
+        async move {
+            futures::future::try_join_all(handles)
+                .await
+                .expect("failed to join tasks")
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()
+                .map(|value| value.into())
+        }
     }
 
-    async fn map<
-        O: Send + 'static,
-        C: OperatorContext + Clone + 'static,
-        Op: Operator<C, Input = T, Output = O> + Clone + Send + 'static,
-    >(
+    pub fn apply_operator<C, Op>(
         self,
         operator: Op,
-        ctx: &C,
-    ) -> Result<impl Batch<O>, UnhandledError>
+        ctx: Op::Context,
+    ) -> impl Future<Output = Result<Batch<Op::Item>, Op::Error>>
     where
         T: Send + 'static,
+        C: Clone + Send + 'static,
+        Op: Operator<Item = T, Context = C> + Clone + Send + Sync + 'static,
     {
-        let cloned_op = operator.clone();
-        self.spawn(
-            |item, ctx| {
-                let cloned_op = cloned_op.clone();
-                async move { cloned_op.clone().execute(item, &ctx).await }
+        self.apply_func(
+            move |item, ctx| {
+                let cloned_operator = operator.clone();
+                async move { cloned_operator.execute(item, ctx).await }
             },
             ctx,
         )
-        .await
     }
 
-    async fn map_all<S: Stage<Item = T> + 'static>(
+    pub fn apply_stage<S>(
         self,
-        stage: &S,
-    ) -> Result<impl Batch<T>, UnhandledError>
+        stage: S,
+    ) -> impl Future<Output = Result<Batch<S::Item>, UnhandledError>>
     where
-        T: Send + 'static,
+        S: Stage<Item = T> + 'static,
     {
-        stage.process(self).await
+        stage.process(self)
     }
 }

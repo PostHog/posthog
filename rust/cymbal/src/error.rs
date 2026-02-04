@@ -156,6 +156,10 @@ pub enum ProguardError {
     NoOriginalFrames,
     #[error("No module provided")]
     NoModuleProvided,
+    #[error("No class matched")]
+    MissingClass,
+    #[error("Invalid class format")]
+    InvalidClass,
 }
 
 #[derive(Debug, Error, Clone)]

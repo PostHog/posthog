@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use crate::{
     app_context::AppContext,
@@ -7,23 +7,35 @@ use crate::{
     types::{batch::Batch, event::ExceptionEvent},
 };
 
-pub struct EventPipeline {}
+pub trait Pipeline {
+    type Item;
 
-impl EventPipeline {
-    pub async fn run(
+    fn run(
         &self,
-        batch: impl Batch<ExceptionEvent>,
+        batch: Batch<Self::Item>,
         app_context: Arc<AppContext>,
-    ) -> Result<impl Batch<ExceptionEvent>, UnhandledError> {
+    ) -> impl Future<Output = Result<Batch<Self::Item>, UnhandledError>>;
+}
+
+pub struct ExceptionEventPipeline {}
+
+impl Pipeline for ExceptionEventPipeline {
+    type Item = ExceptionEvent;
+
+    async fn run(
+        &self,
+        batch: Batch<Self::Item>,
+        app_context: Arc<AppContext>,
+    ) -> Result<Batch<Self::Item>, UnhandledError> {
         batch
             // Resolve stack traces
-            .map_all(ResolutionStage::from(app_context.as_ref()))
+            .apply_stage(ResolutionStage::from(&app_context))
             .await?
-            // Generate fingerprints
-            .apply_stage(GroupingStage::from(app_context.as_ref()))
+            // Group events by fingerprint
+            .apply_stage(GroupingStage::from(&app_context))
             .await?
-            // Resolve issue ids based on fingerprints
-            .apply_stage(LinkingStage::from(app_context))
+            // Link events to issues
+            .apply_stage(LinkingStage::from(&app_context))
             .await
     }
 }

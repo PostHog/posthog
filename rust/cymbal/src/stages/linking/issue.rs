@@ -57,34 +57,15 @@ impl IssueLinker {
     }
 }
 
-impl Operator<LinkingStage> for IssueLinker {
-    type Input = ExceptionEvent;
-    type Output = ExceptionEvent;
-
-    fn validate(input: &ExceptionEvent) -> Result<(), String> {
-        input
-            .proposed_fingerprint
-            .as_ref()
-            .ok_or("Proposed fingerprint is missing")?;
-
-        input.fingerprint.as_ref().ok_or("Fingerprint is missing")?;
-
-        input
-            .fingerprint_record
-            .as_ref()
-            .ok_or("Fingerprint record is missing")?;
-
-        if input.exception_list.is_empty() {
-            Err("Exception list is empty".to_string())
-        } else {
-            Ok(())
-        }
-    }
+impl Operator for IssueLinker {
+    type Item = ExceptionEvent;
+    type Context = LinkingStage;
+    type Error = UnhandledError;
 
     async fn execute(
         &self,
         mut input: ExceptionEvent,
-        ctx: &LinkingStage,
+        ctx: LinkingStage,
     ) -> Result<ExceptionEvent, UnhandledError> {
         let fingerprint = input.fingerprint.clone().unwrap();
         let cloned_input = input.clone();

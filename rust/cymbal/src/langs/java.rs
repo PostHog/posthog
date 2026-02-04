@@ -120,7 +120,7 @@ impl RawJavaFrame {
         self.get_ref().ok().map(|r| r.to_string())
     }
 
-    fn get_ref(&self) -> Result<OrChunkId<ProguardRef>, ProguardError> {
+    pub fn get_ref(&self) -> Result<OrChunkId<ProguardRef>, ProguardError> {
         self.map_id
             .as_ref()
             .map(|id| OrChunkId::chunk_id(id.clone()))

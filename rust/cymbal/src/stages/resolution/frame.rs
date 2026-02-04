@@ -12,43 +12,37 @@ use crate::{
 pub struct FrameResolver;
 
 impl FrameResolver {
-    pub async fn resolve_exception_list(
+    pub async fn resolve_exception_list_frames(
         team_id: i32,
         list: ExceptionList,
-        ctx: &ResolutionStage,
+        ctx: ResolutionStage,
     ) -> Result<ExceptionList, UnhandledError> {
-        let res = list
-            .process_concurrent(async |exc| {
-                FrameResolver::resolve_exception(team_id, exc, ctx).await
-            })
+        let res = Batch::from(list.0)
+            .apply_func(
+                move |exc, ctx| FrameResolver::resolve_exception_frames(team_id, exc, ctx),
+                ctx,
+            )
             .await?;
-        Ok(res.into())
+        Ok(Vec::from(res).into())
     }
 
-    pub async fn resolve_exception(
+    pub async fn resolve_exception_frames(
         team_id: i32,
         mut exc: Exception,
-        ctx: &ResolutionStage,
+        ctx: ResolutionStage,
     ) -> Result<Exception, UnhandledError> {
         exc.stack = match exc.stack {
             Some(Stacktrace::Raw { frames }) => {
-                let frames: Vec<Frame> = frames
-                    .into_iter()
-                    .spawn(
-                        |frame, ctx| async move {
-                            let frame = ctx
-                                .symbol_resolver
-                                .resolve_raw_frame(team_id, &frame)
-                                .await?;
-                            Ok(frame)
+                let frame_batches: Batch<Vec<Frame>> = Batch::from(frames)
+                    .apply_func(
+                        move |frame, ctx| async move {
+                            FrameResolver::resolve_frame(team_id, &frame, ctx).await
                         },
                         ctx,
                     )
-                    .await?
-                    .into_iter()
-                    .flatten()
-                    .collect();
+                    .await?;
 
+                let frames: Vec<Frame> = frame_batches.into_iter().flatten().collect();
                 Some(Stacktrace::Resolved { frames })
             }
             stack => stack,
@@ -56,67 +50,28 @@ impl FrameResolver {
         Ok(exc)
     }
 
-    pub async fn resolve_raw_frame(
-        &self,
+    pub async fn resolve_frame(
         team_id: i32,
         frame: &RawFrame,
-        ctx: &ResolutionStage,
+        ctx: ResolutionStage,
     ) -> Result<Vec<Frame>, UnhandledError> {
         ctx.symbol_resolver.resolve_raw_frame(team_id, frame).await
     }
 }
 
-impl Operator<ResolutionStage> for FrameResolver {
-    type Input = ExceptionEvent;
-    type Output = ExceptionEvent;
+impl Operator for FrameResolver {
+    type Context = ResolutionStage;
+    type Item = ExceptionEvent;
+    type Error = UnhandledError;
 
     async fn execute(
         &self,
         mut input: ExceptionEvent,
-        ctx: &ResolutionStage,
+        ctx: ResolutionStage,
     ) -> Result<ExceptionEvent, UnhandledError> {
         input.exception_list =
-            FrameResolver::resolve_exception_list(input.team_id, input.exception_list, ctx).await?;
+            FrameResolver::resolve_exception_list_frames(input.team_id, input.exception_list, ctx)
+                .await?;
         Ok(input)
     }
 }
-
-// #[derive(Clone)]
-// pub struct StacktraceResolver;
-
-// impl Operator<ResolutionStage> for StacktraceResolver {
-//     type Input = (TeamId, Exception);
-//     type Output = Exception;
-
-//     async fn execute(
-//         &self,
-//         input: (TeamId, Exception),
-//         ctx: &ResolutionStage,
-//     ) -> Result<Exception, UnhandledError> {
-//         let (team_id, mut exc) = input;
-//         exc.stack = match exc.stack {
-//             Some(Stacktrace::Raw { frames }) => {
-//                 let frames: Vec<Frame> = frames
-//                     .into_iter()
-//                     .spawn(
-//                         |frame, ctx| async move {
-//                             let frame = ctx
-//                                 .symbol_resolver
-//                                 .resolve_raw_frame(team_id, &frame)
-//                                 .await?;
-//                             Ok(frame)
-//                         },
-//                         ctx,
-//                     )
-//                     .await?
-//                     .into_iter()
-//                     .flatten()
-//                     .collect();
-
-//                 Some(Stacktrace::Resolved { frames })
-//             }
-//             stack => stack,
-//         };
-//         Ok(exc)
-//     }
-// }

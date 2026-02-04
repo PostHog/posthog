@@ -7,14 +7,15 @@ use crate::{
 #[derive(Clone)]
 pub struct PropertiesResolver;
 
-impl Operator<ResolutionStage> for PropertiesResolver {
-    type Input = ExceptionEvent;
-    type Output = ExceptionEvent;
+impl Operator for PropertiesResolver {
+    type Item = ExceptionEvent;
+    type Context = ResolutionStage;
+    type Error = UnhandledError;
 
     async fn execute(
         &self,
         mut event: ExceptionEvent,
-        _: &ResolutionStage,
+        _: ResolutionStage,
     ) -> Result<ExceptionEvent, UnhandledError> {
         // Implement property resolution logic here
         event.exception_functions = Some(event.exception_list.get_unique_functions());
