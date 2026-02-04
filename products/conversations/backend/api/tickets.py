@@ -134,7 +134,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(assignment__role_id=role_id)
 
         date_from = self.request.query_params.get("date_from")
-        if date_from:
+        if date_from and date_from != "all":
             parsed = relative_date_parse(date_from, self.team.timezone_info)
             if parsed:
                 queryset = queryset.filter(updated_at__gte=parsed)
