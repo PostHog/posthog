@@ -123,12 +123,23 @@ static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
 /// `spawn_blocking` requires `'static + Send` bounds, which would force cloning
 /// the entire `FeatureFlagMatcher` and all flag data for every evaluation.
 /// `block_in_place` runs in-place on the current thread, allowing borrows.
+#[cfg(not(test))]
 pub fn eval_parallel<F, R>(f: F) -> R
 where
     F: FnOnce() -> R + Send,
     R: Send,
 {
     tokio::task::block_in_place(|| EVAL_POOL.install(f))
+}
+
+/// Test version: skips `block_in_place` since `#[tokio::test]` uses single-threaded runtime.
+#[cfg(test)]
+pub fn eval_parallel<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R + Send,
+    R: Send,
+{
+    EVAL_POOL.install(f)
 }
 
 #[cfg(test)]
