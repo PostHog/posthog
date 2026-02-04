@@ -1,50 +1,125 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconPlus } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns, Sorting } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
-import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
-import { userLogic } from 'scenes/userLogic'
+import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 
-import { QueryBasedInsightModel } from '~/types'
+import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 interface StreamlinedInsightsTableProps {
     dashboardId?: number
 }
 
-type QuickFilter = 'all' | 'mine'
-
 export function StreamlinedInsightsTable({ dashboardId }: StreamlinedInsightsTableProps): JSX.Element {
-    const { modalPage, insights, count, insightsLoading, filters } = useValues(addSavedInsightsModalLogic)
+    const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters, addInsightToDashboard, removeInsightFromDashboard } =
         useActions(addSavedInsightsModalLogic)
     const { dashboard } = useValues(dashboardLogic)
     const { dashboardUpdatesInProgress } = useValues(addSavedInsightsModalLogic)
-    const { user } = useValues(userLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const { search, createdBy } = filters
+    // Optimistic state: track pending additions/removals
+    const [optimisticState, setOptimisticState] = useState<Record<number, boolean>>({})
 
-    const currentQuickFilter: QuickFilter =
-        user && createdBy !== 'All users' && Array.isArray(createdBy) && createdBy.includes(user.id) ? 'mine' : 'all'
+    // Infinite scroll: accumulate results across pages
+    const [accumulatedInsights, setAccumulatedInsights] = useState<QueryBasedInsightModel[]>([])
+    const scrollContainerRef = useRef<HTMLDivElement>(null)
+    const lastSearchRef = useRef<string>('')
+    const lastOrderRef = useRef<string>('')
 
-    const handleQuickFilterChange = (value: QuickFilter): void => {
-        if (value === 'mine' && user) {
-            setModalFilters({ createdBy: [user.id] })
-        } else {
-            setModalFilters({ createdBy: 'All users' })
+    const { search, order } = filters
+
+    const hasMore = accumulatedInsights.length < count
+
+    // Reset accumulated insights when search or sort changes
+    useEffect(() => {
+        const currentOrder = order || ''
+        if (search !== lastSearchRef.current || currentOrder !== lastOrderRef.current) {
+            lastSearchRef.current = search || ''
+            lastOrderRef.current = currentOrder
+            setAccumulatedInsights([])
+            if (modalPage !== 1) {
+                setModalPage(1)
+            }
+        }
+    }, [search, order, modalPage, setModalPage])
+
+    const handleSort = (newSorting: Sorting | null): void => {
+        if (newSorting) {
+            setModalFilters({ order: newSorting.order === -1 ? `-${newSorting.columnKey}` : newSorting.columnKey })
+        } else if (sorting) {
+            // When cancelling, cycle back to ascending on the same column
+            setModalFilters({ order: sorting.columnKey })
         }
     }
 
+    // Accumulate new results when they come in
+    useEffect(() => {
+        if (modalPage === 1) {
+            setAccumulatedInsights(insights.results)
+        } else if (insights.results.length > 0) {
+            setAccumulatedInsights((prev) => {
+                const existingIds = new Set(prev.map((i: QueryBasedInsightModel) => i.id))
+                const newInsights = insights.results.filter((i: QueryBasedInsightModel) => !existingIds.has(i.id))
+                return [...prev, ...newInsights]
+            })
+        }
+    }, [insights.results, modalPage])
+
+    // Infinite scroll handler
+    const handleScroll = useCallback(() => {
+        const container = scrollContainerRef.current
+        if (!container || insightsLoading || !hasMore) {
+            return
+        }
+
+        const { scrollTop, scrollHeight, clientHeight } = container
+        const scrolledToBottom = scrollTop + clientHeight >= scrollHeight - 100
+
+        if (scrolledToBottom) {
+            setModalPage(modalPage + 1)
+        }
+    }, [insightsLoading, hasMore, modalPage, setModalPage])
+
+    // Clear optimistic state when actual state matches what we expected
+    useEffect(() => {
+        setOptimisticState((prev) => {
+            const next = { ...prev }
+            let changed = false
+            for (const idStr of Object.keys(next)) {
+                const id = Number(idStr)
+                const actuallyInDashboard =
+                    dashboard?.tiles.some((tile: DashboardTile) => tile.insight?.id === id) ?? false
+                // Only clear if actual state matches optimistic state
+                if (next[id] === actuallyInDashboard) {
+                    delete next[id]
+                    changed = true
+                }
+            }
+            return changed ? next : prev
+        })
+    }, [dashboard?.tiles])
+
+    const isInsightActuallyInDashboard = (insight: QueryBasedInsightModel): boolean => {
+        return dashboard?.tiles.some((tile: DashboardTile) => tile.insight?.id === insight.id) ?? false
+    }
+
     const isInsightInDashboard = (insight: QueryBasedInsightModel): boolean => {
-        return dashboard?.tiles.some((tile) => tile.insight?.id === insight.id) ?? false
+        // Use optimistic state if available, otherwise use actual state
+        if (insight.id in optimisticState) {
+            return optimisticState[insight.id]
+        }
+        return isInsightActuallyInDashboard(insight)
     }
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
@@ -56,21 +131,16 @@ export function StreamlinedInsightsTable({ dashboardId }: StreamlinedInsightsTab
         {
             title: 'Name',
             key: 'name',
+            dataIndex: 'name',
+            sorter: true,
+            width: 'auto',
             render: (_, insight) => {
                 const displayName = insight.name || summarizeInsight(insight.query)
-                const inDashboard = isInsightInDashboard(insight)
                 return (
-                    <div className="flex flex-col gap-0.5 min-w-0 py-1">
-                        <div className="flex items-center gap-2">
-                            <Tooltip title={displayName}>
-                                <span className="font-medium truncate">{insight.name || <i>{displayName}</i>}</span>
-                            </Tooltip>
-                            {inDashboard && (
-                                <span className="shrink-0 text-xs text-success font-medium bg-success-highlight px-1.5 py-0.5 rounded">
-                                    Added
-                                </span>
-                            )}
-                        </div>
+                    <div className="flex flex-col gap-0.5 py-1 max-w-[450px]">
+                        <Tooltip title={displayName}>
+                            <span className="font-medium truncate">{insight.name || <i>{displayName}</i>}</span>
+                        </Tooltip>
                         {insight.description && (
                             <span className="text-xs text-secondary truncate">{insight.description}</span>
                         )}
@@ -79,8 +149,30 @@ export function StreamlinedInsightsTable({ dashboardId }: StreamlinedInsightsTab
             },
         },
         {
+            title: 'Created by',
+            key: 'created_by',
+            width: 150,
+            render: (_, insight) => {
+                return insight.created_by ? (
+                    <ProfilePicture user={insight.created_by} size="md" showName />
+                ) : (
+                    <span className="text-secondary">—</span>
+                )
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: 200,
+            render: (_, insight) => {
+                return insight.tags && insight.tags.length > 0 ? <ObjectTags tags={insight.tags} staticOnly /> : null
+            },
+        },
+        {
             title: 'Last modified',
             key: 'last_modified_at',
+            dataIndex: 'last_modified_at',
+            sorter: true,
             width: 120,
             render: (_, insight) => {
                 if (!insight.last_modified_at) {
@@ -112,83 +204,72 @@ export function StreamlinedInsightsTable({ dashboardId }: StreamlinedInsightsTab
             },
         },
         {
-            key: 'action',
-            width: 80,
+            key: 'status',
+            width: 32,
             render: (_, insight) => {
                 const inDashboard = isInsightInDashboard(insight)
-                const isLoading = dashboardUpdatesInProgress[insight.id]
-
-                return (
-                    <LemonButton
-                        type={inDashboard ? 'secondary' : 'primary'}
-                        size="small"
-                        loading={isLoading}
-                        icon={inDashboard ? <IconCheck /> : <IconPlus />}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            if (isLoading) {
-                                return
-                            }
-                            if (inDashboard) {
-                                removeInsightFromDashboard(insight, dashboardId || 0)
-                            } else {
-                                addInsightToDashboard(insight, dashboardId || 0)
-                            }
-                        }}
-                        data-attr={inDashboard ? 'remove-insight-from-dashboard' : 'add-insight-to-dashboard'}
-                    >
-                        {inDashboard ? 'Added' : 'Add'}
-                    </LemonButton>
-                )
+                return inDashboard ? <IconCheck className="text-success text-xl font-bold" /> : null
             },
         },
     ]
 
     return (
         <div>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="mb-4">
                 <LemonInput
                     type="search"
                     placeholder="Search insights..."
                     onChange={(value) => setModalFilters({ search: value })}
                     value={search || ''}
-                    className="flex-1"
+                    fullWidth
                     autoFocus
-                />
-                <LemonSegmentedButton
-                    value={currentQuickFilter}
-                    onChange={handleQuickFilterChange}
-                    options={[
-                        { value: 'all', label: 'All' },
-                        { value: 'mine', label: 'Mine' },
-                    ]}
-                    size="small"
                 />
             </div>
 
-            <LemonTable
-                dataSource={insights.results}
-                columns={columns}
-                loading={insightsLoading}
-                size="small"
-                pagination={{
-                    controlled: true,
-                    currentPage: modalPage,
-                    pageSize: INSIGHTS_PER_PAGE,
-                    entryCount: count,
-                    onForward: () => setModalPage(modalPage + 1),
-                    onBackward: () => setModalPage(modalPage - 1),
-                }}
-                rowKey="id"
-                loadingSkeletonRows={5}
-                nouns={['insight', 'insights']}
-                emptyState={
-                    <div className="text-center py-8 text-secondary">
-                        <p className="font-medium">No insights found</p>
-                        <p className="text-sm">Try adjusting your search or create a new insight</p>
+            <div ref={scrollContainerRef} className="max-h-[400px] overflow-y-auto" onScroll={handleScroll}>
+                <LemonTable
+                    dataSource={accumulatedInsights}
+                    columns={columns}
+                    loading={insightsLoading && modalPage === 1}
+                    size="small"
+                    rowKey="id"
+                    loadingSkeletonRows={5}
+                    nouns={['insight', 'insights']}
+                    sorting={sorting}
+                    onSort={handleSort}
+                    rowClassName={(insight) =>
+                        isInsightInDashboard(insight)
+                            ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer'
+                            : 'cursor-pointer hover:bg-surface-primary'
+                    }
+                    onRow={(insight) => ({
+                        onClick: () => {
+                            if (dashboardUpdatesInProgress[insight.id]) {
+                                return
+                            }
+                            const currentlyIn = isInsightInDashboard(insight)
+                            // Optimistically update UI immediately
+                            setOptimisticState((prev) => ({ ...prev, [insight.id]: !currentlyIn }))
+                            if (currentlyIn) {
+                                removeInsightFromDashboard(insight, dashboardId || 0)
+                            } else {
+                                addInsightToDashboard(insight, dashboardId || 0)
+                            }
+                        },
+                    })}
+                    emptyState={
+                        <div className="text-center py-8 text-secondary">
+                            <p className="font-medium">No insights found</p>
+                            <p className="text-sm">Try adjusting your search or create a new insight</p>
+                        </div>
+                    }
+                />
+                {insightsLoading && modalPage > 1 && (
+                    <div className="flex justify-center py-4">
+                        <Spinner className="text-2xl" />
                     </div>
-                }
-            />
+                )}
+            </div>
         </div>
     )
 }

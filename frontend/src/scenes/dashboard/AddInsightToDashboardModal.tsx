@@ -11,27 +11,20 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { AddInsightToDashboardModalVariantB } from './addInsightToDashboardModal/AddInsightToDashboardModalVariantB'
-import { AddInsightToDashboardModalVariantC } from './addInsightToDashboardModal/AddInsightToDashboardModalVariantC'
+import { AddInsightToDashboardModalNew } from './addInsightToDashboardModal/AddInsightToDashboardModalNew'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
 export function AddInsightToDashboardModal(): JSX.Element {
-    const isVariantB = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT', 'variant-b')
-    const isVariantC = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT', 'variant-c')
+    const isTest = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT', 'test')
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
 
-    if (isVariantB) {
-        return <AddInsightToDashboardModalVariantB />
+    if (isTest) {
+        return <AddInsightToDashboardModalNew />
     }
 
-    if (isVariantC) {
-        return <AddInsightToDashboardModalVariantC />
-    }
-
-    // Control: Original modal
     return (
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
             <LemonModal
