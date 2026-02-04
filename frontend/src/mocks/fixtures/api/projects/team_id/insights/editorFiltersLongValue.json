@@ -1,0 +1,107 @@
+{
+    "id": 99,
+    "short_id": "longFilter",
+    "name": "Trends with long filter value",
+    "derived_name": "Pageview count",
+    "filters": {},
+    "filters_hash": "cache_longfiltervalue",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview",
+            "count": 61010,
+            "data": [0, 0, 0, 15625, 22870, 15044, 6675, 796],
+            "labels": [
+                "4-Mar-2022",
+                "5-Mar-2022",
+                "6-Mar-2022",
+                "7-Mar-2022",
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022"
+            ],
+            "days": [
+                "2022-03-04",
+                "2022-03-05",
+                "2022-03-06",
+                "2022-03-07",
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11"
+            ]
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "test",
+        "first_name": "Test",
+        "email": "test@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-03-15T21:31:04.623891Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:31:04.619654Z",
+    "last_modified_by": null,
+    "is_sample": false,
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "-8w"
+            },
+            "interval": "week",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$browser",
+                                "operator": "exact",
+                                "type": "event",
+                                "value": ["Really super long filter value that could very possibly break the layout"]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph"
+            }
+        },
+        "full": true
+    }
+}
