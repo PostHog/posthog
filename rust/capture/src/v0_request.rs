@@ -166,6 +166,7 @@ pub enum DataType {
     HeatmapMain,
     ExceptionMain,
     SnapshotMain,
+    OtelLlma,
 }
 
 #[derive(Debug, Clone)]

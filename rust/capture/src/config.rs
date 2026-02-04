@@ -242,6 +242,8 @@ pub struct KafkaConfig {
     pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
+    #[envconfig(default = "events_otel_llma")]
+    pub kafka_otel_llma_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]

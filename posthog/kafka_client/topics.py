@@ -59,3 +59,6 @@ KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFF
 KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = f"{KAFKA_PREFIX}cohort_membership_changed_trigger{SUFFIX}"
 
 KAFKA_DWH_CDP_RAW_TABLE = f"{KAFKA_PREFIX}cdp_data_warehouse_source_table{SUFFIX}"
+
+# OTEL LLMA ingestion topic (OpenTelemetry traces for LLM analytics)
+KAFKA_EVENTS_OTEL_LLMA = f"{KAFKA_PREFIX}events_otel_llma{SUFFIX}"

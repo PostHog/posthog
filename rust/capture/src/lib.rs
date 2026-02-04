@@ -8,6 +8,7 @@ pub mod extractors;
 pub mod global_rate_limiter;
 pub mod log_util;
 pub mod metrics_middleware;
+pub mod otel_endpoint;
 pub mod payload;
 pub mod prometheus;
 pub mod quota_limiters;

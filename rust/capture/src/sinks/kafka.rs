@@ -137,6 +137,7 @@ pub struct KafkaTopicConfig {
     pub heatmaps_topic: String,
     pub replay_overflow_topic: String,
     pub dlq_topic: String,
+    pub otel_llma_topic: String,
 }
 
 impl From<&KafkaConfig> for KafkaTopicConfig {
@@ -150,6 +151,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             heatmaps_topic: config.kafka_heatmaps_topic.clone(),
             replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
             dlq_topic: config.kafka_dlq_topic.clone(),
+            otel_llma_topic: config.kafka_otel_llma_topic.clone(),
         }
     }
 }
@@ -427,6 +429,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                         }
                     }
                 }
+                DataType::OtelLlma => (&self.topics.otel_llma_topic, Some(event_key.as_str())),
             }
         };
 
@@ -537,6 +540,7 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            kafka_otel_llma_topic: "events_otel_llma".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
@@ -837,6 +841,7 @@ mod tests {
         const EXCEPTIONS_TOPIC: &str = "exceptions";
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
+        const OTEL_LLMA_TOPIC: &str = "events_otel_llma";
 
         fn create_test_topics() -> KafkaTopicConfig {
             KafkaTopicConfig {
@@ -848,6 +853,7 @@ mod tests {
                 heatmaps_topic: HEATMAPS_TOPIC.to_string(),
                 replay_overflow_topic: REPLAY_OVERFLOW_TOPIC.to_string(),
                 dlq_topic: DLQ_TOPIC.to_string(),
+                otel_llma_topic: OTEL_LLMA_TOPIC.to_string(),
             }
         }
 

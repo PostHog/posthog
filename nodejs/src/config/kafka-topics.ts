@@ -61,3 +61,6 @@ export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
 export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
 export const KAFKA_LOGS_INGESTION_OVERFLOW = `${prefix}logs_ingestion_overflow${suffix}`
 export const KAFKA_LOGS_CLICKHOUSE = `${prefix}clickhouse_logs${suffix}`
+
+// OTEL LLMA ingestion topic (OpenTelemetry traces for LLM analytics)
+export const KAFKA_EVENTS_OTEL_LLMA = `${prefix}events_otel_llma${suffix}`
