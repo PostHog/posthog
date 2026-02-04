@@ -36,6 +36,14 @@ export const SidePanelSettings = (): JSX.Element => {
         })
     }, [selectedSectionId, selectedLevel, setSettings])
 
+    useEffect(() => {
+        if (settings.settingId) {
+            setTimeout(() => {
+                document.getElementById(settings.settingId!)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }, 100)
+        }
+    }, [settings.settingId])
+
     const cameFromMax =
         previousTab === SidePanelTab.Max &&
         (selectedSectionId === 'environment-max' || selectedSectionId === ('project-max' as typeof selectedSectionId))
