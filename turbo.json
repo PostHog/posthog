@@ -40,7 +40,8 @@
             "cache": false
         },
         "openapi:types": {
-            "inputs": ["$TURBO_DEFAULT$", "tmp/openapi.json"]
+            "inputs": ["$TURBO_DEFAULT$", "tmp/openapi.json"],
+            "env": ["OPENAPI_SCHEMA_PATH"]
         }
     }
 }
