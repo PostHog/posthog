@@ -182,7 +182,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             // Hide UI payload answers that are not renderable to prevent rendering an empty message component
                             if (
                                 isAssistantToolCallMessage(message) &&
-                                (message.ui_payload === undefined ||
+                                (!message.ui_payload ||
                                     !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
                             ) {
                                 return null
