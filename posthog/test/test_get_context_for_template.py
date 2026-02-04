@@ -25,7 +25,6 @@ class TestGetContextForTemplate(APIBaseTest):
             # NB: we default to the PH Cloud key
             "js_posthog_api_key": "sTMFPsFhdP1Ssg",
             "js_posthog_host": "",
-            "js_posthog_ui_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
             "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags"], "anonymous": false}',

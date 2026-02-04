@@ -91,6 +91,7 @@ export const manifest: ProductManifest = {
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
         alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
         alerts: (): string => `/insights?tab=alerts`,
+        insightOptions: (): string => '/insights/options',
     },
     fileSystemTypes: {
         insight: {
@@ -203,6 +204,12 @@ export const manifest: ProductManifest = {
             iconType: 'event_definition',
             href: urls.schemaManagement(),
             flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
+        },
+        {
+            path: 'SQL variables',
+            category: 'Schema',
+            href: urls.variables(),
+            sceneKeys: ['SqlVariableEdit'],
         },
         {
             path: 'Annotations',

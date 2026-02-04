@@ -12,6 +12,7 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     Annotations = 'Annotations',
     Approval = 'Approval',
+    Apps = 'Apps',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -30,13 +31,13 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
-    DataPipelines = 'DataPipelines',
     DataPipelinesNew = 'DataPipelinesNew',
     DataWarehouse = 'DataWarehouse',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DeadLetterQueue = 'DeadLetterQueue',
+    Destinations = 'Destinations',
     DebugHog = 'DebugHog',
     DebugQuery = 'DebugQuery',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
@@ -69,6 +70,7 @@ export enum Scene {
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
+    InsightOptions = 'InsightOptions',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -83,6 +85,7 @@ export enum Scene {
     EmailMFAVerify = 'EmailMFAVerify',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
+    Models = 'Models',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
@@ -94,9 +97,11 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
+    TwoFactorReset = 'TwoFactorReset',
     Person = 'Person',
     Persons = 'Persons',
     Pipeline = 'Pipeline',
+    PipelineStatus = 'PipelineStatus',
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
@@ -114,8 +119,11 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayKiosk = 'ReplayKiosk',
     RevenueAnalytics = 'RevenueAnalytics',
+    SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    Health = 'Health',
+    SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',
@@ -125,6 +133,7 @@ export enum Scene {
     Signup = 'Signup',
     Site = 'Site',
     Coupons = 'Coupons',
+    Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
@@ -132,6 +141,7 @@ export enum Scene {
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
+    Transformations = 'Transformations',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviews = 'UserInterviews',
@@ -220,18 +230,6 @@ export interface Params {
     [param: string]: any
 }
 
-/** Configuration for a tab in the scene panel */
-export interface ScenePanelTabConfig {
-    /** Unique identifier for the tab */
-    id: string
-    /** Display label for the tab */
-    label: string
-    /** Icon component for the tab */
-    Icon: React.ComponentType<{ className?: string }>
-    /** Content component to render when tab is active */
-    Content: React.ComponentType
-}
-
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
@@ -276,12 +274,6 @@ export interface SceneConfig {
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
-    /**
-     * Tabs to show in the scene panel.
-     * - Array of ScenePanelTabConfig for custom tabs
-     * - Function receiving scene params, returning tabs for dynamic configuration
-     */
-    scenePanelTabs?: ScenePanelTabConfig[] | ((params: SceneParams) => ScenePanelTabConfig[])
 }
 
 // Map scenes to their access control resource types

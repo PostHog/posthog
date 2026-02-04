@@ -339,6 +339,14 @@ describe('llmAnalyticsTraceLogic', () => {
         beforeEach(() => {
             const mockLocation = {
                 search: '',
+                pathname: '/test',
+                origin: 'http://localhost',
+                protocol: 'http:',
+                host: 'localhost',
+                hostname: 'localhost',
+                port: '',
+                href: 'http://localhost/test',
+                hash: '',
             }
             Object.defineProperty(window, 'location', {
                 value: mockLocation,

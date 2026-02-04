@@ -19,6 +19,7 @@ CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US 
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
     "clickhouse_precalculated_person_properties2" if _US else "clickhouse_precalculated_person_properties"
 )
+CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 

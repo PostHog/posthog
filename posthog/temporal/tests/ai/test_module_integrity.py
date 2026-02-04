@@ -11,8 +11,10 @@ class TestAITemporalModuleIntegrity:
             "SummarizeSessionGroupWorkflow",
             "AssistantConversationRunnerWorkflow",
             "ChatAgentWorkflow",
+            "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
+            "VideoSegmentClusteringWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -45,6 +47,7 @@ class TestAITemporalModuleIntegrity:
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
             "process_conversation_activity",
             "process_chat_agent_activity",
+            "process_research_agent_activity",
             "validate_llm_single_session_summary_with_videos_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
@@ -54,6 +57,12 @@ class TestAITemporalModuleIntegrity:
             "consolidate_video_segments_activity",
             "embed_and_store_segments_activity",
             "store_video_session_summary_activity",
+            "prime_session_embeddings_activity",
+            "fetch_segments_activity",
+            "cluster_segments_activity",
+            "match_clusters_activity",
+            "label_clusters_activity",
+            "persist_reports_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

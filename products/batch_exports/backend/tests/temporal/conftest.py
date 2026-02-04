@@ -17,12 +17,14 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
+from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -68,12 +70,12 @@ def team(organization):
     team.save()
 
     yield team
-
+    delete_batch_exports(team_ids=[team.pk])
     team.delete()
 
 
 @pytest_asyncio.fixture
-async def aorganization():
+async def aorganization(db):
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
 
@@ -88,7 +90,17 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(team.delete)()
 
+
+@pytest_asyncio.fixture
+async def another_ateam(aorganization):
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+
+    yield team
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
     await sync_to_async(team.delete)()
 
 
@@ -115,7 +127,7 @@ async def clickhouse_client():
         yield client
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
@@ -126,38 +138,7 @@ async def temporal_client():
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
-
     yield client
-
-
-@pytest_asyncio.fixture()
-async def workflows(request):
-    """Return Temporal workflows to initialize a test worker.
-
-    By default (no parametrization), we return all available workflows. Optionally,
-    with @pytest.mark.parametrize it is possible to customize which workflows the worker starts with.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
-
-        return WORKFLOWS
-
-
-@pytest_asyncio.fixture()
-async def activities(request):
-    """Return Temporal activities to initialize a test worker.
-
-    By default (no parametrization), we return all available activities. Optionally,
-    with @pytest.mark.parametrize it is possible to customize which activities the worker starts with.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
-
-        return ACTIVITIES
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
@@ -277,13 +258,13 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest_asyncio.fixture
-async def temporal_worker(temporal_client, workflows, activities):
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def temporal_worker(temporal_client):
     worker = temporalio.worker.Worker(
         temporal_client,
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        workflows=workflows,
-        activities=activities,
+        workflows=WORKFLOWS,
+        activities=ACTIVITIES,
         interceptors=[BatchExportsMetricsInterceptor()],
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
     )

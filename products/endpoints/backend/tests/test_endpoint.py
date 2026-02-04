@@ -1086,6 +1086,151 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
         self.assertEqual(len(response_data["results"]), expected_result_count)
 
+    def test_execute_endpoint_with_limit_query_param(self):
+        """Test executing an endpoint with limit via query parameter."""
+        create_endpoint_with_version(
+            name="limit_query_param_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        distinct_id = str(uuid4())
+
+        for _ in range(0, 10):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 10),
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/limit_query_param_test/run/?limit=3")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 3)
+
+    def test_execute_endpoint_with_limit_body(self):
+        """Test executing an endpoint with limit via request body."""
+        create_endpoint_with_version(
+            name="limit_body_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        distinct_id = str(uuid4())
+
+        for _ in range(0, 10):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 10),
+            )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/limit_body_test/run/",
+            {"limit": 5},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 5)
+
+    def test_execute_endpoint_limit_body_precedence(self):
+        """Test that limit from request body takes precedence over query param."""
+        create_endpoint_with_version(
+            name="limit_precedence_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        distinct_id = str(uuid4())
+
+        for _ in range(0, 10):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 10),
+            )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/limit_precedence_test/run/?limit=8",
+            {"limit": 2},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+
+    @parameterized.expand(
+        [
+            ("negative", "-5"),
+            ("zero", "0"),
+            ("non_integer", "abc"),
+            ("float", "3.5"),
+        ]
+    )
+    def test_execute_endpoint_invalid_limit(self, _name, limit_value):
+        """Test that invalid limit values return 400."""
+        create_endpoint_with_version(
+            name="invalid_limit_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/invalid_limit_test/run/?limit={limit_value}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
+
+    def test_execute_endpoint_limit_respects_existing_query_limit(self):
+        """Test that API limit takes minimum with existing query limit."""
+        create_endpoint_with_version(
+            name="limit_min_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 5"},
+            created_by=self.user,
+            is_active=True,
+        )
+        distinct_id = str(uuid4())
+
+        for _ in range(0, 10):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 10),
+            )
+
+        # Request limit of 10, but query has limit of 5 - should use min (5)
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/limit_min_test/run/?limit=10")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 5)
+
+        # Request limit of 3, query has limit of 5 - should return 3
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/limit_min_test/run/?limit=3")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 3)
+
 
 class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
     """Tests for the OpenAPI specification generation endpoint."""
@@ -1250,17 +1395,67 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_version_reflects_endpoint_version(self):
         """Test that the spec version matches the endpoint's current version."""
-        create_endpoint_with_version(
+        endpoint = create_endpoint_with_version(
             name="versioned-endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            current_version=3,
         )
+        # Create additional versions to reach version 3
+        endpoint.create_new_version(self.sample_hogql_query, self.user)
+        endpoint.create_new_version(self.sample_hogql_query, self.user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/versioned-endpoint/openapi.json/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         spec = response.json()
         self.assertEqual(spec["info"]["version"], "3")
+
+    def test_openapi_spec_for_specific_version(self):
+        """Test that ?version=N generates spec for that specific version."""
+        endpoint = create_endpoint_with_version(
+            name="multi-version",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        # Update version 1 with a specific description
+        v1 = endpoint.get_version(1)
+        v1.description = "Version 1 description"
+        v1.save()
+
+        # Create version 2 with different description
+        endpoint.create_new_version({"kind": "HogQLQuery", "query": "SELECT 2"}, self.user)
+        v2 = endpoint.get_version(2)
+        v2.description = "Version 2 description"
+        v2.save()
+
+        # Default should return current version (2)
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/multi-version/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+        self.assertEqual(spec["info"]["version"], "2")
+        self.assertEqual(spec["info"]["description"], "Version 2 description")
+
+        # Requesting version 1 should return that version's spec
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/multi-version/openapi.json/?version=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+        self.assertEqual(spec["info"]["version"], "1")
+        self.assertEqual(spec["info"]["description"], "Version 1 description")
+
+    def test_openapi_spec_invalid_version_returns_404(self):
+        """Test that requesting a non-existent version returns 404."""
+        create_endpoint_with_version(
+            name="single-version",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/single-version/openapi.json/?version=999"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["error"], "Version 999 not found")

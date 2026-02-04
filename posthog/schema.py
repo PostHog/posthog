@@ -42,6 +42,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    RESEARCH = "research"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -1604,6 +1605,7 @@ class ExternalDataSourceType(StrEnum):
     VITALLY = "Vitally"
     BIG_QUERY = "BigQuery"
     CHARGEBEE = "Chargebee"
+    CLERK = "Clerk"
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
@@ -1622,6 +1624,7 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
 
 
@@ -1739,6 +1742,9 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2261,7 +2267,7 @@ class MarketingIntegrationConfig1(BaseModel):
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2379,16 +2385,6 @@ class MatchingEventsResponse(BaseModel):
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
 
 
 class MaxAddonInfo(BaseModel):
@@ -2708,6 +2704,7 @@ class NodeKind(StrEnum):
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
+    TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
@@ -2811,6 +2808,8 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    skip_onboarding: bool | None = None
+    use_current_time: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
@@ -2845,6 +2844,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
+    LOGS_SETTINGS_OPENED = "logs_settings_opened"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2860,6 +2860,7 @@ class ProductIntentContext(StrEnum):
     EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = "early_access_feature_view_recordings"
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = "data_warehouse_stripe_source_created"
     SURVEYS_VIEWED = "surveys_viewed"
+    SURVEY_ADD_NEW = "survey_add_new"
     SURVEY_CREATED = "survey_created"
     SURVEY_LAUNCHED = "survey_launched"
     SURVEY_VIEWED = "survey_viewed"
@@ -2899,6 +2900,9 @@ class ProductIntentContext(StrEnum):
     TASK_CREATED = "task_created"
     TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
+    ENDPOINT_CREATED = "endpoint_created"
+    ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
+    ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
 
 
 class ProductKey(StrEnum):
@@ -3172,6 +3176,17 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
+    ts_from_s: float
+    ts_to_s: float | None = None
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -3753,6 +3768,26 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: float | None = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class TraceNeighborsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
 
 
 class DetailedResultsAggregationType(StrEnum):
@@ -5228,7 +5263,6 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
-    usePresortedEventsTable: bool | None = None
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
@@ -5387,6 +5421,16 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: str | None = None
+
+
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
 
 
 class MaxBillingContextBillingPeriod(BaseModel):
@@ -5586,6 +5630,26 @@ class QueryResponseAlternative29(BaseModel):
     data: dict[str, Any]
     error: ExternalQueryError | None = None
     status: ExternalQueryStatus
+
+
+class QueryResponseAlternative82(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
 
 
 class QueryStatus(BaseModel):
@@ -6011,6 +6075,10 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show actors query options and back to source"
     )
     showTable: bool | None = None
+    showTableViews: bool | None = Field(
+        default=None,
+        description="Show table views feature for this table (requires uniqueKey)",
+    )
     showTestAccountFilters: bool | None = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: bool | None = Field(default=None, description="Show a detailed query timing breakdown")
     suppressSessionAnalysisWarning: bool | None = None
@@ -7945,7 +8013,6 @@ class CachedFunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -8782,6 +8849,41 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[TeamTaxonomyItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class CachedTraceNeighborsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    is_cached: bool
+    last_refresh: AwareDatetime
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    next_allowed_client_refresh: AwareDatetime
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -10306,6 +10408,10 @@ class EndpointRunRequest(BaseModel):
             "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
         ),
     )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
     query_override: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -11172,7 +11278,6 @@ class FunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13112,7 +13217,6 @@ class QueryResponseAlternative66(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13403,7 +13507,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13429,7 +13533,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13455,7 +13559,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13481,7 +13585,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13512,7 +13616,7 @@ class QueryResponseAlternative85(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13935,6 +14039,45 @@ class TileFilters(BaseModel):
         ]
         | None
     ) = None
+
+
+class TraceNeighborsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = None
+    filterTestAccounts: bool | None = None
+    kind: Literal["TraceNeighborsQuery"] = "TraceNeighborsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
+    response: TraceNeighborsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    timestamp: str = Field(..., description="Timestamp of the current trace to find neighbors for")
+    traceId: str = Field(..., description="ID of the current trace to find neighbors for")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class TraceQuery(BaseModel):
@@ -15164,6 +15307,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None
@@ -16825,6 +16972,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
@@ -17605,6 +17753,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
+        | QueryResponseAlternative87
     ]
 ):
     root: (
@@ -17687,6 +17836,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
+        | QueryResponseAlternative87
     )
 
 
@@ -17866,6 +18016,10 @@ class EndpointRequest(BaseModel):
     sync_frequency: DataWarehouseSyncInterval | None = Field(
         default=None,
         description="How frequently should the underlying materialized view be updated",
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
     )
 
 
@@ -18275,6 +18429,10 @@ class DataTableNode(BaseModel):
     showSourceQueryOptions: bool | None = Field(
         default=None, description="Show actors query options and back to source"
     )
+    showTableViews: bool | None = Field(
+        default=None,
+        description="Show table views feature for this table (requires uniqueKey)",
+    )
     showTestAccountFilters: bool | None = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: bool | None = Field(default=None, description="Show a detailed query timing breakdown")
     source: (
@@ -18389,6 +18547,7 @@ class HogQLAutocomplete(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18464,6 +18623,7 @@ class HogQLMetadata(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18499,7 +18659,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"
@@ -18579,6 +18739,7 @@ class MaxInsightContext(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18683,6 +18844,7 @@ class QueryRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18786,6 +18948,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18859,6 +19022,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -18937,6 +19101,7 @@ class QueryUpgradeRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -19015,6 +19180,7 @@ class QueryUpgradeResponse(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery
@@ -19219,6 +19385,7 @@ class VisualizationArtifactContent(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
         | EndpointsUsageOverviewQuery

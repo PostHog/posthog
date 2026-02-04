@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -15,7 +15,6 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
-import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -36,6 +35,7 @@ import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTable
 import { eventRowActionsContent } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
 import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
@@ -94,6 +94,7 @@ import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
+import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -176,11 +177,9 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
-    const { setSaveGroupViewModalOpen } = useActions(groupViewLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
-    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
-    const hasCustomerAnalyticsEnabled = useFeatureFlag('CRM_ITERATION_ONE')
+    const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
         response &&
@@ -220,6 +219,7 @@ export function DataTable({
         showPersistentColumnConfigurator,
         showSavedQueries,
         showSavedFilters,
+        showTableViews,
         expandable,
         embedded,
         showOpenEditorButton,
@@ -249,7 +249,7 @@ export function DataTable({
 
     const contextRowPropsFn = context?.rowProps
     const onRow = useCallback(
-        (record) => {
+        (record: DataTableRow) => {
             const rowProps = contextRowPropsFn?.(record)
             const rowFillFraction =
                 rowFillFractionIndex >= 0 && Array.isArray(record.result)
@@ -297,8 +297,8 @@ export function DataTable({
                         return { props: { colSpan: 0 } }
                     } else if (result) {
                         const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                            ? result[index]
-                            : result[key]
+                            ? (result as any[])[index]
+                            : (result as Record<string, any>)[key]
                         return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
                     }
                 },
@@ -313,8 +313,8 @@ export function DataTable({
                                   return null
                               }
                               const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                                  ? record.result[index]
-                                  : record.result[key]
+                                  ? (record.result as any[])[index]
+                                  : (record.result as Record<string, any>)[key]
                               return <NonIntegratedConversionsCellActions columnName={key} value={value} />
                           }
                         : undefined,
@@ -609,7 +609,7 @@ export function DataTable({
                               return { props: { colSpan: 0 } }
                           }
                           if (result && columnsInResponse?.includes('*')) {
-                              const event = result[columnsInResponse.indexOf('*')]
+                              const event = (result as any[])[columnsInResponse.indexOf('*')]
                               return (
                                   <ViewRecordingButton
                                       sessionId={event?.properties?.$session_id}
@@ -714,6 +714,16 @@ export function DataTable({
                 setQuery={setQuery}
             />
         ) : null,
+        showTableViews &&
+        query.contextKey &&
+        (isActorsQuery(query.source) || isGroupsQuery(query.source) || isEventsQuery(query.source)) ? (
+            <TableViewSelector
+                key="table-views"
+                contextKey={String(query.contextKey)}
+                query={query.source as TableViewSupportedQueryType}
+                setQuery={setQuerySource}
+            />
+        ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
                 key="person-property"
@@ -735,16 +745,6 @@ export function DataTable({
                     query={query.source as GroupsQuery}
                     setQuery={setQuerySource}
                 />
-                {hasCrmIterationOneEnabled && (
-                    <LemonButton
-                        data-attr="save-group-view"
-                        type="primary"
-                        size="small"
-                        onClick={() => setSaveGroupViewModalOpen(true)}
-                    >
-                        Save view
-                    </LemonButton>
-                )}
             </div>
         ) : null,
     ].filter((x) => !!x)
@@ -770,13 +770,12 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const secondRowRight = [
-        sourceFeatures.has(QueryFeature.linkDataButton) &&
-        (hasCrmIterationOneEnabled || hasCustomerAnalyticsEnabled) ? (
+        sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
             <ViewLinkButton tableName="groups" />
         ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
-            <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
+            <ColumnConfigurator key="column-configurator" query={queryWithDefaults} setQuery={setQuery} />
         ) : null,
         <DataTableViewReplays key="data-table-view-replays" />,
         showExport ? (
@@ -916,8 +915,8 @@ export function DataTable({
                                         'border border-x-danger-dark bg-danger-highlight':
                                             sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
                                             result &&
-                                            result[0] &&
-                                            result[0]['event'] === '$exception',
+                                            (result as any[])[0] &&
+                                            (result as any[])[0]['event'] === '$exception',
                                         DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
                                     })
                                 }
@@ -936,7 +935,9 @@ export function DataTable({
                                                   return null
                                               }
                                               if (result && columnsInResponse?.includes('*')) {
-                                                  return eventRowActionsContent(result[columnsInResponse.indexOf('*')])
+                                                  return eventRowActionsContent(
+                                                      (result as any[])[columnsInResponse.indexOf('*')]
+                                                  )
                                               }
                                               return null
                                           }

@@ -1,9 +1,10 @@
+import clsx from 'clsx'
 import Fuse from 'fuse.js'
 import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconServer } from '@posthog/icons'
+import { IconFlag, IconServer } from '@posthog/icons'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
@@ -757,9 +758,41 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'feature flags',
                         type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
-                        getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
+                        getName: (featureFlag: FeatureFlagType) => {
+                            const name = featureFlag.key || featureFlag.name
+                            const isInactive = !featureFlag.active
+                            return isInactive ? `${name} (disabled)` : name
+                        },
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
+                        getIcon: (featureFlag: FeatureFlagType) => (
+                            <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                        ),
+                        getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+                        localItemsSearch: (
+                            items: TaxonomicDefinitionTypes[],
+                            query: string
+                        ): TaxonomicDefinitionTypes[] => {
+                            // Note: This function doesn't have direct access to the current value
+                            // The actual filtering logic needs to be implemented in the infinite list logic
+                            // For now, just handle search filtering
+                            if (!query) {
+                                return items
+                            }
+
+                            return items.filter((item: TaxonomicDefinitionTypes) => {
+                                // Type guard for FeatureFlagType
+                                if ('key' in item && 'name' in item) {
+                                    const flag = item as unknown as FeatureFlagType
+                                    return (flag.key || flag.name || '').toLowerCase().includes(query.toLowerCase())
+                                }
+                                // For other types, check if they have a name property
+                                if ('name' in item) {
+                                    return (item.name || '').toLowerCase().includes(query.toLowerCase())
+                                }
+                                return true
+                            })
+                        },
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags]?.filter(isString),
                     },
@@ -863,11 +896,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: MaxContextTaxonomicFilterOption) => option.name,
                         getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
                         getIcon: (option: MaxContextTaxonomicFilterOption) => {
-                            const Icon = option.icon as React.ComponentType
-                            if (Icon) {
-                                return <Icon />
-                            }
-                            return <></>
+                            return <>{option.icon}</>
                         },
                         getPopoverHeader: () => 'On this page',
                     },

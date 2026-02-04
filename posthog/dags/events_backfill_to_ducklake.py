@@ -106,7 +106,7 @@ DEFAULT_CLICKHOUSE_SETTINGS = {
 # Note: We use toInt64(team_id) as project_id since they're equivalent in PostHog.
 # Materialized columns (dmat_*) are ClickHouse-specific and not present in DuckLake.
 EVENTS_COLUMNS = """
-    uuid,
+    toString(uuid) as uuid,
     event,
     properties,
     timestamp,
@@ -115,7 +115,7 @@ EVENTS_COLUMNS = """
     distinct_id,
     elements_chain,
     created_at,
-    person_id,
+    toString(person_id) as person_id,
     person_created_at,
     person_properties,
     group0_properties,
@@ -227,7 +227,7 @@ def validate_ducklake_schema(context: AssetExecutionContext) -> None:
             if alias not in str(exc):
                 raise
 
-        result = conn.execute(f"DESCRIBE {alias}.main.events").fetchall()
+        result = conn.execute(f"DESCRIBE {alias}.posthog.events").fetchall()
         ducklake_columns = {row[0] for row in result}
 
         missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
@@ -507,7 +507,9 @@ def register_files_with_ducklake(
             try:
                 context.log.info(f"Registering file with DuckLake: {s3_path}")
                 # Use escape() to prevent SQL injection
-                conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.events', '{escape(s3_path)}')")
+                conn.execute(
+                    f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')"
+                )
                 registered_count += 1
                 context.log.info(f"Successfully registered: {s3_path}")
                 logger.info("ducklake_file_registered", s3_path=s3_path)

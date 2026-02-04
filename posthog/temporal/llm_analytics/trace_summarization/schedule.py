@@ -37,7 +37,7 @@ async def create_batch_trace_summarization_schedule(client: Client):
                 window_minutes=DEFAULT_WINDOW_MINUTES,
             ),
             id=COORDINATOR_SCHEDULE_ID,
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.LLMA_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
     )
@@ -71,7 +71,7 @@ async def create_batch_generation_summarization_schedule(client: Client):
                 window_minutes=DEFAULT_WINDOW_MINUTES,
             ),
             id=GENERATION_COORDINATOR_SCHEDULE_ID,
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.LLMA_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
     )
