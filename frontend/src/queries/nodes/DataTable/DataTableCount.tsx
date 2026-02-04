@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { pluralize } from 'lib/utils'
 
@@ -8,6 +9,17 @@ import { isActorsQuery, isEventsQuery, isGroupsQuery, isSessionsQuery } from '~/
 export function DataTableCount(): JSX.Element | null {
     const { totalCount, totalCountLoading, filteredCount, filteredCountLoading, hasActiveFilters, query } =
         useValues(dataNodeLogic)
+    const { loadTotalCount, loadFilteredCount } = useActions(dataNodeLogic)
+
+    useEffect(() => {
+        if (totalCount === null && !totalCountLoading) {
+            loadTotalCount()
+        }
+
+        if (hasActiveFilters && filteredCount === null && !filteredCountLoading) {
+            loadFilteredCount()
+        }
+    }, [query, hasActiveFilters])
 
     const loading = totalCountLoading || filteredCountLoading
 

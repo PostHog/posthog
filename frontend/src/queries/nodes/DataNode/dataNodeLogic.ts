@@ -1171,9 +1171,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cache.disposables.dispose('loadingTimer')
             }
         },
-        filteredCountQuery: () => {
-            actions.loadFilteredCount()
-        },
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
