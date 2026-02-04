@@ -494,7 +494,9 @@ def calculate_video_segment_specs(
                 f"recording_ts_to_s={recording_period_end}, video_duration={video_duration}",
                 signals_type="session-summaries",
             )
-        if round(recording_period_end - recording_period_start, 2) != round(session_period_end - session_period_start):
+        if round(recording_period_end - recording_period_start, 2) != round(
+            session_period_end - session_period_start, 2
+        ):
             # Could happen, log for visibility, but don't raise
             logger.warning(
                 "Recording/session periods duration mismatch: "
