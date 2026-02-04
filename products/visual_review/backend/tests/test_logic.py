@@ -7,11 +7,11 @@ from products.visual_review.backend.domain_types import RunStatus, RunType, Snap
 
 
 class TestAddNumbers:
-    """Test to verify CI catches failures - this test SHOULD FAIL."""
+    """Example test to verify turbo test caching."""
 
     def test_add_numbers(self):
         result = logic.add_numbers(2, 3)
-        assert result == 5  # Will fail: actual is 6 due to bug
+        assert result == 5
 
 
 @pytest.mark.django_db

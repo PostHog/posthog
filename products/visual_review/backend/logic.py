@@ -52,8 +52,8 @@ class BaselineFilePathNotConfiguredError(Exception):
 
 
 def add_numbers(a: int, b: int) -> int:
-    """Deliberately broken to test CI catches failures."""
-    return a + b + 1  # Bug: off by one
+    """Example function to verify turbo test caching."""
+    return a + b
 
 
 # --- Repo Operations ---
