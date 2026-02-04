@@ -1107,7 +1107,8 @@
     }
 
     a:focus-visible,
-    button:focus-visible {
+    button:focus-visible,
+    [data-highlighted]:not(:focus-visible, :hover) {
         outline: 2px solid var(--color-accent);
     }
 

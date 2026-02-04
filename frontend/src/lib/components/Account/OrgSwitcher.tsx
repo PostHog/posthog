@@ -181,7 +181,7 @@ export function OrgSwitcher(): JSX.Element {
                     styledScrollbars
                     className="flex-1 overflow-y-auto max-h-[400px]"
                 >
-                    <Combobox.List className="flex flex-col gap-px p-2" tabIndex={-1}>
+                    <Combobox.List className="flex flex-col gap-px p-2">
                         {/* Current Organization */}
                         {currentOrgItem && (
                             <Combobox.Group items={[currentOrgItem]}>
@@ -191,8 +191,16 @@ export function OrgSwitcher(): JSX.Element {
                                             key={item.id}
                                             value={item}
                                             onClick={() => handleItemClick(item)}
+                                            disabled
                                             render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active fullWidth tabIndex={-1}>
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    disabled
+                                                    data-disabled="true"
+                                                    menuItem
+                                                    active
+                                                    fullWidth
+                                                >
                                                     <IconCheck className="text-tertiary" />
                                                     <UploadedLogo
                                                         size="xsmall"
@@ -226,7 +234,6 @@ export function OrgSwitcher(): JSX.Element {
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    tabIndex={-1}
                                                     disabled={item.isDisabled}
                                                     tooltip={item.isDisabled ? item.disabledReason : undefined}
                                                     tooltipPlacement="right"
@@ -264,7 +271,6 @@ export function OrgSwitcher(): JSX.Element {
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    tabIndex={-1}
                                                     disabled={!canCreateOrg}
                                                     tooltip={
                                                         !canCreateOrg

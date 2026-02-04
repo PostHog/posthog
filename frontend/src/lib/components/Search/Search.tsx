@@ -457,14 +457,13 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
     }, [autoFocus, inputRef])
 
     return (
-        <div className={cn('p-1 space-y-2', className)}>
+        <div className={cn('p-2 space-y-2', className)}>
             <label
                 htmlFor="app-autocomplete-search"
                 className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus:outline-none focus:ring-2 focus-within:ring-primary py-1 px-2"
             >
                 <Autocomplete.Icon
-                    className="size-5"
-                    render={<IconSearch className="text-tertiary group-focus-within:text-primary" />}
+                    render={<IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />}
                 />
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
@@ -595,7 +594,10 @@ function SearchResults({
                         <Autocomplete.Group key={group.category} items={group.items} className="mb-4">
                             <Autocomplete.GroupLabel
                                 render={
-                                    <Label className={cn('px-3 sticky top-0 z-1', groupLabelClassName)} intent="menu">
+                                    <Label
+                                        className={cn('px-3 sticky top-0 z-1 mb-1', groupLabelClassName)}
+                                        intent="menu"
+                                    >
                                         {getCategoryDisplayName(group.category)}
                                     </Label>
                                 }

@@ -172,13 +172,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 )}
 
                                 <Menu.Item
-                                    render={(props) => (
+                                    onClick={() => {
+                                        showInviteModal()
+                                        reportInviteMembersButtonClicked()
+                                    }}
+                                    render={
                                         <ButtonPrimitive
-                                            {...props}
-                                            onClick={() => {
-                                                showInviteModal()
-                                                reportInviteMembersButtonClicked()
-                                            }}
                                             menuItem
                                             tooltip="Invite members"
                                             tooltipPlacement="right"
@@ -187,24 +186,20 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             <IconPlusSmall />
                                             Invite members
                                         </ButtonPrimitive>
-                                    )}
+                                    }
                                 />
 
                                 <Menu.Item
-                                    render={(props) => (
-                                        <ButtonPrimitive
-                                            {...props}
-                                            menuItem
-                                            onClick={openProjectSwitcher}
-                                            data-attr="top-menu-all-projects"
-                                        >
+                                    onClick={() => openProjectSwitcher()}
+                                    render={
+                                        <ButtonPrimitive menuItem data-attr="top-menu-all-projects">
                                             <IconBlank />
                                             All projects
                                             <span className="ml-auto text-tertiary text-xs">
                                                 <RenderKeybind keybind={[keyBinds.projectSwitcher]} />
                                             </span>
                                         </ButtonPrimitive>
-                                    )}
+                                    }
                                 />
 
                                 <Label intent="menu" className="px-2 mt-2">
@@ -274,23 +269,19 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 ) : null}
 
                                 <Menu.Item
-                                    render={(props) => (
-                                        <ButtonPrimitive
-                                            {...props}
-                                            menuItem
-                                            onClick={() => {
-                                                setAccountMenuOpen(false)
-                                                openOrgSwitcher()
-                                            }}
-                                            data-attr="top-menu-all-organizations"
-                                        >
+                                    onClick={() => {
+                                        setAccountMenuOpen(false)
+                                        openOrgSwitcher()
+                                    }}
+                                    render={
+                                        <ButtonPrimitive menuItem data-attr="top-menu-all-organizations">
                                             <IconBlank />
                                             All organizations
                                             <span className="ml-auto text-tertiary text-xs">
                                                 <RenderKeybind keybind={[keyBinds.orgSwitcher]} />
                                             </span>
                                         </ButtonPrimitive>
-                                    )}
+                                    }
                                 />
 
                                 <DropdownMenuSeparator />
@@ -303,20 +294,16 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             </Label>
                                             <DropdownMenuSeparator />
                                             <Menu.Item
-                                                render={(props) => (
+                                                onClick={() => {
+                                                    void copyToClipboard(billing?.account_owner?.email || '', 'email')
+                                                    reportAccountOwnerClicked({
+                                                        name: billing?.account_owner?.name || '',
+                                                        email: billing?.account_owner?.email || '',
+                                                    })
+                                                }}
+                                                render={
                                                     <ButtonPrimitive
-                                                        {...props}
                                                         menuItem
-                                                        onClick={() => {
-                                                            void copyToClipboard(
-                                                                billing?.account_owner?.email || '',
-                                                                'email'
-                                                            )
-                                                            reportAccountOwnerClicked({
-                                                                name: billing?.account_owner?.name || '',
-                                                                email: billing?.account_owner?.email || '',
-                                                            })
-                                                        }}
                                                         tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
                                                         tooltipPlacement="right"
                                                         data-attr="top-menu-account-owner"
@@ -335,24 +322,20 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                             <IconCopy />
                                                         </div>
                                                     </ButtonPrimitive>
-                                                )}
+                                                }
                                             />
                                             <DropdownMenuSeparator />
                                         </>
                                     ))}
 
                                 <Menu.Item
-                                    render={(props) => (
-                                        <ButtonPrimitive
-                                            {...props}
-                                            menuItem
-                                            onClick={logout}
-                                            data-attr="top-menu-item-logout"
-                                        >
+                                    onClick={() => logout()}
+                                    render={
+                                        <ButtonPrimitive menuItem data-attr="top-menu-item-logout">
                                             <IconLeave />
                                             Log out
                                         </ButtonPrimitive>
-                                    )}
+                                    }
                                 />
                             </ScrollableShadows>
                         </Menu.Popup>

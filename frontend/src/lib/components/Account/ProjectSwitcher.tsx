@@ -144,8 +144,9 @@ export function ProjectSwitcher(): JSX.Element | null {
                 <div className="p-2 border-b border-primary">
                     <label className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus-within:ring-primary py-1 px-2">
                         <Combobox.Icon
-                            className="size-5"
-                            render={<IconSearch className="text-tertiary group-focus-within:text-primary" />}
+                            render={
+                                <IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />
+                            }
                         />
                         <Combobox.Input
                             ref={inputRef}
@@ -190,6 +191,7 @@ export function ProjectSwitcher(): JSX.Element | null {
                                             key={item.id}
                                             value={item}
                                             onClick={() => handleItemClick(item)}
+                                            disabled
                                             render={(props) => (
                                                 <ButtonPrimitive
                                                     {...props}
@@ -197,7 +199,8 @@ export function ProjectSwitcher(): JSX.Element | null {
                                                     active
                                                     className="flex-1"
                                                     tabIndex={-1}
-                                                    hasSideActionRight
+                                                    disabled={true}
+                                                    data-disabled="true"
                                                 >
                                                     <IconCheck className="text-tertiary" />
                                                     <ProjectName team={item.team} />
