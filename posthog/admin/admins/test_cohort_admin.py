@@ -1,8 +1,9 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.contrib import messages
 from django.contrib.admin.sites import AdminSite
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.backends.db import SessionStore
 from django.test import RequestFactory
 from django.utils import timezone
 
@@ -27,7 +28,8 @@ class TestCohortAdminActions(BaseTest):
         request = self.factory.get(path)
         request.user = self.user
         # Mock messages framework
-        request._messages = messages.storage.default_storage(request)
+        request.session = SessionStore()
+        request._messages = FallbackStorage(request)
         return request
 
     @patch("posthog.admin.admins.cohort_admin.increment_version_and_enqueue_calculate_cohort")
