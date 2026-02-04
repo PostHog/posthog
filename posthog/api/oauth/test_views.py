@@ -2290,7 +2290,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scope"], "openid user:read")
 
     def test_claude_code_client_gets_extended_token_expiry(self):
-        """Claude Code clients should get 4-hour token expiry instead of 1 hour."""
+        """Claude Code clients should get 7-day token expiry instead of 1 hour."""
         self.public_application.name = "Claude Code MCP Client"
         self.public_application.save()
 
@@ -2323,12 +2323,12 @@ class TestOAuthAPI(APIBaseTest):
 
         data = token_response.json()
 
-        # Verify expires_in is 4 hours (14400 seconds), not 1 hour (3600)
-        self.assertEqual(data["expires_in"], 60 * 60 * 4)
+        # Verify expires_in is 7 days (604800 seconds), not 1 hour (3600)
+        self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
 
         # Also verify the actual token in DB has correct expiry
         access_token = OAuthAccessToken.objects.get(token=data["access_token"])
-        expected_expiry = timezone.now() + timedelta(hours=4)
+        expected_expiry = timezone.now() + timedelta(days=7)
         time_diff = abs((access_token.expires - expected_expiry).total_seconds())
         self.assertLess(time_diff, 60)  # Within 1 minute tolerance
 

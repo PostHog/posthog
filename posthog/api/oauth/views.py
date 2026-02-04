@@ -119,12 +119,12 @@ class OAuthValidator(OAuth2Validator):
     def _get_token_expires_in(self, request) -> int:
         """
         Returns access token expiry in seconds.
-        Claude Code doesn't implement refresh tokens properly, so we extend to 4 hours.
+        Claude Code doesn't implement refresh tokens properly, so we extend to 7 days.
         See: https://github.com/anthropics/claude-code/issues/5706
         """
         if hasattr(request, "client") and request.client:
             if request.client.name and "claude code" in request.client.name.lower():
-                return 60 * 60 * 4
+                return 60 * 60 * 24 * 7  # 7 days
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
     def save_bearer_token(self, token, request, *args, **kwargs):
