@@ -141,6 +141,7 @@ class HobbyTester:
                 "curl -fsSL https://go.dev/dl/go1.24.0.linux-$(dpkg --print-architecture).tar.gz | tar -C /usr/local -xzf -",
                 "export PATH=$PATH:/usr/local/go/bin",
                 "export GOPATH=/tmp/go",
+                "export GOCACHE=/tmp/go-cache",
                 "cd posthog/bin/hobby-installer && go build -o /tmp/hobby-installer . && cd ../../..",
                 "cp /tmp/hobby-installer hobby-installer",
                 "chmod +x hobby-installer",
