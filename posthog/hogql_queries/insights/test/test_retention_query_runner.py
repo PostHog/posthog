@@ -4456,10 +4456,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        flush_persons_and_events()
+
         # Test SUM aggregation
         result_sum = self.run_query(
             query={
-                "dateRange": {"date_to": _date(5)},
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
                 "retentionFilter": {
                     "totalIntervals": 7,
                     "aggregationType": "sum",
@@ -4527,10 +4529,12 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        flush_persons_and_events()
+
         # Test AVG aggregation
         result_avg = self.run_query(
             query={
-                "dateRange": {"date_to": _date(5)},
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
                 "retentionFilter": {
                     "totalIntervals": 7,
                     "aggregationType": "avg",
