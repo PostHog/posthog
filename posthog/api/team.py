@@ -705,8 +705,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         try:
             HogQLQueryModifiers(**value)
-        except Exception as e:
-            raise exceptions.ValidationError(f"Invalid modifiers: {e}")
+        except Exception:
+            raise exceptions.ValidationError(f"Invalid modifier key.")
 
         return value
 
