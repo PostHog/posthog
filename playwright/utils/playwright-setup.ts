@@ -11,6 +11,7 @@
  * - User: Configurable via LOGIN_USERNAME/LOGIN_PASSWORD env vars (defaults: test@posthog.com/12345678)
  */
 import { APIRequestContext, Page } from '@playwright/test'
+import * as os from 'os'
 
 import type {
     PlaywrightWorkspaceSetupData,
@@ -43,14 +44,43 @@ export class PlaywrightSetup {
     }
 
     /**
+     * Log system resource usage for diagnostics
+     */
+    private logResourceUsage(label: string): void {
+        const memUsage = process.memoryUsage()
+        const cpuUsage = os.loadavg()
+        const freeMem = os.freemem()
+        const totalMem = os.totalmem()
+        const memUsedPercent = ((totalMem - freeMem) / totalMem * 100).toFixed(1)
+        
+        console.log(`[PERF] ${label} - Resources: ` +
+            `heap=${(memUsage.heapUsed / 1024 / 1024).toFixed(1)}MB, ` +
+            `rss=${(memUsage.rss / 1024 / 1024).toFixed(1)}MB, ` +
+            `system_mem=${memUsedPercent}% used (${(freeMem / 1024 / 1024 / 1024).toFixed(1)}GB free), ` +
+            `load_avg=[${cpuUsage.map(l => l.toFixed(2)).join(', ')}]`)
+    }
+
+    /**
      * Call the Django setup endpoint
      */
     async callSetupEndpoint(setupType: string, options: PlaywrightSetupOptions = {}): Promise<TestSetupResponse> {
         const { data = {}, throwOnError = true, baseURL } = options
         const url = `${baseURL || this.baseURL}/api/setup_test/${setupType}/`
+        const startTime = Date.now()
+
+        console.log(`[PERF] Starting API call to ${setupType}`)
+        this.logResourceUsage('Before API call')
 
         try {
             const response = await this.request.post(url, { data })
+            const apiDuration = Date.now() - startTime
+
+            console.log(`[PERF] API call to ${setupType} completed in ${apiDuration}ms (status: ${response.status()})`)
+            this.logResourceUsage('After API call')
+
+            if (apiDuration > 30000) {
+                console.warn(`[PERF] WARNING: API call took ${apiDuration}ms (>30s) - this may cause test timeouts`)
+            }
 
             const responseText = await response.text()
 
@@ -93,10 +123,23 @@ export class PlaywrightSetup {
     async createWorkspace(
         dataOrName?: string | Partial<PlaywrightWorkspaceSetupData>
     ): Promise<PlaywrightWorkspaceSetupResult> {
+        const overallStart = Date.now()
+        console.log(`[PERF] ========== Starting workspace creation ==========`)
+        this.logResourceUsage('Workspace creation start')
+
         const data = typeof dataOrName === 'string' ? { organization_name: dataOrName } : (dataOrName ?? {})
         const result = await this.callSetupEndpoint('organization_with_team', {
             data: data as PlaywrightWorkspaceSetupData,
         })
+
+        const totalDuration = Date.now() - overallStart
+        console.log(`[PERF] ========== Workspace creation completed in ${totalDuration}ms ==========`)
+        this.logResourceUsage('Workspace creation end')
+
+        if (totalDuration > 30000) {
+            console.warn(`[PERF] CRITICAL: Total workspace creation took ${totalDuration}ms (>30s)`)
+            console.warn(`[PERF] This is likely to cause test timeouts (60s limit in beforeAll)`)
+        }
 
         if (!result.success) {
             console.error(`[PlaywrightSetup] Workspace creation failed:`, result)
