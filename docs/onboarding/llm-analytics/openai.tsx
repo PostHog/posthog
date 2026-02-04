@@ -169,7 +169,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         posthog_privacy_mode=False # optional
                                     )
 
-                                    print(response.choices[0].message.content)
+                                    print(response.output_text)
                                 `,
                             },
                             {
@@ -186,7 +186,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         posthogPrivacyMode: false // optional
                                     });
 
-                                    console.log(completion.choices[0].message.content)
+                                    console.log(completion.output_text)
                                 `,
                             },
                         ]}

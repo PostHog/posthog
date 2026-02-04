@@ -62,7 +62,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install langchain @langchain/core @posthog/ai
+                                    npm install langchain @langchain/core @langchain/openai @posthog/ai
                                 `,
                             },
                         ]}

@@ -76,7 +76,6 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                             model = OpenAIServerModel(
                                 model_id="gpt-4o-mini",
-                                api_key="your_openai_api_key",
                                 client=openai_client,
                             )
                         `}
