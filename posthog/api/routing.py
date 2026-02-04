@@ -15,6 +15,7 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -68,6 +69,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     scope_object: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
+    # Actions that should allow project secret API key auth (e.g. "local_evaluation").
+    # When non-empty, ProjectSecretAPIKeyAuthentication is prepended for all actions;
+    # ProjectSecretAPITokenPermission then gates which actions are actually allowed.
+    project_secret_auth_actions: list[str] = []
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -85,6 +90,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+        if cls.project_secret_auth_actions:
+            if not all(isinstance(action, str) and action.strip() for action in cls.project_secret_auth_actions):
+                raise ValueError("project_secret_auth_actions must contain non-empty strings")
+            cls.project_secret_auth_actions = [action.strip() for action in cls.project_secret_auth_actions]
 
     def dangerously_get_permissions(self):
         """
@@ -121,9 +131,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     def get_authenticators(self):
         # NOTE: Custom authentication_classes go first as these typically have extra initial checks
-        authentication_classes: list = [
-            *self.authentication_classes,
-        ]
+        authentication_classes: list = [*self.authentication_classes]
+
+        if self.project_secret_auth_actions:
+            # Always allow project-secret auth for this viewset; permissions will gate per-action.
+            authentication_classes = [
+                ProjectSecretAPIKeyAuthentication,
+                *authentication_classes,
+            ]
 
         if self.sharing_enabled_actions:
             authentication_classes.append(SharingPasswordProtectedAuthentication)

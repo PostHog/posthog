@@ -34,12 +34,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import (
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    SessionAuthentication,
-    TemporaryTokenAuthentication,
-)
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -1365,6 +1360,7 @@ class FeatureFlagViewSet(
     scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
+    project_secret_auth_actions = ["local_evaluation", "auth_debug"]
     authentication_classes = [
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
@@ -1866,6 +1862,24 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    @action(
+        methods=["GET"],
+        detail=False,
+        throttle_classes=[LocalEvaluationThrottle],
+        required_scopes=["feature_flag:read"],
+        permission_classes=[ProjectSecretAPITokenPermission],
+    )
+    def auth_debug(self, request: request.Request, **kwargs) -> Response:
+        """Temporary endpoint — remove after testing."""
+        return Response(
+            {
+                "authenticator_used": type(request.successful_authenticator).__name__,
+                "authenticators_tried": [type(a).__name__ for a in request.authenticators],
+                "user_type": type(request.user).__name__,
+                "is_authenticated": request.user.is_authenticated,
+            }
+        )
+
     @validated_request(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
@@ -1879,10 +1893,6 @@ class FeatureFlagViewSet(
         detail=False,
         throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
-        authentication_classes=[
-            TemporaryTokenAuthentication,
-            ProjectSecretAPIKeyAuthentication,
-        ],
         permission_classes=[ProjectSecretAPITokenPermission],
     )
     def local_evaluation(self, request: request.Request, **kwargs) -> Response:
@@ -2193,10 +2203,6 @@ class FeatureFlagViewSet(
         methods=["GET"],
         detail=True,
         required_scopes=["feature_flag:read"],
-        authentication_classes=[
-            TemporaryTokenAuthentication,
-            ProjectSecretAPIKeyAuthentication,
-        ],
         permission_classes=[ProjectSecretAPITokenPermission],
         throttle_classes=[RemoteConfigThrottle],
     )

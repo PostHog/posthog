@@ -22,11 +22,12 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -153,7 +154,17 @@ class SessionAuthentication(authentication.SessionAuthentication):
         return "Session"
 
 
-class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+class APIKeyAuthentication:
+    def update_key_last_used_at(self, key_instance):
+        now = timezone.now()
+        key_last_used_at = key_instance.last_used_at
+        # Only updating last_used_at if the hour's changed
+        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
+            type(key_instance).objects.filter(pk=key_instance.pk).update(last_used_at=now)
+
+
+class PersonalAPIKeyAuthentication(authentication.BaseAuthentication, APIKeyAuthentication):
     """A way of authenticating with personal API keys.
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
@@ -183,6 +194,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     "pha_"
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
+                if token.startswith("phs_"):
+                    return None
+
                 return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
@@ -247,20 +261,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
-        now = timezone.now()
-        key_last_used_at = personal_api_key_object.last_used_at
-        # Only updating last_used_at if the hour's changed
-        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
-            personal_api_key_object.last_used_at = now
-            personal_api_key_object.save(update_fields=["last_used_at"])
+        self.update_key_last_used_at(personal_api_key_object)
         assert personal_api_key_object.user is not None
 
         # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
         tag_queries(
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
             api_key_mask=personal_api_key_object.mask_value,
             api_key_label=personal_api_key_object.label,
         )
@@ -274,7 +282,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication, APIKeyAuthentication):
     """
     Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
     user and should only be used for local_evaluation and flags remote_config (not to be confused with the
@@ -288,6 +296,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    project_secret_api_key: Optional["ProjectSecretAPIKey"] = None
 
     @classmethod
     def find_secret_api_token(
@@ -296,9 +305,32 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
+            raw_header = request.headers["authorization"]
+            # Strip the header value to handle trailing whitespace/CRLF that proxies may add
+            header_value = raw_header.strip()
+            had_whitespace = len(raw_header) != len(header_value)
+
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", header_value)
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+                structlog_logger.debug(
+                    "project_secret_api_key_found_in_header",
+                    token_prefix=token[:8] if len(token) > 8 else "short",
+                    had_trailing_whitespace=had_whitespace,
+                )
+                return token
+
+            # Log when header exists but doesn't match expected format (helps debug auth issues)
+            # Don't log the actual value, just metadata
+            starts_with_bearer = header_value.lower().startswith("bearer ")
+            has_phs_prefix = "phs_" in header_value
+            structlog_logger.debug(
+                "project_secret_api_key_header_no_match",
+                header_length=len(header_value),
+                starts_with_bearer=starts_with_bearer,
+                has_phs_prefix=has_phs_prefix,
+                had_trailing_whitespace=had_whitespace,
+            )
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -307,7 +339,11 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
+            structlog_logger.debug("project_secret_api_key_found_in_body", field="secret_api_key")
             return data["secret_api_key"]
+        elif data and "project_secret_api_key" in data:
+            structlog_logger.debug("project_secret_api_key_found_in_body", field="project_secret_api_key")
+            return data["project_secret_api_key"]
 
         return None
 
@@ -317,35 +353,92 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         if not secret_api_token:
             return None
 
-        # get the team from the secret api key
+        # Try to find as a managed ProjectSecretAPIKey first
+        project_secret_api_key_result = ProjectSecretAPIKey.find_project_secret_api_key(secret_api_token)
+
+        if project_secret_api_key_result:
+            project_secret_api_key, _ = project_secret_api_key_result
+            self.project_secret_api_key = project_secret_api_key
+
+            self.update_key_last_used_at(project_secret_api_key)
+
+            tag_queries(
+                team_id=project_secret_api_key.team_id,
+                access_method=AccessMethod.PROJECT_SECRET_API_KEY,
+                api_key_mask=project_secret_api_key.mask_value,
+                api_key_label=project_secret_api_key.label,
+            )
+
+            structlog_logger.debug(
+                "project_secret_api_key_auth_success",
+                auth_method="managed_key",
+                team_id=project_secret_api_key.team_id,
+            )
+            return (ProjectSecretAPIKeyUser(project_secret_api_key.team, project_secret_api_key), None)
+
+        # For backwards compat with feature flags - fallback to team secret_api_token
+        structlog_logger.debug(
+            "project_secret_api_key_fallback_to_team_token",
+            token_prefix=secret_api_token[:8] if len(secret_api_token) > 8 else "short",
+        )
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
 
             if team is None:
-                return None
+                structlog_logger.warning(
+                    "project_secret_api_key_auth_failed",
+                    reason="token_not_found_in_db",
+                    token_prefix=secret_api_token[:8] if len(secret_api_token) > 8 else "short",
+                )
+                raise AuthenticationFailed(detail="Project secret API key is invalid.")
 
-            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
-            # and attach the team. The team is the important part here.
-            return (ProjectSecretAPIKeyUser(team), None)
+            structlog_logger.debug(
+                "project_secret_api_key_auth_success",
+                auth_method="legacy_team_token",
+                team_id=team.id,
+            )
+            # Team secret token = full access, no project_secret_api_key object
+            return (ProjectSecretAPIKeyUser(team, None), None)
         except Team.DoesNotExist:
-            return None
+            structlog_logger.warning(
+                "project_secret_api_key_auth_failed",
+                reason="team_does_not_exist",
+            )
+            raise AuthenticationFailed(detail="Project secret API key is invalid.")
 
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
 
 
-class ProjectSecretAPIKeyUser:
+class ProjectSecretAPIKeyUser(AnonymousUser):
     """
     A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
     """
 
-    def __init__(self, team):
+    pk: int  # type: ignore[assignment]
+    id: int  # type: ignore[assignment]
+
+    def __init__(self, team, project_secret_api_key: Optional["ProjectSecretAPIKey"] = None):
+        self.pk = -1
+        self.id = -1
         self.team = team
         self.current_team_id = team.id
-        self.is_authenticated = True
-        self.pk = -1
+        self.project_secret_api_key = project_secret_api_key
+        self.distinct_id = (
+            f"ph_secret_project_key:{self.project_secret_api_key.id}"
+            if self.project_secret_api_key
+            else "team_secret_api_token"
+        )
+        self.email = None
+
+    def __str__(self):
+        return f"ProjectSecretAPIKeyUser in project {self.current_team_id}"
+
+    @property
+    def is_authenticated(self):
+        return True
 
     def has_perm(self, perm, obj=None):
         return False
@@ -535,7 +628,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             tag_queries(
                 user_id=access_token.user.pk,
                 team_id=access_token.user.current_team_id,
-                access_method="oauth",
+                access_method=AccessMethod.OAUTH,
             )
 
             return access_token.user, None

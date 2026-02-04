@@ -5431,3 +5431,13 @@ export interface ReplayInactivityPeriod {
     recording_ts_from_s?: number
     recording_ts_to_s?: number
 }
+export interface ProjectSecretAPIKeyRequest {
+    label?: string
+    scopes?: ProjectSecretAPIKeyAllowedScope[]
+}
+
+export enum ProjectSecretAPIKeyAllowedScope {
+    FeatureFlagRead = 'feature_flag:read',
+    // Placeholder to keep this as an enum (remove once a second real scope is added)
+    _Placeholder = 'PLACEHOLDER',
+}
