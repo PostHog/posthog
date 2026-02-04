@@ -441,6 +441,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_capture):
+        other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "flag-with-other-dashboard", "analytics_dashboards": [other_dashboard.pk]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "analytics_dashboards")
+        self.assertIn("does not exist", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_capture):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-to-update",
+            name="Flag to Update",
+            created_by=self.user,
+        )
+
+        other_team = Team.objects.create(
+            organization=self.organization, api_token="token_other_update", name="Other Team"
+        )
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.pk}/",
+            {"analytics_dashboards": [other_dashboard.pk]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "analytics_dashboards")
+        self.assertIn("does not exist", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):
         # Test creating a feature flag with different evaluation_runtime values
 
@@ -1337,6 +1374,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Should be forbidden due to team mismatch
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_remote_config_with_numeric_id_scopes_to_project(self):
+        other_team = Team.objects.create(
+            organization=self.organization, api_token="phc_numeric_id_test", name="Numeric ID Team"
+        )
+
+        other_flag = FeatureFlag.objects.create(
+            team=other_team,
+            key="other-flag-numeric",
+            name="Other Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"leaked": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        # Try to access the other team's flag using its numeric ID from our project endpoint
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{other_flag.pk}/remote_config")
+
+        # Should return 404 because the flag doesn't belong to this project
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
