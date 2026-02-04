@@ -551,18 +551,17 @@ const IncompatibleFiltersWarning = (): JSX.Element | null => {
     const filterNames = incompatibleFilters.map((filter) => filter.key).join(', ')
 
     return (
-        <LemonBanner type="warning" className="mb-2">
-            <div className="flex items-center justify-between w-full">
-                <div>
-                    <div className="font-semibold">Some filters are slowing down your queries</div>
-                    <div className="text-sm mt-0.5">
-                        The following filters are not supported by the new query engine and are causing your queries to
-                        slow down: <strong>{filterNames}</strong>
-                    </div>
+        <LemonBanner
+            type="warning"
+            className="mb-2"
+            action={{ children: 'Remove unsupported filters', onClick: removeIncompatibleFilters }}
+        >
+            <div>
+                <div className="font-semibold">Some filters are slowing down your queries</div>
+                <div className="text-sm mt-0.5">
+                    The following filters are not supported by the new query engine and are causing your queries to slow
+                    down: <strong>{filterNames}</strong>
                 </div>
-                <LemonButton type="primary" size="small" onClick={removeIncompatibleFilters}>
-                    Remove unsupported filters
-                </LemonButton>
             </div>
         </LemonBanner>
     )
