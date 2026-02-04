@@ -48,7 +48,7 @@ export function getDefaultEvent(): Entity {
     // When event is null (all events), we need to use null as the id but provide a display name
     const displayName = event === null ? 'All events' : event
     return {
-        id: event as string, // null is valid for "all events" - the type will be updated
+        id: event,
         name: displayName,
         type: EntityTypes.EVENTS,
         order: 0,
