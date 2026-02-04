@@ -14,9 +14,9 @@
 
 {% block content %}
 <div class="alert alert-info">
-    <strong>Note:</strong> This tool triggers recalculation for a specific cohort. 
-    The cohort must not be static or deleted. Use the force option to override if the cohort is currently calculating.
-    Check server logs for detailed calculation output.
+    <strong>Note:</strong> This tool allows you to recalculate cohorts or reset stuck cohorts.
+    For recalculation, the cohort must not be static or deleted. Use the force option to override if the cohort is currently calculating.
+    For reset, this removes the "calculating" status from stuck cohorts. Check server logs for detailed output.
 </div>
 
 {% if messages %}
@@ -27,8 +27,10 @@
     {% endfor %}
 {% endif %}
 
+<!-- Recalculate Cohort Form -->
 <form method="post" id="recalculate-cohort-form">
     {% csrf_token %}
+    <input type="hidden" name="action" value="recalculate" />
 
     <fieldset class="module aligned">
         <h2>Cohort Recalculation</h2>
@@ -50,6 +52,37 @@
 
     <div class="submit-row">
         <input type="submit" value="Recalculate Cohort" class="default" />
+    </div>
+</form>
+
+<br><br>
+
+<!-- Reset Stuck Cohort Form -->
+<form method="post" id="reset-cohort-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="reset" />
+
+    <fieldset class="module aligned">
+        <h2>Reset Stuck Cohort</h2>
+        <p class="help">Use this to reset cohorts that are stuck in "calculating" status. This will mark them as not calculating and increment their error count.</p>
+
+        <div class="form-row">
+            <label for="{{ reset_form.cohort_id.id_for_label }}" class="required">{{ reset_form.cohort_id.label }}:</label>
+            {{ reset_form.cohort_id }}
+            {% if reset_form.cohort_id.help_text %}<p class="help">{{ reset_form.cohort_id.help_text }}</p>{% endif %}
+            {{ reset_form.cohort_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ reset_form.force_reset.id_for_label }}">{{ reset_form.force_reset.label }}:</label>
+            {{ reset_form.force_reset }}
+            {% if reset_form.force_reset.help_text %}<p class="help">{{ reset_form.force_reset.help_text }}</p>{% endif %}
+            {{ reset_form.force_reset.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Reset Cohort" class="default" style="background-color: #ff9800;" />
     </div>
 </form>
 {% endblock %}
