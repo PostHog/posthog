@@ -67,7 +67,6 @@ ee/clickhouse/models/test/test_property.py:0: error: Argument "table_column" to 
 ee/clickhouse/models/test/test_property.py:0: error: Non-overlapping equality check (left operand type: "tuple[str, dict[str, Any]]", right operand type: "str")  [comparison-overlap]
 ee/clickhouse/models/test/test_property.py:0: error: Non-overlapping equality check (left operand type: "tuple[str, dict[str, Any]]", right operand type: "str")  [comparison-overlap]
 ee/clickhouse/models/test/test_property.py:0: error: Non-overlapping equality check (left operand type: "tuple[str, dict[str, Any]]", right operand type: "str")  [comparison-overlap]
-ee/clickhouse/queries/experiments/utils.py:0: error: Missing positional argument "team_id" in call to "get_action" of "Entity"  [call-arg]
 ee/clickhouse/queries/funnels/funnel_correlation.py:0: error: Statement is unreachable  [unreachable]
 ee/clickhouse/queries/funnels/test/test_funnel.py:0: error: Unsupported dynamic base class "funnel_breakdown_group_test_factory"  [misc]
 ee/clickhouse/queries/funnels/test/test_funnel.py:0: error: Unsupported dynamic base class "funnel_breakdown_group_test_factory"  [misc]
