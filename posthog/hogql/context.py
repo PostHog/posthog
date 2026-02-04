@@ -63,16 +63,6 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
-    # PostgreSQL access control context (used by postgres dialect)
-    # User ID for creator bypass checks
-    user_id: Optional[int] = None
-    # Whether the user is an organization admin (bypasses all access control)
-    is_org_admin: bool = False
-    # Organization membership ID for access control lookups
-    organization_membership_id: Optional[str] = None
-    # Role IDs for access control lookups
-    role_ids: list[str] = field(default_factory=list)
-
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id

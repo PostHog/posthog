@@ -1,14 +1,12 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.django_tables import DjangoTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
-from posthog.hogql.printer.postgres_access_control import build_access_control_filter, team_id_guard_for_postgres
 
 
 class PostgresPrinter(HogQLPrinter):
@@ -110,35 +108,9 @@ class PostgresPrinter(HogQLPrinter):
         self,
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType,
-    ) -> Optional[ast.Expr]:
-        """
-        Add team_id and access control guards for PostgreSQL queries.
-
-        For DjangoTable types (representing Django models), this injects:
-        1. team_id = context.team_id filter
-        2. Access control filter based on UserAccessControl logic
-        """
-        if not isinstance(table_type.table, DjangoTable):
-            # Not a Django table, no guards needed
-            return None
-
-        if node_type is None:
-            return None
-
-        guards: list[ast.Expr] = []
-
-        # Add team_id guard
-        team_guard = team_id_guard_for_postgres(node_type, self.context)
-        guards.append(team_guard)
-
-        # Add access control guard if applicable
-        access_guard = build_access_control_filter(table_type.table, node_type, self.context)
-        if access_guard:
-            guards.append(access_guard)
-
-        if len(guards) == 1:
-            return guards[0]
-        return ast.And(exprs=guards, type=ast.BooleanType())
+    ):
+        # Team ID filtering is not required for Postgres queries
+        pass
 
     def _print_identifier(self, name: str) -> str:
         return escape_postgres_identifier(name)
