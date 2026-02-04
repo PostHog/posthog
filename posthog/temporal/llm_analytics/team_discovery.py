@@ -9,7 +9,7 @@ import math
 import random
 import asyncio
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import structlog
 import temporalio.activity
@@ -42,8 +42,10 @@ SAMPLE_PERCENTAGE: float = 0.1
 # summarization) so we discover teams that have been active recently.
 DISCOVERY_LOOKBACK_DAYS: int = 30
 
-# Activity timeout and retry policy for team discovery.
-DISCOVERY_ACTIVITY_TIMEOUT = timedelta(seconds=60)
+# Activity timeout for team discovery. Must exceed the underlying ClickHouse
+# query's max_execution_time (5 min in CH_LLM_ANALYTICS_SETTINGS) plus retry
+# overhead so the activity doesn't get killed before the fallback path runs.
+DISCOVERY_ACTIVITY_TIMEOUT = timedelta(minutes=5)
 DISCOVERY_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 
@@ -65,7 +67,7 @@ async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int
         guaranteed = set(GUARANTEED_TEAM_IDS)
 
         try:
-            end = datetime.now()
+            end = datetime.now(UTC)
             begin = end - timedelta(days=inputs.lookback_days)
 
             from posthog.tasks.llm_analytics_usage_report import get_teams_with_ai_events
