@@ -10,7 +10,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.property_types import PropertySwapper
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 
 # This mutates the nodes
@@ -31,8 +31,6 @@ class ConstraintOverride:
 
 
 class FieldChainReplacer(TraversingVisitor):
-    overrides: list[ConstraintOverride] = {}
-
     def __init__(self, overrides: list[ConstraintOverride]) -> None:
         super().__init__()
         self.overrides = overrides
@@ -44,11 +42,9 @@ class FieldChainReplacer(TraversingVisitor):
 
 
 class FieldFinder(TraversingVisitor):
-    field_chains: list[list[str | int]] = []
-
     def __init__(self) -> None:
         super().__init__()
-        self.field_chains = []
+        self.field_chains: list[list[str | int]] = []
 
     def visit_field(self, node: ast.Field):
         self.field_chains.append(node.chain)
@@ -82,54 +78,39 @@ def collect_bare_fields(node: ast.AST) -> set[str]:
     return {chain[0] for chain in find_field_chains(node) if len(chain) == 1 and isinstance(chain[0], str)}
 
 
-def replace_lazy_join_expressions(
-    node: ast.Expr,
-    table_alias: str,
-    subquery_type: ast.SelectQueryAliasType,
-    lazy_join_names: set[str],
-) -> ast.Expr:
+class LazyJoinExpressionReplacer(CloningVisitor):
     """Replace if() expressions that reference lazy joins with simple field references.
 
     Transforms: if(not(empty(override.distinct_id)), override.person_id, event_person_id)
     Into: table.person_id (since the subquery pre-computes this)
     """
 
-    def get_lazy_field_access(n: ast.AST) -> str | None:
+    def __init__(self, table_alias: str, subquery_type: ast.SelectQueryAliasType, lazy_join_names: set[str]) -> None:
+        super().__init__(clear_types=False, clear_locations=False)
+        self.table_alias = table_alias
+        self.subquery_type = subquery_type
+        self.lazy_join_names = lazy_join_names
+
+    def _get_lazy_field_access(self, node: ast.AST) -> str | None:
         """Find a field access through one of our lazy joins, e.g., 'person_id' from 'override.person_id'."""
-        for chain in find_field_chains(n):
-            if chain and chain[0] in lazy_join_names and len(chain) >= 2:
+        for chain in find_field_chains(node):
+            if chain and chain[0] in self.lazy_join_names and len(chain) >= 2:
                 return str(chain[1])
         return None
 
-    # Replace if() calls that reference our lazy joins
-    if isinstance(node, ast.Call) and node.name == "if":
-        field_name = get_lazy_field_access(node)
-        if field_name:
-            return ast.Field(
-                chain=[table_alias, field_name],
-                type=ast.FieldType(name=field_name, table_type=subquery_type),
-            )
-        # If this if() has any reference to our lazy joins, we must be able to extract the field
-        for chain in find_field_chains(node):
-            if chain and chain[0] in lazy_join_names:
-                raise ResolutionError(f"Found lazy join reference {chain} but couldn't extract field name")
-
-    # Recurse into child nodes
-    if isinstance(node, ast.Call):
-        node.args = [
-            replace_lazy_join_expressions(arg, table_alias, subquery_type, lazy_join_names) for arg in node.args
-        ]
-    elif isinstance(node, ast.CompareOperation):
-        node.left = replace_lazy_join_expressions(node.left, table_alias, subquery_type, lazy_join_names)
-        node.right = replace_lazy_join_expressions(node.right, table_alias, subquery_type, lazy_join_names)
-    elif isinstance(node, ast.And):
-        node.exprs = [replace_lazy_join_expressions(e, table_alias, subquery_type, lazy_join_names) for e in node.exprs]
-    elif isinstance(node, ast.Or):
-        node.exprs = [replace_lazy_join_expressions(e, table_alias, subquery_type, lazy_join_names) for e in node.exprs]
-    elif isinstance(node, ast.Not):
-        node.expr = replace_lazy_join_expressions(node.expr, table_alias, subquery_type, lazy_join_names)
-
-    return node
+    def visit_call(self, node: ast.Call):
+        if node.name == "if":
+            field_name = self._get_lazy_field_access(node)
+            if field_name:
+                return ast.Field(
+                    chain=[self.table_alias, field_name],
+                    type=ast.FieldType(name=field_name, table_type=self.subquery_type),
+                )
+            # If this if() references our lazy joins, we must be able to extract the field
+            for chain in find_field_chains(node):
+                if chain and chain[0] in self.lazy_join_names:
+                    raise ResolutionError(f"Found lazy join reference {chain} but couldn't extract field name")
+        return super().visit_call(node)
 
 
 class LazyFinder(TraversingVisitor):
@@ -269,10 +250,12 @@ class LazyTableResolver(TraversingVisitor):
         select_type.tables[table_alias] = join_ptr.type
 
         # Update constraint to reference subquery columns
-        lazy_join_names = {k for k, v in joins_to_add.items() if v.from_table == table_alias}
+        lazy_join_names = {
+            v.lazy_join_type.field for v in joins_to_add.values() if v.from_table == table_alias and v.lazy_join_type
+        }
         join_ptr.constraint = cast(
             ast.JoinConstraint,
-            replace_lazy_join_expressions(join_ptr.constraint, table_alias, join_ptr.type, lazy_join_names),
+            LazyJoinExpressionReplacer(table_alias, join_ptr.type, lazy_join_names).visit(join_ptr.constraint),
         )
 
     def visit_property_type(self, node: ast.PropertyType):
@@ -309,9 +292,6 @@ class LazyTableResolver(TraversingVisitor):
         select_type = node.type
         if not select_type:
             raise ResolutionError("Select query must have a type")
-
-        assert node.type is not None
-        assert select_type is not None
 
         # Collect each `ast.Field` with `ast.LazyJoinType`
         field_collector: list[ast.FieldType | ast.PropertyType] = []
