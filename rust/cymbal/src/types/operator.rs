@@ -4,14 +4,15 @@ pub type TeamId = i32;
 
 pub trait Operator {
     type Context: Clone + Send;
-    type Item: Send;
+    type Input: Send;
+    type Output: Send;
     type Error: Send;
 
     fn execute(
         &self,
-        input: Self::Item,
+        input: Self::Input,
         ctx: Self::Context,
-    ) -> impl Future<Output = Result<Self::Item, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }
 
 pub trait ValueOperator {
@@ -36,14 +37,15 @@ where
     T: ValueOperator<Context = C, Item = I, HandledError = HE, UnhandledError = UE> + Sync,
 {
     type Context = T::Context;
-    type Item = Result<T::Item, T::HandledError>;
+    type Input = Result<T::Item, T::HandledError>;
+    type Output = Result<T::Item, T::HandledError>;
     type Error = T::UnhandledError;
 
     async fn execute(
         &self,
-        item: Self::Item,
+        item: Self::Input,
         ctx: Self::Context,
-    ) -> Result<Self::Item, Self::Error> {
+    ) -> Result<Self::Output, Self::Error> {
         match item {
             Err(e) => Ok(Err(e)),
             Ok(value) => self.execute_value(value, ctx).await,

@@ -60,11 +60,11 @@ impl<T> Batch<T> {
         self,
         operator: Op,
         ctx: Op::Context,
-    ) -> impl Future<Output = Result<Batch<Op::Item>, Op::Error>>
+    ) -> impl Future<Output = Result<Batch<Op::Input>, Op::Error>>
     where
         T: Send + 'static,
         C: Clone + Send + 'static,
-        Op: Operator<Item = T, Context = C> + Clone + Send + Sync + 'static,
+        Op: Operator<Input = T, Output = T, Context = C> + Clone + Send + Sync + 'static,
     {
         self.apply_func(
             move |item, ctx| {

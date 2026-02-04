@@ -8,13 +8,14 @@ use crate::{
 };
 
 pub trait Pipeline {
-    type Item;
+    type Input;
+    type Output;
 
     fn run(
         &self,
-        batch: Batch<Self::Item>,
+        batch: Batch<Self::Input>,
         app_context: Arc<AppContext>,
-    ) -> impl Future<Output = Result<Batch<Self::Item>, UnhandledError>>;
+    ) -> impl Future<Output = Result<Batch<Self::Output>, UnhandledError>>;
 }
 
 pub struct ExceptionEventPipeline {}
@@ -23,13 +24,14 @@ pub type ExceptionEventPipelineItem = Result<ExceptionEvent, EventError>;
 pub type ValueOperatorResult = Result<ExceptionEventPipelineItem, UnhandledError>;
 
 impl Pipeline for ExceptionEventPipeline {
-    type Item = ExceptionEventPipelineItem;
+    type Input = ExceptionEventPipelineItem;
+    type Output = ExceptionEventPipelineItem;
 
     async fn run(
         &self,
-        batch: Batch<Self::Item>,
+        batch: Batch<Self::Input>,
         app_context: Arc<AppContext>,
-    ) -> Result<Batch<Self::Item>, UnhandledError> {
+    ) -> Result<Batch<Self::Output>, UnhandledError> {
         batch
             // Resolve stack traces
             .apply_stage(ResolutionStage::from(&app_context))
