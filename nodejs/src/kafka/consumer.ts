@@ -768,18 +768,11 @@ export class KafkaConsumer {
                     logger.debug('🔁', 'main_loop_consuming')
 
                     // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
-                    // during rebalancing when background tasks might be running
+                    // during rebalancing when background tasks might be running.
+                    // Note: We don't timeout here - the rebalance callback handles its own timeout via Promise.race
+                    // and will call resetRebalanceCoordination() when complete. Forcing a reset here could cause
+                    // the consumer to fetch new batches while the rebalance callback is still waiting to commit/unassign.
                     if (this.rebalanceCoordination.isRebalancing && this.config.waitForBackgroundTasksOnRebalance) {
-                        if (
-                            Date.now() - this.rebalanceCoordination.rebalanceStartTime >
-                            this.rebalanceCoordination.rebalanceTimeoutMs
-                        ) {
-                            logger.error('🔁', 'rebalancing_timeout_forcing_recovery', {
-                                rebalanceTimeoutMs: this.rebalanceCoordination.rebalanceTimeoutMs,
-                                rebalanceStartTime: this.rebalanceCoordination.rebalanceStartTime,
-                            })
-                            this.rebalanceCoordination.isRebalancing = false
-                        }
                         logger.info('🔁', 'main_loop_paused_for_rebalancing')
                         await new Promise((resolve) => setTimeout(resolve, 10)) // Small delay to avoid busy waiting
                         continue
