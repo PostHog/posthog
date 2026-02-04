@@ -149,15 +149,11 @@ jobs:
                   fi
 
     playwright:
-        name: Playwright E2E tests (${{ matrix.shard }}/${{ strategy.job-total }})
+        name: Playwright E2E tests
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
-        strategy:
-            fail-fast: false
-            matrix:
-                shard: [1, 2, 3, 4]
         steps:
             - uses: actions/checkout@v6
               with:
@@ -402,15 +398,14 @@ jobs:
               shell: bash
               # Run 6 Playwright workers against 4 granian workers
               # This balances parallelism with server capacity to avoid timeouts
-              # Sharding splits tests across 4 parallel jobs for faster execution and retries
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
                   # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  echo "Attempt 1: Running Playwright tests (shard ${{ matrix.shard }}/4)"
+                  echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 --shard=${{ matrix.shard }}/4 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -428,9 +423,9 @@ jobs:
                       cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
 
                       # Attempt 2: Update snapshots
-                      echo "Attempt 2: Running Playwright tests with --update-snapshots (shard ${{ matrix.shard }}/4)"
+                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --shard=${{ matrix.shard }}/4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
@@ -480,7 +475,7 @@ jobs:
               if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: playwright-patch-${{ matrix.shard }}
+                  name: playwright-patch
                   path: /tmp/patches/playwright-patch.patch
                   retention-days: 1
                   if-no-files-found: ignore
@@ -509,7 +504,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: playwright-test-results-${{ matrix.shard }}
+                  name: playwright-test-results
                   path: |
                       playwright/playwright-report/
                       playwright/playwright-report-attempt-*/
@@ -526,7 +521,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: junit-results-playwright-${{ matrix.shard }}
+                  name: junit-results-playwright
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
@@ -572,7 +567,7 @@ jobs:
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  pattern: playwright-patch-*
+                  pattern: playwright-patch
                   path: /tmp/screenshot-patches/
                   merge-multiple: true
 
