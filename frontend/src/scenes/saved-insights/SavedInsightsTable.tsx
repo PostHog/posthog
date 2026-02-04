@@ -1,7 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 
@@ -19,10 +19,11 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
-import { DashboardTile, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
 import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
+import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 interface SavedInsightsTableProps {
     dashboardId?: number
@@ -31,61 +32,33 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
-    const { modalPage, insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =
-        useValues(addSavedInsightsModalLogic)
-    const { setModalPage, setModalFilters, addInsightToDashboard, removeInsightFromDashboard } =
-        useActions(addSavedInsightsModalLogic)
+    const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
+    const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
+    const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
+    const { toggleInsightOnDashboard, syncOptimisticStateWithDashboard } = useActions(insightDashboardModalLogic)
     const { dashboard } = useValues(dashboardLogic)
     const summarizeInsight = useSummarizeInsight()
-
-    const [optimisticState, setOptimisticState] = useState<Record<number, boolean>>({})
 
     const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
 
     const useDashboardMode = dashboardId !== undefined && !renderActionColumn
 
+    // Sync optimistic state when dashboard tiles change
     useEffect(() => {
-        if (!useDashboardMode) {
-            return
+        if (useDashboardMode && dashboard?.tiles) {
+            syncOptimisticStateWithDashboard(dashboard.tiles)
         }
-        setOptimisticState((prev) => {
-            const next = { ...prev }
-            let changed = false
-            for (const idStr of Object.keys(next)) {
-                const id = Number(idStr)
-                const actuallyInDashboard =
-                    dashboard?.tiles.some((tile: DashboardTile) => tile.insight?.id === id) ?? false
-                if (next[id] === actuallyInDashboard) {
-                    delete next[id]
-                    changed = true
-                }
-            }
-            return changed ? next : prev
-        })
-    }, [dashboard?.tiles, useDashboardMode])
-
-    const isInsightInDashboard = (insight: QueryBasedInsightModel): boolean => {
-        if (insight.id in optimisticState) {
-            return optimisticState[insight.id]
-        }
-        return dashboard?.tiles.some((tile: DashboardTile) => tile.insight?.id === insight.id) ?? false
-    }
+    }, [dashboard?.tiles, useDashboardMode, syncOptimisticStateWithDashboard])
 
     const handleRowClick = (insight: QueryBasedInsightModel): void => {
-        if (!useDashboardMode) {
+        if (!useDashboardMode || !dashboardId) {
             return
         }
         if (dashboardUpdatesInProgress[insight.id]) {
             return
         }
-        const currentlyIn = isInsightInDashboard(insight)
-        setOptimisticState((prev) => ({ ...prev, [insight.id]: !currentlyIn }))
-        if (currentlyIn) {
-            removeInsightFromDashboard(insight, dashboardId || 0)
-        } else {
-            addInsightToDashboard(insight, dashboardId || 0)
-        }
+        toggleInsightOnDashboard(insight, dashboardId, isInsightInDashboard(insight, dashboard?.tiles))
     }
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
@@ -164,7 +137,9 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                       key: 'status',
                       width: 32,
                       render: function renderStatus(_: unknown, insight: QueryBasedInsightModel) {
-                          return isInsightInDashboard(insight) ? <IconCheck className="text-success text-xl" /> : null
+                          return isInsightInDashboard(insight, dashboard?.tiles) ? (
+                              <IconCheck className="text-success text-xl" />
+                          ) : null
                       },
                   },
               ]
@@ -220,7 +195,7 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                     rowClassName={
                         useDashboardMode
                             ? (insight) =>
-                                  isInsightInDashboard(insight)
+                                  isInsightInDashboard(insight, dashboard?.tiles)
                                       ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
                                       : 'cursor-pointer hover:bg-primary-highlight border-l-2 border-l-transparent hover:border-l-primary'
                             : undefined
@@ -229,7 +204,7 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                         useDashboardMode
                             ? (insight) => ({
                                   onClick: () => handleRowClick(insight),
-                                  title: isInsightInDashboard(insight)
+                                  title: isInsightInDashboard(insight, dashboard?.tiles)
                                       ? 'Click to remove from dashboard'
                                       : 'Click to add to dashboard',
                               })

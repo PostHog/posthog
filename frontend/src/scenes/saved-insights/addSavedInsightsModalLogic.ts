@@ -38,6 +38,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             insight,
             dashboardId,
         }),
+        dashboardUpdateFailed: (insightId: number) => ({ insightId }),
 
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
@@ -160,6 +161,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.unmount()
                     lemonToast.success('Insight added to dashboard')
                 }
+            } catch (e) {
+                actions.dashboardUpdateFailed(insight.id)
+                lemonToast.error('Failed to add insight to dashboard')
+                throw e
             } finally {
                 eventUsageLogic.actions.reportSavedInsightToDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
@@ -180,6 +185,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.unmount()
                     lemonToast.success('Insight removed from dashboard')
                 }
+            } catch (e) {
+                actions.dashboardUpdateFailed(insight.id)
+                lemonToast.error('Failed to remove insight from dashboard')
+                throw e
             } finally {
                 eventUsageLogic.actions.reportRemovedInsightFromDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
