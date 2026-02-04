@@ -295,7 +295,7 @@ export function convertFileSystemEntryToTreeDataItem({
                     const orderB = DATA_MANAGEMENT_PANEL_ORDER[b.record.category] ?? 999
                     return orderA - orderB
                 }
-              
+
                 // Attempt to sort based on the category order
                 const orderA = getCategoryOrder(a.record.category)
                 const orderB = getCategoryOrder(b.record.category)
