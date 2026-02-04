@@ -21,8 +21,6 @@ export function LLMAnalyticsSetupPrompt({
 }): JSX.Element {
     const { hasSentAiEvent, hasSentAiEventLoading } = useValues(llmAnalyticsSharedLogic)
 
-    return <>{children}</>
-
     return hasSentAiEventLoading ? (
         <div className="flex justify-center">
             <Spinner />
