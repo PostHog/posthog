@@ -37,7 +37,7 @@ describe('VariantsPanel', () => {
         if (!field) {
             throw new Error('Feature flag key field not found')
         }
-        return within(field).getByRole('textbox')
+        return within(field as HTMLElement).getByRole('textbox')
     }
 
     const openFeatureFlagAutocomplete = async (searchText = 'eligible'): Promise<void> => {
