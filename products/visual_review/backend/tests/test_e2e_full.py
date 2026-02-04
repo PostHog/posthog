@@ -142,7 +142,24 @@ def upload_artifact(repo_id: UUID, content_hash: str, width: int, height: int, s
 # --- Tests ---
 
 
+def _can_extract_test_snapshots() -> bool:
+    """Check if test git commits with snapshots are available."""
+    try:
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{TEST_COMMIT}:{SNAPSHOT_DIR}/{TEST_FILES[0]}"],
+            capture_output=True,
+            check=True,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.skipif(
+    not _can_extract_test_snapshots(),
+    reason="Test git commits with snapshots not available (isolated product test)",
+)
 class TestFullE2EFlow:
     """Full E2E test with real snapshots and GitHub commit."""
 
