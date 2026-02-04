@@ -14,6 +14,9 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
         name: Determine need to run Docker checks
+        permissions:
+            contents: read
+            pull-requests: read
         # Set job outputs to values from filter step
         outputs:
             docker_files: ${{ steps.filter.outputs.docker_files }}

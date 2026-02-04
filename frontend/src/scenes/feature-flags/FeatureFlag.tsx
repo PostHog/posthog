@@ -762,7 +762,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
+                                        router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
                                     }}
                                     menuItem
                                     data-attr={`${RESOURCE_TYPE}-duplicate`}

@@ -1108,7 +1108,8 @@
     }
 
     a:focus-visible,
-    button:focus-visible {
+    button:focus-visible,
+    [data-highlighted]:not(:hover) {
         outline: 2px solid var(--color-accent);
     }
 
@@ -1971,7 +1972,6 @@
 // Setup highlight animation - used by quick start to draw attention to UI elements
 .setup-highlight-pulse {
     position: relative !important;
-    z-index: 100 !important;
     border-radius: var(--radius);
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
 }
