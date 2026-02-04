@@ -530,9 +530,24 @@ export const productUrls = {
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagNew: ({
+        type,
+        sourceId,
+    }: {
+        type?: 'boolean' | 'multivariate' | 'remote_config'
+        sourceId?: number | string | null
+    }): string => {
+        const params = new URLSearchParams()
+        if (type) {
+            params.set('type', type)
+        }
+        if (sourceId) {
+            params.set('sourceId', sourceId.toString())
+        }
+        return `/feature_flags/new?${params.toString()}`
+    },
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,

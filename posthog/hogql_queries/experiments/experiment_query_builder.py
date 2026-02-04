@@ -230,10 +230,29 @@ class ExperimentQueryBuilder:
         if query.ctes and "entity_metrics" in query.ctes:
             entity_metrics_cte = query.ctes["entity_metrics"]
             if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                # Check if this is an unordered funnel (has exposures CTE with LEFT JOIN)
+                # In that case, breakdown comes from exposures, not metric_events
+                has_exposures = "exposures" in query.ctes if query.ctes else False
+
                 for alias in aliases:
-                    entity_metrics_cte.expr.select.append(
-                        parse_expr(f"argMinIf({alias}, timestamp, step_0 = 1) AS {alias}")
-                    )
+                    if has_exposures:
+                        # Unordered funnel: get breakdown from exposures (already attributed)
+                        entity_metrics_cte.expr.select.append(
+                            ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias]))
+                        )
+                    else:
+                        # Ordered funnel: use argMinIf to attribute from first exposure in metric_events
+                        # Qualify the field reference to avoid ambiguity
+                        entity_metrics_cte.expr.select.append(
+                            parse_expr(f"argMinIf(metric_events.{alias}, timestamp, step_0 = 1) AS {alias}")
+                        )
+
+                # For unordered funnels, also add breakdown to entity_metrics GROUP BY
+                if has_exposures:
+                    if entity_metrics_cte.expr.group_by is None:
+                        entity_metrics_cte.expr.group_by = []
+                    for alias in aliases:
+                        entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
 
         # Inject into final SELECT - breakdown columns must come right after variant
         for i, alias in enumerate(aliases):

@@ -2808,6 +2808,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    skip_onboarding: bool | None = None
     use_current_time: bool | None = None
 
 
@@ -2949,19 +2950,6 @@ class ProductKey(StrEnum):
     USER_INTERVIEWS = "user_interviews"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
-
-
-class ProjectSecretAPIKeyAllowedScope(StrEnum):
-    FEATURE_FLAG_READ = "feature_flag:read"
-    PLACEHOLDER = "PLACEHOLDER"
-
-
-class ProjectSecretAPIKeyRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    label: str | None = None
-    scopes: list[ProjectSecretAPIKeyAllowedScope] | None = None
 
 
 class PropertyFilterType(StrEnum):
@@ -8025,7 +8013,6 @@ class CachedFunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11291,7 +11278,6 @@ class FunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13231,7 +13217,6 @@ class QueryResponseAlternative66(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
