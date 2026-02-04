@@ -146,7 +146,7 @@ def _build_query(
     schema: str,
     table_name: str,
     should_use_incremental_field: bool,
-    table_type: Literal["table", "view"] | None,
+    table_type: Literal["table", "view", "materialized_view"] | None,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
