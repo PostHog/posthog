@@ -228,10 +228,29 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
 
     // Verify each file from metadata was imported
-    let imported_files: Vec<_> = std::fs::read_dir(&import_result)?
+    let all_imported_files: Vec<_> = std::fs::read_dir(&import_result)?
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
+
+    // Separate marker file from checkpoint files
+    let marker_files: Vec<_> = all_imported_files
+        .iter()
+        .filter(|f| f.starts_with(".imported_"))
+        .collect();
+    let imported_files: Vec<_> = all_imported_files
+        .iter()
+        .filter(|f| !f.starts_with(".imported_"))
+        .cloned()
+        .collect();
+
+    // Verify marker file exists (created by import to identify imported stores)
+    assert_eq!(
+        marker_files.len(),
+        1,
+        "Should have exactly one .imported_* marker file, found: {marker_files:?}"
+    );
+    info!(marker_file = ?marker_files[0], "Verified import marker file exists");
 
     info!(
         imported = imported_files.len(),

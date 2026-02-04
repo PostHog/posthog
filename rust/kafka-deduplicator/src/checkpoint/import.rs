@@ -11,6 +11,59 @@ use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+/// Cleanup guard that removes the import directory on drop unless defused.
+/// Handles: failures, timeouts, cancellations, panics during import.
+struct ImportCleanupGuard {
+    path: PathBuf,
+    topic: String,
+    partition: i32,
+    defused: bool,
+}
+
+impl ImportCleanupGuard {
+    fn new(path: PathBuf, topic: String, partition: i32) -> Self {
+        Self {
+            path,
+            topic,
+            partition,
+            defused: false,
+        }
+    }
+
+    /// Defuse the guard - directory will NOT be cleaned up on drop.
+    /// Call this when import succeeds and path should be kept.
+    fn defuse(mut self) -> PathBuf {
+        self.defused = true;
+        std::mem::take(&mut self.path)
+    }
+}
+
+impl Drop for ImportCleanupGuard {
+    fn drop(&mut self) {
+        if !self.defused && self.path.exists() {
+            match std::fs::remove_dir_all(&self.path) {
+                Ok(_) => {
+                    info!(
+                        topic = %self.topic,
+                        partition = self.partition,
+                        path = %self.path.display(),
+                        "Import cleanup guard: removed incomplete import directory"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        topic = %self.topic,
+                        partition = self.partition,
+                        path = %self.path.display(),
+                        error = %e,
+                        "Import cleanup guard: failed to remove directory, orphan cleaner will handle it"
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CheckpointImporter {
     downloader: Box<dyn CheckpointDownloader>,
@@ -147,31 +200,6 @@ impl CheckpointImporter {
             let local_path_tag = local_attempt_path.to_string_lossy().to_string();
             let attempt_tag = attempt.get_attempt_path();
 
-            // Defensive cleanup: remove any existing directory from a previous failed attempt.
-            // Since the path is deterministic (based on checkpoint timestamp), a crash loop
-            // could leave corrupted partial downloads that would break the retry.
-            // We call remove unconditionally and ignore NotFound to avoid TOCTOU races.
-            match tokio::fs::remove_dir_all(&local_attempt_path).await {
-                Ok(_) => info!(
-                    checkpoint = attempt_tag,
-                    local_attempt_path = local_path_tag,
-                    "Removed existing directory before checkpoint import"
-                ),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => {
-                    metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
-                        .record(attempt_start.elapsed().as_secs_f64());
-                    metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "failed")
-                        .record(start_time.elapsed().as_secs_f64());
-                    return Err(e).with_context(|| {
-                        format!(
-                            "Failed to remove existing directory before import: {}",
-                            local_path_tag
-                        )
-                    });
-                }
-            }
-
             // Create the directory for this import attempt
             if let Err(e) = tokio::fs::create_dir_all(&local_attempt_path).await {
                 metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
@@ -185,6 +213,13 @@ impl CheckpointImporter {
                     )
                 });
             }
+
+            // Guard cleans up directory on drop (failure/timeout/cancel/panic) unless defused (success)
+            let guard = ImportCleanupGuard::new(
+                local_attempt_path.clone(),
+                topic.to_string(),
+                partition_number,
+            );
 
             // Create child token for this attempt - allows sibling download cancellation
             // on error while preserving fallback to next checkpoint attempt.
@@ -233,9 +268,12 @@ impl CheckpointImporter {
                         .record(attempt_duration);
                     metrics::histogram!(CHECKPOINT_IMPORT_DURATION_HISTOGRAM, "result" => "success")
                         .record(start_time.elapsed().as_secs_f64());
-                    return Ok(local_attempt_path);
+
+                    // Defuse guard - import succeeded, keep the directory
+                    return Ok(guard.defuse());
                 }
                 Err(e) => {
+                    // Guard drops here automatically, cleans up directory
                     let attempt_duration = attempt_start.elapsed().as_secs_f64();
                     metrics::histogram!(CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, "result" => "failed")
                         .record(attempt_duration);
@@ -246,24 +284,6 @@ impl CheckpointImporter {
                         error = e.to_string(),
                         "Failed to import checkpoint files"
                     );
-                    if local_attempt_path.exists() {
-                        match tokio::fs::remove_dir_all(&local_attempt_path).await {
-                            Ok(_) => {
-                                info!(
-                                    checkpoint = attempt_tag,
-                                    local_attempt_path = local_path_tag,
-                                    "Removed local directory after checkpoint import failure"
-                                );
-                            }
-                            Err(e) => {
-                                error!(
-                                    checkpoint = attempt_tag,
-                                    local_attempt_path = local_path_tag,
-                                    error = e.to_string(),
-                                    "Failed to remove local directory after checkpoint import failure");
-                            }
-                        }
-                    }
                     continue;
                 }
             }
@@ -685,6 +705,154 @@ mod tests {
         assert!(
             imported_file.exists(),
             "Imported SST file should exist after successful import"
+        );
+    }
+
+    /// Mock downloader that always fails during file download
+    #[derive(Debug)]
+    struct FailingDownloader {
+        metadata: CheckpointMetadata,
+    }
+
+    impl FailingDownloader {
+        fn new(metadata: CheckpointMetadata) -> Self {
+            Self { metadata }
+        }
+    }
+
+    #[async_trait]
+    impl CheckpointDownloader for FailingDownloader {
+        async fn list_recent_checkpoints(
+            &self,
+            _topic: &str,
+            _partition_number: i32,
+        ) -> Result<Vec<String>> {
+            Ok(vec![self.metadata.get_metadata_filepath()])
+        }
+
+        async fn download_file(&self, _remote_key: &str) -> Result<Vec<u8>> {
+            let json = self.metadata.to_json()?;
+            Ok(json.into_bytes())
+        }
+
+        async fn download_and_store_file_cancellable(
+            &self,
+            _remote_key: &str,
+            _local_filepath: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            Err(anyhow::anyhow!("Simulated download failure"))
+        }
+
+        async fn download_files_cancellable(
+            &self,
+            _remote_keys: &[String],
+            _local_base_path: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> Result<()> {
+            Err(anyhow::anyhow!("Simulated download failure"))
+        }
+
+        async fn is_available(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_guard_removes_directory_on_failure() {
+        let tmp_dir = TempDir::new().unwrap();
+        let store_base_path = tmp_dir.path().to_path_buf();
+
+        let topic = "test-topic";
+        let partition = 0;
+        let attempt_timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
+
+        let mut metadata = CheckpointMetadata::new(
+            topic.to_string(),
+            partition,
+            attempt_timestamp,
+            12345,
+            100,
+            50,
+        );
+        metadata.track_file(
+            "checkpoints/test-topic/0/2025-06-15T12-00-00Z/000001.sst".to_string(),
+            "checksum1".to_string(),
+        );
+
+        // Create importer with failing downloader
+        let downloader = FailingDownloader::new(metadata);
+        let importer = CheckpointImporter::new(
+            Box::new(downloader),
+            store_base_path.clone(),
+            1, // Only 1 attempt so we fail fast
+            Duration::from_secs(60),
+        );
+
+        // Record the partition directory path
+        let partition_dir = store_base_path.join(format!("{topic}_{partition}"));
+
+        // Import should fail
+        let result = importer
+            .import_checkpoint_for_topic_partition(topic, partition)
+            .await;
+        assert!(result.is_err(), "Import should fail");
+
+        // The partition directory might exist but should have no timestamp subdirs
+        // (the guard should have cleaned them up)
+        if partition_dir.exists() {
+            let subdirs: Vec<_> = std::fs::read_dir(&partition_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            assert!(
+                subdirs.is_empty(),
+                "Cleanup guard should have removed the timestamp directory, but found: {:?}",
+                subdirs
+            );
+        }
+        // If partition_dir doesn't exist, that's also fine - means cleanup removed everything
+    }
+
+    #[test]
+    fn test_cleanup_guard_defuse_prevents_cleanup() {
+        let tmp_dir = TempDir::new().unwrap();
+        let test_path = tmp_dir.path().join("test_dir");
+        std::fs::create_dir_all(&test_path).unwrap();
+        let test_file = test_path.join("test_file.txt");
+        std::fs::write(&test_file, b"test content").unwrap();
+
+        // Create guard and defuse it
+        let guard = ImportCleanupGuard::new(test_path.clone(), "topic".to_string(), 0);
+        let returned_path = guard.defuse();
+
+        // Path should be returned
+        assert_eq!(returned_path, test_path);
+
+        // Directory should still exist (guard was defused)
+        assert!(test_path.exists(), "Directory should exist after defuse");
+        assert!(test_file.exists(), "File should exist after defuse");
+    }
+
+    #[test]
+    fn test_cleanup_guard_removes_directory_on_drop() {
+        let tmp_dir = TempDir::new().unwrap();
+        let test_path = tmp_dir.path().join("test_dir");
+        std::fs::create_dir_all(&test_path).unwrap();
+        let test_file = test_path.join("test_file.txt");
+        std::fs::write(&test_file, b"test content").unwrap();
+
+        // Create guard and let it drop without defusing
+        {
+            let _guard = ImportCleanupGuard::new(test_path.clone(), "topic".to_string(), 0);
+            // guard drops here
+        }
+
+        // Directory should be removed
+        assert!(
+            !test_path.exists(),
+            "Directory should be removed after guard drops"
         );
     }
 }
