@@ -52,7 +52,7 @@ class BaselineFilePathNotConfiguredError(Exception):
 
 
 def add_numbers(a: int, b: int) -> int:
-    """Example function to verify turbo test caching."""
+    """Example function to verify turbo test caching works correctly."""
     return a + b
 
 
