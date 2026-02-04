@@ -141,9 +141,11 @@ jobs:
                         - 'products/**/backend/**/*'
                         - 'common/**/*'
                       # Legacy code - triggers full Django test suite
+                      # Also includes common/ as high-blast-radius code that affects everything
                       legacy:
                         - 'ee/**/*'
                         - 'posthog/**/*'
+                        - 'common/**/*'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
