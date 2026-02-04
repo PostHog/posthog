@@ -1,3 +1,5 @@
+import './LogsFilterBar.scss'
+
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -61,7 +63,7 @@ export const LogsFilterBar = (): JSX.Element => {
                         <FilterHistoryDropdown />
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                        <div className="flex [&>*]:[--lemon-button-radius:0] [&>*:not(:first-child)]:-ml-px [&>*:hover]:z-[1] [&>*:active]:z-[1] [&>*:first-child]:[--lemon-button-radius:var(--radius)_0_0_var(--radius)] [&>*:last-child]:[--lemon-button-radius:0_var(--radius)_var(--radius)_0]">
+                        <div className="LogsDateButtonGroup">
                             <LemonButton
                                 size="small"
                                 icon={<IconMinusSquare />}
