@@ -36,10 +36,15 @@ GUARANTEED_TEAM_IDS: list[int] = [
 # 0.0 = only guaranteed teams, 0.1 = 10% of remaining, 1.0 = all teams with AI events.
 SAMPLE_PERCENTAGE: float = 0.1
 
+# How far back to look for teams with AI events. Intentionally wider than any
+# individual workflow's data window (e.g. 7 days for clustering, 60 min for
+# summarization) so we discover teams that have been active recently.
+DISCOVERY_LOOKBACK_DAYS: int = 30
+
 
 @dataclasses.dataclass
 class TeamDiscoveryInput:
-    lookback_days: int = 30
+    lookback_days: int = DISCOVERY_LOOKBACK_DAYS
     sample_percentage: float = SAMPLE_PERCENTAGE
 
 

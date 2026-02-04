@@ -92,7 +92,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         # Discover teams dynamically via activity
         team_ids = await temporalio.workflow.execute_activity(
             get_team_ids_for_llm_analytics,
-            TeamDiscoveryInput(lookback_days=30, sample_percentage=SAMPLE_PERCENTAGE),
+            TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
