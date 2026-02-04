@@ -8,6 +8,8 @@ class CustomerIOEndpointConfig:
     data_selector: str = "customers"
     partition_key: str | None = None
     page_size: int = 100
+    # If True, this endpoint requires custom handling (not standard REST)
+    custom_handler: bool = False
 
 
 # Customer.io App API endpoints
@@ -16,8 +18,9 @@ class CustomerIOEndpointConfig:
 CUSTOMERIO_ENDPOINTS: dict[str, CustomerIOEndpointConfig] = {
     "customers": CustomerIOEndpointConfig(
         name="customers",
-        path="/customers",
-        data_selector="customers",
+        path="/segments/{segment_id}/membership",
+        data_selector="identifiers",
+        custom_handler=True,  # Requires fetching segments first, uses membership endpoint
     ),
     "segments": CustomerIOEndpointConfig(
         name="segments",

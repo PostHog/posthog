@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from typing import Any
 
 import requests
@@ -117,6 +118,79 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, str | None]:
         return False, str(e)
 
 
+def _fetch_customers_via_segments(
+    api_key: str,
+    region: str,
+    page_size: int = 100,
+) -> Generator[dict[str, Any], None, None]:
+    """
+    Fetch all customers by iterating through all segments.
+    Customer.io doesn't have a direct /customers endpoint, so we need to:
+    1. Fetch all segments
+    2. For each segment, fetch all customers in that segment
+    """
+    base_url = get_base_url(region)
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    # Track seen customer IDs to avoid duplicates (customers can be in multiple segments)
+    seen_customer_ids: set[str] = set()
+
+    # First, fetch all segments
+    segments_url = f"{base_url}/segments"
+    segments_cursor: str | None = None
+
+    while True:
+        params: dict[str, Any] = {"limit": page_size}
+        if segments_cursor:
+            params["start"] = segments_cursor
+
+        response = requests.get(segments_url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        segments = data.get("segments", [])
+        for segment in segments:
+            segment_id = segment.get("id")
+            if not segment_id:
+                continue
+
+            # Fetch customers for this segment using the membership endpoint
+            membership_url = f"{base_url}/segments/{segment_id}/membership"
+            membership_cursor: str | None = None
+
+            while True:
+                membership_params: dict[str, Any] = {"limit": page_size}
+                if membership_cursor:
+                    membership_params["start"] = membership_cursor
+
+                membership_response = requests.get(
+                    membership_url, headers=headers, params=membership_params, timeout=30
+                )
+                membership_response.raise_for_status()
+                membership_data = membership_response.json()
+
+                # The membership endpoint returns 'identifiers' array with cio_id (always present), id and email (nullable)
+                identifiers = membership_data.get("identifiers", [])
+                for identifier in identifiers:
+                    # cio_id is always present and unique, use it for deduplication
+                    cio_id = identifier.get("cio_id")
+                    if cio_id and cio_id not in seen_customer_ids:
+                        seen_customer_ids.add(cio_id)
+                        # Add segment_id to the record for reference
+                        identifier["_segment_id"] = segment_id
+                        yield _convert_timestamps(identifier)
+
+                # Check for next page of members
+                membership_cursor = membership_data.get("next")
+                if not membership_cursor:
+                    break
+
+        # Check for next page of segments
+        segments_cursor = data.get("next")
+        if not segments_cursor:
+            break
+
+
 def customerio_source(
     api_key: str,
     region: str,
@@ -126,6 +200,21 @@ def customerio_source(
 ) -> SourceResponse:
     endpoint_config = CUSTOMERIO_ENDPOINTS[endpoint]
 
+    # Handle customers specially - requires fetching via segments
+    # Uses membership endpoint which returns identifiers with cio_id (always present), id and email (nullable)
+    if endpoint_config.custom_handler and endpoint == "customers":
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _fetch_customers_via_segments(api_key, region, endpoint_config.page_size),
+            primary_keys=["cio_id"],
+            partition_count=1,
+            partition_size=1,
+            partition_mode=None,
+            partition_format=None,
+            partition_keys=None,
+        )
+
+    # Standard REST endpoint handling
     config: RESTAPIConfig = {
         "client": {
             "base_url": get_base_url(region),
