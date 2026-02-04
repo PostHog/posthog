@@ -12,7 +12,6 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
 
-
 ####
 # django-axes
 
