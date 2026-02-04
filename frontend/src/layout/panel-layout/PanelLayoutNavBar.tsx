@@ -103,14 +103,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { toggleCommand } = useActions(commandLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
-    useAppShortcut({
-        name: 'ToggleLeftNav',
-        keybind: [keyBinds.toggleLeftNav],
-        intent: 'Toggle collapse left navigation',
-        interaction: 'function',
-        callback: toggleLayoutNavCollapsed,
-    })
-
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
             setActivePanelIdentifier(item)
@@ -157,6 +149,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
         return false
     }
+
+    useAppShortcut({
+        name: 'ToggleLeftNav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left navigation',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     const navItems: {
         identifier: string
