@@ -15,6 +15,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "VideoSegmentClusteringWorkflow",
+            "VideoSegmentClusteringCoordinatorWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -63,6 +64,7 @@ class TestAITemporalModuleIntegrity:
             "match_clusters_activity",
             "label_clusters_activity",
             "persist_reports_activity",
+            "get_proactive_tasks_enabled_team_ids_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
