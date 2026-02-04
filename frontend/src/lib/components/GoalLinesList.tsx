@@ -1,8 +1,7 @@
 import { IconGear, IconTrash } from '@posthog/icons'
-import { LemonColorPicker, LemonMenu } from '@posthog/lemon-ui'
+import { LemonColorGlyph, LemonColorPicker, LemonMenu } from '@posthog/lemon-ui'
 
-import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { getSeriesColorPalette } from 'lib/colors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -24,7 +23,6 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
     return (
         <>
             {goalLines.map(({ label, value = 0, displayLabel = true, position, borderColor }, goalLineIndex) => {
-                const currentColor = borderColor || getSeriesColor(goalLineIndex)
                 return (
                     <div className="flex flex-1 gap-1 mb-1 items-center" key={`${goalLineIndex}`}>
                         <LemonColorPicker
@@ -34,12 +32,7 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                             showCustomColor
                             customButton={
                                 <div className="cursor-pointer">
-                                    <SeriesLetter
-                                        className="self-center"
-                                        hasBreakdown={false}
-                                        seriesIndex={goalLineIndex}
-                                        seriesColor={currentColor}
-                                    />
+                                    <LemonColorGlyph color={borderColor} />
                                 </div>
                             }
                         />
