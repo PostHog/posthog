@@ -117,7 +117,7 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             .force_disable_person_processing
             .map(|b| b.to_string());
         let historical_migration_str = headers.historical_migration.map(|b| b.to_string());
-        OwnedHeaders::new()
+        let mut owned = OwnedHeaders::new()
             .insert(Header {
                 key: "token",
                 value: headers.token.as_deref(),
@@ -153,19 +153,29 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
             .insert(Header {
                 key: "historical_migration",
                 value: historical_migration_str.as_deref(),
-            })
-            .insert(Header {
+            });
+
+        // To prevent adding bloat to the other topic headers, only add add dlq headers when present.
+        if let Some(ref reason) = headers.dlq_reason {
+            owned = owned.insert(Header {
                 key: "dlq-reason",
-                value: headers.dlq_reason.as_deref(),
-            })
-            .insert(Header {
+                value: Some(reason.as_str()),
+            });
+        }
+        if let Some(ref step) = headers.dlq_step {
+            owned = owned.insert(Header {
                 key: "dlq-step",
-                value: headers.dlq_step.as_deref(),
-            })
-            .insert(Header {
+                value: Some(step.as_str()),
+            });
+        }
+        if let Some(ref timestamp) = headers.dlq_timestamp {
+            owned = owned.insert(Header {
                 key: "dlq-timestamp",
-                value: headers.dlq_timestamp.as_deref(),
-            })
+                value: Some(timestamp.as_str()),
+            });
+        }
+
+        owned
     }
 }
 
@@ -652,6 +662,15 @@ mod tests {
         headers.set_dlq_timestamp("2023-01-02T10:05:00Z".to_string());
 
         let owned: OwnedHeaders = headers.into();
+
+        // Verify the dlq keys are present in the raw Kafka headers
+        let dlq_keys: Vec<&str> = owned
+            .iter()
+            .filter(|h| h.key.starts_with("dlq-"))
+            .map(|h| h.key)
+            .collect();
+        assert_eq!(dlq_keys.len(), 3);
+
         let recovered: CapturedEventHeaders = owned.into();
 
         assert_eq!(recovered.dlq_reason, Some("quota_exceeded".to_string()));
@@ -684,6 +703,18 @@ mod tests {
         // DLQ fields are None by default from to_headers()
         let headers = event.to_headers();
         let owned: OwnedHeaders = headers.into();
+
+        // Verify the dlq keys are not present in the raw Kafka headers at all
+        let dlq_keys: Vec<&str> = owned
+            .iter()
+            .filter(|h| h.key.starts_with("dlq-"))
+            .map(|h| h.key)
+            .collect();
+        assert!(
+            dlq_keys.is_empty(),
+            "Expected no dlq-* keys in OwnedHeaders, but found: {dlq_keys:?}"
+        );
+
         let recovered: CapturedEventHeaders = owned.into();
 
         assert_eq!(recovered.dlq_reason, None);

@@ -320,9 +320,9 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
             // Set DLQ specific headers
             // DLQ reason cannot be known beyond being triggered by an event restriction.
-            headers.set_dlq_reason("Capture event rerouted due to event restriction.".to_string());
+            headers.set_dlq_reason("event_restriction".to_string());
             // Unlike with our node code, DLQ step will always be static.
-            headers.set_dlq_step("Capture".to_string());
+            headers.set_dlq_step("capture".to_string());
             headers.set_dlq_timestamp(
                 chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             );
@@ -1535,11 +1535,8 @@ mod tests {
             assert_eq!(records.len(), 1);
             let headers = &records[0].headers;
 
-            assert_eq!(
-                headers.dlq_reason.as_deref(),
-                Some("Capture event rerouted due to event restriction.")
-            );
-            assert_eq!(headers.dlq_step.as_deref(), Some("Capture"));
+            assert_eq!(headers.dlq_reason.as_deref(), Some("event_restriction"));
+            assert_eq!(headers.dlq_step.as_deref(), Some("capture"));
             assert!(
                 headers.dlq_timestamp.is_some(),
                 "dlq_timestamp should be set"
