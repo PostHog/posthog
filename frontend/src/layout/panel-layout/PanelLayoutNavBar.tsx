@@ -104,9 +104,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     useAppShortcut({
-        name: 'toggle collapse left nav',
+        name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
-        intent: 'Toggle collapse left nav',
+        intent: 'Toggle collapse left navigation',
         interaction: 'function',
         callback: toggleLayoutNavCollapsed,
     })
