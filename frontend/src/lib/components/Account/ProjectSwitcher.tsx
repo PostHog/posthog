@@ -75,7 +75,9 @@ export function ProjectSwitcher(): JSX.Element | null {
         const createItem: CreateProjectItem = {
             type: 'create',
             id: 'create-new-project',
-            label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
+            label: 'New project',
+            // TODO: Uncomment this when we have a way to create projects with a name
+            // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New project',
         }
 
         return [...filteredProjects, createItem] as ListItem[]

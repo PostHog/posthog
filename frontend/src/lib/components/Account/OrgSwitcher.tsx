@@ -88,7 +88,9 @@ export function OrgSwitcher(): JSX.Element {
         const createItem: CreateOrgItem = {
             type: 'create',
             id: 'create-new-org',
-            label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New organization',
+            label: 'New organization',
+            // TODO: Uncomment this when we have a way to create organizations with a name
+            // label: searchValue.trim() ? `Create '${searchValue.trim()}'` : 'New organization',
         }
 
         return [...filteredOrgs, createItem] as ListItem[]

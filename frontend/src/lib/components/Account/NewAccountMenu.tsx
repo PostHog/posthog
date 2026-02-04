@@ -40,7 +40,7 @@ interface AccountMenuProps {
 export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isCloudOrDev, isDev } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -286,47 +286,46 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
 
                                 <DropdownMenuSeparator />
 
-                                {isDev ||
-                                    (billing?.account_owner?.email && billing?.account_owner?.name && (
-                                        <>
-                                            <Label intent="menu" className="px-2 mt-2">
-                                                YOUR POSTHOG HUMAN
-                                            </Label>
-                                            <DropdownMenuSeparator />
-                                            <Menu.Item
-                                                onClick={() => {
-                                                    void copyToClipboard(billing?.account_owner?.email || '', 'email')
-                                                    reportAccountOwnerClicked({
-                                                        name: billing?.account_owner?.name || '',
-                                                        email: billing?.account_owner?.email || '',
-                                                    })
-                                                }}
-                                                render={
-                                                    <ButtonPrimitive
-                                                        menuItem
-                                                        tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
-                                                        tooltipPlacement="right"
-                                                        data-attr="top-menu-account-owner"
-                                                    >
-                                                        <ProfilePicture
-                                                            user={{
-                                                                first_name: billing?.account_owner?.name || '',
-                                                                email: billing?.account_owner?.email || '',
-                                                            }}
-                                                            size="xs"
-                                                        />
-                                                        <span className="truncate font-semibold">
-                                                            {billing?.account_owner?.name || ''}
-                                                        </span>
-                                                        <div className="ml-auto">
-                                                            <IconCopy />
-                                                        </div>
-                                                    </ButtonPrimitive>
-                                                }
-                                            />
-                                            <DropdownMenuSeparator />
-                                        </>
-                                    ))}
+                                {billing?.account_owner?.email && billing?.account_owner?.name && (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            YOUR POSTHOG HUMAN
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        <Menu.Item
+                                            onClick={() => {
+                                                void copyToClipboard(billing?.account_owner?.email || '', 'email')
+                                                reportAccountOwnerClicked({
+                                                    name: billing?.account_owner?.name || '',
+                                                    email: billing?.account_owner?.email || '',
+                                                })
+                                            }}
+                                            render={
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
+                                                    tooltipPlacement="right"
+                                                    data-attr="top-menu-account-owner"
+                                                >
+                                                    <ProfilePicture
+                                                        user={{
+                                                            first_name: billing?.account_owner?.name || '',
+                                                            email: billing?.account_owner?.email || '',
+                                                        }}
+                                                        size="xs"
+                                                    />
+                                                    <span className="truncate font-semibold">
+                                                        {billing?.account_owner?.name || ''}
+                                                    </span>
+                                                    <div className="ml-auto">
+                                                        <IconCopy />
+                                                    </div>
+                                                </ButtonPrimitive>
+                                            }
+                                        />
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
 
                                 <Menu.Item
                                     onClick={() => logout()}
