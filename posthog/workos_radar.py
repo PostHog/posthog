@@ -9,6 +9,7 @@ a PostHog event but does not actually block or challenge users based on the verd
 This allows evaluation of the potential impact before enabling enforcement.
 """
 
+import time
 import hashlib
 from enum import StrEnum
 from typing import Optional
@@ -19,6 +20,8 @@ from django.http import HttpRequest
 import httpx
 import structlog
 import posthoganalytics
+
+from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
 
@@ -49,17 +52,9 @@ def _hash_email(email: str) -> str:
     return hashlib.sha256(email.lower().encode()).hexdigest()[:16]
 
 
-def _get_ip_address(request: HttpRequest) -> str:
-    """Extract client IP address from request."""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "")
-
-
-def _get_user_agent(request: HttpRequest) -> str:
-    """Extract user agent from request."""
-    return request.META.get("HTTP_USER_AGENT", "")
+def _get_raw_user_agent(request: HttpRequest) -> str:
+    """Extract raw user agent from request for the WorkOS API."""
+    return request.headers.get("user-agent", "")
 
 
 def evaluate_auth_attempt(
@@ -68,7 +63,7 @@ def evaluate_auth_attempt(
     action: RadarAction,
     auth_method: RadarAuthMethod,
     user_id: Optional[str] = None,
-) -> RadarVerdict:
+) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
 
@@ -85,24 +80,22 @@ def evaluate_auth_attempt(
     Returns:
         The Radar verdict (allow, challenge, block, error, or disabled)
     """
-    if not settings.WORKOS_RADAR_ENABLED:
-        logger.debug("workos_radar_disabled")
-        return RadarVerdict.DISABLED
+    if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
+        return None
 
-    if not settings.WORKOS_RADAR_API_KEY:
-        logger.warning("workos_radar_no_api_key")
-        return RadarVerdict.DISABLED
+    ip_address = get_ip_address(request)
+    raw_user_agent = _get_raw_user_agent(request)
+    short_user_agent = get_short_user_agent(request)
 
-    ip_address = _get_ip_address(request)
-    user_agent = _get_user_agent(request)
-
+    start_time = time.perf_counter()
     verdict = _call_radar_api(
         email=email,
         ip_address=ip_address,
-        user_agent=user_agent,
+        user_agent=raw_user_agent,
         action=action,
         auth_method=auth_method,
     )
+    duration_ms = (time.perf_counter() - start_time) * 1000
 
     _log_radar_event(
         email=email,
@@ -111,7 +104,8 @@ def evaluate_auth_attempt(
         auth_method=auth_method,
         verdict=verdict,
         ip_address=ip_address,
-        user_agent=user_agent,
+        user_agent=short_user_agent,
+        duration_ms=duration_ms,
     )
 
     return verdict
@@ -192,12 +186,10 @@ def _log_radar_event(
     verdict: RadarVerdict,
     ip_address: str,
     user_agent: str,
+    duration_ms: float,
 ) -> None:
     """
     Log the Radar decision as a PostHog event for analysis.
-
-    This event allows tracking what percentage of users would be
-    challenged or blocked if enforcement were enabled.
     """
     distinct_id = user_id or f"pre_signup_{_hash_email(email)}"
 
@@ -209,8 +201,9 @@ def _log_radar_event(
         "would_block": verdict == RadarVerdict.BLOCK,
         "is_error": verdict == RadarVerdict.ERROR,
         "ip_address_hash": hashlib.sha256(ip_address.encode()).hexdigest()[:16],
-        "user_agent": user_agent[:500] if user_agent else "",
+        "user_agent": user_agent,
         "email_domain": email.split("@")[-1] if "@" in email else "",
+        "radar_api_duration_ms": round(duration_ms, 2),
     }
 
     posthoganalytics.capture(
@@ -225,4 +218,5 @@ def _log_radar_event(
         auth_method=auth_method.value,
         verdict=verdict.value,
         email_hash=_hash_email(email),
+        duration_ms=round(duration_ms, 2),
     )

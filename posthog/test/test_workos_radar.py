@@ -14,8 +14,7 @@ from posthog.workos_radar import (
     RadarAuthMethod,
     RadarVerdict,
     _call_radar_api,
-    _get_ip_address,
-    _get_user_agent,
+    _get_raw_user_agent,
     _hash_email,
     _log_radar_event,
     evaluate_auth_attempt,
@@ -33,20 +32,10 @@ class TestRadarHelpers(TestCase):
     def test_hash_email_is_case_insensitive(self):
         assert _hash_email("Test@Example.Com") == _hash_email("test@example.com")
 
-    def test_get_ip_address_from_x_forwarded_for(self):
-        factory = RequestFactory()
-        request = factory.get("/", HTTP_X_FORWARDED_FOR="1.2.3.4, 5.6.7.8")
-        assert _get_ip_address(request) == "1.2.3.4"
-
-    def test_get_ip_address_from_remote_addr(self):
-        factory = RequestFactory()
-        request = factory.get("/", REMOTE_ADDR="9.8.7.6")
-        assert _get_ip_address(request) == "9.8.7.6"
-
-    def test_get_user_agent(self):
+    def test_get_raw_user_agent(self):
         factory = RequestFactory()
         request = factory.get("/", HTTP_USER_AGENT="Mozilla/5.0 TestBrowser")
-        assert _get_user_agent(request) == "Mozilla/5.0 TestBrowser"
+        assert _get_raw_user_agent(request) == "Mozilla/5.0 TestBrowser"
 
 
 class TestRadarApiCall(TestCase):
@@ -166,7 +155,8 @@ class TestRadarEventLogging(TestCase):
             auth_method=RadarAuthMethod.PASSWORD,
             verdict=RadarVerdict.ALLOW,
             ip_address="1.2.3.4",
-            user_agent="TestBrowser",
+            user_agent="Chrome 135.0.0 on macOS 10.15",
+            duration_ms=123.45,
         )
 
         mock_capture.assert_called_once()
@@ -179,6 +169,7 @@ class TestRadarEventLogging(TestCase):
         assert props["verdict"] == "allow"
         assert props["would_challenge"] is False
         assert props["would_block"] is False
+        assert props["radar_api_duration_ms"] == 123.45
 
     @patch("posthog.workos_radar.posthoganalytics.capture")
     def test_log_radar_event_with_challenge_verdict(self, mock_capture):
@@ -189,7 +180,8 @@ class TestRadarEventLogging(TestCase):
             auth_method=RadarAuthMethod.PASSKEY,
             verdict=RadarVerdict.CHALLENGE,
             ip_address="1.2.3.4",
-            user_agent="TestBrowser",
+            user_agent="Chrome 135.0.0 on macOS 10.15",
+            duration_ms=50.0,
         )
 
         mock_capture.assert_called_once()
@@ -208,7 +200,8 @@ class TestRadarEventLogging(TestCase):
             auth_method=RadarAuthMethod.PASSWORD,
             verdict=RadarVerdict.BLOCK,
             ip_address="1.2.3.4",
-            user_agent="TestBrowser",
+            user_agent="Chrome 135.0.0 on macOS 10.15",
+            duration_ms=75.0,
         )
 
         mock_capture.assert_called_once()
@@ -219,7 +212,7 @@ class TestRadarEventLogging(TestCase):
 
 class TestEvaluateAuthAttempt(TestCase):
     @override_settings(WORKOS_RADAR_ENABLED=False)
-    def test_returns_disabled_when_radar_disabled(self):
+    def test_returns_none_when_radar_disabled(self):
         factory = RequestFactory()
         request = factory.get("/")
 
@@ -230,10 +223,10 @@ class TestEvaluateAuthAttempt(TestCase):
             auth_method=RadarAuthMethod.PASSWORD,
         )
 
-        assert verdict == RadarVerdict.DISABLED
+        assert verdict is None
 
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="")
-    def test_returns_disabled_when_no_api_key(self):
+    def test_returns_none_when_no_api_key(self):
         factory = RequestFactory()
         request = factory.get("/")
 
@@ -244,7 +237,7 @@ class TestEvaluateAuthAttempt(TestCase):
             auth_method=RadarAuthMethod.PASSWORD,
         )
 
-        assert verdict == RadarVerdict.DISABLED
+        assert verdict is None
 
     @patch("posthog.workos_radar._log_radar_event")
     @patch("posthog.workos_radar._call_radar_api")
@@ -273,3 +266,5 @@ class TestEvaluateAuthAttempt(TestCase):
         assert log_call_args[1]["action"] == RadarAction.SIGNIN
         assert log_call_args[1]["auth_method"] == RadarAuthMethod.PASSWORD
         assert log_call_args[1]["verdict"] == RadarVerdict.ALLOW
+        assert "duration_ms" in log_call_args[1]
+        assert isinstance(log_call_args[1]["duration_ms"], float)
