@@ -91,8 +91,15 @@ pub fn get_pool_with_timeout(
     get_pool_with_config(url, config)
 }
 
-/// Creates a database pool with the provided configuration
-/// This is the recommended function for services to use
+/// Creates a database pool with the provided configuration.
+///
+/// This function creates a *lazy* database pool: connections are not
+/// established until they are first acquired from the pool. URL parsing
+/// errors are still detected immediately when this function is called, but
+/// network connectivity and authentication errors will only be surfaced on
+/// the first actual connection use.
+///
+/// This is the recommended function for services to use.
 pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
     let mut options = PgPoolOptions::new()
         .min_connections(config.min_connections)
