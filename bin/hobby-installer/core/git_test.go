@@ -130,6 +130,44 @@ func TestUpdatePostHog(t *testing.T) {
 		mock.assertNotCalled(t, "posthog:git pull")
 	})
 
+	t.Run("fetch fails returns error without pulling", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git fetch --prune", "", fmt.Errorf("network error"))
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := UpdatePostHog()
+		if err == nil {
+			t.Fatal("expected fetch error")
+		}
+
+		mock.assertCalled(t, "posthog:git fetch --prune")
+		mock.assertNotCalled(t, "posthog:git branch --show-current")
+		mock.assertNotCalled(t, "posthog:git pull")
+	})
+
+	t.Run("pull fails returns error", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git branch --show-current", "master\n", nil)
+		mock.on("posthog:git pull", "", fmt.Errorf("merge conflict"))
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := UpdatePostHog()
+		if err == nil {
+			t.Fatal("expected pull error")
+		}
+
+		mock.assertCalled(t, "posthog:git fetch --prune")
+		mock.assertCalled(t, "posthog:git pull")
+	})
+
 	t.Run("no posthog dir triggers clone", func(t *testing.T) {
 		origDir, _ := os.Getwd()
 		tmpDir := t.TempDir()
@@ -184,6 +222,122 @@ func TestCheckoutVersion(t *testing.T) {
 		}
 		mock.assertCalled(t, "posthog:git fetch origin")
 		mock.assertCalled(t, "posthog:git reset --hard origin/master")
+	})
+
+	t.Run("latest-release checks out described tag", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git describe --tags --abbrev=0", "v1.43.0\n", nil)
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("latest-release")
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		mock.assertCalled(t, "posthog:git fetch --tags")
+		mock.assertCalled(t, "posthog:git checkout v1.43.0")
+	})
+
+	t.Run("latest-release falls back to rev-list on describe failure", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git describe --tags --abbrev=0", "", fmt.Errorf("no tags"))
+		mock.on("posthog:sh -c git describe --tags $(git rev-list --tags --max-count=1)", "v1.42.0\n", nil)
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("latest-release")
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		mock.assertCalled(t, "posthog:git checkout v1.42.0")
+	})
+
+	t.Run("latest-release returns error when no tags found", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git describe --tags --abbrev=0", "", fmt.Errorf("no tags"))
+		mock.on("posthog:sh -c git describe --tags $(git rev-list --tags --max-count=1)", "", fmt.Errorf("no tags"))
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("latest-release")
+		if err == nil {
+			t.Fatal("expected error when no release tags found")
+		}
+		mock.assertNotCalled(t, "posthog:git checkout ")
+	})
+
+	t.Run("tag version fetches tags and checks out", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("v1.43.0")
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		mock.assertCalled(t, "posthog:git fetch --tags")
+		mock.assertCalled(t, "posthog:git checkout v1.43.0")
+	})
+
+	t.Run("release- prefix is stripped before checkout", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("release-1.43.0")
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		mock.assertCalled(t, "posthog:git fetch --tags")
+		mock.assertCalled(t, "posthog:git checkout 1.43.0")
+	})
+
+	t.Run("latest on detached HEAD is a no-op", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git branch --show-current", "", nil)
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("latest")
+		if err != nil {
+			t.Fatalf("expected no error on detached HEAD, got: %v", err)
+		}
+		mock.assertCalled(t, "posthog:git fetch origin")
+		mock.assertNotCalled(t, "posthog:git reset --hard origin/")
+	})
+
+	t.Run("latest returns error when fetch origin fails", func(t *testing.T) {
+		cleanupDir := setupPosthogDir(t)
+		defer cleanupDir()
+
+		mock := newMockRunner()
+		mock.on("posthog:git fetch origin", "", fmt.Errorf("network error"))
+		cleanupMock := setupMock(t, mock)
+		defer cleanupMock()
+
+		err := CheckoutVersion("latest")
+		if err == nil {
+			t.Fatal("expected fetch error")
+		}
+		mock.assertNotCalled(t, "posthog:git branch --show-current")
 	})
 
 	t.Run("no posthog dir returns error", func(t *testing.T) {
