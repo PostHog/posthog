@@ -186,16 +186,20 @@ export function CodeEditor({
             monacoDisposables.current.forEach((d) => d?.dispose())
             monacoDisposables.current = []
 
-            // 2. Clear codeEditorLogic reference from model to break kea reference chain
+            // 2. Disconnect and clear mutation observer to fully release DOM references
+            mutationObserver.current?.disconnect()
+            mutationObserver.current = null
+
+            // 3. Clear codeEditorLogic reference from model to break kea reference chain
             const model = editorRef.current?.getModel()
             if (model) {
                 ;(model as any).codeEditorLogic = undefined
             }
 
-            // 3. Clear state to release React's reference to the editor
+            // 4. Clear state to release React's reference to the editor
             setMonacoAndEditor(null)
 
-            // 4. Now safe to remove monacoRoot - editor disposal happens via @monaco-editor/react
+            // 5. Now safe to remove monacoRoot - editor disposal happens via @monaco-editor/react
             // but our cleanup ran first, breaking the reference chains
             monacoRoot?.remove()
         }
