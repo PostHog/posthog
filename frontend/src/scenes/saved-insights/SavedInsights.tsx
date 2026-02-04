@@ -593,6 +593,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use SQL to query your data.',
         icon: IconHogQL,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
     },
     [InsightType.JSON]: {
         name: 'Custom',
