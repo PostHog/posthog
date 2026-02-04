@@ -8013,7 +8013,6 @@ class CachedFunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11279,7 +11278,6 @@ class FunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13219,7 +13217,6 @@ class QueryResponseAlternative66(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
