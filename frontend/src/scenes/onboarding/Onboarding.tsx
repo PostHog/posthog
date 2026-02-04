@@ -23,6 +23,7 @@ import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
+import { OnboardingWorkflowsSetup } from './OnboardingWorkflows'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
@@ -396,6 +397,14 @@ const LLMAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 
+const WorkflowsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <OnboardingWorkflowsSetup />
+        </OnboardingWrapper>
+    )
+}
+
 export const onboardingViews = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
     [ProductKey.WEB_ANALYTICS]: WebAnalyticsOnboarding,
@@ -406,6 +415,7 @@ export const onboardingViews = {
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
     [ProductKey.LLM_ANALYTICS]: LLMAnalyticsOnboarding,
+    [ProductKey.WORKFLOWS]: WorkflowsOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {

@@ -80,4 +80,12 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.llmAnalyticsDashboard(),
         scene: Scene.LLMAnalytics,
     },
+    [ProductKey.WORKFLOWS]: {
+        name: 'Workflows',
+        description: 'Automate user communication and internal processes',
+        icon: 'IconGear',
+        iconColor: 'var(--color-product-workflows-light)',
+        url: urls.workflows(),
+        scene: Scene.Workflows,
+    },
 }

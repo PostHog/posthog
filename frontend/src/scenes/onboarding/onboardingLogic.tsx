@@ -78,6 +78,9 @@ export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string
         case ProductKey.LLM_ANALYTICS:
             baseUrl = urls.llmAnalyticsDashboard()
             break
+        case ProductKey.WORKFLOWS:
+            baseUrl = urls.workflows()
+            break
         default:
             baseUrl = urls.default()
     }
