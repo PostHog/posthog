@@ -599,6 +599,13 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 targetSelector: '[data-attr="new-workflow"]',
             },
             {
+                id: SetupTaskId.SetUpFirstWorkflowChannel,
+                title: 'Set up your first workflows channel',
+                description: 'Connect a channel like email, Slack, or Twilio for sending messages.',
+                taskType: 'onboarding',
+                getUrl: () => urls.workflows('channels'),
+            },
+            {
                 id: SetupTaskId.ConfigureWorkflowTrigger,
                 title: 'Configure a trigger',
                 description: 'Define when your workflow should start.',
