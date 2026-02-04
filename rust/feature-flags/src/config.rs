@@ -241,10 +241,13 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
 
-    // Test connection health before returning from pool
-    // - Set to true for production to catch stale connections
-    // - Set to false in tests or very stable environments for slight performance gain
-    #[envconfig(default = "true")]
+    // Test connection health before returning from pool (runs SELECT 1)
+    // Default: false - disabled in production for the following reasons:
+    // 1. Under CPU throttling (CFS), health checks add latency because the async I/O
+    //    needs a tokio worker thread, which may be starved by rayon parallel evaluation
+    // 2. DB connections are to stable RDS instances where stale connections are rare
+    // 3. SQLx already handles broken connections via automatic retry on first query failure
+    #[envconfig(default = "false")]
     pub test_before_acquire: FlexBool,
 
     // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
@@ -537,7 +540,7 @@ impl Config {
             min_persons_writer_connections: 0,
             acquire_timeout_secs: 3,
             idle_timeout_secs: 300,
-            test_before_acquire: FlexBool(true),
+            test_before_acquire: FlexBool(false),
             non_persons_reader_statement_timeout_ms: 2000,
             persons_reader_statement_timeout_ms: 3000,
             writer_statement_timeout_ms: 3000,

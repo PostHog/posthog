@@ -1,16 +1,19 @@
 from datetime import date, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import duckdb
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    EVENTS_COLUMNS,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
+    PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
+    _set_table_partitioning,
     _validate_identifier,
     get_months_in_range,
     get_s3_url_for_clickhouse,
@@ -279,3 +282,106 @@ class TestGetMonthsInRange:
     )
     def test_returns_correct_months(self, start_date, end_date, expected):
         assert get_months_in_range(start_date, end_date) == expected
+
+
+class TestSetTablePartitioning:
+    def test_partitioning_is_idempotent_in_ducklake(self):
+        """Verify that SET PARTITIONED BY can be called multiple times safely."""
+        conn = duckdb.connect()
+        conn.execute("INSTALL ducklake; LOAD ducklake;")
+        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
+        conn.execute("CREATE SCHEMA test_catalog.posthog")
+        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMPTZ, event VARCHAR)")
+
+        mock_context = MagicMock()
+
+        # First call should succeed
+        result1 = _set_table_partitioning(
+            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+        )
+        assert result1 is True
+
+        # Second call with same keys should also succeed (idempotent)
+        result2 = _set_table_partitioning(
+            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+        )
+        assert result2 is True
+
+        # Third call should also succeed
+        result3 = _set_table_partitioning(
+            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+        )
+        assert result3 is True
+
+        conn.close()
+
+    def test_partitioning_logs_success(self):
+        """Verify that successful partitioning logs appropriately."""
+        conn = duckdb.connect()
+        conn.execute("INSTALL ducklake; LOAD ducklake;")
+        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
+        conn.execute("CREATE SCHEMA test_catalog.posthog")
+        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMPTZ, event VARCHAR)")
+
+        mock_context = MagicMock()
+
+        result = _set_table_partitioning(
+            conn, "test_catalog", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+        )
+
+        assert result is True
+        mock_context.log.info.assert_any_call("Setting partitioning on events table...")
+        mock_context.log.info.assert_any_call("Successfully set partitioning on events table")
+        conn.close()
+
+    def test_partitioning_handles_failure_gracefully(self):
+        """Verify that partitioning failures return False and log warning."""
+        conn = duckdb.connect()
+        # Don't load ducklake - table won't support SET PARTITIONED BY
+        conn.execute("CREATE SCHEMA posthog")
+        conn.execute("CREATE TABLE posthog.events (timestamp TIMESTAMPTZ, event VARCHAR)")
+
+        mock_context = MagicMock()
+
+        # This should fail because regular DuckDB tables don't support SET PARTITIONED BY
+        result = _set_table_partitioning(
+            conn, "memory", "events", "year(timestamp), month(timestamp)", mock_context, team_id=123
+        )
+
+        assert result is False
+        mock_context.log.warning.assert_called()
+        conn.close()
+
+    def test_partitioning_rejects_invalid_identifiers(self):
+        """Verify that SQL injection attempts are blocked."""
+        conn = duckdb.connect()
+        mock_context = MagicMock()
+
+        with pytest.raises(ValueError) as exc_info:
+            _set_table_partitioning(conn, "test; DROP TABLE", "events", "year(timestamp)", mock_context, team_id=123)
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+        with pytest.raises(ValueError) as exc_info:
+            _set_table_partitioning(conn, "test_catalog", "events'; --", "year(timestamp)", mock_context, team_id=123)
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+        conn.close()
+
+
+class TestExportSQLOrderBy:
+    def test_events_columns_can_be_used_in_order_by(self):
+        """Verify that the columns used in ORDER BY exist in EVENTS_COLUMNS."""
+        # The ORDER BY clause uses: event, distinct_id, timestamp
+        # These should all be present in EVENTS_COLUMNS
+        events_columns_lower = EVENTS_COLUMNS.lower()
+        assert "event" in events_columns_lower
+        assert "distinct_id" in events_columns_lower
+        assert "timestamp" in events_columns_lower
+
+    def test_persons_columns_can_be_used_in_order_by(self):
+        """Verify that the columns used in ORDER BY exist in PERSONS_COLUMNS."""
+        # The ORDER BY clause uses: distinct_id, _timestamp
+        # These should all be present in PERSONS_COLUMNS
+        persons_columns_lower = PERSONS_COLUMNS.lower()
+        assert "distinct_id" in persons_columns_lower
+        assert "_timestamp" in persons_columns_lower
