@@ -164,7 +164,7 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
-    private backgroundTask: { promise: Promise<void>; createdAt: number }[]
+    private backgroundTask: { promise: Promise<void>; createdAt: number; offsetsStoredPromise: Promise<void> }[]
     private podName: string
     private lastBackgroundTaskCompletionTime: number
     private consumerId: string
@@ -438,32 +438,44 @@ export class KafkaConsumer {
             })
 
             // Handle background task coordination asynchronously
+            // With cooperative-sticky protocol, the partition won't be reassigned to another consumer
+            // until we call incrementalUnassign(), so we can safely wait for background tasks to complete
+            // and commit offsets before releasing the partition.
             if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
-                // Don't block the rebalance callback, but coordinate in the background
-                Promise.all(this.backgroundTask.map((t) => t.promise))
+                // Wait for all offsets to be stored (not just background tasks to complete).
+                // The offsetsStoredPromise tracks the finally() callback that stores offsets,
+                // which runs after the background task completes.
+                Promise.all(this.backgroundTask.map((t) => t.offsetsStoredPromise))
                     .then(() => {
-                        logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
+                        logger.info('🔁', 'offsets_stored_before_partition_revocation')
+                        // All offsets have been stored via offsetsStore().
+                        // Now force a synchronous commit to ensure offsets are persisted before we
+                        // release the partition. This prevents duplicates when another consumer
+                        // takes over the partition.
                         try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
+                            this.rdKafkaConsumer.commitSync(null)
+                            logger.info('🔁', 'offsets_committed_before_partition_revocation')
+                        } catch (commitError) {
+                            // Log but continue - it's better to release the partition than get stuck.
+                            // The stored offsets may still be committed by auto-commit or on disconnect.
+                            logger.error('🔁', 'commit_failed_before_partition_revocation', {
+                                error: String(commitError),
                             })
-                            this.resetRebalanceCoordination()
                         }
                     })
                     .catch((error) => {
-                        logger.error('🔁', 'background_task_error_during_revocation', { error })
-                        // Still proceed with revocation even if background tasks fail
+                        logger.error('🔁', 'offset_storage_error_during_revocation', { error })
+                        // Even if offset storage fails, try to commit whatever offsets were stored
+                        try {
+                            this.rdKafkaConsumer.commitSync(null)
+                        } catch (commitError) {
+                            logger.error('🔁', 'commit_failed_after_offset_storage_error', {
+                                error: String(commitError),
+                            })
+                        }
+                    })
+                    .finally(() => {
+                        // Always unassign the partitions after waiting and attempting to commit
                         if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
                             this.rdKafkaConsumer.incrementalUnassign(assignments)
                         } else {
@@ -736,7 +748,9 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    void backgroundTask.finally(async () => {
+                    // Track the offset storage promise so we can await it during rebalance.
+                    // This ensures offsets are stored before we commit and unassign partitions.
+                    const offsetsStoredPromise = backgroundTask.finally(async () => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
 
@@ -768,6 +782,7 @@ export class KafkaConsumer {
                     this.backgroundTask.push({
                         promise: backgroundTask,
                         createdAt: taskCreatedAt,
+                        offsetsStoredPromise,
                     })
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose

@@ -23,6 +23,7 @@ jest.mock('node-rdkafka', () => ({
         incrementalUnassign: jest.fn(),
         incrementalAssign: jest.fn(),
         rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
+        commitSync: jest.fn(),
     })),
     CODES: {
         ERRORS: {
@@ -114,6 +115,7 @@ describe('consumer', () => {
             incrementalUnassign: jest.fn(),
             incrementalAssign: jest.fn(),
             rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
+            commitSync: jest.fn(),
         }
         defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = true
 
@@ -387,15 +389,19 @@ describe('consumer', () => {
             ])
         })
 
-        it('should wait for background tasks before calling incrementalUnassign', async () => {
+        it('should wait for offset storage before calling incrementalUnassign', async () => {
             // Create controllable promises to test actual waiting behavior
+            // task1/task2 are the background tasks, offsetsStored1/offsetsStored2 track offset storage
             const task1 = triggerablePromise()
             const task2 = triggerablePromise()
+            const offsetsStored1 = triggerablePromise()
+            const offsetsStored2 = triggerablePromise()
 
             // Explicitly assign promise array with metadata (handled in afterEach cleanup)
+            // The rebalance callback now waits for offsetsStoredPromise, not just the task promise
             void (consumer['backgroundTask'] = [
-                { promise: task1.promise, createdAt: Date.now() },
-                { promise: task2.promise, createdAt: Date.now() },
+                { promise: task1.promise, createdAt: Date.now(), offsetsStoredPromise: offsetsStored1.promise },
+                { promise: task2.promise, createdAt: Date.now(), offsetsStoredPromise: offsetsStored2.promise },
             ])
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
@@ -404,20 +410,23 @@ describe('consumer', () => {
 
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
 
-            // Should not have called incrementalUnassign yet (still waiting for tasks)
+            // Should not have called incrementalUnassign yet (still waiting for offset storage)
             await delay(10)
             expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
 
-            // Resolve first task - should still be waiting for second
-            task1.resolve()
+            // Resolve first offset storage - should still be waiting for second
+            offsetsStored1.resolve()
             await delay(1)
             expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
 
-            // Resolve second task - now should proceed
-            task2.resolve()
+            // Resolve second offset storage - now should proceed
+            offsetsStored2.resolve()
             await delay(10)
 
-            // Should have called incrementalUnassign after all tasks completed
+            // Should have called commitSync after all offsets are stored
+            expect(mockRdKafkaConsumer.commitSync).toHaveBeenCalledWith(null)
+
+            // Should have called incrementalUnassign after all offsets are stored
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
@@ -435,7 +444,9 @@ describe('consumer', () => {
 
             // Add background tasks with metadata
             // Explicitly assign promise array (handled in cleanup)
-            void (consumerDisabled['backgroundTask'] = [{ promise: Promise.resolve(), createdAt: Date.now() }])
+            void (consumerDisabled['backgroundTask'] = [
+                { promise: Promise.resolve(), createdAt: Date.now(), offsetsStoredPromise: Promise.resolve() },
+            ])
 
             consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
