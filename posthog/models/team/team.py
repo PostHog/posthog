@@ -45,7 +45,8 @@ from posthog.utils import GenericEmails
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode, CohortPropertyFilter, \
+    PropertyOperator
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
@@ -124,7 +125,8 @@ class TeamManager(models.Manager):
         from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
 
         test_users_cohort = get_or_create_internal_test_users_cohort(team)
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": test_users_cohort.id, "negation": True}]
+        cohort_filter = CohortPropertyFilter(cohort_name=test_users_cohort.name, value=test_users_cohort.id, operator=PropertyOperator.NOT_IN)
+        team.test_account_filters = [cohort_filter.model_dump_json()]
 
         if kwargs.get("is_demo") and not skip_demo_data_generation:
             if initiating_user is None:
