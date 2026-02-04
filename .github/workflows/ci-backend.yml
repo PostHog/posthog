@@ -141,9 +141,11 @@ jobs:
                         - 'products/**/backend/**/*'
                         - 'common/**/*'
                       # Legacy code - triggers full Django test suite
+                      # Also includes common/ as high-blast-radius code that affects everything
                       legacy:
                         - 'ee/**/*'
                         - 'posthog/**/*'
+                        - 'common/**/*'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -258,6 +260,17 @@ jobs:
             - name: Check contract changes
               id: contract-check
               run: |
+                  # Turbo runs ALL product tests. Django runs posthog/ee tests.
+                  # This step determines if Django needs to run based on contract changes.
+                  #
+                  # Logic:
+                  # - Push to master: run Django (full CI)
+                  # - Legacy (posthog/ee) changed: run Django
+                  # - Any contract-check cache miss: run Django
+                  #   - Isolated product contract changed → might affect legacy
+                  #   - Non-isolated product changed → always triggers Django (inputs: **/*)
+                  # - All cache hits: skip Django (isolated impl-only changes)
+
                   # On push to master, always run Django
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
                     echo "Push to master - Django will run"
@@ -273,18 +286,27 @@ jobs:
                     exit 0
                   fi
 
-                  # Use turbo's cache to detect contract changes
-                  # If contract-check has cache miss, contracts changed → run Django
-                  OUTPUT=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null || echo '{}')
-                  CACHE_STATUS=$(echo "$OUTPUT" | jq -r '.tasks[]? | select(.taskId | contains("backend:contract-check")) | .cache.status' 2>/dev/null | head -1)
+                  # Use turbo's dry-run JSON output to detect contract changes
+                  # - Isolated products: contract-check inputs are specific contract files
+                  # - Non-isolated products: contract-check inputs are **/*.py (always miss on change)
+                  #
+                  # --dry-run=json returns structured output without executing tasks
+                  # We filter out tasks with no script (command=<NONEXISTENT>) and check cache status
+                  CACHE_STATUS=$(pnpm turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
+                    [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
+                    if length == 0 then "NO_TASKS"
+                    elif any(. == "MISS") then "MISS"
+                    else "HIT"
+                    end
+                  ')
 
                   echo "Contract check cache status: $CACHE_STATUS"
 
-                  if [[ "$CACHE_STATUS" == "MISS" || "$CACHE_STATUS" == "" ]]; then
+                  if [[ "$CACHE_STATUS" == "MISS" ]]; then
                     echo "Contract files changed (cache miss) - Django will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                   else
-                    echo "Only impl changed (cache hit) - Django can be skipped"
+                    echo "Contracts unchanged (cache hit or no tasks) - Django can be skipped"
                     echo "run_legacy=false" >> $GITHUB_OUTPUT
                   fi
 
@@ -1023,7 +1045,7 @@ jobs:
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                      $(for p in products/*/; do [ -f "$p/backend/BUILD.bazel" ] && echo "--ignore=$p"; done) \
+                      --ignore=products/ \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \

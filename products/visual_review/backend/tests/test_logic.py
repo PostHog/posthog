@@ -6,6 +6,14 @@ from products.visual_review.backend import logic
 from products.visual_review.backend.domain_types import RunStatus, RunType, SnapshotResult
 
 
+class TestAddNumbers:
+    """Example test to verify turbo test caching."""
+
+    def test_add_numbers(self):
+        result = logic.add_numbers(2, 3)
+        assert result == 5
+
+
 @pytest.mark.django_db
 class TestProjectOperations:
     def test_create_repo(self, team):

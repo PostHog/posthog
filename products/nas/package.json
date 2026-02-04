@@ -1,5 +1,7 @@
 {
-    "name": "@posthog/products-batch-exports",
+    "name": "@posthog/products-nas",
+    "version": "0.0.0",
+    "private": true,
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },

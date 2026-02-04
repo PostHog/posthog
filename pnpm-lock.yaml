@@ -1732,6 +1732,27 @@ importers:
 
   products/data_warehouse: {}
 
+  products/desktop_recordings:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: 17.0.52
+        version: 17.0.52
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/early_access_features:
     dependencies:
       '@posthog/icons':
@@ -2232,6 +2253,8 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/nas: {}
 
   products/notebooks:
     dependencies:
@@ -20071,8 +20094,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.364.0:
-    resolution: {integrity: sha512-napzlO1ui26ePQ4+h3uCaoxbQocBxuSCI/Ef81aSf3/I9+M3iKXlpOnQuFEzipShlNjIxczEj2Z2T/JTsS4Hzw==}
+  unlayer-types@1.365.0:
+    resolution: {integrity: sha512-OIY6+isxDkyYrxzO/XPQgb1V5Vv+4vqHMZ1MhP7VuRU6z5CeNCSEVo7uzsOUj5cMGwhJjXziHFMKsWKRSd8STA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -41228,7 +41251,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.364.0
+      unlayer-types: 1.365.0
 
   react-error-overlay@6.0.9: {}
 
@@ -43458,7 +43481,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.364.0: {}
+  unlayer-types@1.365.0: {}
 
   unpipe@1.0.0: {}
 

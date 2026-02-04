@@ -20,7 +20,7 @@
             "cache": true
         },
         "backend:contract-check": {
-            "inputs": ["backend/api/dtos.py", "backend/domain_types.py", "backend/models.py"],
+            "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],
             "outputs": [],
             "cache": true
         },
