@@ -46,7 +46,6 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                 width={860}
             >
                 <div className="space-y-4">
-                    {/* Create new section - prominent */}
                     <div className="flex items-center gap-3 p-4 bg-surface-secondary rounded-lg">
                         <IconPlus className="text-2xl text-secondary shrink-0" />
                         <div className="flex-1">

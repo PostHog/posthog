@@ -7,6 +7,7 @@ import { IconCheck } from '@posthog/icons'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -32,6 +33,7 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
+    const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
@@ -42,9 +44,8 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
     const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
 
-    const useDashboardMode = dashboardId !== undefined && !renderActionColumn
+    const useDashboardMode = isExperimentEnabled && dashboardId !== undefined
 
-    // Sync optimistic state when dashboard tiles change
     useEffect(() => {
         if (useDashboardMode && dashboard?.tiles) {
             syncOptimisticStateWithDashboard(dashboard.tiles)
