@@ -531,9 +531,9 @@ class TestVercelIntegration(TestCase):
         secrets = VercelIntegration._build_secrets(team)
 
         assert len(secrets) == 2
-        assert secrets[0]["name"] == "POSTHOG_PROJECT_API_KEY"
+        assert secrets[0]["name"] == "NEXT_PUBLIC_POSTHOG_KEY"
         assert secrets[0]["value"] == "test_api_token"
-        assert secrets[1]["name"] == "POSTHOG_HOST"
+        assert secrets[1]["name"] == "NEXT_PUBLIC_POSTHOG_HOST"
         assert secrets[1]["value"].startswith(("https://", "http://"))
 
     @parameterized.expand(
@@ -1154,8 +1154,8 @@ class TestPushSecretsToVercel(TestCase):
 
         secrets = call_args[1]["secrets"]
         assert len(secrets) == 2
-        assert any(s["name"] == "POSTHOG_PROJECT_API_KEY" for s in secrets)
-        assert any(s["name"] == "POSTHOG_HOST" for s in secrets)
+        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_KEY" for s in secrets)
+        assert any(s["name"] == "NEXT_PUBLIC_POSTHOG_HOST" for s in secrets)
 
     @patch("ee.vercel.integration.VercelAPIClient")
     def test_push_secrets_sends_current_api_token(self, mock_client_class):
@@ -1167,7 +1167,7 @@ class TestPushSecretsToVercel(TestCase):
 
         call_args = mock_client.update_resource_secrets.call_args
         secrets = call_args[1]["secrets"]
-        api_key_secret = next(s for s in secrets if s["name"] == "POSTHOG_PROJECT_API_KEY")
+        api_key_secret = next(s for s in secrets if s["name"] == "NEXT_PUBLIC_POSTHOG_KEY")
         assert api_key_secret["value"] == self.team.api_token
 
     @patch("ee.vercel.integration.VercelAPIClient")

@@ -110,7 +110,8 @@ export interface ModeDefinition {
     description: string
     icon: JSX.Element
     /** Scenes that should trigger this agent mode */
-    scenes: Set<Scene>
+    scenes?: Set<Scene>
+    beta?: boolean
 }
 
 /** Default tools available in all modes */
@@ -143,7 +144,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return `Task (${title})`
             }
-            return `Running a task (${title})...`
+            return title ? `Running a task (${title})...` : 'Running a task...'
         },
     },
     create_form: {
@@ -525,7 +526,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -537,7 +538,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_transformation_function: {
         name: 'Write and tweak Hog code',
         description: 'Write and tweak Hog code of transformations',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -549,7 +550,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_inputs: {
         name: 'Manage function variables',
         description: 'Manage function variables in Hog functions',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -856,6 +857,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Switched to plan mode'
                 }
                 return 'Switching to plan mode...'
+            } else if (toolCall.args.new_mode === AgentMode.Research) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to research mode'
+                }
+                return 'Switching to research mode...'
             }
             // Use optional chaining since Plan and Research modes are not in MODE_DEFINITIONS
             const newMode = toolCall.args.new_mode as string
@@ -945,7 +951,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
 }
 
-export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution>, ModeDefinition> = {
+export const MODE_DEFINITIONS: Record<
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research>,
+    ModeDefinition
+> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',
@@ -984,7 +993,7 @@ export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Plan | AgentM
     },
 }
 
-export const SPECIAL_MODES = {
+export const SPECIAL_MODES: Record<string, ModeDefinition> = {
     auto: {
         name: 'Auto',
         description:
@@ -996,12 +1005,14 @@ export const SPECIAL_MODES = {
         description:
             "Creates a plan to guide the agent's actions and achieve your goals. The tools that are available in all modes are listed below.",
         icon: <IconNotebook />,
+        beta: true,
     },
     deep_research: {
         name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,
+        beta: true,
     },
 }
 

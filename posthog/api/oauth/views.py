@@ -289,6 +289,21 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # First-party apps skip consent screen entirely
+        if application.is_first_party:
+            try:
+                # Auto-approve with all user's accessible teams
+                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                credentials["scoped_teams"] = list(teams)
+                credentials["scoped_organizations"] = []
+
+                uri, headers, body, status_code = self.create_authorization_response(
+                    request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
+                )
+                return self.redirect(uri, application)
+            except OAuthToolkitError as error:
+                return self.error_response(error, application, state=request.query_params.get("state"))
+
         # Check for auto-approval
         if request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto":
             try:
@@ -301,7 +316,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
                         )
-                        return Response({"redirect_uri": uri})
+                        return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 

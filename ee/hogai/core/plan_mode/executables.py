@@ -6,7 +6,7 @@ from abc import abstractmethod
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AgentMode, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AgentMode, AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
 from ee.hogai.core.agent_modes.executables import AgentExecutable, AgentToolsExecutable
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
@@ -22,65 +22,83 @@ class PlanModeExecutable(AgentExecutable):
         should_set_plan_mode = not state.supermode or (state.messages and isinstance(state.messages[-1], HumanMessage))
 
         if should_set_plan_mode:
-            new_state = state.model_copy(
-                update={"agent_mode": AgentMode.PRODUCT_ANALYTICS, "supermode": AgentMode.PLAN}
-            )
+            new_state = state.model_copy(update={"agent_mode": AgentMode.SQL, "supermode": AgentMode.PLAN})
         else:
             new_state = state
 
         result = await super().arun(new_state, config)
 
-        # Ensure supermode and agent_mode are persisted to the checkpoint
+        # NOTE: Mode transitions (e.g., switch_mode("execution")) are handled in
+        # PlanModeToolsExecutable.arun() AFTER the tool validates and executes.
+        # This ensures the tool validates against the correct mode_registry.
+
+        # Ensure supermode and agent_mode are persisted to the checkpoint on first turn
         if should_set_plan_mode:
-            result = result.model_copy(update={"supermode": AgentMode.PLAN, "agent_mode": AgentMode.PRODUCT_ANALYTICS})
+            result = result.model_copy(update={"supermode": AgentMode.PLAN, "agent_mode": AgentMode.SQL})
 
         return result
 
 
 class PlanModeToolsExecutable(AgentToolsExecutable):
-    """
-    Base executable for handling tool calls in plan mode.
-    Subclasses must implement the mode transition logic.
-    """
+    @property
+    @abstractmethod
+    def transition_prompt(self) -> str:
+        """The prompt to display to the user when transitioning to the next mode."""
+        ...
 
     @property
     @abstractmethod
     def transition_supermode(self) -> AgentMode | str | None:
-        """The supermode to transition to after plan mode completes.
+        """The supermode value after transition completes.
 
-        Returns one of three values to express distinct intents:
-        - AgentMode: Set supermode to this mode (e.g., AgentMode.RESEARCH)
-        - CLEAR_SUPERMODE: Explicitly clear supermode to None (exit plan mode entirely)
-        - None: Leave supermode unchanged (keep current value)
-
-        Note: CLEAR_SUPERMODE is a string sentinel because None already means "no change"
-        in the reducer pattern in LangGraph, so we need a distinct value to express "set to None".
+        This should match the transition_supermode from the corresponding PlanModeExecutable.
+        Used to detect when a transition happened in the previous root node.
         """
         ...
 
-    @property
-    @abstractmethod
-    def transition_prompt(self) -> str:
-        """The prompt to show when transitioning to the next mode."""
-        ...
+    def _get_current_tool_call(self, state: AssistantState) -> AssistantToolCall | None:
+        """Get the current tool call being processed."""
+        if not state.root_tool_call_id:
+            return None
 
-    @abstractmethod
+        for msg in reversed(state.messages):
+            if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if tc.id == state.root_tool_call_id:
+                        return tc
+        return None
+
+    def _is_switch_mode_tool_call(self, state: AssistantState) -> bool:
+        """Check if the current tool call is switch_mode."""
+        tool_call = self._get_current_tool_call(state)
+        return tool_call is not None and tool_call.name == "switch_mode"
+
     def _should_transition(self, state: AssistantState, result: PartialAssistantState) -> bool:
-        """Check if we should transition to the next mode based on the tool result."""
-        ...
+        """Check if we should transition based on the tool result.
+
+        Override this in subclasses to define transition conditions.
+        Default: transition when switch_mode tool is called and result.agent_mode
+        matches the expected transition target.
+        """
+        return False  # Subclasses should override
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         result = await super().arun(state, config)
 
-        if self._should_transition(state, result):
-            new_result = result.model_copy()
-            new_result.agent_mode = AgentMode.PRODUCT_ANALYTICS
-            new_result.supermode = self.transition_supermode
-            last_message = new_result.messages[-1].model_copy()
-            if not isinstance(last_message, AssistantToolCallMessage):
-                raise ValueError("Switch mode tool result must be an AssistantToolCallMessage")
-            last_message.content = self.transition_prompt
-            new_result.messages[-1] = last_message
-            return new_result
+        # Check if we should transition AFTER the tool successfully executed
+        if self._is_switch_mode_tool_call(state) and self._should_transition(state, result):
+            # Apply the supermode transition
+            result = result.model_copy(
+                update={
+                    "agent_mode": AgentMode.PRODUCT_ANALYTICS,
+                    "supermode": self.transition_supermode,
+                }
+            )
+
+            # Replace the tool call message content with the transition prompt
+            last_message = result.messages[-1] if result.messages else None
+            if isinstance(last_message, AssistantToolCallMessage):
+                updated_message = last_message.model_copy(update={"content": self.transition_prompt})
+                result = result.model_copy(update={"messages": [*result.messages[:-1], updated_message]})
 
         return result

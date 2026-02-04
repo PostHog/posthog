@@ -10,6 +10,7 @@ from unittest.mock import patch
 from rest_framework import status
 
 from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.summarization.constants import EVALUATION_SUMMARY_MAX_RUNS
 from products.llm_analytics.backend.summarization.llm.evaluation_schema import (
     EvaluationPattern,
     EvaluationSummaryResponse,
@@ -326,8 +327,8 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        # Try to pass more than 100 generation_ids
-        generation_ids = [str(uuid.uuid4()) for _ in range(101)]
+        # Try to pass more than EVALUATION_SUMMARY_MAX_RUNS generation_ids
+        generation_ids = [str(uuid.uuid4()) for _ in range(EVALUATION_SUMMARY_MAX_RUNS + 1)]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",

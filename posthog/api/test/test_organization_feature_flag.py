@@ -1,7 +1,10 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
+
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -10,6 +13,7 @@ from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.experiment import Experiment
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
@@ -872,3 +876,353 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             # Verify the encrypted payload can be decrypted back to the original value
             decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
             self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+
+class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
+    def setUp(self):
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        self.team_1.api_token = "phc_test_schedule_token_1"
+        self.team_1.save()
+        self.team_2.api_token = "phc_test_schedule_token_2"
+        self.team_2.save()
+
+        self.feature_flag_key = "flag-with-schedules"
+        self.feature_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key=self.feature_flag_key,
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        super().setUp()
+
+    def test_copy_flag_without_schedules(self):
+        """Copying a flag without copy_schedule=True should not copy schedules."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": False,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedules.count(), 0)
+
+    def test_copy_flag_with_single_schedule(self):
+        """Copying a flag with copy_schedule=True should copy the schedule."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        source_schedule = ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedules.count(), 1)
+
+        copied_schedule = target_schedules.first()
+        self.assertEqual(copied_schedule.payload, source_schedule.payload)
+        self.assertEqual(copied_schedule.scheduled_at, source_schedule.scheduled_at)
+        self.assertEqual(copied_schedule.created_by, self.user)
+
+    def test_copy_flag_with_multiple_schedules(self):
+        """Copying a flag should copy all pending schedules."""
+        scheduled_time_1 = timezone.now() + timedelta(days=1)
+        scheduled_time_2 = timezone.now() + timedelta(days=2)
+
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time_1,
+            team=self.team_1,
+            created_by=self.user,
+        )
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": True}},
+            scheduled_at=scheduled_time_2,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedules.count(), 2)
+
+    def test_copy_flag_does_not_copy_executed_schedules(self):
+        """Only pending schedules should be copied, not executed ones."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+
+        # Create a pending schedule
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+            executed_at=None,
+        )
+
+        # Create an already executed schedule
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": True}},
+            scheduled_at=timezone.now() - timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+            executed_at=timezone.now(),
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedules = ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        # Only the pending schedule should be copied
+        self.assertEqual(target_schedules.count(), 1)
+
+    def test_copy_flag_with_recurring_schedule(self):
+        """Recurring schedules should preserve their recurrence settings."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        end_date = timezone.now() + timedelta(days=30)
+
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            is_recurring=True,
+            recurrence_interval="weekly",
+            end_date=end_date,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertTrue(copied_schedule.is_recurring)
+        self.assertEqual(copied_schedule.recurrence_interval, "weekly")
+        self.assertEqual(copied_schedule.end_date, end_date)
+
+    def test_copy_flag_with_schedule_containing_cohort(self):
+        """Schedule payloads with cohort references should be remapped to target project cohorts."""
+        source_cohort = Cohort.objects.create(
+            team=self.team_1,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "email", "value": "@example.com", "type": "person", "operator": "icontains"}],
+                }
+            },
+        )
+
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={
+                "operation": "add_release_condition",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"key": "id", "type": "cohort", "value": source_cohort.id}],
+                        }
+                    ]
+                },
+            },
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify cohort was created in target project
+        target_cohort = Cohort.objects.get(name="Test Cohort", team=self.team_2)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+
+        # Verify the cohort ID in the schedule payload was remapped
+        schedule_cohort_id = copied_schedule.payload["filters"]["groups"][0]["properties"][0]["value"]
+        self.assertEqual(schedule_cohort_id, target_cohort.id)
+        self.assertNotEqual(schedule_cohort_id, source_cohort.id)
+
+    def test_copy_flag_schedule_failure_surfaces_warning(self):
+        """If schedule copying fails, the flag should still be copied with a warning."""
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+            "copy_schedule": True,
+        }
+
+        with patch(
+            "posthog.api.organization_feature_flag.OrganizationFeatureFlagView._copy_feature_flag_schedules"
+        ) as mock_copy:
+            mock_copy.side_effect = Exception("Database error")
+            response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertEqual(len(response.json()["failed"]), 0)
+
+        # Flag should still be copied
+        self.assertTrue(FeatureFlag.objects.filter(key=self.feature_flag_key, team=self.team_2).exists())
+
+        # Response should include a warning
+        result = response.json()["success"][0]
+        self.assertIn("schedule_copy_warning", result)
+        self.assertIn("Database error", result["schedule_copy_warning"])
+
+    def test_copy_flag_to_multiple_projects_with_schedules(self):
+        """Schedules should be copied to all target projects."""
+        team_3 = Team.objects.create(organization=self.organization)
+        team_3.api_token = "phc_test_schedule_token_3"
+        team_3.save()
+
+        scheduled_time = timezone.now() + timedelta(days=1)
+        ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": {"active": False}},
+            scheduled_at=scheduled_time,
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id, team_3.id],
+            "copy_schedule": True,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 2)
+
+        # Verify schedules exist in both target projects
+        for target_team in [self.team_2, team_3]:
+            copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=target_team)
+            target_schedules = ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=target_team,
+            )
+            self.assertEqual(target_schedules.count(), 1)
