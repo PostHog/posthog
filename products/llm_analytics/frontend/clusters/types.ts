@@ -104,3 +104,12 @@ export interface TraceSummary {
     interestingNotes: string
     timestamp: string
 }
+
+// Aggregated metrics for a cluster (averages across all items in the cluster)
+export interface ClusterMetrics {
+    avgCost: number | null // Average cost in USD
+    avgLatency: number | null // Average latency in seconds
+    avgTokens: number | null // Average total tokens (input + output)
+    totalCost: number | null // Total cost across all items
+    itemCount: number // Number of items with metrics data
+}
