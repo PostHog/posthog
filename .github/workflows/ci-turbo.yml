@@ -48,7 +48,6 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install pnpm
@@ -64,9 +63,9 @@ jobs:
               uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: ~/.cache/node-gyp
-                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-${{ hashFiles('**/pnpm-lock.yaml') }}
                   restore-keys: |
-                      ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-
+                      ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-
 
             - name: Run Python and Node setup in parallel
               run: |
@@ -104,8 +103,7 @@ jobs:
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
 
             - name: Save node-gyp cache
-              if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: ~/.cache/node-gyp
-                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-${{ hashFiles('**/pnpm-lock.yaml') }}
