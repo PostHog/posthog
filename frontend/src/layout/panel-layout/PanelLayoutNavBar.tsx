@@ -24,6 +24,8 @@ import { Link } from '@posthog/lemon-ui'
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
@@ -100,6 +102,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+
+    useAppShortcut({
+        name: 'toggle collapse left nav',
+        keybind: [keyBinds.toggleLeftNav],
+        intent: 'Toggle collapse left nav',
+        interaction: 'function',
+        callback: toggleLayoutNavCollapsed,
+    })
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
