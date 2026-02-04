@@ -24,6 +24,45 @@ use std::{env, sync::LazyLock};
 const DEFAULT_EVAL_NUM_THREADS: usize = 1;
 const EVAL_NUM_THREADS_ENV: &str = "EVAL_NUM_THREADS";
 
+/// Result of resolving the thread count from environment and available parallelism.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedThreadCount {
+    /// Valid env var value within available parallelism.
+    Configured(usize),
+    /// Env var value exceeded available parallelism, capped.
+    Capped { requested: usize, available: usize },
+    /// No env var, invalid value, or zero; using default.
+    Default(usize),
+}
+
+impl ResolvedThreadCount {
+    fn get(&self) -> usize {
+        match self {
+            Self::Configured(n) | Self::Default(n) => *n,
+            Self::Capped { available, .. } => *available,
+        }
+    }
+}
+
+/// Resolves the number of threads from an optional env var value and available parallelism.
+fn resolve_thread_count(env_value: Option<&str>, available: usize) -> ResolvedThreadCount {
+    let Some(requested) = env_value
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+    else {
+        return ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS);
+    };
+
+    if requested > available {
+        ResolvedThreadCount::Capped {
+            requested,
+            available,
+        }
+    } else {
+        ResolvedThreadCount::Configured(requested)
+    }
+}
+
 /// Returns the available parallelism, respecting container CPU limits on Linux.
 fn available_parallelism() -> usize {
     std::thread::available_parallelism()
@@ -36,22 +75,18 @@ fn available_parallelism() -> usize {
 
 static EVAL_POOL: LazyLock<rayon::ThreadPool> = LazyLock::new(|| {
     let available = available_parallelism();
-    let requested = env::var(EVAL_NUM_THREADS_ENV)
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|i| *i > 0)
-        .unwrap_or(DEFAULT_EVAL_NUM_THREADS);
+    let env_value = env::var(EVAL_NUM_THREADS_ENV).ok();
+    let resolved = resolve_thread_count(env_value.as_deref(), available);
+    let num_threads = resolved.get();
 
-    let num_threads = if requested > available {
+    if let ResolvedThreadCount::Capped { requested, .. } = resolved {
         tracing::warn!(
             requested,
             available,
-            "Requested {EVAL_NUM_THREADS_ENV} exceeds available parallelism, capping to {available}"
+            num_threads,
+            "{EVAL_NUM_THREADS_ENV} exceeds available parallelism, capping"
         );
-        available
-    } else {
-        requested
-    };
+    }
 
     tracing::info!(
         num_threads,
@@ -94,4 +129,40 @@ where
     R: Send,
 {
     tokio::task::block_in_place(|| EVAL_POOL.install(f))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::valid_within_limit(Some("4"), 8, ResolvedThreadCount::Configured(4))]
+    #[case::valid_at_limit(Some("8"), 8, ResolvedThreadCount::Configured(8))]
+    #[case::exceeds_available(Some("16"), 8, ResolvedThreadCount::Capped { requested: 16, available: 8 })]
+    #[case::no_env_var(None, 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    #[case::empty_string(Some(""), 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    #[case::non_numeric(Some("abc"), 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    #[case::zero_value(Some("0"), 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    #[case::negative_value(Some("-1"), 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    #[case::whitespace_only(Some("   "), 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    #[case::float_value(Some("4.5"), 8, ResolvedThreadCount::Default(DEFAULT_EVAL_NUM_THREADS))]
+    fn test_resolve_thread_count(
+        #[case] env_value: Option<&str>,
+        #[case] available: usize,
+        #[case] expected: ResolvedThreadCount,
+    ) {
+        assert_eq!(resolve_thread_count(env_value, available), expected);
+    }
+
+    #[rstest]
+    #[case::configured(ResolvedThreadCount::Configured(4), 4)]
+    #[case::capped(ResolvedThreadCount::Capped { requested: 16, available: 8 }, 8)]
+    #[case::default(ResolvedThreadCount::Default(1), 1)]
+    fn test_resolved_thread_count_get(
+        #[case] resolved: ResolvedThreadCount,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(resolved.get(), expected);
+    }
 }
