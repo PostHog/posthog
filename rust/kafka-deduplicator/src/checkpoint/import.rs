@@ -7,6 +7,7 @@ use crate::metrics_const::{
 };
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -140,7 +141,9 @@ impl CheckpointImporter {
             }
 
             let attempt_start = Instant::now();
-            let local_attempt_path = attempt.get_store_path(&self.store_base_path);
+            let import_timestamp = Utc::now();
+            let local_attempt_path =
+                attempt.get_store_path(&self.store_base_path, import_timestamp);
             let local_path_tag = local_attempt_path.to_string_lossy().to_string();
             let attempt_tag = attempt.get_attempt_path();
 
@@ -201,9 +204,27 @@ impl CheckpointImporter {
             {
                 Ok(_) => {
                     let attempt_duration = attempt_start.elapsed().as_secs_f64();
+
+                    // Write marker file with checkpoint metadata to identify this as an imported store
+                    let marker_filename =
+                        format!(".imported_{}", import_timestamp.timestamp_millis());
+                    let marker_path = local_attempt_path.join(&marker_filename);
+                    let marker_content = attempt.to_json()?;
+                    tokio::fs::write(&marker_path, marker_content)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to write import marker file: {}",
+                                marker_path.display()
+                            )
+                        })?;
+
                     info!(
                         checkpoint = attempt_tag,
-                        local_attempt_path = local_path_tag,
+                        local_store_path = local_path_tag,
+                        original_checkpoint_timestamp = %attempt.attempt_timestamp,
+                        local_store_timestamp_millis = import_timestamp.timestamp_millis(),
+                        marker_file = %marker_filename,
                         attempt_duration_secs = attempt_duration,
                         total_duration_secs = start_time.elapsed().as_secs_f64(),
                         "Successfully imported checkpoint to local directory"
@@ -571,13 +592,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_import_cleans_up_existing_directory_from_crashed_attempt() {
+    async fn test_import_creates_timestamped_directory_with_marker() {
         let tmp_dir = TempDir::new().unwrap();
         let store_base_path = tmp_dir.path().to_path_buf();
 
         let topic = "test-topic";
         let partition = 0;
-        // Use a fixed timestamp so we know exactly what path will be used
+        // Use a fixed timestamp for the checkpoint metadata (this is the "old" checkpoint timestamp)
         let attempt_timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
 
         let mut metadata = CheckpointMetadata::new(
@@ -593,43 +614,73 @@ mod tests {
             "checksum1".to_string(),
         );
 
-        // Calculate the exact path that import will use
-        let expected_import_path = metadata.get_store_path(&store_base_path);
-
-        // Simulate a crashed previous attempt: create the directory with a "corrupted" file
-        std::fs::create_dir_all(&expected_import_path).unwrap();
-        let corrupted_file = expected_import_path.join("CORRUPTED_FROM_CRASH");
-        std::fs::write(&corrupted_file, b"this simulates leftover corrupted data").unwrap();
-        assert!(
-            corrupted_file.exists(),
-            "Corrupted file should exist before import"
-        );
-
         // Create importer with mock downloader
         let downloader = MockDownloader::new(metadata);
         let importer = CheckpointImporter::new(
             Box::new(downloader),
-            store_base_path,
+            store_base_path.clone(),
             3,
             Duration::from_secs(60),
         );
 
-        // Run import - should succeed after cleaning up the corrupted directory
+        // Record time bounds around the import
+        let before_import = Utc::now();
         let result = importer
             .import_checkpoint_for_topic_partition(topic, partition)
             .await;
+        let after_import = Utc::now();
 
         assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
         let import_path = result.unwrap();
-        assert_eq!(import_path, expected_import_path);
+        assert!(import_path.exists(), "Import path should exist");
 
-        // Verify the corrupted file is gone (directory was pre-deleted and recreated)
+        // Verify the import path uses a current timestamp (Utc::now()), not the checkpoint's old timestamp
+        let timestamp_str = import_path.file_name().unwrap().to_str().unwrap();
+        let timestamp_millis: i64 = timestamp_str
+            .parse()
+            .expect("Path should end with timestamp millis");
         assert!(
-            !corrupted_file.exists(),
-            "Corrupted file should have been removed by defensive pre-deletion"
+            timestamp_millis >= before_import.timestamp_millis(),
+            "Import timestamp {} should be >= before_import {}",
+            timestamp_millis,
+            before_import.timestamp_millis()
+        );
+        assert!(
+            timestamp_millis <= after_import.timestamp_millis(),
+            "Import timestamp {} should be <= after_import {}",
+            timestamp_millis,
+            after_import.timestamp_millis()
         );
 
-        // Verify the imported file exists
+        // Verify the timestamp is NOT the old checkpoint timestamp
+        assert_ne!(
+            timestamp_millis,
+            attempt_timestamp.timestamp_millis(),
+            "Import should use Utc::now(), not the checkpoint's original timestamp"
+        );
+
+        // Verify marker file exists with correct content
+        let marker_files: Vec<_> = std::fs::read_dir(&import_path)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".imported_"))
+            .collect();
+        assert_eq!(marker_files.len(), 1, "Should have exactly one marker file");
+
+        let marker_filename = marker_files[0].file_name().to_string_lossy().to_string();
+        assert!(
+            marker_filename.starts_with(".imported_"),
+            "Marker file should start with .imported_"
+        );
+
+        // Verify marker file content contains checkpoint metadata
+        let marker_content = std::fs::read_to_string(marker_files[0].path()).unwrap();
+        let marker_metadata: serde_json::Value =
+            serde_json::from_str(&marker_content).expect("Marker should contain valid JSON");
+        assert_eq!(marker_metadata["topic"], topic);
+        assert_eq!(marker_metadata["partition"], partition);
+
+        // Verify the imported SST file exists
         let imported_file = import_path.join("000001.sst");
         assert!(
             imported_file.exists(),
