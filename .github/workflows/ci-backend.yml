@@ -258,6 +258,17 @@ jobs:
             - name: Check contract changes
               id: contract-check
               run: |
+                  # Turbo runs ALL product tests. Django runs posthog/ee tests.
+                  # This step determines if Django needs to run based on contract changes.
+                  #
+                  # Logic:
+                  # - Push to master: run Django (full CI)
+                  # - Legacy (posthog/ee) changed: run Django
+                  # - Any contract-check cache miss: run Django
+                  #   - Isolated product contract changed → might affect legacy
+                  #   - Non-isolated product changed → always triggers Django (inputs: **/*)
+                  # - All cache hits: skip Django (isolated impl-only changes)
+
                   # On push to master, always run Django
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
                     echo "Push to master - Django will run"
@@ -274,7 +285,8 @@ jobs:
                   fi
 
                   # Use turbo's cache to detect contract changes
-                  # hash-only mode shows clear "cache miss" or "cache hit" per task
+                  # - Isolated products: contract-check inputs are specific contract files
+                  # - Non-isolated products: contract-check inputs are **/*.py (always miss on change)
                   OUTPUT=$(pnpm turbo run backend:contract-check --output-logs=hash-only 2>&1 || true)
                   echo "$OUTPUT"
 
@@ -1022,7 +1034,7 @@ jobs:
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                      $(for p in products/*/; do [ -f "$p/backend/BUILD.bazel" ] && echo "--ignore=$p"; done) \
+                      --ignore=products/ \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \

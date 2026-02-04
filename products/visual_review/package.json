@@ -3,10 +3,10 @@
     "version": "0.0.0",
     "private": true,
     "scripts": {
-        "backend:test": "cd ../.. && uv run pytest products/visual_review/backend/tests -v --tb=short",
-        "backend:test:unit": "cd ../.. && uv run pytest products/visual_review/backend/tests -v -m 'not integration' --tb=short",
-        "backend:test:integration": "cd ../.. && uv run pytest products/visual_review/backend/tests -v -m 'integration' --tb=short",
-        "backend:lint": "cd ../.. && ruff check products/visual_review/backend && ruff format --check products/visual_review/backend",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:test:unit": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'not integration' --tb=short",
+        "backend:test:integration": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v -m 'integration' --tb=short",
+        "backend:lint": "ruff check --config ../../pyproject.toml backend && ruff format --config ../../pyproject.toml --check backend",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
@@ -24,47 +24,13 @@
             "//"
         ],
         "tasks": {
-            "backend:test": {
-                "inputs": [
-                    "backend/**/*.py",
-                    "!backend/**/__pycache__/**",
-                    "../../pyproject.toml",
-                    "../../uv.lock"
-                ],
-                "outputs": [],
-                "cache": true,
-                "env": [
-                    "DATABASE_URL",
-                    "REDIS_URL",
-                    "CLICKHOUSE_HOST",
-                    "TEST"
-                ]
-            },
-            "backend:test:unit": {
-                "inputs": [
-                    "backend/**/*.py",
-                    "!backend/**/__pycache__/**"
-                ],
-                "outputs": [],
-                "cache": true
-            },
-            "backend:lint": {
-                "inputs": [
-                    "backend/**/*.py",
-                    "!backend/**/__pycache__/**"
-                ],
-                "outputs": [],
-                "cache": true
-            },
             "backend:contract-check": {
                 "inputs": [
                     "backend/api/api.py",
                     "backend/api/dtos.py",
                     "backend/domain_types.py"
                 ],
-                "outputs": [
-                    ".turbo/contract-status.txt"
-                ],
+                "outputs": [],
                 "cache": true
             }
         }
