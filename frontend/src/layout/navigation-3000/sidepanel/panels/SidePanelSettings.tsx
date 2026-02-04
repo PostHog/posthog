@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowLeft, IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -22,6 +22,7 @@ export const SidePanelSettings = (): JSX.Element => {
     const { setSettings, setPreviousTab } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
     const { openAi } = useOpenAi()
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
     const settingsLogicProps: SettingsLogicProps = {
         ...settings,
@@ -39,7 +40,14 @@ export const SidePanelSettings = (): JSX.Element => {
     useEffect(() => {
         if (settings.settingId) {
             const timeout = setTimeout(() => {
-                document.getElementById(settings.settingId!)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                const container = scrollContainerRef.current
+                if (!container) {
+                    return
+                }
+
+                container
+                    .querySelector<HTMLElement>(`[id="${settings.settingId}"]`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
             }, 1000 / 60)
             return () => clearTimeout(timeout)
         }
@@ -79,7 +87,7 @@ export const SidePanelSettings = (): JSX.Element => {
                     All settings
                 </LemonButton>
             </SidePanelPaneHeader>
-            <div className="flex-1 p-3 overflow-y-auto">
+            <div className="flex-1 p-3 overflow-y-auto" ref={scrollContainerRef}>
                 <Settings hideSections {...settingsLogicProps} />
             </div>
         </div>
