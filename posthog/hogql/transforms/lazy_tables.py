@@ -77,162 +77,59 @@ def collect_fields_from_table(node: ast.AST, table_alias: str) -> set[str]:
     }
 
 
-class BareFieldCollector(TraversingVisitor):
-    """Collect bare field references (single-element chains) that belong to a specific table."""
-
-    def __init__(self, table_alias: str, table_type_to_match: ast.BaseTableType | None = None):
-        super().__init__()
-        self.table_alias = table_alias
-        self.table_type_to_match = table_type_to_match
-        self.fields: set[str] = set()
-
-    def visit_field(self, node: ast.Field):
-        # Only process single-element chains (bare field references)
-        if len(node.chain) != 1 or not isinstance(node.chain[0], str):
-            return
-
-        # Check if this field belongs to our table via its type
-        if node.type and isinstance(node.type, ast.FieldType):
-            table_type = node.type.table_type
-
-            # Walk through TableAliasType to find the actual table
-            while isinstance(table_type, ast.TableAliasType):
-                if table_type.alias == self.table_alias:
-                    self.fields.add(node.chain[0])
-                    return
-                table_type = table_type.table_type
-
-            # Also check if it's a TableType that matches the underlying table type
-            # This handles ExpressionFields with isolate_scope=True which resolve
-            # to the raw table rather than the aliased table
-            if self.table_type_to_match is not None and isinstance(table_type, ast.TableType):
-                match_type = self.table_type_to_match
-                # Unwrap TableAliasType to get to the underlying TableType
-                while isinstance(match_type, ast.TableAliasType):
-                    match_type = match_type.table_type
-                if isinstance(match_type, ast.TableType) and match_type.table == table_type.table:
-                    self.fields.add(node.chain[0])
-
-
-def collect_bare_fields_from_table(
-    node: ast.AST, table_alias: str, table_type: ast.BaseTableType | None = None
-) -> set[str]:
-    """Collect bare field names that belong to a specific table."""
-    collector = BareFieldCollector(table_alias, table_type)
-    collector.visit(node)
-    return collector.fields
+def collect_bare_fields(node: ast.AST) -> set[str]:
+    """Collect bare field names (single-element chains like 'event_person_id')."""
+    return {chain[0] for chain in find_field_chains(node) if len(chain) == 1 and isinstance(chain[0], str)}
 
 
 def replace_lazy_join_expressions(
     node: ast.Expr,
     table_alias: str,
     subquery_type: ast.SelectQueryAliasType,
-    our_lazy_joins: set[str],
+    lazy_join_names: set[str],
 ) -> ast.Expr:
-    """Replace expressions that reference a lazy join with simple field references.
+    """Replace if() expressions that reference lazy joins with simple field references.
 
-    When a table is wrapped in a subquery, expressions like:
-        if(not(empty(override.distinct_id)), override.person_id, event_person_id)
-    should become just:
-        table.person_id
-    because the subquery pre-computes this value.
+    Transforms: if(not(empty(override.distinct_id)), override.person_id, event_person_id)
+    Into: table.person_id (since the subquery pre-computes this)
     """
 
-    def references_our_lazy_join(n: ast.AST) -> bool:
+    def get_lazy_field_access(n: ast.AST) -> str | None:
+        """Find a field access through one of our lazy joins, e.g., 'person_id' from 'override.person_id'."""
         for chain in find_field_chains(n):
-            if chain and chain[0] in our_lazy_joins:
-                return True
-        return False
-
-    def get_accessed_field(n: ast.AST) -> str | None:
-        for chain in find_field_chains(n):
-            if chain and chain[0] in our_lazy_joins and len(chain) >= 2:
+            if chain and chain[0] in lazy_join_names and len(chain) >= 2:
                 return str(chain[1])
         return None
 
-    # Check if this is an if() call that uses our lazy joins
-    if isinstance(node, ast.Call) and node.name == "if" and len(node.args) >= 2:
-        if references_our_lazy_join(node):
-            field_name = get_accessed_field(node)
-            if field_name:
-                return ast.Field(
-                    chain=[table_alias, field_name],
-                    type=ast.FieldType(name=field_name, table_type=subquery_type),
-                )
+    # Replace if() calls that reference our lazy joins
+    if isinstance(node, ast.Call) and node.name == "if":
+        field_name = get_lazy_field_access(node)
+        if field_name:
+            return ast.Field(
+                chain=[table_alias, field_name],
+                type=ast.FieldType(name=field_name, table_type=subquery_type),
+            )
+        # If this if() has any reference to our lazy joins, we must be able to extract the field
+        for chain in find_field_chains(node):
+            if chain and chain[0] in lazy_join_names:
+                raise ResolutionError(f"Found lazy join reference {chain} but couldn't extract field name")
 
-    # Recursively process child nodes
+    # Recurse into child nodes
     if isinstance(node, ast.Call):
         node.args = [
-            replace_lazy_join_expressions(arg, table_alias, subquery_type, our_lazy_joins) for arg in node.args
+            replace_lazy_join_expressions(arg, table_alias, subquery_type, lazy_join_names) for arg in node.args
         ]
     elif isinstance(node, ast.CompareOperation):
-        node.left = replace_lazy_join_expressions(node.left, table_alias, subquery_type, our_lazy_joins)
-        node.right = replace_lazy_join_expressions(node.right, table_alias, subquery_type, our_lazy_joins)
+        node.left = replace_lazy_join_expressions(node.left, table_alias, subquery_type, lazy_join_names)
+        node.right = replace_lazy_join_expressions(node.right, table_alias, subquery_type, lazy_join_names)
     elif isinstance(node, ast.And):
-        node.exprs = [
-            replace_lazy_join_expressions(expr, table_alias, subquery_type, our_lazy_joins) for expr in node.exprs
-        ]
+        node.exprs = [replace_lazy_join_expressions(e, table_alias, subquery_type, lazy_join_names) for e in node.exprs]
     elif isinstance(node, ast.Or):
-        node.exprs = [
-            replace_lazy_join_expressions(expr, table_alias, subquery_type, our_lazy_joins) for expr in node.exprs
-        ]
+        node.exprs = [replace_lazy_join_expressions(e, table_alias, subquery_type, lazy_join_names) for e in node.exprs]
     elif isinstance(node, ast.Not):
-        node.expr = replace_lazy_join_expressions(node.expr, table_alias, subquery_type, our_lazy_joins)
+        node.expr = replace_lazy_join_expressions(node.expr, table_alias, subquery_type, lazy_join_names)
 
     return node
-
-
-class ConstraintFieldUpdater(TraversingVisitor):
-    """Update bare field references in a constraint to point to subquery columns.
-
-    When a table is wrapped in a subquery, bare field references (from ExpressionField
-    expansion with isolate_scope=True) need to be updated:
-        event_person_id -> table.event_person_id
-
-    Note: Lazy join fields (e.g., override.person_id) should be handled by
-    LazyJoinExpressionReplacer first, which replaces entire if-expressions.
-    """
-
-    def __init__(
-        self,
-        table_alias: str,
-        subquery_type: ast.SelectQueryAliasType,
-        original_table_type: ast.BaseTableType | None = None,
-    ):
-        super().__init__()
-        self.table_alias = table_alias
-        self.subquery_type = subquery_type
-        # Store the underlying TableType for comparison with ExpressionField expansions
-        self._underlying_table: ast.Table | None = None
-        if original_table_type:
-            check = original_table_type
-            while isinstance(check, ast.TableAliasType):
-                check = check.table_type
-            if isinstance(check, ast.TableType):
-                self._underlying_table = check.table
-
-    def _matches_by_alias(self, table_type: ast.BaseTableType) -> bool:
-        """Check if a table type matches our table by alias."""
-        check = table_type
-        while isinstance(check, ast.TableAliasType):
-            if check.alias == self.table_alias:
-                return True
-            check = check.table_type
-        return False
-
-    def visit_field(self, node: ast.Field):
-        if not node.type or not isinstance(node.type, ast.FieldType):
-            return
-
-        table_type = node.type.table_type
-
-        # Only handle bare fields (single-element chains) that belong to our table
-        # Lazy join fields should have been handled by LazyJoinExpressionReplacer
-        if len(node.chain) == 1 and isinstance(node.chain[0], str):
-            if self._matches_by_alias(table_type):
-                field_name = node.chain[0]
-                node.chain = [self.table_alias, field_name]
-                node.type = ast.FieldType(name=field_name, table_type=self.subquery_type)
 
 
 class LazyFinder(TraversingVisitor):
@@ -333,8 +230,7 @@ class LazyTableResolver(TraversingVisitor):
                 break
             join_ptr = join_ptr.next_join
 
-        if not join_ptr or not isinstance(join_ptr.table, ast.Field):
-            return
+        assert join_ptr is not None and isinstance(join_ptr.table, ast.Field), f"Table {table_alias} not found"
 
         # Collect fields needed in the subquery:
         # 1. All fields directly accessed from this table in the query
@@ -343,25 +239,19 @@ class LazyTableResolver(TraversingVisitor):
         # 2. Fields needed for lazy joins on this table
         for join_to_add in joins_to_add.values():
             if join_to_add.from_table == table_alias:
-                # from_field: fields used to join (e.g., distinct_id for person lookups)
                 for from_field in join_to_add.lazy_join.from_field:
-                    if isinstance(from_field, str):
-                        used_fields.add(from_field)
-                # fields_accessed: fields accessed through this lazy join (e.g., person_id)
-                for field_name in join_to_add.fields_accessed.keys():
-                    used_fields.add(field_name)
+                    assert isinstance(from_field, str), f"Expected string field, got {type(from_field)}"
+                    used_fields.add(from_field)
+                used_fields.update(join_to_add.fields_accessed.keys())
 
-        # 3. Bare fields from ExpressionField expansion that belong to this table
-        # (e.g., event_person_id when person_id ExpressionField expands)
-        if join_ptr.constraint is not None:
-            bare_fields = collect_bare_fields_from_table(join_ptr.constraint, table_alias, join_ptr.type)
-            used_fields.update(bare_fields)
+        # 3. Bare fields from ExpressionField expansion (e.g., event_person_id)
+        assert join_ptr.constraint is not None  # Detection only selects tables with constraints
+        used_fields.update(collect_bare_fields(join_ptr.constraint))
 
-        # Build subquery selecting needed fields with explicit aliases
+        # Build subquery selecting needed fields
         select_fields: list[ast.Expr] = [
             ast.Alias(alias=field, expr=ast.Field(chain=[table_alias, field])) for field in sorted(used_fields)
         ]
-
         subquery = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=list(join_ptr.table.chain)), alias=table_alias),
@@ -372,31 +262,18 @@ class LazyTableResolver(TraversingVisitor):
         resolve_lazy_tables(subquery, self.dialect, [subquery], self.context)
         assert subquery.type is not None
 
-        # Save original table type for comparison in ConstraintFieldUpdater
-        original_table_type = join_ptr.type
-
         # Replace the table with the subquery
         join_ptr.table = subquery
         join_ptr.alias = table_alias
         join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
         select_type.tables[table_alias] = join_ptr.type
 
-        # Update field references in the constraint to point to subquery columns
-        if join_ptr.constraint is not None:
-            # Build set of lazy join field names that belong to our table
-            # e.g., {"e2__override"} for table_alias="e2"
-            our_lazy_joins: set[str] = {
-                to_table for to_table, join_to_add in joins_to_add.items() if join_to_add.from_table == table_alias
-            }
-
-            # First, replace entire if-expressions that use our lazy joins
-            # These are expansions like: if(not(empty(override.distinct_id)), override.person_id, ...)
-            join_ptr.constraint = replace_lazy_join_expressions(
-                join_ptr.constraint, table_alias, join_ptr.type, our_lazy_joins
-            )
-
-            # Then, update any remaining bare field references
-            ConstraintFieldUpdater(table_alias, join_ptr.type, original_table_type).visit(join_ptr.constraint)
+        # Update constraint to reference subquery columns
+        lazy_join_names = {k for k, v in joins_to_add.items() if v.from_table == table_alias}
+        join_ptr.constraint = cast(
+            ast.JoinConstraint,
+            replace_lazy_join_expressions(join_ptr.constraint, table_alias, join_ptr.type, lazy_join_names),
+        )
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
