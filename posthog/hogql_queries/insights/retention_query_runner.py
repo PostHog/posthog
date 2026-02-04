@@ -144,13 +144,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def aggregation_target(self) -> ast.Expr | None:
+        """
+        Extract prop val
+        """
         if (
             self.query.retentionFilter.aggregationType in ["sum", "avg"]
             and self.query.retentionFilter.aggregationProperty
         ):
-            # Extract the property value directly from events.properties
             property_field = ast.Field(chain=["events", "properties", self.query.retentionFilter.aggregationProperty])
-            # We cast to Float64 to ensure we can sum/avg it, and use ifNull to handle nulls
             return ast.Call(
                 name="ifNull",
                 args=[

@@ -4426,7 +4426,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
     def test_retention_aggregation_sum(self):
         """Test retention with SUM aggregation on a property"""
-        # Create users
         Person.objects.create(team=self.team, distinct_ids=["user1"])
         Person.objects.create(team=self.team, distinct_ids=["user2"])
 
@@ -4499,7 +4498,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
     def test_retention_aggregation_avg(self):
         """Test retention with AVG aggregation on a property"""
-        # Create users
         Person.objects.create(team=self.team, distinct_ids=["user1"])
         Person.objects.create(team=self.team, distinct_ids=["user2"])
 
