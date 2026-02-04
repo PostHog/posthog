@@ -32,7 +32,7 @@ interface SavedInsightsTableProps {
 }
 
 export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
-    const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
+    const isExperimentEnabled = false
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
@@ -77,11 +77,11 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: 300,
+            ...(isExperimentEnabled ? { width: 300 } : {}),
             render: function renderName(name: string, insight) {
                 const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <div className="flex flex-col gap-1 min-w-0 max-w-[280px]">
+                    <div className={`flex flex-col gap-1 min-w-0 ${isExperimentEnabled ? 'max-w-[280px]' : ''}`}>
                         <div className="flex min-w-0">
                             {isExperimentEnabled ? (
                                 <Tooltip title={displayName}>
@@ -100,11 +100,14 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
                                 </Tooltip>
                             )}
                         </div>
-                        {insight.description && (
-                            <Tooltip title={insight.description}>
+                        {insight.description &&
+                            (isExperimentEnabled ? (
+                                <Tooltip title={insight.description}>
+                                    <div className="text-xs text-tertiary truncate">{insight.description}</div>
+                                </Tooltip>
+                            ) : (
                                 <div className="text-xs text-tertiary truncate">{insight.description}</div>
-                            </Tooltip>
-                        )}
+                            ))}
                     </div>
                 )
             },
@@ -146,24 +149,44 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
 
     return (
         <div className="saved-insights">
-            {title ? (
-                <div className="flex items-center gap-4 mb-2">
-                    <h4 className="font-semibold m-0 shrink-0">{title}</h4>
-                    <div className="flex-1">
+            {isExperimentEnabled ? (
+                <>
+                    {title ? (
+                        <div className="flex items-center gap-4 mb-2">
+                            <h4 className="font-semibold m-0 shrink-0">{title}</h4>
+                            <div className="flex-1">
+                                <SavedInsightsFilters
+                                    filters={filters}
+                                    setFilters={setModalFilters}
+                                    showQuickFilters={false}
+                                />
+                            </div>
+                        </div>
+                    ) : (
                         <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
+                    )}
+                    <LemonDivider className="my-4" />
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+                        <span className="text-secondary">
+                            {count
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
+                                : null}
+                        </span>
                     </div>
-                </div>
+                </>
             ) : (
-                <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
+                <>
+                    <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
+                    <LemonDivider className="my-4" />
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap items-center">
+                        <span className="text-secondary">
+                            {count
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
+                                : null}
+                        </span>
+                    </div>
+                </>
             )}
-            <LemonDivider className="my-4" />
-            <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                <span className="text-secondary">
-                    {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'insight')}`
-                        : null}
-                </span>
-            </div>
             {!insightsLoading && insights.count < 1 ? (
                 <SavedInsightsEmptyState filters={filters} usingFilters />
             ) : (
