@@ -16,7 +16,8 @@ use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, Fla
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
-    DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_BATCH_EVALUATION_COUNTER,
+    FLAG_BATCH_EVALUATION_TIME, FLAG_BATCH_SIZE, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
@@ -29,7 +30,7 @@ use crate::utils::graph_utils::{
     DependencyGraph, DependencyGraphResult, FilteredGraphResult,
 };
 use anyhow::Result;
-use common_metrics::{inc, timing_guard};
+use common_metrics::{histogram, inc, timing_guard};
 use common_types::{PersonId, TeamId};
 use once_cell::sync::Lazy;
 use rayon::prelude::*;
@@ -932,6 +933,15 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
+        let labels = [("evaluation_type".to_string(), "sequential".to_string())];
+
+        // Record batch size and increment counter (lightweight operations)
+        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
+        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
+
+        // Time the actual evaluation
+        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
+
         flags_to_evaluate
             .iter()
             .map(|flag| {
@@ -971,6 +981,15 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
+        let labels = [("evaluation_type".to_string(), "parallel".to_string())];
+
+        // Record batch size and increment counter (lightweight operations)
+        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
+        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
+
+        // Time the actual evaluation
+        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
+
         flags_to_evaluate
             .par_iter()
             .map(|flag| {
