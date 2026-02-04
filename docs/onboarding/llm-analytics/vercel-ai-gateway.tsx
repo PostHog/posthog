@@ -99,7 +99,7 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                                     )
 
                                     client = OpenAI(
-                                        base_url="https://gateway.ai.vercel.app/v1",
+                                        base_url="https://ai-gateway.vercel.sh/v1",
                                         api_key="<your_api_key>",
                                         posthog_client=posthog
                                     )
@@ -118,7 +118,7 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                                     );
 
                                     const openai = new OpenAI({
-                                      baseURL: 'https://gateway.ai.vercel.app/v1',
+                                      baseURL: 'https://ai-gateway.vercel.sh/v1',
                                       apiKey: '<your_api_key>',
                                       posthog: phClient,
                                     });
