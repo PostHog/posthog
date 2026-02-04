@@ -36,9 +36,9 @@ export async function loadClusterMetrics(
         return {}
     }
 
-    // Cost, latency, and token data live on $ai_generation events.
-    // For trace-level clustering, aggregate generation metrics by trace ID.
-    // For generation-level clustering, cluster keys are event UUIDs so match directly.
+    // For generation-level clustering, cluster keys are $ai_generation event UUIDs so match directly.
+    // For trace-level clustering, aggregate metrics across all AI events in the trace
+    // (generations, embeddings, spans) grouped by trace ID.
     const isGeneration = level === 'generation'
 
     const response = await api.queryHogQL(
@@ -67,7 +67,7 @@ export async function loadClusterMetrics(
                     sum(toInt(properties.$ai_output_tokens)) as output_tokens,
                     countIf(properties.$ai_is_error = 'true') as error_count
                 FROM events
-                WHERE event = '$ai_generation'
+                WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
                     AND timestamp >= parseDateTimeBestEffort(${windowStart})
                     AND timestamp <= parseDateTimeBestEffort(${windowEnd})
                     AND JSONExtractString(properties, '$ai_trace_id') IN ${allItemIds}
