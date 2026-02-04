@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::lock::{LockError, LockService};
 use crate::state::{
     MergeState, MergeStateRepository, SourcesMarkedData, StartedData, TargetMarkedData,
 };
@@ -22,23 +23,40 @@ mod tests;
 /// 5. Clear merge status on target
 /// 6. Delete source persons
 /// 7. Completed
-pub struct PersonMergeService<S: MergeStateRepository> {
+pub struct PersonMergeService<S: MergeStateRepository, L: LockService> {
     person_properties_api: Arc<dyn PersonPropertiesApi>,
     person_distinct_ids_api: Arc<dyn PersonDistinctIdsApi>,
     state_repository: Arc<S>,
+    lock_service: Arc<L>,
 }
 
-impl<S: MergeStateRepository> PersonMergeService<S> {
+impl<S: MergeStateRepository, L: LockService> PersonMergeService<S, L> {
     pub fn new(
         person_properties_api: Arc<dyn PersonPropertiesApi>,
         person_distinct_ids_api: Arc<dyn PersonDistinctIdsApi>,
         state_repository: Arc<S>,
+        lock_service: Arc<L>,
     ) -> Self {
         Self {
             person_properties_api,
             person_distinct_ids_api,
             state_repository,
+            lock_service,
         }
+    }
+
+    async fn acquire_lock(&self, merge_id: &str) -> ApiResult<()> {
+        self.lock_service
+            .acquire(merge_id)
+            .await
+            .map_err(|e| match e {
+                LockError::Timeout => format!("Lock acquisition timed out for merge {}", merge_id),
+                LockError::LockLost => format!("Lock lost for merge {}", merge_id),
+                LockError::AlreadyHeld => {
+                    format!("Lock already held by another process for merge {}", merge_id)
+                }
+            })?;
+        Ok(())
     }
 
     async fn save_state(&self, state: &MergeState) -> ApiResult<()> {
@@ -141,6 +159,8 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
     /// Resume merge from Started step - need to mark target and continue.
     async fn resume_from_started(&self, data: StartedData) -> ApiResult<MergeResult> {
+        self.acquire_lock(&data.merge_id).await?;
+
         // Mark target as merging (idempotent with same version)
         let target_result = self
             .person_distinct_ids_api
@@ -186,6 +206,8 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
     /// Resume merge from TargetMarked step - need to mark sources and continue.
     async fn resume_from_target_marked(&self, data: TargetMarkedData) -> ApiResult<MergeResult> {
+        self.acquire_lock(&data.started.merge_id).await?;
+
         let mut conflicts: Vec<MergeConflict> = Vec::new();
 
         // Mark sources as merging (idempotent with same version)
@@ -261,6 +283,9 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
     /// Resume merge from SourcesMarked step - properties need to be merged.
     async fn resume_from_sources_marked(&self, data: SourcesMarkedData) -> ApiResult<MergeResult> {
+        self.acquire_lock(&data.target_marked.started.merge_id)
+            .await?;
+
         let target_person_uuid = &data.target_marked.target_person_uuid;
 
         if data.source_person_uuids.is_empty() {
@@ -311,6 +336,9 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         &self,
         data: SourcesMarkedData,
     ) -> ApiResult<MergeResult> {
+        self.acquire_lock(&data.target_marked.started.merge_id)
+            .await?;
+
         let target_person_uuid = &data.target_marked.target_person_uuid;
         let version = data.target_marked.started.version;
 
@@ -337,6 +365,9 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         &self,
         data: SourcesMarkedData,
     ) -> ApiResult<MergeResult> {
+        self.acquire_lock(&data.target_marked.started.merge_id)
+            .await?;
+
         self.person_distinct_ids_api
             .set_merged(
                 &data.target_marked.started.target_distinct_id,
@@ -354,6 +385,9 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
     /// Resume merge from TargetCleared step - delete source persons and complete.
     async fn resume_from_target_cleared(&self, data: SourcesMarkedData) -> ApiResult<MergeResult> {
+        self.acquire_lock(&data.target_marked.started.merge_id)
+            .await?;
+
         let delete_futures: Vec<_> = data
             .source_person_uuids
             .iter()

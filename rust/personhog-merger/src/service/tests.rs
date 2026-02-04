@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
+use crate::lock::InMemoryLockService;
 use crate::state::{
     InMemoryMergeStateRepository, MergeState, MergeStateRepository, MergeStep, SourcesMarkedData,
     StartedData, TargetMarkedData,
@@ -14,6 +15,10 @@ use crate::types::{
     VersionedProperty,
 };
 use crate::PersonMergeService;
+
+fn create_lock_service() -> Arc<InMemoryLockService> {
+    Arc::new(InMemoryLockService::new())
+}
 
 type CallRecorder<T> = Arc<Mutex<Vec<T>>>;
 
@@ -445,7 +450,7 @@ async fn test_merges_single_source_into_target() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge(
@@ -565,7 +570,7 @@ async fn test_merges_multiple_sources_into_target() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -626,7 +631,7 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let _result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -670,7 +675,7 @@ async fn test_handles_source_person_with_no_properties() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let _result = merge_service
         .merge(
@@ -744,7 +749,7 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -825,7 +830,7 @@ async fn test_clears_target_merge_status_when_all_sources_conflict() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -866,7 +871,7 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -933,6 +938,7 @@ async fn test_state_is_tracked_throughout_merge() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let result = merge_service
@@ -977,7 +983,7 @@ async fn test_merge_reraises_api_errors_from_set_merging_target() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -1010,7 +1016,7 @@ async fn test_merge_reraises_api_errors_from_set_merging_source() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
@@ -1049,7 +1055,7 @@ async fn test_merge_reraises_api_errors_from_get_persons_for_merge() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge(
@@ -1100,7 +1106,7 @@ async fn test_merge_reraises_api_errors_from_delete_person() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let merge_service =
-        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
+        PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo, create_lock_service());
 
     let result = merge_service
         .merge(
@@ -1158,6 +1164,7 @@ async fn test_resume_from_started_step() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let results = merge_service.resume_all().await.unwrap();
@@ -1218,6 +1225,7 @@ async fn test_resume_from_target_marked_step() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let results = merge_service.resume_all().await.unwrap();
@@ -1279,6 +1287,7 @@ async fn test_resume_from_sources_marked_step() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     // Resume all incomplete merges
@@ -1337,6 +1346,7 @@ async fn test_resume_from_properties_merged_step() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let results = merge_service.resume_all().await.unwrap();
@@ -1389,6 +1399,7 @@ async fn test_resume_from_target_cleared_step() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let results = merge_service.resume_all().await.unwrap();
@@ -1434,6 +1445,7 @@ async fn test_resume_skips_completed_and_failed_states() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let results = merge_service.resume_all().await.unwrap();
@@ -1481,6 +1493,7 @@ async fn test_resume_multiple_incomplete_merges() {
         properties_api.clone(),
         distinct_ids_api.clone(),
         state_repo.clone(),
+        create_lock_service(),
     );
 
     let results = merge_service.resume_all().await.unwrap();
@@ -1521,7 +1534,7 @@ async fn test_service_restart_fail_at_sources_marked() {
         });
         distinct_ids_api.set_merging_source_error("connection lost");
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone());
+        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
 
         let result = service
             .merge(
@@ -1559,6 +1572,7 @@ async fn test_service_restart_fail_at_sources_marked() {
             properties_api.clone(),
             distinct_ids_api.clone(),
             state_repo.clone(),
+            create_lock_service(),
         );
 
         let results = service.resume_all().await.unwrap();
@@ -1601,7 +1615,7 @@ async fn test_service_restart_fail_at_properties_merged() {
         }]);
         properties_api.set_get_persons_for_merge_error("database timeout");
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone());
+        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
 
         let result = service
             .merge(
@@ -1637,6 +1651,7 @@ async fn test_service_restart_fail_at_properties_merged() {
             properties_api.clone(),
             distinct_ids_api.clone(),
             state_repo.clone(),
+            create_lock_service(),
         );
 
         let results = service.resume_all().await.unwrap();
@@ -1682,7 +1697,7 @@ async fn test_service_restart_fail_at_distinct_ids_merged() {
         properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
         properties_api.set_merge_person_properties_result(Ok(()));
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone());
+        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
 
         let result = service
             .merge(
@@ -1707,6 +1722,7 @@ async fn test_service_restart_fail_at_distinct_ids_merged() {
             properties_api.clone(),
             distinct_ids_api.clone(),
             state_repo.clone(),
+            create_lock_service(),
         );
 
         let results = service.resume_all().await.unwrap();
@@ -1756,7 +1772,7 @@ async fn test_service_restart_fail_at_delete_person() {
         properties_api.set_merge_person_properties_result(Ok(()));
         properties_api.set_delete_person_error("storage failure");
 
-        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone());
+        let service = PersonMergeService::new(properties_api, distinct_ids_api, state_repo.clone(), create_lock_service());
 
         let result = service
             .merge(
@@ -1781,6 +1797,7 @@ async fn test_service_restart_fail_at_delete_person() {
             properties_api.clone(),
             distinct_ids_api.clone(),
             state_repo.clone(),
+            create_lock_service(),
         );
 
         let results = service.resume_all().await.unwrap();
@@ -1795,6 +1812,381 @@ async fn test_service_restart_fail_at_delete_person() {
         // Verify other APIs were NOT called (already done)
         assert!(distinct_ids_api.get_set_merging_target_calls().is_empty());
         assert!(distinct_ids_api.get_set_merged_calls().is_empty());
+    }
+}
+
+// =============================================================================
+// Lock acquisition tests
+// =============================================================================
+
+use crate::lock::{BreakpointedLockService, InjectedLockError, LockBreakpoint, LockOperation};
+
+#[tokio::test]
+async fn test_lock_failure_prevents_api_calls_at_started_step() {
+    // This test verifies that lock is acquired BEFORE any API calls at the Started step
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let version = 30001;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    let inner_lock = crate::lock::InMemoryLockService::new();
+    let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+    // Inject a timeout error for the lock
+    lock_service
+        .inject_error(InjectedLockError::timeout("merge-1"))
+        .await;
+
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo,
+        lock_service,
+    );
+
+    let result = merge_service
+        .merge(
+            "merge-1",
+            target_distinct_id,
+            &[source_distinct_id.to_string()],
+            version,
+        )
+        .await;
+
+    // Lock acquisition should fail
+    assert!(result.is_err());
+
+    // No API calls should have been made since lock acquisition failed first
+    assert!(distinct_ids_api.get_set_merging_target_calls().is_empty());
+    assert!(distinct_ids_api.get_set_merging_source_calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_lock_timeout_at_started_step_returns_error() {
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let version = 30002;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    let inner_lock = crate::lock::InMemoryLockService::new();
+    let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+    // Inject a timeout error
+    lock_service
+        .inject_error(InjectedLockError::timeout("merge-1"))
+        .await;
+
+    let merge_service =
+        PersonMergeService::new(properties_api, distinct_ids_api, state_repo, lock_service);
+
+    let result = merge_service
+        .merge(
+            "merge-1",
+            target_distinct_id,
+            &[source_distinct_id.to_string()],
+            version,
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("timed out"));
+}
+
+#[tokio::test]
+async fn test_lock_lost_at_sources_marked_step_returns_error() {
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_person_uuid = "source-person-uuid";
+    let version = 30003;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    // Pre-populate state at SourcesMarked step
+    let mut valid_sources = HashMap::new();
+    valid_sources.insert(
+        source_distinct_id.to_string(),
+        source_person_uuid.to_string(),
+    );
+    let initial_state = MergeState::SourcesMarked(create_sources_marked_data(
+        "merge-1",
+        target_distinct_id,
+        vec![source_distinct_id.to_string()],
+        version,
+        target_person_uuid,
+        valid_sources,
+        vec![source_person_uuid.to_string()],
+    ));
+    state_repo.set(initial_state).await.unwrap();
+
+    let inner_lock = crate::lock::InMemoryLockService::new();
+    let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+    // Inject lock lost error when resuming
+    lock_service
+        .inject_error(InjectedLockError::lock_lost("merge-1"))
+        .await;
+
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api,
+        state_repo.clone(),
+        lock_service,
+    );
+
+    let results = merge_service.resume_all().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].1.is_err());
+    assert!(results[0].1.as_ref().unwrap_err().to_string().contains("lost"));
+
+    // No API calls should have been made
+    assert_eq!(properties_api.get_persons_for_merge_call_count(), 0);
+}
+
+#[tokio::test]
+async fn test_lock_lost_at_properties_merged_step_returns_error() {
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_person_uuid = "source-person-uuid";
+    let version = 30004;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    // Pre-populate state at PropertiesMerged step
+    let mut valid_sources = HashMap::new();
+    valid_sources.insert(
+        source_distinct_id.to_string(),
+        source_person_uuid.to_string(),
+    );
+    let initial_state = MergeState::PropertiesMerged(create_sources_marked_data(
+        "merge-1",
+        target_distinct_id,
+        vec![source_distinct_id.to_string()],
+        version,
+        target_person_uuid,
+        valid_sources,
+        vec![source_person_uuid.to_string()],
+    ));
+    state_repo.set(initial_state).await.unwrap();
+
+    let inner_lock = crate::lock::InMemoryLockService::new();
+    let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+    // Inject lock lost error
+    lock_service
+        .inject_error(InjectedLockError::lock_lost("merge-1"))
+        .await;
+
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo.clone(),
+        lock_service,
+    );
+
+    let results = merge_service.resume_all().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].1.is_err());
+    assert!(results[0].1.as_ref().unwrap_err().to_string().contains("lost"));
+
+    // No set_merged calls should have been made
+    assert!(distinct_ids_api.get_set_merged_calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_lock_lost_at_distinct_ids_merged_step_returns_error() {
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_person_uuid = "source-person-uuid";
+    let version = 30005;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    // Pre-populate state at DistinctIdsMerged step
+    let mut valid_sources = HashMap::new();
+    valid_sources.insert(
+        source_distinct_id.to_string(),
+        source_person_uuid.to_string(),
+    );
+    let initial_state = MergeState::DistinctIdsMerged(create_sources_marked_data(
+        "merge-1",
+        target_distinct_id,
+        vec![source_distinct_id.to_string()],
+        version,
+        target_person_uuid,
+        valid_sources,
+        vec![source_person_uuid.to_string()],
+    ));
+    state_repo.set(initial_state).await.unwrap();
+
+    let inner_lock = crate::lock::InMemoryLockService::new();
+    let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+    // Inject lock lost error
+    lock_service
+        .inject_error(InjectedLockError::lock_lost("merge-1"))
+        .await;
+
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo.clone(),
+        lock_service,
+    );
+
+    let results = merge_service.resume_all().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].1.is_err());
+
+    // No API calls should have been made
+    assert!(distinct_ids_api.get_set_merged_calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_lock_lost_at_target_cleared_step_returns_error() {
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_person_uuid = "source-person-uuid";
+    let version = 30006;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    // Pre-populate state at TargetCleared step
+    let mut valid_sources = HashMap::new();
+    valid_sources.insert(
+        source_distinct_id.to_string(),
+        source_person_uuid.to_string(),
+    );
+    let initial_state = MergeState::TargetCleared(create_sources_marked_data(
+        "merge-1",
+        target_distinct_id,
+        vec![source_distinct_id.to_string()],
+        version,
+        target_person_uuid,
+        valid_sources,
+        vec![source_person_uuid.to_string()],
+    ));
+    state_repo.set(initial_state).await.unwrap();
+
+    let inner_lock = crate::lock::InMemoryLockService::new();
+    let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+    // Inject lock lost error
+    lock_service
+        .inject_error(InjectedLockError::lock_lost("merge-1"))
+        .await;
+
+    let merge_service = PersonMergeService::new(
+        properties_api.clone(),
+        distinct_ids_api.clone(),
+        state_repo.clone(),
+        lock_service,
+    );
+
+    let results = merge_service.resume_all().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].1.is_err());
+
+    // No delete calls should have been made
+    assert!(properties_api.get_delete_person_calls().is_empty());
+}
+
+#[tokio::test]
+async fn test_lock_acquired_before_each_step_when_resuming() {
+    // This test verifies that lock is acquired at each step by injecting errors at different steps
+    let target_distinct_id = "target-distinct-id";
+    let source_distinct_id = "source-distinct-id";
+    let target_person_uuid = "target-person-uuid";
+    let source_person_uuid = "source-person-uuid";
+    let version = 30007;
+
+    let properties_api = Arc::new(MockPersonPropertiesApi::new());
+    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
+
+    // Set up successful responses for all API calls
+    distinct_ids_api.set_merging_target_result(SetMergingTargetResult::Ok {
+        distinct_id: target_distinct_id.to_string(),
+        person_uuid: target_person_uuid.to_string(),
+    });
+    distinct_ids_api.set_merging_source_result(vec![SetMergingSourceResult::Ok {
+        distinct_id: source_distinct_id.to_string(),
+        person_uuid: source_person_uuid.to_string(),
+    }]);
+
+    let target_person = create_person(target_person_uuid, vec![]);
+    let source_person = create_person(source_person_uuid, vec![]);
+    let mut source_persons_map = HashMap::new();
+    source_persons_map.insert(source_person_uuid.to_string(), source_person);
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
+    properties_api.set_merge_person_properties_result(Ok(()));
+
+    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
+
+    // First run: should fail on first lock acquisition, leaving state at Started
+    {
+        let inner_lock = crate::lock::InMemoryLockService::new();
+        let lock_service = Arc::new(BreakpointedLockService::new(inner_lock));
+
+        lock_service
+            .inject_error(InjectedLockError::timeout("merge-1"))
+            .await;
+
+        let merge_service = PersonMergeService::new(
+            properties_api.clone(),
+            distinct_ids_api.clone(),
+            state_repo.clone(),
+            lock_service,
+        );
+
+        let result = merge_service
+            .merge(
+                "merge-1",
+                target_distinct_id,
+                &[source_distinct_id.to_string()],
+                version,
+            )
+            .await;
+
+        assert!(result.is_err());
+        // State should be at Started since lock acquisition failed before any work
+        let state = state_repo.get("merge-1").await.unwrap().unwrap();
+        assert_eq!(state.step(), MergeStep::Started);
+    }
+
+    // Second run: lock works, complete the merge
+    {
+        let lock_service = create_lock_service();
+
+        let merge_service = PersonMergeService::new(
+            properties_api.clone(),
+            distinct_ids_api.clone(),
+            state_repo.clone(),
+            lock_service,
+        );
+
+        let results = merge_service.resume_all().await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].1.is_ok());
+
+        let state = state_repo.get("merge-1").await.unwrap().unwrap();
+        assert_eq!(state.step(), MergeStep::Completed);
     }
 }
 
