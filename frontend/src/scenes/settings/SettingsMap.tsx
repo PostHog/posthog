@@ -765,8 +765,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'project-move',
                 title: 'Move project',
-                flag: '!ENVIRONMENTS',
-                component: <ProjectMove />, // There isn't EnvironmentMove yet
+                component: <ProjectMove />,
             },
             {
                 id: 'environment-delete',
