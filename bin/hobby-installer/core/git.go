@@ -39,6 +39,14 @@ func UpdatePostHog() error {
 		return err
 	}
 
+	// Check if on a branch before pulling - detached HEAD can't pull
+	// This happens when CI checks out a specific commit SHA
+	branch, _ := RunCommandWithDir("posthog", "git", "branch", "--show-current")
+	if strings.TrimSpace(branch) == "" {
+		logger.WriteString("On detached HEAD, skipping pull (CheckoutVersion will handle it)\n")
+		return nil
+	}
+
 	logger.WriteString("Pulling updates...\n")
 	_, err = RunCommandWithDir("posthog", "git", "pull")
 	return err
