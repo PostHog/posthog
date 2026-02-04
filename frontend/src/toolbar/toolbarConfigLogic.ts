@@ -9,6 +9,29 @@ import { ToolbarProps } from '~/types'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY } from './utils'
 
+/**
+ * Derives the UI host from an API host URL.
+ * For PostHog cloud instances, maps API hosts (e.g., us.i.posthog.com) to UI hosts (e.g., us.posthog.com).
+ * Returns null if no mapping is found.
+ */
+function deriveUiHostFromApiHost(apiHost: string | undefined): string | null {
+    if (!apiHost) {
+        return null
+    }
+
+    // Map known PostHog API hosts to their UI counterparts
+    const apiToUiMap: Record<string, string> = {
+        'https://us.i.posthog.com': 'https://us.posthog.com',
+        'https://eu.i.posthog.com': 'https://eu.posthog.com',
+        // Also handle without protocol for flexibility
+        'us.i.posthog.com': 'https://us.posthog.com',
+        'eu.i.posthog.com': 'https://eu.posthog.com',
+    }
+
+    const normalizedApiHost = apiHost.replace(/\/+$/, '').toLowerCase()
+    return apiToUiMap[normalizedApiHost] ?? null
+}
+
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
@@ -39,21 +62,46 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        // UI host for navigation links (actions, feature flags, experiments, etc.) and API requests
-        // Uses posthog.config.ui_host if available, otherwise falls back to props.apiURL for backwards compatibility
+        // UI host for navigation links (actions, feature flags, experiments, etc.) and auth redirects
+        // Priority order:
+        // 1. posthog.config.ui_host (if posthog instance is available and ui_host is set)
+        // 2. Saved uiHost from props (persisted to localStorage)
+        // 3. Derived from posthog.config.api_host (for known PostHog cloud instances)
+        // 4. Derived from props.apiURL (for known PostHog cloud instances)
+        // 5. props.apiURL (backwards compatibility, may be incorrect for auth redirects)
+        // 6. window.location.origin (final fallback)
         uiHost: [
             (s) => [s.props],
             (props: ToolbarProps): string => {
+                // 1. First choice: explicitly configured ui_host from posthog instance
                 if (props.posthog?.config?.ui_host) {
                     return props.posthog.config.ui_host.replace(/\/+$/, '')
                 }
 
-                // Fallback: if apiURL prop is set, use it (backwards compatibility)
+                // 2. Check for saved uiHost in props (persisted to localStorage)
+                if ((props as any).__persistedUiHost) {
+                    return (props as any).__persistedUiHost
+                }
+
+                // 3. Try to derive UI host from API host (for known PostHog cloud instances)
+                const derivedFromApiHost = deriveUiHostFromApiHost(props.posthog?.config?.api_host)
+                if (derivedFromApiHost) {
+                    return derivedFromApiHost
+                }
+
+                // 4. Try to derive from apiURL prop (for known PostHog cloud instances)
+                const derivedFromApiUrl = deriveUiHostFromApiHost(props.apiURL)
+                if (derivedFromApiUrl) {
+                    return derivedFromApiUrl
+                }
+
+                // 5. Fallback: if apiURL prop is set, use it (backwards compatibility)
+                // Note: This may not be correct for auth redirects if apiURL is an API host
                 if (props.apiURL) {
                     return props.apiURL.replace(/\/+$/, '')
                 }
 
-                // Final fallback: current origin
+                // 6. Final fallback: current origin
                 return window.location.origin
             },
         ],
@@ -103,7 +151,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
         persistConfig: () => {
             // Most params we don't change, only those that we may have modified during the session
-            const toolbarParams: ToolbarProps = {
+            // We also save the resolved uiHost so authentication works correctly when loaded from localStorage
+            const toolbarParams: ToolbarProps & { __persistedUiHost?: string } = {
                 ...values.props,
                 temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
@@ -111,6 +160,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 productTourId: values.productTourId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
+                // Save the resolved uiHost so it's available when loaded from localStorage
+                // This ensures authentication redirects go to the correct PostHog UI
+                __persistedUiHost: values.uiHost,
             }
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
