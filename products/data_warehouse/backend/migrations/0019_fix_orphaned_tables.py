@@ -9,16 +9,15 @@ def fix_orphaned_tables(apps, schema_editor):
 
     orphaned_tables = DataWarehouseTable.objects.filter(
         external_data_source__deleted=True,
-        deleted=False,
-    )
+    ).exclude(deleted=True)
 
     orphaned_table_names = list(orphaned_tables.values_list("name", "team_id"))
 
+    # Mirrors join cleanup from DataWarehouseTable.soft_delete()
     for name, team_id in orphaned_table_names:
         DataWarehouseJoin.objects.filter(
             Q(team_id=team_id) & (Q(source_table_name=name) | Q(joining_table_name=name)),
-            deleted=False,
-        ).update(deleted=True, deleted_at=Now())
+        ).exclude(deleted=True).update(deleted=True, deleted_at=Now())
 
     orphaned_tables.update(deleted=True, deleted_at=Now())
 
