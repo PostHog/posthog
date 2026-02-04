@@ -24,7 +24,7 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
         <>
             {goalLines.map(({ label, value = 0, displayLabel = true, position, borderColor }, goalLineIndex) => {
                 return (
-                    <div className="flex flex-1 gap-1 mb-1 items-center" key={`${goalLineIndex}`}>
+                    <div className="flex flex-1 gap-1 items-center mb-1.5" key={`${goalLineIndex}`}>
                         <LemonColorPicker
                             colors={seriesColor}
                             selectedColor={borderColor || undefined}
@@ -32,13 +32,13 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                             showCustomColor
                             customButton={
                                 <div className="cursor-pointer">
-                                    <LemonColorGlyph color={borderColor} />
+                                    <LemonColorGlyph color={borderColor} size="small" />
                                 </div>
                             }
                         />
                         <LemonInput
                             placeholder="Label"
-                            className="grow"
+                            className="grow mx-0.5"
                             value={label}
                             onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
                         />
@@ -46,7 +46,7 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                             type="number"
                             step="any"
                             placeholder="Value"
-                            className="w-25"
+                            className="w-25 mr-0.5"
                             value={value}
                             onChange={(value) =>
                                 updateGoalLine(

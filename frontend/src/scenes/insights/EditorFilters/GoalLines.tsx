@@ -21,7 +21,7 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
         <div className="mt-1 mb-2">
             <GoalLinesList goalLines={goalLines} removeGoalLine={removeGoalLine} updateGoalLine={updateGoalLine} />
 
-            <LemonButton type="secondary" onClick={addGoalLine} icon={<IconPlusSmall />} sideIcon={null}>
+            <LemonButton type="secondary" onClick={addGoalLine} icon={<IconPlusSmall />} size="small" className="mt-2">
                 Add goal line
             </LemonButton>
         </div>
