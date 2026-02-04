@@ -19,6 +19,7 @@ const defaultHost = process.argv.includes('--host') && process.argv.includes('0.
 const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
+export const shouldMinify = process.env.MINIFY !== 'false' && !isDev
 
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
@@ -167,7 +168,7 @@ const { config: tsconfig } = ts.readConfigFile(
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
-    minify: !isDev,
+    minify: shouldMinify,
     target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
@@ -179,7 +180,7 @@ export const commonConfig = {
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
-                if (!isDev) {
+                if (shouldMinify) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
                 const { css } = await postcss(plugins).process(source, { from: filePath })

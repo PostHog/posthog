@@ -427,6 +427,217 @@ jobs:
                     fi
                   fi
 
+            - name: Rebuild frontend unminified for memory leak test
+              if: contains(github.event.pull_request.labels.*.name, 'memory-leak-check')
+              run: |
+                  echo "Rebuilding frontend without minification for better memory leak debugging..."
+                  echo "Clearing dist directory to force full rebuild..."
+                  rm -rf frontend/dist/*
+                  MINIFY=false pnpm --filter=@posthog/frontend build
+                  echo "Clearing staticfiles to pick up new build..."
+                  rm -rf staticfiles/
+                  python manage.py collectstatic --noinput
+                  echo "Build complete. Checking minification status..."
+                  # Verify unminified by checking for readable function names in output
+                  head -c 1000 frontend/dist/index-*.js | head -1 | cut -c1-200
+
+            - name: Run memory leak test
+              id: memory-leak-test
+              if: contains(github.event.pull_request.labels.*.name, 'memory-leak-check')
+              continue-on-error: true
+              shell: bash
+              env:
+                  RUN_MEMORY_LEAK_TESTS: 'true'
+              run: |
+                  mkdir -p playwright/memory-leak-results
+                  set +e
+                  pnpm --filter=@posthog/playwright exec playwright test --project=memory-leak 2>&1 | tee /tmp/memory-leak-output.log
+                  EXIT_CODE=${PIPESTATUS[0]}
+                  set -e
+                  echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+            - name: Calculate total memory leaks
+              id: calculate-leaks
+              if: steps.memory-leak-test.outcome != 'skipped'
+              shell: bash
+              run: |
+                  RESULTS_DIR="playwright/memory-leak-results"
+                  TOTAL_LEAKS=0
+
+                  if [ -d "$RESULTS_DIR" ]; then
+                      # Find all JSON files and sum up leak counts, keeping only highest per test
+                      declare -A MAX_LEAKS
+
+                      for dir in "$RESULTS_DIR"/*; do
+                          if [ -d "$dir" ]; then
+                              JSON_FILE="$dir/memory-leak-report.json"
+                              if [ -f "$JSON_FILE" ]; then
+                                  # Extract test name from directory
+                                  TEST_NAME=$(basename "$dir" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9-]\+Z\?-\?//')
+
+                                  # Extract leak count from JSON
+                                  LEAK_COUNT=$(jq -r '.leakResults.leakedObjectCount // 0' "$JSON_FILE")
+
+                                  # Keep highest leak count for this test
+                                  if [ -n "$LEAK_COUNT" ] && [ "$LEAK_COUNT" -eq "$LEAK_COUNT" ] 2>/dev/null; then
+                                      if [ -z "${MAX_LEAKS[$TEST_NAME]}" ] || [ "$LEAK_COUNT" -gt "${MAX_LEAKS[$TEST_NAME]}" ]; then
+                                          MAX_LEAKS[$TEST_NAME]=$LEAK_COUNT
+                                      fi
+                                  fi
+                                  fi
+                              fi
+                          fi
+                      done
+
+                      # Sum up the max leaks for each test
+                      for count in "${MAX_LEAKS[@]}"; do
+                          TOTAL_LEAKS=$((TOTAL_LEAKS + count))
+                      done
+                  fi
+
+                  echo "total_leaks=$TOTAL_LEAKS" >> $GITHUB_OUTPUT
+                  echo "Total memory leaks detected: $TOTAL_LEAKS"
+
+            - name: Report memory leaks to PostHog
+              if: steps.memory-leak-test.outcome != 'skipped' && github.repository == 'PostHog/posthog'
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'posthog_ci_memory_leaks'
+                  properties: '{"total_potential_leaks_detected": ${{ steps.calculate-leaks.outputs.total_leaks }}}'
+
+            - name: Post memory leak PR comment
+              if: steps.memory-leak-test.outcome != 'skipped' && github.event_name == 'pull_request'
+              uses: actions/github-script@v7
+              env:
+                  GITHUB_WORKSPACE: ${{ github.workspace }}
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const path = require('path');
+
+                      const resultsDir = path.join(process.env.GITHUB_WORKSPACE, 'playwright', 'memory-leak-results');
+                      let reportContent = '';
+                      const reports = [];
+
+                      try {
+                          console.log('Checking for results in:', resultsDir);
+                          if (fs.existsSync(resultsDir)) {
+                              const dirs = fs.readdirSync(resultsDir).sort();
+                              console.log('Found directories:', dirs);
+
+                              // Use a Map to keep the result with highest leak count for each test
+                              const reportMap = new Map();
+
+                              for (const dir of dirs) {
+                                  const reportPath = path.join(resultsDir, dir, 'memory-leak-report.md');
+                                  const jsonPath = path.join(resultsDir, dir, 'memory-leak-report.json');
+                                  console.log('Looking for report at:', reportPath);
+                                  if (fs.existsSync(reportPath)) {
+                                      const content = fs.readFileSync(reportPath, 'utf8');
+                                      const testName = dir.replace(/^\d{4}-\d{2}-\d{2}T[\d-]+Z?-?/, '');
+
+                                      // Read JSON to get leak count
+                                      let leakCount = 0;
+                                      if (fs.existsSync(jsonPath)) {
+                                          try {
+                                              const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+                                              leakCount = jsonData.leakResults?.leakedObjectCount || 0;
+                                          } catch (e) {
+                                              console.log('Failed to parse JSON for leak count:', e.message);
+                                          }
+                                      }
+
+                                      // Keep the result with highest leak count for this test
+                                      const existing = reportMap.get(testName);
+                                      if (!existing || leakCount > existing.leakCount) {
+                                          reportMap.set(testName, { name: testName || dir, content, leakCount });
+                                          console.log(`Updated report for ${testName} with ${leakCount} leaks`);
+                                      } else {
+                                          console.log(`Skipping ${testName} - existing has more leaks (${existing.leakCount} vs ${leakCount})`);
+                                      }
+                                  } else {
+                                      console.log('Report file does not exist in:', dir);
+                                  }
+                              }
+
+                              reports.push(...reportMap.values());
+
+                              if (reports.length > 0) {
+                                  const totalLeaks = reports.reduce((sum, r) => sum + r.leakCount, 0);
+
+                                  // Create summary table
+                                  let table = '| Test | Leaks Detected |\n';
+                                  table += '|------|---------------:|\n';
+                                  for (const r of reports) {
+                                      table += `| ${r.name} | ${r.leakCount} |\n`;
+                                  }
+                                  table += `| **Total** | **${totalLeaks}** |\n\n`;
+
+                                  const header = `# Memory Leak Detection Results\n\n${table}`;
+                                  reportContent = header + reports.map(r => `### Test: ${r.name}\n\n${r.content}`).join('\n\n---\n\n');
+                              }
+                          } else {
+                              console.log('Results directory does not exist');
+                          }
+                      } catch (e) {
+                          console.log('Error reading report file:', e.message);
+                          console.log('Stack:', e.stack);
+                      }
+
+                      if (!reportContent) {
+                          const logPath = '/tmp/memory-leak-output.log';
+                          let logContent = '';
+                          try {
+                              logContent = fs.readFileSync(logPath, 'utf8');
+                          } catch (e) {
+                              logContent = 'Could not read log file';
+                          }
+
+                          reportContent = `# Memory Leak Detection Results
+
+                      **Test completed** - see artifacts for detailed results.
+
+                      <details>
+                      <summary>Test output</summary>
+
+                      \`\`\`
+                      ${logContent.slice(-2000)}
+                      \`\`\`
+
+                      </details>
+
+                      ---
+                      *Memory leak detection is informational and does not block PR merging.*`;
+                      }
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+
+                      const botComment = comments.find(comment =>
+                          comment.user.type === 'Bot' &&
+                          comment.body.includes('Memory Leak Detection Results')
+                      );
+
+                      if (botComment) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: botComment.id,
+                              body: reportContent,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body: reportContent,
+                          });
+                      }
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
@@ -483,9 +694,11 @@ jobs:
                       playwright/playwright-report-attempt-*/
                       playwright/test-results/
                       playwright/test-results-attempt-*/
+                      playwright/memory-leak-results/
                       /tmp/celery.log
                       /tmp/server.log
                       /tmp/playwright-output-attempt-*.log
+                      /tmp/memory-leak-output.log
                   retention-days: 30
                   if-no-files-found: ignore
 
