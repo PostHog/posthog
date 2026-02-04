@@ -58,7 +58,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
     }
 
     return (
-        <ZendeskSourceSetupPrompt className="border-none">
+        <ZendeskSourceSetupPrompt className="border-none" attachTo={notebookLogic}>
             <Query query={{ ...query, embedded: true }} context={context} attachTo={notebookLogic} />
         </ZendeskSourceSetupPrompt>
     )
