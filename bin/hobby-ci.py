@@ -126,6 +126,31 @@ class HobbyTester:
             "fi"
         )
 
+    def _get_installer_commands(self):
+        """Return cloud-init commands to obtain the hobby-installer binary.
+
+        If INSTALLER_CHANGED is set (Go code was modified in this PR), build
+        from the checked-out source so the e2e test validates the new code.
+        Otherwise download the latest release to keep provisioning fast.
+        """
+        installer_changed = os.environ.get("INSTALLER_CHANGED", "false").lower() == "true"
+
+        if installer_changed:
+            return [
+                'echo "$LOG_PREFIX Building hobby installer from source (installer code changed)..."',
+                "curl -fsSL https://go.dev/dl/go1.24.0.linux-$(dpkg --print-architecture).tar.gz | tar -C /usr/local -xzf -",
+                "export PATH=$PATH:/usr/local/go/bin",
+                "cd posthog/bin/hobby-installer && go build -o /tmp/hobby-installer . && cd ../../..",
+                "cp /tmp/hobby-installer hobby-installer",
+                "chmod +x hobby-installer",
+            ]
+
+        return [
+            'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
+            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
+            "chmod +x hobby-installer",
+        ]
+
     def _build_user_data(self):
         """Build cloud-init user_data script with SSH pubkey in cloud-config"""
         cloud_config = """#cloud-config
@@ -157,9 +182,7 @@ runcmd:
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
             self._get_resolve_node_tag_script(),
-            'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
-            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
-            "chmod +x hobby-installer",
+            *self._get_installer_commands(),
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
