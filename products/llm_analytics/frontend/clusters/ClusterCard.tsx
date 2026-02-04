@@ -43,6 +43,7 @@ interface ClusterCardProps {
     runId: string
     clusteringLevel?: ClusteringLevel
     metrics?: ClusterMetrics
+    metricsLoading?: boolean
 }
 
 export function ClusterCard({
@@ -55,6 +56,7 @@ export function ClusterCard({
     runId,
     clusteringLevel = 'trace',
     metrics,
+    metricsLoading,
 }: ClusterCardProps): JSX.Element {
     const percentage = totalTraces > 0 ? Math.round((cluster.size / totalTraces) * 100) : 0
     const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
@@ -97,6 +99,13 @@ export function ClusterCard({
                         </div>
                         <ClusterDescription description={cluster.description} />
                         {/* Cluster Metrics */}
+                        {metricsLoading && !hasMetrics && (
+                            <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
+                                {Array.from({ length: 4 }).map((_, i) => (
+                                    <div key={i} className="h-5 w-24 bg-border-light rounded animate-pulse" />
+                                ))}
+                            </div>
+                        )}
                         {hasMetrics && (
                             <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
                                 {metrics.avgCost !== null && (

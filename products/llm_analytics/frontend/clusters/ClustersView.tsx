@@ -79,6 +79,7 @@ export function ClustersView(): JSX.Element {
         traceSummariesLoading,
         isScatterPlotExpanded,
         clusterMetrics,
+        clusterMetricsLoading,
     } = useValues(clustersLogic)
     const {
         setClusteringLevel,
@@ -303,6 +304,7 @@ export function ClustersView(): JSX.Element {
                             runId={effectiveRunId || ''}
                             clusteringLevel={clusteringLevel}
                             metrics={clusterMetrics[cluster.cluster_id]}
+                            metricsLoading={clusterMetricsLoading}
                         />
                     ))}
                 </div>
