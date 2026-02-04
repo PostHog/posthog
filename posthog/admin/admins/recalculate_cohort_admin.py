@@ -4,6 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
 
 from posthog.models import Cohort
+from posthog.models.cohort.util import CohortValidationError, validate_cohort_for_recalculation
 from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
 
 
@@ -34,17 +35,10 @@ def recalculate_cohort_view(request):
                 messages.error(request, f"Cohort with ID {cohort_id} does not exist")
                 return redirect("recalculate-cohort")
 
-            # Validation checks
-            if cohort.deleted:
-                messages.error(request, f"Cohort {cohort_id} is deleted and cannot be recalculated")
-                return redirect("recalculate-cohort")
-
-            if cohort.is_static:
-                messages.error(request, f"Cohort {cohort_id} is static and cannot be recalculated")
-                return redirect("recalculate-cohort")
-
-            if cohort.is_calculating and not force:
-                messages.error(request, f"Cohort {cohort_id} is currently calculating. Use 'Force' option to override")
+            try:
+                validate_cohort_for_recalculation(cohort, force=force)
+            except CohortValidationError as e:
+                messages.error(request, str(e))
                 return redirect("recalculate-cohort")
 
             try:

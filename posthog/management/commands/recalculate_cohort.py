@@ -4,6 +4,7 @@ import traceback
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Cohort
+from posthog.models.cohort.util import CohortValidationError, validate_cohort_for_recalculation
 from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
 
 logger = logging.getLogger(__name__)
@@ -33,14 +34,10 @@ class Command(BaseCommand):
         except Cohort.DoesNotExist:
             raise CommandError(f"Cohort with ID {cohort_id} does not exist")
 
-        if cohort.deleted:
-            raise CommandError(f"Cohort {cohort_id} is deleted")
-
-        if cohort.is_static:
-            raise CommandError(f"Cohort {cohort_id} is static and cannot be recalculated")
-
-        if cohort.is_calculating and not options["force"]:
-            raise CommandError(f"Cohort {cohort_id} is currently calculating. Use --force to override")
+        try:
+            validate_cohort_for_recalculation(cohort, force=options["force"])
+        except CohortValidationError as e:
+            raise CommandError(str(e))
 
         self._recalculate_cohort(cohort, options)
 

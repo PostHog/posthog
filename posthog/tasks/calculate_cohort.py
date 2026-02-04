@@ -305,16 +305,10 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         update_tags(tags)
 
         COHORT_CALCULATION_STARTED_COUNTER.inc()
-        calculation_start_time = time.time()
 
         try:
             cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
-            COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="success").inc()
-            COHORT_CALCULATION_DURATION_SECONDS.labels(status="success").observe(time.time() - calculation_start_time)
         except Exception as e:
-            COHORT_CALCULATION_COMPLETED_COUNTER.labels(status="error").inc()
-            COHORT_CALCULATION_DURATION_SECONDS.labels(status="error").observe(time.time() - calculation_start_time)
-
             # Ensure cohort status is reset if calculation failed at task level
             # The cohort model's finally block should handle this, but in case of worker crashes,
             # timeouts, or OOM errors, we need a safety net

@@ -96,6 +96,33 @@ def get_friendly_error_message(error_code: str | None) -> str | None:
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 
+class CohortValidationError(Exception):
+    """Exception raised when cohort validation fails"""
+
+    pass
+
+
+def validate_cohort_for_recalculation(cohort: Cohort, force: bool = False) -> None:
+    """
+    Validate that a cohort can be recalculated.
+
+    Args:
+        cohort: The cohort to validate
+        force: Whether to ignore the is_calculating state
+
+    Raises:
+        CohortValidationError: If the cohort cannot be recalculated
+    """
+    if cohort.deleted:
+        raise CohortValidationError(f"Cohort {cohort.id} is deleted and cannot be recalculated")
+
+    if cohort.is_static:
+        raise CohortValidationError(f"Cohort {cohort.id} is static and cannot be recalculated")
+
+    if cohort.is_calculating and not force:
+        raise CohortValidationError(f"Cohort {cohort.id} is currently calculating. Use force option to override")
+
+
 # ClickHouse ServerException.code_name -> CohortErrorCode
 # Keys are lowercase; code_name is normalized via .lower() before lookup
 _CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {

@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models import Cohort
+from posthog.models.cohort.util import CohortValidationError, validate_cohort_for_recalculation
 from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
 
 
@@ -42,24 +43,12 @@ class CohortAdmin(admin.ModelAdmin):
         skipped_count = 0
 
         for cohort in queryset:
-            # Skip static cohorts
-            if cohort.is_static:
-                skipped_count += 1
-                continue
-
-            # Skip deleted cohorts
-            if cohort.deleted:
-                skipped_count += 1
-                continue
-
-            # Skip if already calculating
-            if cohort.is_calculating:
-                skipped_count += 1
-                continue
-
             try:
+                validate_cohort_for_recalculation(cohort, force=False)
                 increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
                 successful_count += 1
+            except CohortValidationError:
+                skipped_count += 1
             except Exception as e:
                 failed_count += 1
                 messages.error(request, f"Failed to recalculate cohort {cohort.id} ({cohort.name}): {str(e)}")
