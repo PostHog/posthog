@@ -17,17 +17,18 @@ import { RecipientTokensService } from './recipient-tokens.service'
 
 export type EmailServiceHub = Pick<
     Hub,
-    | 'ENCRYPTION_SALT_KEYS'
     | 'SES_ACCESS_KEY_ID'
     | 'SES_SECRET_ACCESS_KEY'
     | 'SES_REGION'
     | 'SES_ENDPOINT'
     | 'SITE_URL'
+    | 'ENCRYPTION_SALT_KEYS'
     | 'integrationManager'
 >
 
 export class EmailService {
     ses: AWS.SES
+    sesV2Client: SESv2Client
 
     private recipientTokensService: RecipientTokensService
 
@@ -35,6 +36,14 @@ export class EmailService {
         this.ses = new AWS.SES({
             accessKeyId: this.hub.SES_ACCESS_KEY_ID,
             secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT || undefined,
+        })
+        this.sesV2Client = new SESv2Client({
+            credentials: {
+                accessKeyId: this.hub.SES_ACCESS_KEY_ID,
+                secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
+            },
             region: this.hub.SES_REGION,
             endpoint: this.hub.SES_ENDPOINT || undefined,
         })
@@ -217,15 +226,6 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
-        const sesClient = new SESv2Client({
-            credentials: {
-                accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-                secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            },
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
-
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
@@ -270,7 +270,7 @@ export class EmailService {
         }
 
         try {
-            const response = await sesClient.send(new SendEmailCommand(sendEmailParams))
+            const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
