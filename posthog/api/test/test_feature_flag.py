@@ -1398,6 +1398,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Should return 404 because the flag doesn't belong to this project
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_remote_config_with_string_key_scopes_to_project(self):
+        other_team = Team.objects.create(
+            organization=self.organization, api_token="phc_string_key_test", name="String Key Team"
+        )
+
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="unique-other-flag-key",
+            name="Other Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"leaked": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        # Try to access the other team's flag using its key from our project endpoint
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/unique-other-flag-key/remote_config")
+
+        # Should return 404 because the flag doesn't belong to this project
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
