@@ -33,6 +33,7 @@ export interface CohortCalculationHistoryRecord {
     total_read_rows: number
     total_written_rows: number
     main_query: any
+    main_query_id: string | null
 }
 
 export interface CohortCalculationHistoryResponse {

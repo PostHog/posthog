@@ -7,6 +7,7 @@ from posthog.temporal.ai.chat_agent import (
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.session_summary.activities import (
     analyze_video_segment_activity,
+    capture_timing_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     export_session_video_activity,
@@ -108,6 +109,7 @@ ACTIVITIES = [
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
     consolidate_video_segments_activity,
+    capture_timing_activity,
     # Video segment clustering activities
     prime_session_embeddings_activity,
     fetch_segments_activity,

@@ -150,16 +150,14 @@ export const DisplayTab = (): JSX.Element => {
                         : null,
                     {
                         key: 'goals',
-                        header: {
-                            children: (
-                                <div className="flex items-center gap-1 flex-1">
-                                    <span className="flex-1">Goals</span>
-                                    {goalLines.length > 0 && (
-                                        <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
-                                    )}
-                                </div>
-                            ),
-                        },
+                        header: (
+                            <div className="flex items-center gap-1 flex-1">
+                                <span className="flex-1">Goals</span>
+                                {goalLines.length > 0 && (
+                                    <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
+                                )}
+                            </div>
+                        ),
                         className: 'p-2',
                         content: (
                             <>

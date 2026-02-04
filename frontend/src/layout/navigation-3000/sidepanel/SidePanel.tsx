@@ -122,7 +122,7 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelHealth,
     },
     [SidePanelTab.Info]: {
-        label: 'Info & actions',
+        label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
     },
