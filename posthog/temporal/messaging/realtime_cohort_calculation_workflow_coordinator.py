@@ -99,8 +99,8 @@ async def check_running_child_workflows_activity() -> RunningChildWorkflowsCheck
 
     # Query for workflows that match our child workflow ID pattern and are running
     query = (
-        'WorkflowId STARTS_WITH "realtime-cohort-calculation-schedule" '
-        'AND WorkflowId CONTAINS "-child-" '
+        'WorkflowId LIKE "realtime-cohort-calculation-schedule%" '
+        'AND WorkflowId LIKE "%-child-%" '
         'AND ExecutionStatus="Running" '
         f'AND StartTime > "{since_str}"'
     )
