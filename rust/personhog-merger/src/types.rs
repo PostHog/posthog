@@ -76,13 +76,29 @@ pub struct MergeResult {
 
 pub type ApiResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Result of fetching persons for merge, including the target person.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetPersonsForMergeResult {
+    pub target_person: Person,
+    pub source_persons: HashMap<String, Person>,
+}
+
 /// Trait for person properties operations.
 ///
 /// Note: deletePerson is not part of this interface - orphaned persons (with no distinct IDs
 /// pointing to them) are garbage collected by a separate background process.
 #[async_trait]
 pub trait PersonPropertiesApi: Send + Sync {
-    async fn get_persons(&self, person_uuids: &[String]) -> ApiResult<HashMap<String, Person>>;
+    /// Fetches persons for merge and marks them as being merged.
+    ///
+    /// This method marks the source persons as being merged into the target. Once marked,
+    /// the persons API should reject writes to these source persons until the merge completes.
+    /// Returns both the target person and the source persons.
+    async fn get_persons_for_merge(
+        &self,
+        target_person_uuid: &str,
+        source_person_uuids: &[String],
+    ) -> ApiResult<GetPersonsForMergeResult>;
 
     async fn merge_person_properties(
         &self,

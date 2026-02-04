@@ -142,9 +142,9 @@ impl PersonMergeService {
         // We fetch source person properties and merge them into the target. Conflicts are
         // resolved using per-property version numbers - the property with the highest version wins.
         //
-        // Note: We may need a different method like `get_persons_for_merge` here, which would
-        // lock the source person rows to prevent other processes from updating them after
-        // we've copied the properties but before we've deleted the source persons.
+        // Using `get_persons_for_merge` which marks the source persons as being merged into the
+        // target. Once marked, the persons API rejects writes to these source persons until
+        // the merge completes.
         let source_person_uuids: Vec<String> = ok_results
             .iter()
             .map(|(_, uuid)| uuid.clone())
@@ -152,14 +152,14 @@ impl PersonMergeService {
             .into_iter()
             .collect();
 
-        let source_persons_map = self
+        let merge_result = self
             .person_properties_api
-            .get_persons(&source_person_uuids)
+            .get_persons_for_merge(&target_person_uuid, &source_person_uuids)
             .await?;
 
         let source_persons: Vec<Person> = source_person_uuids
             .iter()
-            .filter_map(|uuid| source_persons_map.get(uuid).cloned())
+            .filter_map(|uuid| merge_result.source_persons.get(uuid).cloned())
             .collect();
 
         if !source_persons.is_empty() {

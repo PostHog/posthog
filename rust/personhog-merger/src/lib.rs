@@ -6,8 +6,9 @@ mod testing;
 
 pub use service::PersonMergeService;
 pub use types::{
-    DistinctIdInfo, MergeConflict, MergeResult, MergeStatus, Person, PersonDistinctIdsApi,
-    PersonPropertiesApi, SetMergingSourceResult, SetMergingTargetResult, VersionedProperty,
+    DistinctIdInfo, GetPersonsForMergeResult, MergeConflict, MergeResult, MergeStatus, Person,
+    PersonDistinctIdsApi, PersonPropertiesApi, SetMergingSourceResult, SetMergingTargetResult,
+    VersionedProperty,
 };
 
 #[cfg(test)]

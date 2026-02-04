@@ -5,8 +5,9 @@ use async_trait::async_trait;
 
 use crate::testing::Breakpoint;
 use crate::types::{
-    ApiResult, DistinctIdInfo, MergeConflict, MergeStatus, Person, PersonDistinctIdsApi,
-    PersonPropertiesApi, SetMergingSourceResult, SetMergingTargetResult, VersionedProperty,
+    ApiResult, DistinctIdInfo, GetPersonsForMergeResult, MergeConflict, MergeStatus, Person,
+    PersonDistinctIdsApi, PersonPropertiesApi, SetMergingSourceResult, SetMergingTargetResult,
+    VersionedProperty,
 };
 use crate::PersonMergeService;
 
@@ -33,8 +34,9 @@ struct SetMergedCall {
 }
 
 #[derive(Clone, Debug)]
-struct GetPersonsCall {
-    person_uuids: Vec<String>,
+struct GetPersonsForMergeCall {
+    target_person_uuid: String,
+    source_person_uuids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,12 +46,12 @@ struct MergePersonPropertiesCall {
 }
 
 struct MockPersonPropertiesApi {
-    get_persons_result: Mutex<Option<ApiResult<HashMap<String, Person>>>>,
+    get_persons_for_merge_result: Mutex<Option<ApiResult<GetPersonsForMergeResult>>>,
     merge_person_properties_result: Mutex<Option<ApiResult<()>>>,
-    get_persons_calls: CallRecorder<GetPersonsCall>,
+    get_persons_for_merge_calls: CallRecorder<GetPersonsForMergeCall>,
     merge_person_properties_calls: CallRecorder<MergePersonPropertiesCall>,
     #[allow(dead_code)]
-    get_persons_breakpoint: Mutex<Option<Breakpoint<()>>>,
+    get_persons_for_merge_breakpoint: Mutex<Option<Breakpoint<()>>>,
     #[allow(dead_code)]
     merge_person_properties_breakpoint: Mutex<Option<Breakpoint<()>>>,
 }
@@ -57,33 +59,41 @@ struct MockPersonPropertiesApi {
 impl MockPersonPropertiesApi {
     fn new() -> Self {
         Self {
-            get_persons_result: Mutex::new(None),
+            get_persons_for_merge_result: Mutex::new(None),
             merge_person_properties_result: Mutex::new(None),
-            get_persons_calls: Arc::new(Mutex::new(Vec::new())),
+            get_persons_for_merge_calls: Arc::new(Mutex::new(Vec::new())),
             merge_person_properties_calls: Arc::new(Mutex::new(Vec::new())),
-            get_persons_breakpoint: Mutex::new(None),
+            get_persons_for_merge_breakpoint: Mutex::new(None),
             merge_person_properties_breakpoint: Mutex::new(None),
         }
     }
 
-    fn set_get_persons_result(&self, result: HashMap<String, Person>) {
-        *self.get_persons_result.lock().unwrap() = Some(Ok(result));
+    fn set_get_persons_for_merge_result(
+        &self,
+        target_person: Person,
+        source_persons: HashMap<String, Person>,
+    ) {
+        *self.get_persons_for_merge_result.lock().unwrap() =
+            Some(Ok(GetPersonsForMergeResult {
+                target_person,
+                source_persons,
+            }));
     }
 
     fn set_merge_person_properties_result(&self, result: ApiResult<()>) {
         *self.merge_person_properties_result.lock().unwrap() = Some(result);
     }
 
-    fn get_persons_call_count(&self) -> usize {
-        self.get_persons_calls.lock().unwrap().len()
+    fn get_persons_for_merge_call_count(&self) -> usize {
+        self.get_persons_for_merge_calls.lock().unwrap().len()
     }
 
     fn merge_person_properties_call_count(&self) -> usize {
         self.merge_person_properties_calls.lock().unwrap().len()
     }
 
-    fn get_get_persons_calls(&self) -> Vec<GetPersonsCall> {
-        self.get_persons_calls.lock().unwrap().clone()
+    fn get_get_persons_for_merge_calls(&self) -> Vec<GetPersonsForMergeCall> {
+        self.get_persons_for_merge_calls.lock().unwrap().clone()
     }
 
     fn get_merge_person_properties_calls(&self) -> Vec<MergePersonPropertiesCall> {
@@ -93,16 +103,32 @@ impl MockPersonPropertiesApi {
 
 #[async_trait]
 impl PersonPropertiesApi for MockPersonPropertiesApi {
-    async fn get_persons(&self, person_uuids: &[String]) -> ApiResult<HashMap<String, Person>> {
-        self.get_persons_calls.lock().unwrap().push(GetPersonsCall {
-            person_uuids: person_uuids.to_vec(),
-        });
+    async fn get_persons_for_merge(
+        &self,
+        target_person_uuid: &str,
+        source_person_uuids: &[String],
+    ) -> ApiResult<GetPersonsForMergeResult> {
+        self.get_persons_for_merge_calls
+            .lock()
+            .unwrap()
+            .push(GetPersonsForMergeCall {
+                target_person_uuid: target_person_uuid.to_string(),
+                source_person_uuids: source_person_uuids.to_vec(),
+            });
 
-        self.get_persons_result
+        self.get_persons_for_merge_result
             .lock()
             .unwrap()
             .take()
-            .unwrap_or_else(|| Ok(HashMap::new()))
+            .unwrap_or_else(|| {
+                Ok(GetPersonsForMergeResult {
+                    target_person: Person {
+                        person_uuid: target_person_uuid.to_string(),
+                        properties: HashMap::new(),
+                    },
+                    source_persons: HashMap::new(),
+                })
+            })
     }
 
     async fn merge_person_properties(
@@ -312,13 +338,14 @@ async fn test_merges_single_source_into_target() {
         person_uuid: source_person_uuid.to_string(),
     }]);
 
+    let target_person = create_person(target_person_uuid, vec![]);
     let source_person = create_person(
         source_person_uuid,
         vec![("email", serde_json::json!("source@example.com"), 1)],
     );
-    let mut persons_map = HashMap::new();
-    persons_map.insert(source_person_uuid.to_string(), source_person.clone());
-    properties_api.set_get_persons_result(persons_map);
+    let mut source_persons_map = HashMap::new();
+    source_persons_map.insert(source_person_uuid.to_string(), source_person.clone());
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
@@ -352,9 +379,16 @@ async fn test_merges_single_source_into_target() {
     assert_eq!(source_calls[0].distinct_ids, vec![source_distinct_id]);
     assert_eq!(source_calls[0].version, version);
 
-    let get_persons_calls = properties_api.get_get_persons_calls();
-    assert_eq!(get_persons_calls.len(), 1);
-    assert_eq!(get_persons_calls[0].person_uuids, vec![source_person_uuid]);
+    let get_persons_for_merge_calls = properties_api.get_get_persons_for_merge_calls();
+    assert_eq!(get_persons_for_merge_calls.len(), 1);
+    assert_eq!(
+        get_persons_for_merge_calls[0].target_person_uuid,
+        target_person_uuid
+    );
+    assert_eq!(
+        get_persons_for_merge_calls[0].source_person_uuids,
+        vec![source_person_uuid]
+    );
 
     let merge_props_calls = properties_api.get_merge_person_properties_calls();
     assert_eq!(merge_props_calls.len(), 1);
@@ -403,6 +437,7 @@ async fn test_merges_multiple_sources_into_target() {
             .collect(),
     );
 
+    let target_person = create_person(target_person_uuid, vec![]);
     let source_persons: Vec<Person> = source_person_uuids
         .iter()
         .enumerate()
@@ -418,11 +453,11 @@ async fn test_merges_multiple_sources_into_target() {
         })
         .collect();
 
-    let mut persons_map = HashMap::new();
+    let mut source_persons_map = HashMap::new();
     for person in &source_persons {
-        persons_map.insert(person.person_uuid.clone(), person.clone());
+        source_persons_map.insert(person.person_uuid.clone(), person.clone());
     }
-    properties_api.set_get_persons_result(persons_map);
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
@@ -470,13 +505,14 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
         },
     ]);
 
+    let target_person = create_person(target_person_uuid, vec![]);
     let shared_person = create_person(
         shared_source_person_uuid,
         vec![("shared", serde_json::json!("property"), 1)],
     );
-    let mut persons_map = HashMap::new();
-    persons_map.insert(shared_source_person_uuid.to_string(), shared_person);
-    properties_api.set_get_persons_result(persons_map);
+    let mut source_persons_map = HashMap::new();
+    source_persons_map.insert(shared_source_person_uuid.to_string(), shared_person);
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
@@ -487,7 +523,7 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
         .unwrap();
 
     // Should only fetch the person once even though two distinct IDs reference it
-    assert_eq!(properties_api.get_persons_call_count(), 1);
+    assert_eq!(properties_api.get_persons_for_merge_call_count(), 1);
     assert_eq!(properties_api.merge_person_properties_call_count(), 1);
 }
 
@@ -512,8 +548,9 @@ async fn test_handles_source_person_with_no_properties() {
         person_uuid: source_person_uuid.to_string(),
     }]);
 
-    // Return empty map - person not found
-    properties_api.set_get_persons_result(HashMap::new());
+    // Return empty source_persons map - person not found
+    let target_person = create_person(target_person_uuid, vec![]);
+    properties_api.set_get_persons_for_merge_result(target_person, HashMap::new());
 
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
 
@@ -526,10 +563,17 @@ async fn test_handles_source_person_with_no_properties() {
         .await
         .unwrap();
 
-    // get_persons should be called
-    let get_persons_calls = properties_api.get_get_persons_calls();
-    assert_eq!(get_persons_calls.len(), 1);
-    assert_eq!(get_persons_calls[0].person_uuids, vec![source_person_uuid]);
+    // get_persons_for_merge should be called
+    let get_persons_for_merge_calls = properties_api.get_get_persons_for_merge_calls();
+    assert_eq!(get_persons_for_merge_calls.len(), 1);
+    assert_eq!(
+        get_persons_for_merge_calls[0].target_person_uuid,
+        target_person_uuid
+    );
+    assert_eq!(
+        get_persons_for_merge_calls[0].source_person_uuids,
+        vec![source_person_uuid]
+    );
 
     // merge_person_properties should NOT be called since no persons were found
     assert_eq!(properties_api.merge_person_properties_call_count(), 0);
@@ -571,11 +615,12 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
         },
     ]);
 
+    let target_person = create_person(target_person_uuid, vec![]);
     let valid_source_person =
         create_person("person-1", vec![("prop", serde_json::json!("value"), 1)]);
-    let mut persons_map = HashMap::new();
-    persons_map.insert("person-1".to_string(), valid_source_person);
-    properties_api.set_get_persons_result(persons_map);
+    let mut source_persons_map = HashMap::new();
+    source_persons_map.insert("person-1".to_string(), valid_source_person);
+    properties_api.set_get_persons_for_merge_result(target_person, source_persons_map);
     properties_api.set_merge_person_properties_result(Ok(()));
 
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone());
@@ -608,17 +653,24 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
         }));
 
     // Only person-1 should be fetched
-    let get_persons_calls = properties_api.get_get_persons_calls();
-    assert_eq!(get_persons_calls.len(), 1);
-    assert_eq!(get_persons_calls[0].person_uuids, vec!["person-1"]);
+    let get_persons_for_merge_calls = properties_api.get_get_persons_for_merge_calls();
+    assert_eq!(get_persons_for_merge_calls.len(), 1);
+    assert_eq!(
+        get_persons_for_merge_calls[0].source_person_uuids,
+        vec!["person-1"]
+    );
 
     // set_merged should only be called for source-1 and target, not source-2 or source-3
     let set_merged_calls = distinct_ids_api.get_set_merged_calls();
     assert!(set_merged_calls
         .iter()
         .any(|c| c.distinct_id == "source-1" && c.person_uuid == target_person_uuid));
-    assert!(!set_merged_calls.iter().any(|c| c.distinct_id == "source-2"));
-    assert!(!set_merged_calls.iter().any(|c| c.distinct_id == "source-3"));
+    assert!(!set_merged_calls
+        .iter()
+        .any(|c| c.distinct_id == "source-2"));
+    assert!(!set_merged_calls
+        .iter()
+        .any(|c| c.distinct_id == "source-3"));
 }
 
 #[tokio::test]
@@ -666,8 +718,8 @@ async fn test_clears_target_merge_status_when_all_sources_conflict() {
     assert_eq!(set_merged_calls[0].distinct_id, target_distinct_id);
     assert_eq!(set_merged_calls[0].person_uuid, target_person_uuid);
 
-    // get_persons should NOT be called
-    assert_eq!(properties_api.get_persons_call_count(), 0);
+    // get_persons_for_merge should NOT be called
+    assert_eq!(properties_api.get_persons_for_merge_call_count(), 0);
 }
 
 #[tokio::test]
@@ -707,8 +759,8 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
     // set_merging_source should NOT be called
     assert!(distinct_ids_api.get_set_merging_source_calls().is_empty());
 
-    // get_persons should NOT be called
-    assert_eq!(properties_api.get_persons_call_count(), 0);
+    // get_persons_for_merge should NOT be called
+    assert_eq!(properties_api.get_persons_for_merge_call_count(), 0);
 
     // set_merged should NOT be called
     assert!(distinct_ids_api.get_set_merged_calls().is_empty());
