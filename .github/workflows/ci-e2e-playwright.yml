@@ -361,7 +361,7 @@ jobs:
 
             - name: Start resource monitoring
               run: |
-                  # Capture system resources every 5 seconds during test execution
+                  # Capture system resources every 2 seconds during test execution
                   mkdir -p /tmp/resource-logs
                   (
                     while true; do
@@ -371,7 +371,7 @@ jobs:
                       free -h >> /tmp/resource-logs/memory.log 2>&1
                       echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/top-processes.log
                       ps aux --sort=-%mem | head -15 >> /tmp/resource-logs/top-processes.log 2>&1
-                      sleep 5
+                      sleep 2
                     done
                   ) &
                   echo $! > /tmp/resource-monitor.pid
@@ -405,7 +405,7 @@ jobs:
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -425,7 +425,7 @@ jobs:
                       # Attempt 2: Update snapshots
                       echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
