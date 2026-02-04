@@ -48,7 +48,7 @@ import logsListAttributes from './logs/listAttributes'
 // Logs
 import logsQuery from './logs/query'
 // Max Tools
-import { executeSql, readDataSchema } from './maxTools'
+import { executeSql, readDataSchema, readDataWarehouseSchema } from './maxTools'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -170,6 +170,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Max Tools
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
+    'read-data-warehouse-schema': readDataWarehouseSchema,
 }
 
 export const getToolsFromContext = async (

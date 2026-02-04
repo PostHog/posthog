@@ -466,6 +466,10 @@ export const MaxExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
 })
 
+export const MaxReadDataWarehouseSchemaSchema = z
+    .object({})
+    .describe('No input required. Returns core data warehouse schemas.')
+
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
 })

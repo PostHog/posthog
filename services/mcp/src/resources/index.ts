@@ -1,7 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { type Unzipped, strFromU8, unzipSync } from 'fflate'
 
-import { invokeMcpTool } from '@/tools/maxTools'
 import type { Context } from '@/tools/types'
 
 import { loadContextMillManifest } from './manifest-loader'
@@ -114,56 +113,9 @@ async function registerContextMillResources(server: McpServer, context: Context)
 }
 
 /**
- * Register data warehouse schema resource
- * posthog://schema/data-warehouse - returns core PostHog tables (events, groups, persons, sessions)
- */
-async function registerDataWarehouseSchemaResource(server: McpServer, context: Context): Promise<void> {
-    server.registerResource(
-        'data-warehouse-schema',
-        'posthog://schema/data-warehouse',
-        {
-            mimeType: 'text/plain',
-            description:
-                'Core PostHog table schemas (events, groups, persons, sessions) with their columns and types. Use this to understand the data model for writing HogQL queries.',
-        },
-        async (uri) => {
-            const result = await invokeMcpTool(context, 'read_data_warehouse_schema', {
-                query: { kind: 'data_warehouse_schema' },
-            })
-
-            if (!result.success) {
-                return {
-                    contents: [
-                        {
-                            uri: uri.toString(),
-                            mimeType: 'text/plain',
-                            text: `Failed to retrieve schema: ${result.content}`,
-                        },
-                    ],
-                }
-            }
-
-            return {
-                contents: [
-                    {
-                        uri: uri.toString(),
-                        mimeType: 'text/plain',
-                        description: 'Core PostHog table schemas for events, groups, persons, and sessions',
-                        text: result.content,
-                    },
-                ],
-            }
-        }
-    )
-
-    console.info('Registered data warehouse schema resource')
-}
-
-/**
  * Registers all PostHog resources with the MCP server
  * Resources are loaded from context-mill's skills-mcp-resources.zip
  */
 export async function registerResources(server: McpServer, context: Context): Promise<void> {
-    await registerDataWarehouseSchemaResource(server, context)
     await registerContextMillResources(server, context)
 }

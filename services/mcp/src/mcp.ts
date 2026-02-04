@@ -36,7 +36,7 @@ ${SHARED_PROMPT}
 
 const INSTRUCTIONS_V2 = `
 - IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
-- You have access to the PostHog SQL interface via the 'posthog:execute-sql' tool and \`posthog-query-data\` skill.
+- You have access to the PostHog SQL interface via the 'posthog:execute-sql' tool, schema tools ('posthog:read-data-schema', 'posthog:read-data-warehouse-schema'), and \`posthog-query-data\` skill.
 ${SHARED_PROMPT}
 `.trim()
 
