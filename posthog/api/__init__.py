@@ -68,6 +68,7 @@ from products.llm_analytics.backend.api import (
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
+from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
@@ -1199,5 +1200,12 @@ environments_router.register(
     r"core_events",
     CoreEventViewSet,
     "environment_core_events",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"mcp_tools",
+    MCPToolsViewSet,
+    "environment_mcp_tools",
     ["team_id"],
 )
