@@ -10,11 +10,15 @@ This module provides async wrappers that offload the blocking calls to a
 thread pool, keeping the event loop responsive.
 """
 
+import atexit
 import asyncio
+import logging
 import concurrent.futures
 from typing import Any
 
 import posthoganalytics
+
+logger = logging.getLogger(__name__)
 
 # Dedicated thread pool for posthoganalytics calls to avoid blocking the event loop.
 # Using a small pool since these are fire-and-forget analytics calls.
@@ -22,6 +26,21 @@ _executor = concurrent.futures.ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="posthog-analytics",
 )
+
+
+def _shutdown_executor():
+    """Ensure pending analytics tasks complete before process exit."""
+    # First wait for our thread pool tasks to complete
+    _executor.shutdown(wait=True, cancel_futures=False)
+    # Then flush any remaining events in the SDK's queue
+    try:
+        posthoganalytics.flush()
+    except Exception:
+        pass
+
+
+# Register shutdown handler to flush pending analytics on exit
+atexit.register(_shutdown_executor)
 
 
 def _capture_sync(
@@ -38,9 +57,12 @@ def _capture_sync(
             properties=properties,
             **kwargs,
         )
-    except Exception:
-        # Silently ignore analytics failures - they shouldn't affect the workflow
-        pass
+        # Flush immediately to ensure event is sent (needed when sync_mode=False)
+        posthoganalytics.flush()
+        logger.debug("posthog_analytics.py: Analytics event sent: %s", event)
+    except Exception as e:
+        # Log but don't raise - analytics failures shouldn't affect the workflow
+        logger.warning("posthog_analytics.py: Failed to send analytics event '%s': %s", event, e)
 
 
 def _capture_exception_sync(
@@ -50,9 +72,12 @@ def _capture_exception_sync(
     """Synchronous capture_exception - runs in thread pool."""
     try:
         posthoganalytics.capture_exception(exception, **kwargs)
-    except Exception:
-        # Silently ignore analytics failures - they shouldn't affect the workflow
-        pass
+        # Flush immediately to ensure event is sent (needed when sync_mode=False)
+        posthoganalytics.flush()
+        logger.debug("posthog_analytics.py: Analytics exception captured: %s", type(exception).__name__)
+    except Exception as e:
+        # Log but don't raise - analytics failures shouldn't affect the workflow
+        logger.warning("posthog_analytics.py: Failed to capture analytics exception: %s", e)
 
 
 async def capture_async(
