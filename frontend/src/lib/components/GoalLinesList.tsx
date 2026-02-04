@@ -38,7 +38,7 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                         />
                         <LemonInput
                             placeholder="Label"
-                            className="grow-2"
+                            className="grow"
                             value={label}
                             onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
                         />
@@ -46,7 +46,7 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                             type="number"
                             step="any"
                             placeholder="Value"
-                            className="grow"
+                            className="w-25"
                             value={value}
                             onChange={(value) =>
                                 updateGoalLine(
