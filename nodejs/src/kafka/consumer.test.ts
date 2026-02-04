@@ -414,12 +414,14 @@ describe('consumer', () => {
             await delay(10)
             expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
 
-            // Resolve first offset storage - should still be waiting for second
+            // Resolve background tasks and their offset storage
+            task1.resolve()
             offsetsStored1.resolve()
             await delay(1)
             expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
 
-            // Resolve second offset storage - now should proceed
+            // Resolve second task and offset storage - now should proceed
+            task2.resolve()
             offsetsStored2.resolve()
             await delay(10)
 
