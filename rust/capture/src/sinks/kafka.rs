@@ -324,8 +324,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             // Unlike with our node code, DLQ step will always be static.
             headers.set_dlq_step("Capture".to_string());
             headers.set_dlq_timestamp(
-                chrono::Utc::now()
-                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             );
 
             (&self.topics.dlq_topic, Some(event_key.as_str()))
