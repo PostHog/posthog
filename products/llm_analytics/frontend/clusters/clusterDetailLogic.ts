@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
@@ -293,13 +294,18 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadClusterDataSuccess: async () => {
             // Load summaries for the first page of traces
             await actions.setPage(1)
         },
 
-        setPage: async () => {
+        setPage: async ({ page }) => {
+            posthog.capture('llma clusters page changed', {
+                page,
+                cluster_id: props.clusterId,
+                run_id: props.runId,
+            })
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
             const { windowStart, windowEnd, clusteringLevel } = values

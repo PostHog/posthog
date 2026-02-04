@@ -17,6 +17,7 @@ export function LogsCaptureSettings(): JSX.Element {
 
     return (
         <div>
+            <h3>Browser console logs capture</h3>
             <LemonBanner
                 type="info"
                 className="mb-4"
@@ -28,7 +29,6 @@ export function LogsCaptureSettings(): JSX.Element {
             >
                 This feature requires <code>posthog-js</code> version {MIN_POSTHOG_JS_VERSION} or higher.
             </LemonBanner>
-            <h3>Browser console logs capture</h3>
             <p>
                 Automatically capture browser session logs from your application and send them to the Logs product for
                 analysis and debugging.

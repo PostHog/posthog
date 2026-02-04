@@ -1503,7 +1503,6 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
     // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
     results: any
-    isUdf?: boolean
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -5001,6 +5000,7 @@ export interface TestSetupResponse {
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
+    skip_onboarding?: boolean
 }
 
 export interface PlaywrightWorkspaceSetupResult {
@@ -5396,14 +5396,4 @@ export interface ReplayInactivityPeriod {
     active: boolean
     recording_ts_from_s?: number
     recording_ts_to_s?: number
-}
-export interface ProjectSecretAPIKeyRequest {
-    label?: string
-    scopes?: ProjectSecretAPIKeyAllowedScope[]
-}
-
-export enum ProjectSecretAPIKeyAllowedScope {
-    FeatureFlagRead = 'feature_flag:read',
-    // Placeholder to keep this as an enum (remove once a second real scope is added)
-    _Placeholder = 'PLACEHOLDER',
 }

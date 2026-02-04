@@ -1,4 +1,3 @@
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -346,7 +345,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.ImplementExperimentVariants],
                 getUrl: () => urls.experiments(),
-                targetSelector: '[data-attr="launch-experiment"]',
+                targetSelector: '[data-attr="launch-experiment"]', // Will be highlighted once they click on an experiment
             },
             {
                 id: SetupTaskId.ReviewExperimentResults,
@@ -354,8 +353,6 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Analyze the statistical significance and impact.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.LaunchExperiment],
-                getUrl: () => urls.experiments(),
-                targetSelector: '[data-attr="experiments-table-container"]',
             },
         ],
     },
@@ -370,7 +367,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 title: 'Create your first survey',
                 description: 'Choose from templates or build a custom survey.',
                 taskType: 'onboarding',
-                getUrl: () => urls.surveyTemplates(),
+                getUrl: () => urls.surveys(),
                 targetSelector: '[data-attr="new-survey"]',
             },
             {
@@ -380,7 +377,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateSurvey],
                 getUrl: () => urls.surveys(),
-                targetSelector: '[data-attr="launch-survey"]',
+                targetSelector: '[data-attr="launch-survey"]', // Will be highlighted once they click on a survey
             },
         ],
     },
@@ -471,7 +468,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.ViewFirstError],
                 getUrl: () => urls.errorTracking(),
-                targetSelector: '[data-attr="error-tracking-resolve"]',
+                targetSelector: '[data-attr="error-tracking-resolve"]', // Will be highlighted once they click on an error
             },
         ],
     },
@@ -578,16 +575,6 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.EnableLogCapture],
                 getUrl: () => urls.logs(),
-                targetSelector: '[data-attr="logs-table"]',
-            },
-            {
-                id: SetupTaskId.SetUpLogAlerts,
-                title: 'Set up log alerts',
-                description: 'Get notified when specific log patterns occur.',
-                taskType: 'explore',
-                dependsOn: [SetupTaskId.ViewFirstLogs],
-                getUrl: () => urls.alerts(),
-                targetSelector: '[data-attr="manage-alerts-button"]',
             },
         ],
     },
@@ -610,7 +597,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Define when your workflow should start.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.CreateFirstWorkflow],
-                targetSelector: '[data-attr="workflow-trigger"]',
+                targetSelector: '[data-attr="workflow-trigger"]', // Will be highlighted once they are inside a workflow
             },
             {
                 id: SetupTaskId.AddWorkflowAction,
@@ -618,7 +605,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Add actions like emails, Slack messages, or webhooks.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.ConfigureWorkflowTrigger],
-                targetSelector: '[data-attr="workflow-add-action"]',
+                targetSelector: '[data-attr="workflow-add-action"]', // Will be highlighted once they are inside a workflow
             },
             {
                 id: SetupTaskId.LaunchWorkflow,
@@ -630,7 +617,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                     SetupTaskId.ConfigureWorkflowTrigger,
                     SetupTaskId.AddWorkflowAction,
                 ],
-                targetSelector: '[data-attr="workflow-launch"]',
+                targetSelector: '[data-attr="workflow-launch"]', // Will be highlighted once they click on a workflow
             },
         ],
     },
@@ -644,7 +631,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 title: 'Create your first endpoint',
                 description: 'Build an API endpoint to expose PostHog data.',
                 taskType: 'onboarding',
-                getUrl: () => urls.sqlEditor({ outputTab: OutputTab.Endpoint }),
+                getUrl: () => urls.endpoints(),
                 targetSelector: '[data-attr="new-endpoint-button"]',
             },
             {
@@ -653,7 +640,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Configure your endpoint caching and materialization mechanisms.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstEndpoint],
-                targetSelector: '[data-attr="endpoint-configuration-tab"]',
+                targetSelector: '[data-attr="endpoint-configuration-tab"]', // Will be highlighted once they are inside an endpoint
             },
             {
                 id: SetupTaskId.TestEndpoint,
@@ -661,7 +648,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Use the playground to test with different parameters.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateFirstEndpoint],
-                targetSelector: '[data-attr="endpoint-playground-tab"]',
+                targetSelector: '[data-attr="endpoint-playground-tab"]', // Will be highlighted once they are inside an endpoint
             },
         ],
     },
@@ -686,8 +673,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Progress through: draft → concept → alpha → beta → GA.',
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.CreateEarlyAccessFeature],
-                getUrl: () => urls.earlyAccessFeatures(),
-                targetSelector: '[data-attr="feature-stage"]',
+                targetSelector: '[data-attr="feature-stage"]', // Will be highlighted once they are inside a feature
             },
         ],
     },
