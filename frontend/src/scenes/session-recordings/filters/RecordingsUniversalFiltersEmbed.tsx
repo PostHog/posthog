@@ -236,6 +236,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     'Show recordings of people who faced bugs',
                 ]}
                 onMaxOpen={() => setIsFiltersExpanded(false)}
+                buttonClassName="z-[702]"
             >
                 <>
                     <LemonButton

@@ -16,6 +16,8 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     initialMaxPrompt?: string
     onMaxOpen?: () => void
     className?: string
+    /** Additional className for the AI sparkles button (useful for z-index overrides) */
+    buttonClassName?: string
     position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
 }
 
@@ -35,6 +37,7 @@ export function MaxTool({
     initialMaxPrompt,
     onMaxOpen,
     className,
+    buttonClassName,
     position = 'top-right',
 }: MaxToolProps): JSX.Element {
     const { definition, isMaxOpen, openMax } = useMaxTool({
@@ -82,7 +85,8 @@ export function MaxTool({
                             position === 'top-right' && '-top-2 -right-2',
                             position === 'bottom-right' && '-bottom-2 -right-2',
                             position === 'top-left' && '-top-2 -left-2',
-                            position === 'bottom-left' && '-bottom-2 -left-2'
+                            position === 'bottom-left' && '-bottom-2 -left-2',
+                            buttonClassName
                         )}
                         type="button"
                         onClick={openMax || undefined}
