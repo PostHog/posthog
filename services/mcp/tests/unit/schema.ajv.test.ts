@@ -13,7 +13,7 @@ test('AJV strict compiles all MCP tool input schemas', async () => {
     // Resolve ../../schema/tool-inputs.json relative to this test file
     const __filename = fileURLToPath(import.meta.url)
     const __dirname = path.dirname(__filename)
-    const schemaPath = path.resolve(__dirname, '../../../schema/tool-inputs.json')
+    const schemaPath = path.resolve(__dirname, '../../schema/tool-inputs.json')
 
     let doc: unknown
     try {
