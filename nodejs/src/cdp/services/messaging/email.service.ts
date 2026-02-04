@@ -274,8 +274,9 @@ export class EmailService {
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
-        } catch (error) {
-            throw new Error(`Failed to send email via SES: ${error.message}`)
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error)
+            throw new Error(`Failed to send email via SES: ${message}`)
         }
     }
 
