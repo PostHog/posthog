@@ -416,6 +416,12 @@ def ensure_events_table_exists(
             raise
 
         context.log.info("Successfully created events table")
+
+        # Set partitioning by year/month for efficient querying
+        context.log.info("Setting partitioning on events table...")
+        conn.execute(f"ALTER TABLE {alias}.posthog.events SET PARTITIONED BY (year(timestamp), month(timestamp))")
+        context.log.info("Successfully set partitioning on events table")
+
         logger.info(
             "duckling_events_table_created",
             team_id=catalog.team_id,
@@ -820,6 +826,7 @@ def export_events_to_duckling_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {where_clause}
+    ORDER BY event, distinct_id, timestamp
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
