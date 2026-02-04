@@ -270,13 +270,16 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
+        useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
-    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
+    const effectiveCount = pagination.entryCount ?? 0
+    const endCount = page * FLAGS_PER_PAGE < effectiveCount ? page * FLAGS_PER_PAGE : effectiveCount
+    const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -387,10 +390,10 @@ export function OverViewTab({
                             <Tooltip
                                 title={
                                     <>
-                                        <div className="text-sm">Flag at least 30 days old and fully rolled out</div>
+                                        <div className="text-sm">This flag is likely safe to remove</div>
                                         <div className="text-xs">
-                                            Make sure to remove any references to this flag in your code before deleting
-                                            it.
+                                            Not called in 30+ days or fully rolled out. Make sure to remove any
+                                            references in your code before deleting it.
                                         </div>
                                     </>
                                 }
@@ -470,17 +473,21 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div>
-                <span className="text-secondary">
-                    {featureFlagsLoading ? (
-                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
-                    ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
+                <span
+                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
+                    aria-busy={filtersChanged}
+                    aria-live="polite"
+                >
+                    {filtersChanged ? (
+                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+                    ) : effectiveCount > 0 ? (
+                        flagCountText
                     ) : null}
                 </span>
             </div>
 
             <LemonTable
-                dataSource={featureFlags.results}
+                dataSource={displayedFlags}
                 columns={columns}
                 rowKey="key"
                 defaultSorting={{
@@ -489,6 +496,7 @@ export function OverViewTab({
                 }}
                 noSortingCancellation
                 loading={featureFlagsLoading}
+                disableTableWhileLoading={false}
                 pagination={pagination}
                 nouns={nouns}
                 data-attr="feature-flag-table"

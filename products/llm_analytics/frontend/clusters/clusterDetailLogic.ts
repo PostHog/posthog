@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
@@ -11,7 +12,7 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
-import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
+import { NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
@@ -44,8 +45,6 @@ export interface ScatterDataset {
     pointHoverRadius: number
     pointStyle?: 'circle' | 'crossRot'
 }
-
-const OUTLIER_COLOR = '#888888'
 
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),
@@ -295,13 +294,18 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadClusterDataSuccess: async () => {
             // Load summaries for the first page of traces
             await actions.setPage(1)
         },
 
-        setPage: async () => {
+        setPage: async ({ page }) => {
+            posthog.capture('llma clusters page changed', {
+                page,
+                cluster_id: props.clusterId,
+                run_id: props.runId,
+            })
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
             const { windowStart, windowEnd, clusteringLevel } = values
