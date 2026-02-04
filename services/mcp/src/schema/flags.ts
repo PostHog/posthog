@@ -94,13 +94,26 @@ export const MultivariateSchema = z
     .object({
         variants: z.array(VariantSchema).min(2, 'At least 2 variants required for multivariate flags'),
     })
-    .refine(
-        (data) => {
-            const sum = data.variants.reduce((acc, v) => acc + v.rollout_percentage, 0)
-            return sum === 100
-        },
-        { message: 'Variant rollout percentages must sum to 100' }
-    )
+    .superRefine((data, ctx) => {
+        const sum = data.variants.reduce((acc, v) => acc + v.rollout_percentage, 0)
+        if (sum !== 100) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Variant rollout percentages must sum to 100',
+                path: ['variants'],
+            })
+        }
+
+        const keys = data.variants.map((v) => v.key)
+        const duplicates = keys.filter((key, idx) => keys.indexOf(key) !== idx)
+        if (duplicates.length > 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Duplicate variant keys: ${[...new Set(duplicates)].join(', ')}`,
+                path: ['variants'],
+            })
+        }
+    })
 
 export type Multivariate = z.infer<typeof MultivariateSchema>
 

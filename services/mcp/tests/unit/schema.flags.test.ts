@@ -1,6 +1,37 @@
 import { describe, expect, it } from 'vitest'
 
-import { FilterGroupsSchema } from '@/schema/flags'
+import { FilterGroupsSchema, MultivariateSchema } from '@/schema/flags'
+
+describe('MultivariateSchema', () => {
+    describe('duplicate variant key validation', () => {
+        it('should reject duplicate variant keys', () => {
+            const input = {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'control', rollout_percentage: 50 },
+                ],
+            }
+
+            const result = MultivariateSchema.safeParse(input)
+            expect(result.success).toBe(false)
+            if (!result.success) {
+                expect(result.error.issues.some((i) => i.message.includes('Duplicate variant keys'))).toBe(true)
+            }
+        })
+
+        it('should accept unique variant keys', () => {
+            const input = {
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+            }
+
+            const result = MultivariateSchema.safeParse(input)
+            expect(result.success).toBe(true)
+        })
+    })
+})
 
 describe('FilterGroupsSchema', () => {
     describe('variant cross-validation', () => {
