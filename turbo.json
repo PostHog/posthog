@@ -45,6 +45,9 @@
         },
         "schema:build:json": {
             "inputs": ["$TURBO_DEFAULT$", "src/queries/schema/**"]
+        },
+        "schema:build:python": {
+            "inputs": ["$TURBO_DEFAULT$", "src/queries/schema.json"]
         }
     }
 }
