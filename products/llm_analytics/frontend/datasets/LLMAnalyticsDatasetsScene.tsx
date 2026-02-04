@@ -46,7 +46,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             key: 'description',
             width: '50%',
             render: function renderDescription(description) {
-                return <span className="text-muted">{description || <i>–</i>}</span>
+                return <span className="text-muted">{String(description) || <i>–</i>}</span>
             },
         },
         {
