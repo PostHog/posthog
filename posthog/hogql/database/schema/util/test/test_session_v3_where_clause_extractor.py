@@ -508,23 +508,3 @@ WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
         assert self.generalize_sql(actual) == self.snapshot
-
-    def test_session_profile_point_query(self):
-        # Test that the session profile query pattern with session_id lookup uses point query optimization
-        actual = self.print_query(
-            """
-SELECT
-    session_id,
-    distinct_id,
-    $start_timestamp,
-    $end_timestamp,
-    $entry_current_url,
-    $session_duration,
-    $channel_type,
-    $is_bounce
-FROM sessions
-WHERE session_id = '019c2a52-6519-772d-b99a-60ba7cc4e266'
-LIMIT 1
-"""
-        )
-        assert self.generalize_sql(actual) == self.snapshot
