@@ -404,6 +404,7 @@ async fn test_merges_single_source_into_target() {
 
     let result = merge_service
         .merge(
+            "merge-1",
             target_distinct_id,
             &[source_distinct_id.to_string()],
             version,
@@ -521,7 +522,7 @@ async fn test_merges_multiple_sources_into_target() {
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await
         .unwrap();
 
@@ -581,7 +582,7 @@ async fn test_deduplicates_source_person_uuids_when_multiple_distinct_ids_belong
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let _result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await
         .unwrap();
 
@@ -625,6 +626,7 @@ async fn test_handles_source_person_with_no_properties() {
 
     let _result = merge_service
         .merge(
+            "merge-1",
             target_distinct_id,
             &[source_distinct_id.to_string()],
             version,
@@ -696,7 +698,7 @@ async fn test_returns_conflicts_when_source_distinct_ids_are_already_merging() {
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await
         .unwrap();
 
@@ -776,7 +778,7 @@ async fn test_clears_target_merge_status_when_all_sources_conflict() {
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await
         .unwrap();
 
@@ -816,7 +818,7 @@ async fn test_returns_conflict_when_target_is_being_merged_into_another_distinct
     let merge_service = PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await
         .unwrap();
 
@@ -883,6 +885,7 @@ async fn test_state_is_tracked_throughout_merge() {
 
     let result = merge_service
         .merge(
+            "merge-1",
             target_distinct_id,
             &[source_distinct_id.to_string()],
             version,
@@ -893,12 +896,12 @@ async fn test_state_is_tracked_throughout_merge() {
     assert!(!result.merged.is_empty());
     assert!(result.conflicts.is_empty());
 
-    // Verify final state
-    let final_state = state_repo.get(target_person_uuid).await.unwrap();
+    // Verify final state (stored by merge_id)
+    let final_state = state_repo.get("merge-1").await.unwrap();
     assert!(final_state.is_some());
 
     let state = final_state.unwrap();
-    assert_eq!(state.target_person_uuid, target_person_uuid);
+    assert_eq!(state.target_person_uuid, Some(target_person_uuid.to_string()));
     assert_eq!(state.target_distinct_id, target_distinct_id);
     assert_eq!(state.source_distinct_ids, vec![source_distinct_id]);
     assert_eq!(state.source_person_uuids, vec![source_person_uuid]);
@@ -935,7 +938,7 @@ async fn test_merge_reraises_api_errors_from_set_merging_target() {
         PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await;
 
     assert!(result.is_err());
@@ -965,7 +968,7 @@ async fn test_merge_reraises_api_errors_from_set_merging_source() {
         PersonMergeService::new(properties_api.clone(), distinct_ids_api.clone(), state_repo);
 
     let result = merge_service
-        .merge(target_distinct_id, &source_distinct_ids, version)
+        .merge("merge-1", target_distinct_id, &source_distinct_ids, version)
         .await;
 
     assert!(result.is_err());
@@ -1002,6 +1005,7 @@ async fn test_merge_reraises_api_errors_from_get_persons_for_merge() {
 
     let result = merge_service
         .merge(
+            "merge-1",
             target_distinct_id,
             &[source_distinct_id.to_string()],
             version,
@@ -1049,6 +1053,7 @@ async fn test_merge_reraises_api_errors_from_delete_person() {
 
     let result = merge_service
         .merge(
+            "merge-1",
             target_distinct_id,
             &[source_distinct_id.to_string()],
             version,
@@ -1093,12 +1098,12 @@ async fn test_resume_from_started_step() {
     // Pre-populate state at Started step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let initial_state = MergeState::new(
-        target_person_uuid.to_string(),
+        "merge-1".to_string(),
         target_distinct_id.to_string(),
         vec![source_distinct_id.to_string()],
         version,
     );
-    // step is Started by default
+    // step is Started by default, target_person_uuid is None
     state_repo.set(initial_state).await.unwrap();
 
     let merge_service =
@@ -1107,15 +1112,15 @@ async fn test_resume_from_started_step() {
     let results = merge_service.resume_all().await.unwrap();
 
     assert_eq!(results.len(), 1);
-    let (person_uuid, result) = &results[0];
-    assert_eq!(person_uuid, target_person_uuid);
+    let (merge_id, result) = &results[0];
+    assert_eq!(merge_id, "merge-1");
     assert!(result.is_ok());
 
     let merge_result = result.as_ref().unwrap();
     assert_eq!(merge_result.merged.len(), 1);
 
     // Verify final state
-    let final_state = state_repo.get(target_person_uuid).await.unwrap().unwrap();
+    let final_state = state_repo.get("merge-1").await.unwrap().unwrap();
     assert_eq!(final_state.step, MergeStep::Completed);
 
     // Verify set_merging_target was called (idempotent retry)
@@ -1152,11 +1157,12 @@ async fn test_resume_from_target_marked_step() {
     // Pre-populate state at TargetMarked step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let mut initial_state = MergeState::new(
-        target_person_uuid.to_string(),
+        "merge-1".to_string(),
         target_distinct_id.to_string(),
         vec![source_distinct_id.to_string()],
         version,
     );
+    initial_state.target_person_uuid = Some(target_person_uuid.to_string());
     initial_state.step = MergeStep::TargetMarked;
     state_repo.set(initial_state).await.unwrap();
 
@@ -1169,7 +1175,7 @@ async fn test_resume_from_target_marked_step() {
     assert!(results[0].1.is_ok());
 
     // Verify final state
-    let final_state = state_repo.get(target_person_uuid).await.unwrap().unwrap();
+    let final_state = state_repo.get("merge-1").await.unwrap().unwrap();
     assert_eq!(final_state.step, MergeStep::Completed);
 
     // set_merging_target should NOT be called (already done)
@@ -1205,11 +1211,12 @@ async fn test_resume_from_sources_marked_step() {
     // Pre-populate state at SourcesMarked step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let mut initial_state = MergeState::new(
-        target_person_uuid.to_string(),
+        "merge-1".to_string(),
         target_distinct_id.to_string(),
         vec![source_distinct_id.to_string()],
         version,
     );
+    initial_state.target_person_uuid = Some(target_person_uuid.to_string());
     initial_state.valid_sources.insert(
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
@@ -1225,8 +1232,8 @@ async fn test_resume_from_sources_marked_step() {
     let results = merge_service.resume_all().await.unwrap();
 
     assert_eq!(results.len(), 1);
-    let (person_uuid, result) = &results[0];
-    assert_eq!(person_uuid, target_person_uuid);
+    let (merge_id, result) = &results[0];
+    assert_eq!(merge_id, "merge-1");
     assert!(result.is_ok());
 
     let merge_result = result.as_ref().unwrap();
@@ -1235,7 +1242,7 @@ async fn test_resume_from_sources_marked_step() {
     assert_eq!(merge_result.merged[0].person_uuid, target_person_uuid);
 
     // Verify final state
-    let final_state = state_repo.get(target_person_uuid).await.unwrap().unwrap();
+    let final_state = state_repo.get("merge-1").await.unwrap().unwrap();
     assert_eq!(final_state.step, MergeStep::Completed);
 
     // Verify API calls were made
@@ -1260,11 +1267,12 @@ async fn test_resume_from_properties_merged_step() {
     // Pre-populate state at PropertiesMerged step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let mut initial_state = MergeState::new(
-        target_person_uuid.to_string(),
+        "merge-1".to_string(),
         target_distinct_id.to_string(),
         vec![source_distinct_id.to_string()],
         version,
     );
+    initial_state.target_person_uuid = Some(target_person_uuid.to_string());
     initial_state.valid_sources.insert(
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
@@ -1309,11 +1317,12 @@ async fn test_resume_from_target_cleared_step() {
     // Pre-populate state at TargetCleared step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let mut initial_state = MergeState::new(
-        target_person_uuid.to_string(),
+        "merge-1".to_string(),
         target_distinct_id.to_string(),
         vec![source_distinct_id.to_string()],
         version,
     );
+    initial_state.target_person_uuid = Some(target_person_uuid.to_string());
     initial_state.valid_sources.insert(
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
@@ -1354,11 +1363,12 @@ async fn test_resume_from_sources_deleted_step() {
     // Pre-populate state at SourcesDeleted step
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
     let mut initial_state = MergeState::new(
-        target_person_uuid.to_string(),
+        "merge-1".to_string(),
         target_distinct_id.to_string(),
         vec![source_distinct_id.to_string()],
         version,
     );
+    initial_state.target_person_uuid = Some(target_person_uuid.to_string());
     initial_state.valid_sources.insert(
         source_distinct_id.to_string(),
         source_person_uuid.to_string(),
@@ -1381,7 +1391,7 @@ async fn test_resume_from_sources_deleted_step() {
     assert!(distinct_ids_api.get_set_merged_calls().is_empty());
 
     // Verify state is now Completed
-    let final_state = state_repo.get(target_person_uuid).await.unwrap().unwrap();
+    let final_state = state_repo.get("merge-1").await.unwrap().unwrap();
     assert_eq!(final_state.step, MergeStep::Completed);
 }
 
@@ -1396,7 +1406,7 @@ async fn test_resume_skips_completed_and_failed_states() {
 
     // Add a completed state
     let mut completed_state = MergeState::new(
-        "completed-person".to_string(),
+        "completed-merge".to_string(),
         "completed-did".to_string(),
         vec![],
         1,
@@ -1406,7 +1416,7 @@ async fn test_resume_skips_completed_and_failed_states() {
 
     // Add a failed state
     let mut failed_state = MergeState::new(
-        "failed-person".to_string(),
+        "failed-merge".to_string(),
         "failed-did".to_string(),
         vec![],
         2,
@@ -1435,11 +1445,12 @@ async fn test_resume_multiple_incomplete_merges() {
 
     // Add first incomplete state at SourcesDeleted
     let mut state1 = MergeState::new(
-        "person-1".to_string(),
+        "merge-1".to_string(),
         "did-1".to_string(),
         vec!["source-1".to_string()],
         1,
     );
+    state1.target_person_uuid = Some("person-1".to_string());
     state1.valid_sources.insert("source-1".to_string(), "source-person-1".to_string());
     state1.source_person_uuids = vec!["source-person-1".to_string()];
     state1.step = MergeStep::SourcesDeleted;
@@ -1447,11 +1458,12 @@ async fn test_resume_multiple_incomplete_merges() {
 
     // Add second incomplete state at TargetCleared
     let mut state2 = MergeState::new(
-        "person-2".to_string(),
+        "merge-2".to_string(),
         "did-2".to_string(),
         vec!["source-2".to_string()],
         2,
     );
+    state2.target_person_uuid = Some("person-2".to_string());
     state2.valid_sources.insert("source-2".to_string(), "source-person-2".to_string());
     state2.source_person_uuids = vec!["source-person-2".to_string()];
     state2.step = MergeStep::TargetCleared;
@@ -1470,8 +1482,8 @@ async fn test_resume_multiple_incomplete_merges() {
     }
 
     // Verify both are now completed
-    let final_state1 = state_repo.get("person-1").await.unwrap().unwrap();
-    let final_state2 = state_repo.get("person-2").await.unwrap().unwrap();
+    let final_state1 = state_repo.get("merge-1").await.unwrap().unwrap();
+    let final_state2 = state_repo.get("merge-2").await.unwrap().unwrap();
     assert_eq!(final_state1.step, MergeStep::Completed);
     assert_eq!(final_state2.step, MergeStep::Completed);
 }

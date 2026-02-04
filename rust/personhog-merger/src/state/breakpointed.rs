@@ -8,9 +8,9 @@ use crate::types::ApiResult;
 /// Identifies a specific operation on the repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RepositoryOperation {
-    Get { target_person_uuid: String },
-    Set { target_person_uuid: String, step: MergeStep },
-    Delete { target_person_uuid: String },
+    Get { merge_id: String },
+    Set { merge_id: String, step: MergeStep },
+    Delete { merge_id: String },
 }
 
 /// A breakpoint that fires before a repository operation.
@@ -28,22 +28,22 @@ impl OperationBreakpoint {
         }
     }
 
-    pub fn before_get(target_person_uuid: &str) -> Self {
+    pub fn before_get(merge_id: &str) -> Self {
         Self::new(RepositoryOperation::Get {
-            target_person_uuid: target_person_uuid.to_string(),
+            merge_id: merge_id.to_string(),
         })
     }
 
-    pub fn before_set(target_person_uuid: &str, step: MergeStep) -> Self {
+    pub fn before_set(merge_id: &str, step: MergeStep) -> Self {
         Self::new(RepositoryOperation::Set {
-            target_person_uuid: target_person_uuid.to_string(),
+            merge_id: merge_id.to_string(),
             step,
         })
     }
 
-    pub fn before_delete(target_person_uuid: &str) -> Self {
+    pub fn before_delete(merge_id: &str) -> Self {
         Self::new(RepositoryOperation::Delete {
-            target_person_uuid: target_person_uuid.to_string(),
+            merge_id: merge_id.to_string(),
         })
     }
 
@@ -72,29 +72,29 @@ impl InjectedError {
         }
     }
 
-    pub fn on_get(target_person_uuid: &str, error_message: impl Into<String>) -> Self {
+    pub fn on_get(merge_id: &str, error_message: impl Into<String>) -> Self {
         Self::new(
             RepositoryOperation::Get {
-                target_person_uuid: target_person_uuid.to_string(),
+                merge_id: merge_id.to_string(),
             },
             error_message,
         )
     }
 
-    pub fn on_set(target_person_uuid: &str, step: MergeStep, error_message: impl Into<String>) -> Self {
+    pub fn on_set(merge_id: &str, step: MergeStep, error_message: impl Into<String>) -> Self {
         Self::new(
             RepositoryOperation::Set {
-                target_person_uuid: target_person_uuid.to_string(),
+                merge_id: merge_id.to_string(),
                 step,
             },
             error_message,
         )
     }
 
-    pub fn on_delete(target_person_uuid: &str, error_message: impl Into<String>) -> Self {
+    pub fn on_delete(merge_id: &str, error_message: impl Into<String>) -> Self {
         Self::new(
             RepositoryOperation::Delete {
-                target_person_uuid: target_person_uuid.to_string(),
+                merge_id: merge_id.to_string(),
             },
             error_message,
         )
@@ -173,20 +173,20 @@ impl<R: MergeStateRepository> BreakpointedRepository<R> {
 
 #[async_trait]
 impl<R: MergeStateRepository> MergeStateRepository for BreakpointedRepository<R> {
-    async fn get(&self, target_person_uuid: &str) -> ApiResult<Option<MergeState>> {
+    async fn get(&self, merge_id: &str) -> ApiResult<Option<MergeState>> {
         let operation = RepositoryOperation::Get {
-            target_person_uuid: target_person_uuid.to_string(),
+            merge_id: merge_id.to_string(),
         };
         self.wait_for_breakpoint(&operation).await;
         if let Some(error_msg) = self.check_injected_error(&operation).await {
             return Err(error_msg.into());
         }
-        self.inner.get(target_person_uuid).await
+        self.inner.get(merge_id).await
     }
 
     async fn set(&self, state: MergeState) -> ApiResult<()> {
         let operation = RepositoryOperation::Set {
-            target_person_uuid: state.target_person_uuid.clone(),
+            merge_id: state.merge_id.clone(),
             step: state.step,
         };
         self.wait_for_breakpoint(&operation).await;
@@ -196,15 +196,15 @@ impl<R: MergeStateRepository> MergeStateRepository for BreakpointedRepository<R>
         self.inner.set(state).await
     }
 
-    async fn delete(&self, target_person_uuid: &str) -> ApiResult<()> {
+    async fn delete(&self, merge_id: &str) -> ApiResult<()> {
         let operation = RepositoryOperation::Delete {
-            target_person_uuid: target_person_uuid.to_string(),
+            merge_id: merge_id.to_string(),
         };
         self.wait_for_breakpoint(&operation).await;
         if let Some(error_msg) = self.check_injected_error(&operation).await {
             return Err(error_msg.into());
         }
-        self.inner.delete(target_person_uuid).await
+        self.inner.delete(merge_id).await
     }
 
     async fn list_incomplete(&self) -> ApiResult<Vec<MergeState>> {
@@ -226,7 +226,7 @@ mod tests {
 
         // Add breakpoint before set with TargetMarked step
         repo.add_breakpoint(OperationBreakpoint::before_set(
-            "person-1",
+            "merge-1",
             MergeStep::TargetMarked,
         ))
         .await;
@@ -234,7 +234,7 @@ mod tests {
         let repo_clone = repo.clone();
         let handle = tokio::spawn(async move {
             let mut state = MergeState::new(
-                "person-1".to_string(),
+                "merge-1".to_string(),
                 "target".to_string(),
                 vec![],
                 1000,
@@ -251,7 +251,7 @@ mod tests {
 
         // Complete the breakpoint
         repo.complete_breakpoint(&RepositoryOperation::Set {
-            target_person_uuid: "person-1".to_string(),
+            merge_id: "merge-1".to_string(),
             step: MergeStep::TargetMarked,
         })
         .await;
@@ -271,12 +271,12 @@ mod tests {
 
         // Add breakpoints for two different operations
         repo.add_breakpoint(OperationBreakpoint::before_set(
-            "person-1",
+            "merge-1",
             MergeStep::Started,
         ))
         .await;
         repo.add_breakpoint(OperationBreakpoint::before_set(
-            "person-2",
+            "merge-2",
             MergeStep::Started,
         ))
         .await;
@@ -285,7 +285,7 @@ mod tests {
         let order1 = order.clone();
         let task1 = tokio::spawn(async move {
             let state = MergeState::new(
-                "person-1".to_string(),
+                "merge-1".to_string(),
                 "target-1".to_string(),
                 vec![],
                 1000,
@@ -298,7 +298,7 @@ mod tests {
         let order2 = order.clone();
         let task2 = tokio::spawn(async move {
             let state = MergeState::new(
-                "person-2".to_string(),
+                "merge-2".to_string(),
                 "target-2".to_string(),
                 vec![],
                 2000,
@@ -312,7 +312,7 @@ mod tests {
 
         // Complete task2's breakpoint first
         repo.complete_breakpoint(&RepositoryOperation::Set {
-            target_person_uuid: "person-2".to_string(),
+            merge_id: "merge-2".to_string(),
             step: MergeStep::Started,
         })
         .await;
@@ -322,7 +322,7 @@ mod tests {
 
         // Then complete task1's breakpoint
         repo.complete_breakpoint(&RepositoryOperation::Set {
-            target_person_uuid: "person-1".to_string(),
+            merge_id: "merge-1".to_string(),
             step: MergeStep::Started,
         })
         .await;
@@ -348,18 +348,18 @@ mod tests {
 
         // No breakpoints added - operations should proceed immediately
         let state = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target".to_string(),
             vec![],
             1000,
         );
         repo.set(state).await.unwrap();
 
-        let retrieved = repo.get("person-1").await.unwrap();
+        let retrieved = repo.get("merge-1").await.unwrap();
         assert!(retrieved.is_some());
 
-        repo.delete("person-1").await.unwrap();
-        let retrieved = repo.get("person-1").await.unwrap();
+        repo.delete("merge-1").await.unwrap();
+        let retrieved = repo.get("merge-1").await.unwrap();
         assert!(retrieved.is_none());
     }
 
@@ -371,12 +371,12 @@ mod tests {
 
         // Add multiple breakpoints
         repo.add_breakpoint(OperationBreakpoint::before_set(
-            "person-1",
+            "merge-1",
             MergeStep::Started,
         ))
         .await;
         repo.add_breakpoint(OperationBreakpoint::before_set(
-            "person-2",
+            "merge-2",
             MergeStep::Started,
         ))
         .await;
@@ -385,7 +385,7 @@ mod tests {
         let counter1 = counter.clone();
         let task1 = tokio::spawn(async move {
             let state = MergeState::new(
-                "person-1".to_string(),
+                "merge-1".to_string(),
                 "target-1".to_string(),
                 vec![],
                 1000,
@@ -398,7 +398,7 @@ mod tests {
         let counter2 = counter.clone();
         let task2 = tokio::spawn(async move {
             let state = MergeState::new(
-                "person-2".to_string(),
+                "merge-2".to_string(),
                 "target-2".to_string(),
                 vec![],
                 2000,
@@ -434,14 +434,14 @@ mod tests {
 
         // Inject an error for set operation
         repo.inject_error(InjectedError::on_set(
-            "person-1",
+            "merge-1",
             MergeStep::Started,
             "network disconnection",
         ))
         .await;
 
         let state = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target".to_string(),
             vec![],
             1000,
@@ -462,7 +462,7 @@ mod tests {
 
         // First set a state successfully
         let state = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target".to_string(),
             vec![],
             1000,
@@ -470,15 +470,15 @@ mod tests {
         repo.set(state).await.unwrap();
 
         // Inject an error for get operation
-        repo.inject_error(InjectedError::on_get("person-1", "connection timeout"))
+        repo.inject_error(InjectedError::on_get("merge-1", "connection timeout"))
             .await;
 
-        let result = repo.get("person-1").await;
+        let result = repo.get("merge-1").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("connection timeout"));
 
         // Error should be consumed - second get should succeed
-        let result = repo.get("person-1").await;
+        let result = repo.get("merge-1").await;
         assert!(result.is_ok());
     }
 
@@ -488,10 +488,10 @@ mod tests {
         let repo = BreakpointedRepository::new(inner);
 
         // Inject an error for delete operation
-        repo.inject_error(InjectedError::on_delete("person-1", "storage unavailable"))
+        repo.inject_error(InjectedError::on_delete("merge-1", "storage unavailable"))
             .await;
 
-        let result = repo.delete("person-1").await;
+        let result = repo.delete("merge-1").await;
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -506,14 +506,14 @@ mod tests {
 
         // Inject an error
         repo.inject_error(InjectedError::on_set(
-            "person-1",
+            "merge-1",
             MergeStep::Started,
             "temporary failure",
         ))
         .await;
 
         let state = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target".to_string(),
             vec![],
             1000,

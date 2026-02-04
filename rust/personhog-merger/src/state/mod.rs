@@ -30,12 +30,16 @@ pub enum MergeStep {
     Failed,
 }
 
-/// State of a merge operation for a specific target person.
+/// State of a merge operation.
 /// Contains all information needed to resume a merge operation after service restart.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MergeState {
+    /// Unique identifier for this merge operation.
+    pub merge_id: String,
+
     /// The target person UUID that sources are being merged into.
-    pub target_person_uuid: String,
+    /// Populated after the target is marked (TargetMarked step).
+    pub target_person_uuid: Option<String>,
 
     /// The target distinct ID used to initiate the merge.
     pub target_distinct_id: String,
@@ -63,13 +67,14 @@ pub struct MergeState {
 
 impl MergeState {
     pub fn new(
-        target_person_uuid: String,
+        merge_id: String,
         target_distinct_id: String,
         source_distinct_ids: Vec<String>,
         version: i64,
     ) -> Self {
         Self {
-            target_person_uuid,
+            merge_id,
+            target_person_uuid: None,
             target_distinct_id,
             source_distinct_ids,
             valid_sources: HashMap::new(),
@@ -89,14 +94,14 @@ impl MergeState {
 /// Repository for storing merge state.
 #[async_trait]
 pub trait MergeStateRepository: Send + Sync {
-    /// Get the current merge state for a target person.
-    async fn get(&self, target_person_uuid: &str) -> ApiResult<Option<MergeState>>;
+    /// Get the merge state by its ID.
+    async fn get(&self, merge_id: &str) -> ApiResult<Option<MergeState>>;
 
-    /// Set the merge state for a target person.
+    /// Set the merge state.
     async fn set(&self, state: MergeState) -> ApiResult<()>;
 
-    /// Delete the merge state for a target person.
-    async fn delete(&self, target_person_uuid: &str) -> ApiResult<()>;
+    /// Delete the merge state by its ID.
+    async fn delete(&self, merge_id: &str) -> ApiResult<()>;
 
     /// List all merge states that are not completed (for resumption).
     async fn list_incomplete(&self) -> ApiResult<Vec<MergeState>>;
@@ -127,20 +132,20 @@ impl Default for InMemoryMergeStateRepository {
 
 #[async_trait]
 impl MergeStateRepository for InMemoryMergeStateRepository {
-    async fn get(&self, target_person_uuid: &str) -> ApiResult<Option<MergeState>> {
-        Ok(self.states.lock().unwrap().get(target_person_uuid).cloned())
+    async fn get(&self, merge_id: &str) -> ApiResult<Option<MergeState>> {
+        Ok(self.states.lock().unwrap().get(merge_id).cloned())
     }
 
     async fn set(&self, state: MergeState) -> ApiResult<()> {
         self.states
             .lock()
             .unwrap()
-            .insert(state.target_person_uuid.clone(), state);
+            .insert(state.merge_id.clone(), state);
         Ok(())
     }
 
-    async fn delete(&self, target_person_uuid: &str) -> ApiResult<()> {
-        self.states.lock().unwrap().remove(target_person_uuid);
+    async fn delete(&self, merge_id: &str) -> ApiResult<()> {
+        self.states.lock().unwrap().remove(merge_id);
         Ok(())
     }
 
@@ -165,12 +170,12 @@ mod tests {
         let repo = InMemoryMergeStateRepository::new();
 
         // Initially empty
-        let state = repo.get("person-1").await.unwrap();
+        let state = repo.get("merge-1").await.unwrap();
         assert!(state.is_none());
 
         // Set state
         let merge_state = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target-did".to_string(),
             vec!["source-did".to_string()],
             1000,
@@ -178,12 +183,12 @@ mod tests {
         repo.set(merge_state.clone()).await.unwrap();
 
         // Get state
-        let retrieved = repo.get("person-1").await.unwrap();
+        let retrieved = repo.get("merge-1").await.unwrap();
         assert_eq!(retrieved, Some(merge_state));
 
         // Update state
         let mut updated_state = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target-did".to_string(),
             vec!["source-did".to_string()],
             1000,
@@ -191,12 +196,12 @@ mod tests {
         updated_state.step = MergeStep::TargetMarked;
         repo.set(updated_state.clone()).await.unwrap();
 
-        let retrieved = repo.get("person-1").await.unwrap();
+        let retrieved = repo.get("merge-1").await.unwrap();
         assert_eq!(retrieved.unwrap().step, MergeStep::TargetMarked);
 
         // Delete state
-        repo.delete("person-1").await.unwrap();
-        let state = repo.get("person-1").await.unwrap();
+        repo.delete("merge-1").await.unwrap();
+        let state = repo.get("merge-1").await.unwrap();
         assert!(state.is_none());
     }
 
@@ -205,13 +210,13 @@ mod tests {
         let repo = InMemoryMergeStateRepository::new();
 
         let state1 = MergeState::new(
-            "person-1".to_string(),
+            "merge-1".to_string(),
             "target-1".to_string(),
             vec!["source-1".to_string()],
             1000,
         );
         let state2 = MergeState::new(
-            "person-2".to_string(),
+            "merge-2".to_string(),
             "target-2".to_string(),
             vec!["source-2".to_string()],
             2000,
@@ -220,8 +225,8 @@ mod tests {
         repo.set(state1.clone()).await.unwrap();
         repo.set(state2.clone()).await.unwrap();
 
-        assert_eq!(repo.get("person-1").await.unwrap(), Some(state1));
-        assert_eq!(repo.get("person-2").await.unwrap(), Some(state2));
+        assert_eq!(repo.get("merge-1").await.unwrap(), Some(state1));
+        assert_eq!(repo.get("merge-2").await.unwrap(), Some(state2));
 
         let all_states = repo.get_all_states();
         assert_eq!(all_states.len(), 2);

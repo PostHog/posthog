@@ -44,6 +44,15 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         self.state_repository.set(state.clone()).await
     }
 
+    /// Get the target person UUID from state, returning an error if not set.
+    /// This should only be called after the TargetMarked step.
+    fn get_target_person_uuid(state: &MergeState) -> ApiResult<String> {
+        state
+            .target_person_uuid
+            .clone()
+            .ok_or_else(|| "target_person_uuid not set".into())
+    }
+
     #[allow(dead_code)]
     async fn set_failed(&self, state: &mut MergeState, error: String) -> ApiResult<()> {
         state.step = MergeStep::Failed;
@@ -64,16 +73,22 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
     ///
     /// All merge logic is implemented in the `resume_from_*` methods. This method
     /// creates the initial state and delegates to `resume_from_started`.
+    ///
+    /// # Arguments
+    /// * `merge_id` - Unique identifier for this merge operation, used for tracking and resumption
+    /// * `target_distinct_id` - The distinct ID to merge sources into
+    /// * `source_distinct_ids` - The distinct IDs to merge into the target
+    /// * `version` - Version number for idempotent operations
     pub async fn merge(
         &self,
+        merge_id: &str,
         target_distinct_id: &str,
         source_distinct_ids: &[String],
         version: i64,
     ) -> ApiResult<MergeResult> {
-        // Create initial merge state. We use an empty target_person_uuid since
-        // we don't know it yet - it will be populated when we mark the target.
+        // Create initial merge state
         let mut state = MergeState::new(
-            String::new(), // Will be set in resume_from_started
+            merge_id.to_string(),
             target_distinct_id.to_string(),
             source_distinct_ids.to_vec(),
             version,
@@ -85,17 +100,17 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
     }
 
     /// Resume all incomplete merges from the state repository concurrently.
-    /// Returns a list of results for each resumed merge.
+    /// Returns a list of (merge_id, result) pairs for each resumed merge.
     pub async fn resume_all(&self) -> ApiResult<Vec<(String, ApiResult<MergeResult>)>> {
         let incomplete_states = self.state_repository.list_incomplete().await?;
 
         let resume_futures: Vec<_> = incomplete_states
             .into_iter()
             .map(|state| {
-                let target_person_uuid = state.target_person_uuid.clone();
+                let merge_id = state.merge_id.clone();
                 async move {
                     let result = self.resume_merge(state).await;
-                    (target_person_uuid, result)
+                    (merge_id, result)
                 }
             })
             .collect();
@@ -129,14 +144,15 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
                 self.resume_from_sources_deleted(&mut state).await
             }
             MergeStep::Completed | MergeStep::Failed => {
-                // Nothing to do
+                // Nothing to do - return current state as result
+                let target_person_uuid = state.target_person_uuid.clone().unwrap_or_default();
                 Ok(MergeResult {
                     merged: state
                         .valid_source_distinct_ids()
                         .into_iter()
                         .map(|distinct_id| DistinctIdInfo {
                             distinct_id,
-                            person_uuid: state.target_person_uuid.clone(),
+                            person_uuid: target_person_uuid.clone(),
                         })
                         .collect(),
                     conflicts: Vec::new(),
@@ -155,8 +171,8 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
         match target_result {
             SetMergingTargetResult::Ok { person_uuid, .. } => {
-                // Update state with the person UUID (might have changed or been set)
-                state.target_person_uuid = person_uuid;
+                // Update state with the person UUID
+                state.target_person_uuid = Some(person_uuid);
             }
             SetMergingTargetResult::Conflict {
                 distinct_id,
@@ -244,10 +260,11 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
         if ok_results.is_empty() {
             // No valid sources - clear target and complete
+            let target_person_uuid = Self::get_target_person_uuid(state)?;
             self.person_distinct_ids_api
                 .set_merged(
                     &state.target_distinct_id,
-                    &state.target_person_uuid,
+                    &target_person_uuid,
                     state.version,
                 )
                 .await?;
@@ -266,14 +283,12 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
     /// Resume merge from SourcesMarked step - properties need to be merged.
     async fn resume_from_sources_marked(&self, state: &mut MergeState) -> ApiResult<MergeResult> {
+        let target_person_uuid = Self::get_target_person_uuid(state)?;
+
         if state.source_person_uuids.is_empty() {
             // No sources to merge, just clear target and complete
             self.person_distinct_ids_api
-                .set_merged(
-                    &state.target_distinct_id,
-                    &state.target_person_uuid,
-                    state.version,
-                )
+                .set_merged(&state.target_distinct_id, &target_person_uuid, state.version)
                 .await?;
             self.update_state(state, MergeStep::Completed).await?;
             return Ok(MergeResult {
@@ -285,7 +300,7 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         // Merge properties
         let merge_result = self
             .person_properties_api
-            .get_persons_for_merge(&state.target_person_uuid, &state.source_person_uuids)
+            .get_persons_for_merge(&target_person_uuid, &state.source_person_uuids)
             .await?;
 
         let source_persons: Vec<Person> = state
@@ -296,7 +311,7 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
         if !source_persons.is_empty() {
             self.person_properties_api
-                .merge_person_properties(&state.target_person_uuid, &source_persons)
+                .merge_person_properties(&target_person_uuid, &source_persons)
                 .await?;
         }
 
@@ -311,13 +326,14 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         &self,
         state: &mut MergeState,
     ) -> ApiResult<MergeResult> {
+        let target_person_uuid = Self::get_target_person_uuid(state)?;
         let valid_source_distinct_ids = state.valid_source_distinct_ids();
 
         let set_merged_futures: Vec<_> = valid_source_distinct_ids
             .iter()
             .map(|distinct_id| {
                 self.person_distinct_ids_api
-                    .set_merged(distinct_id, &state.target_person_uuid, state.version)
+                    .set_merged(distinct_id, &target_person_uuid, state.version)
             })
             .collect();
 
@@ -334,10 +350,11 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         &self,
         state: &mut MergeState,
     ) -> ApiResult<MergeResult> {
+        let target_person_uuid = Self::get_target_person_uuid(state)?;
         self.person_distinct_ids_api
             .set_merged(
                 &state.target_distinct_id,
-                &state.target_person_uuid,
+                &target_person_uuid,
                 state.version,
             )
             .await?;
@@ -364,6 +381,7 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
     /// Resume merge from SourcesDeleted step - just mark as completed.
     async fn resume_from_sources_deleted(&self, state: &mut MergeState) -> ApiResult<MergeResult> {
+        let target_person_uuid = Self::get_target_person_uuid(state)?;
         self.update_state(state, MergeStep::Completed).await?;
 
         Ok(MergeResult {
@@ -372,7 +390,7 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
                 .into_iter()
                 .map(|distinct_id| DistinctIdInfo {
                     distinct_id,
-                    person_uuid: state.target_person_uuid.clone(),
+                    person_uuid: target_person_uuid.clone(),
                 })
                 .collect(),
             conflicts: Vec::new(),
