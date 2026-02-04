@@ -1,12 +1,11 @@
 """
 Coordinator workflow for batch trace summarization.
 
-This workflow processes traces for teams in the ALLOWED_TEAM_IDS list
+This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to process traces for each team.
 
-Team discovery uses a simple allowlist approach to avoid cross-team
-ClickHouse queries. The per-team child workflows handle the case where
-a team has no traces gracefully (returning empty results).
+Per-team child workflows handle the case where a team has no traces
+gracefully (returning empty results).
 """
 
 import dataclasses
@@ -14,11 +13,11 @@ from datetime import timedelta
 
 import structlog
 import temporalio
+from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
-    ALLOWED_TEAM_IDS,
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
@@ -38,6 +37,13 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 
 from products.llm_analytics.backend.summarization.models import SummarizationMode
 
+with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.team_discovery import (
+        SAMPLE_PERCENTAGE,
+        TeamDiscoveryInput,
+        get_team_ids_for_llm_analytics,
+    )
+
 logger = structlog.get_logger(__name__)
 
 
@@ -53,27 +59,12 @@ class BatchTraceSummarizationCoordinatorInputs:
     model: str = DEFAULT_MODEL
 
 
-def get_allowed_team_ids() -> list[int]:
-    """
-    Get the list of team IDs that should be processed for trace summarization.
-
-    Uses a simple allowlist approach to avoid cross-team ClickHouse queries.
-    Per-team child workflows handle the case where a team has no traces gracefully.
-
-    Returns:
-        List of team IDs from ALLOWED_TEAM_IDS constant
-    """
-    return ALLOWED_TEAM_IDS.copy()
-
-
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
 class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     """
-    Coordinator workflow that processes traces for teams in ALLOWED_TEAM_IDS.
-
-    This runs on a schedule (e.g., hourly) and spawns child workflows for each
-    team in the allowlist. Teams with no traces will complete quickly with
-    empty results.
+    Coordinator workflow that discovers teams dynamically and spawns child
+    workflows for each team. Teams with no traces will complete quickly
+    with empty results.
     """
 
     @staticmethod
@@ -98,11 +89,16 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             window_minutes=inputs.window_minutes,
         )
 
-        # Get teams from allowlist (no cross-team ClickHouse query needed)
-        team_ids = get_allowed_team_ids()
+        # Discover teams dynamically via activity
+        team_ids = await temporalio.workflow.execute_activity(
+            get_team_ids_for_llm_analytics,
+            TeamDiscoveryInput(lookback_days=30, sample_percentage=SAMPLE_PERCENTAGE),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
 
         if not team_ids:
-            logger.info("No teams in allowlist")
+            logger.info("No teams discovered")
             return CoordinatorResult(
                 teams_processed=0,
                 teams_failed=0,
@@ -111,7 +107,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 total_summaries=0,
             )
 
-        logger.info("Processing teams from allowlist", team_count=len(team_ids), team_ids=team_ids)
+        logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
 
         # Spawn child workflows for each team
         total_items = 0

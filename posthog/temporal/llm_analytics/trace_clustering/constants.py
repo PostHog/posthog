@@ -76,19 +76,6 @@ LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"
 
-# Team allowlist (empty list = no teams processed)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-    21999,
-]
-
 # Cluster labeling agent configuration
 LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning
 LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization

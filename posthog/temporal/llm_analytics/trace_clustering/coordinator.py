@@ -1,25 +1,25 @@
 """
 Coordinator workflow for daily trace clustering.
 
-This workflow processes traces for teams in the ALLOWED_TEAM_IDS list
+This workflow discovers teams dynamically via the team discovery activity
 and spawns child workflows to cluster traces for each team.
 
-Team discovery uses a simple allowlist approach to avoid cross-team
-ClickHouse queries. The per-team child workflows handle the case where
-a team has no traces gracefully (returning empty results).
+Per-team child workflows handle the case where a team has no traces
+gracefully (returning empty results).
 """
 
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 import structlog
 import temporalio
+from temporalio.common import RetryPolicy
 from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
-    ALLOWED_TEAM_IDS,
     CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     GENERATION_CHILD_WORKFLOW_ID_PREFIX,
@@ -30,6 +30,13 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusteringWorkflowInputs,
 )
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
+
+with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.temporal.llm_analytics.team_discovery import (
+        SAMPLE_PERCENTAGE,
+        TeamDiscoveryInput,
+        get_team_ids_for_llm_analytics,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -46,27 +53,12 @@ class TraceClusteringCoordinatorInputs:
     max_concurrent_teams: int = constants.DEFAULT_MAX_CONCURRENT_TEAMS
 
 
-def get_allowed_team_ids() -> list[int]:
-    """
-    Get the list of team IDs that should be processed for trace clustering.
-
-    Uses a simple allowlist approach to avoid cross-team ClickHouse queries.
-    Per-team child workflows handle the case where a team has no traces gracefully.
-
-    Returns:
-        List of team IDs from ALLOWED_TEAM_IDS constant
-    """
-    return ALLOWED_TEAM_IDS.copy()
-
-
 @temporalio.workflow.defn(name=COORDINATOR_WORKFLOW_NAME)
 class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
     """
-    Coordinator workflow that processes traces for teams in ALLOWED_TEAM_IDS.
-
-    This runs on a schedule (e.g., daily) and spawns child workflows for each
-    team in the allowlist. Teams with no traces will complete quickly with
-    empty results.
+    Coordinator workflow that discovers teams dynamically and spawns child
+    workflows for each team. Teams with no traces will complete quickly
+    with empty results.
     """
 
     @staticmethod
@@ -91,17 +83,22 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             max_samples=inputs.max_samples,
         )
 
-        # Get teams from allowlist (no cross-team ClickHouse query needed)
-        team_ids = get_allowed_team_ids()
+        # Discover teams dynamically via activity
+        team_ids = await temporalio.workflow.execute_activity(
+            get_team_ids_for_llm_analytics,
+            TeamDiscoveryInput(lookback_days=30, sample_percentage=SAMPLE_PERCENTAGE),
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
 
         if not team_ids:
-            logger.info("No teams in allowlist")
+            logger.info("No teams discovered")
             return {
                 "teams_processed": 0,
                 "total_clusters": 0,
             }
 
-        logger.info("Processing teams from allowlist", team_count=len(team_ids), team_ids=team_ids)
+        logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
 
         # Spawn child workflows for each team with concurrency limit
         total_clusters = 0
