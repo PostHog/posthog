@@ -481,11 +481,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    try:
-        recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        recipient = None
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
 
     is_one_click_unsubscribe = (
         request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
