@@ -23,6 +23,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
+import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
@@ -109,6 +110,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                          ...(display === ChartDisplayType.ActionsPie ? [{ label: () => <ShowPieTotalFilter /> }] : []),
                           ...(showAlertThresholdLinesConfig
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),

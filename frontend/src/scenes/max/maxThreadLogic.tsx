@@ -1682,7 +1682,8 @@ function enhanceThreadToolCalls(
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
             const isLastPlanningMessage = message.id === lastPlanningMessageId
             message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
-                const isCompleted = !!toolCallCompletions.get(toolCall.id)
+                const resultMessage = toolCallCompletions.get(toolCall.id)
+                const isCompleted = !!resultMessage
                 // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
                 const isInteractiveTool = toolCall.name === 'create_form'
                 // Tool calls with pending approvals should show as "in progress" (awaiting approval)
@@ -1698,6 +1699,7 @@ function enhanceThreadToolCalls(
                           : TaskExecutionStatus.InProgress,
                     isLastPlanningMessage: toolCall.name === 'todo_write' && isLastPlanningMessage,
                     updates: toolCallUpdateMap.get(toolCall.id) ?? [],
+                    result: isAssistantToolCallMessage(resultMessage) ? resultMessage : undefined,
                 }
             })
         }
