@@ -463,7 +463,7 @@ def calculate_video_segment_specs(
         if period.ts_to_s is None:
             # Raise exception if it's not the last period
             if i != len(inactivity_periods) - 1:
-                msg = f"Inactivity period has no ts_to_s, while not beling the last period ({i}/{len(inactivity_periods) - 1}): {period.model_dump_json()}"
+                msg = f"Inactivity period has no ts_to_s, while not being the last period ({i}/{len(inactivity_periods) - 1}): {period.model_dump_json()}"
                 logger.error(msg, signals_type="session-summaries")
                 raise ValueError(msg)
             period.recording_ts_to_s = video_duration
