@@ -78,25 +78,107 @@ def collect_bare_fields(node: ast.AST) -> set[str]:
     return {chain[0] for chain in find_field_chains(node) if len(chain) == 1 and isinstance(chain[0], str)}
 
 
+def _get_table_alias_for_lazy_join(lazy_join_type: ast.LazyJoinType) -> str | None:
+    """Get the table alias that a LazyJoinType belongs to (e.g., 'e2' for e2's override)."""
+    table_type = lazy_join_type.table_type
+    while table_type:
+        if isinstance(table_type, ast.TableAliasType):
+            return table_type.alias
+        elif isinstance(table_type, ast.VirtualTableType):
+            table_type = table_type.table_type
+        elif isinstance(table_type, ast.LazyJoinType):
+            table_type = table_type.table_type
+        else:
+            break
+    return None
+
+
+class LazyJoinTypeCollector(TraversingVisitor):
+    """Collect all unique LazyJoinType IDs from Fields matching specific lazy join names and table alias."""
+
+    def __init__(self, lazy_join_names: set[str], table_alias: str) -> None:
+        super().__init__()
+        self.lazy_join_names = lazy_join_names
+        self.table_alias = table_alias
+        self.lazy_join_type_ids: set[int] = set()
+
+    def visit_field(self, node: ast.Field):
+        if node.chain and node.chain[0] in self.lazy_join_names:
+            if isinstance(node.type, ast.FieldType):
+                table_type = node.type.table_type
+                while isinstance(table_type, ast.VirtualTableType):
+                    table_type = table_type.table_type
+                if isinstance(table_type, ast.LazyJoinType):
+                    # Only collect if this LazyJoinType belongs to our table alias
+                    if _get_table_alias_for_lazy_join(table_type) == self.table_alias:
+                        self.lazy_join_type_ids.add(id(table_type))
+
+
+def _collect_lazy_join_type_ids_from_constraint(
+    constraint: ast.JoinConstraint, lazy_join_names: set[str], table_alias: str
+) -> set[int]:
+    """Collect all unique LazyJoinType IDs from a constraint for the given lazy join names and table."""
+    collector = LazyJoinTypeCollector(lazy_join_names, table_alias)
+    collector.visit(constraint)
+    return collector.lazy_join_type_ids
+
+
+class LazyJoinFieldFinder(TraversingVisitor):
+    """Find Field nodes that reference specific lazy join types."""
+
+    def __init__(self, lazy_join_type_ids: set[int]) -> None:
+        super().__init__()
+        self.lazy_join_type_ids = lazy_join_type_ids
+        self.found_fields: list[ast.Field] = []
+
+    def visit_field(self, node: ast.Field):
+        if isinstance(node.type, ast.FieldType):
+            table_type = node.type.table_type
+            while isinstance(table_type, ast.VirtualTableType):
+                table_type = table_type.table_type
+            if isinstance(table_type, ast.LazyJoinType) and id(table_type) in self.lazy_join_type_ids:
+                self.found_fields.append(node)
+
+
 class LazyJoinExpressionReplacer(CloningVisitor):
     """Replace if() expressions that reference lazy joins with simple field references.
 
     Transforms: if(not(empty(override.distinct_id)), override.person_id, event_person_id)
     Into: table.person_id (since the subquery pre-computes this)
+
+    Uses AST type identity to distinguish which table a Field belongs to in self-joins.
     """
 
-    def __init__(self, table_alias: str, subquery_type: ast.SelectQueryAliasType, lazy_join_names: set[str]) -> None:
+    def __init__(self, table_alias: str, subquery_type: ast.SelectQueryAliasType, lazy_join_type_ids: set[int]) -> None:
         super().__init__(clear_types=False, clear_locations=False)
         self.table_alias = table_alias
         self.subquery_type = subquery_type
-        self.lazy_join_names = lazy_join_names
+        self.lazy_join_type_ids = lazy_join_type_ids
 
-    def _get_lazy_field_access(self, node: ast.AST) -> str | None:
-        """Find a field access through one of our lazy joins, e.g., 'person_id' from 'override.person_id'."""
-        for chain in find_field_chains(node):
-            if chain and chain[0] in self.lazy_join_names and len(chain) >= 2:
-                return str(chain[1])
+    def _get_lazy_field_access(self, node: ast.Call) -> str | None:
+        """Extract the field name from an if() expression's "then" branch.
+
+        The if() structure is: if(condition, then_value, else_value)
+        We want the field from then_value (e.g., "person_id" from "override.person_id").
+        """
+        if len(node.args) < 2:
+            return None
+
+        # Look in the "then" branch (arg 1) for our lazy join field
+        then_branch = node.args[1]
+        finder = LazyJoinFieldFinder(self.lazy_join_type_ids)
+        finder.visit(then_branch)
+        if finder.found_fields:
+            field = finder.found_fields[0]
+            if len(field.chain) >= 2:
+                return str(field.chain[1])
         return None
+
+    def _references_our_lazy_joins(self, node: ast.AST) -> bool:
+        """Check if this node references any of our lazy joins."""
+        finder = LazyJoinFieldFinder(self.lazy_join_type_ids)
+        finder.visit(node)
+        return len(finder.found_fields) > 0
 
     def visit_call(self, node: ast.Call):
         if node.name == "if":
@@ -107,9 +189,8 @@ class LazyJoinExpressionReplacer(CloningVisitor):
                     type=ast.FieldType(name=field_name, table_type=self.subquery_type),
                 )
             # If this if() references our lazy joins, we must be able to extract the field
-            for chain in find_field_chains(node):
-                if chain and chain[0] in self.lazy_join_names:
-                    raise ResolutionError(f"Found lazy join reference {chain} but couldn't extract field name")
+            if self._references_our_lazy_joins(node):
+                raise ResolutionError(f"Found lazy join reference but couldn't extract field name")
         return super().visit_call(node)
 
 
@@ -230,6 +311,7 @@ class LazyTableResolver(TraversingVisitor):
         used_fields.update(collect_bare_fields(join_ptr.constraint))
 
         # Build subquery selecting needed fields
+
         select_fields: list[ast.Expr] = [
             ast.Alias(alias=field, expr=ast.Field(chain=[table_alias, field])) for field in sorted(used_fields)
         ]
@@ -249,13 +331,19 @@ class LazyTableResolver(TraversingVisitor):
         join_ptr.type = ast.SelectQueryAliasType(alias=table_alias, select_query_type=subquery.type)
         select_type.tables[table_alias] = join_ptr.type
 
-        # Update constraint to reference subquery columns
-        lazy_join_names = {
+        # Collect LazyJoinType IDs for this table's lazy joins from the constraint itself.
+        # Different field accesses (e.g., override.distinct_id vs override.person_id) may have
+        # different LazyJoinType instances, so we collect ALL of them.
+        # We filter by table_alias to handle self-joins correctly (e.g., e1 vs e2 both have "override").
+        lazy_join_field_names = {
             v.lazy_join_type.field for v in joins_to_add.values() if v.from_table == table_alias and v.lazy_join_type
         }
+        lazy_join_type_ids = _collect_lazy_join_type_ids_from_constraint(
+            join_ptr.constraint, lazy_join_field_names, table_alias
+        )
         join_ptr.constraint = cast(
             ast.JoinConstraint,
-            LazyJoinExpressionReplacer(table_alias, join_ptr.type, lazy_join_names).visit(join_ptr.constraint),
+            LazyJoinExpressionReplacer(table_alias, join_ptr.type, lazy_join_type_ids).visit(join_ptr.constraint),
         )
 
     def visit_property_type(self, node: ast.PropertyType):
