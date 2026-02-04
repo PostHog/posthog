@@ -505,8 +505,6 @@ export function LineGraph_({
     function generateYaxesForLineGraph(
         dataSetCount: number,
         seriesNonZeroMin: number,
-        goalLines: GoalLine[],
-        goalLinesY: number[],
         goalLinesWithColor: GoalLine[],
         tickOptions: Partial<TickOptions>,
         precision: number,
@@ -968,8 +966,6 @@ export function LineGraph_({
                         (showMultipleYAxes && new Set(processedDatasets.map((d) => d.yAxisID)).size) ||
                             processedDatasets.length,
                         seriesNonZeroMin,
-                        goalLines,
-                        goalLinesY,
                         goalLinesWithColor,
                         tickOptions,
                         precision,
