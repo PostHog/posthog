@@ -1,6 +1,15 @@
 import { AnyPropertyFilter } from '~/types'
 
+import { LLMProvider } from '../settings/llmProviderKeysLogic'
+
 export type EvaluationOutputType = 'boolean'
+
+export interface ModelConfiguration {
+    provider: LLMProvider
+    model: string
+    provider_key_id: string | null
+    provider_key_name?: string | null
+}
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
@@ -18,6 +27,7 @@ export interface EvaluationConfig {
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
+    model_configuration: ModelConfiguration | null
     total_runs: number
     last_run_at?: string
     created_at: string
@@ -42,4 +52,30 @@ export interface EvaluationRun {
     applicable?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
+}
+
+export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
+
+export interface EvaluationPattern {
+    title: string
+    description: string
+    frequency: string
+    example_reasoning: string
+    example_generation_ids: string[]
+}
+
+export interface EvaluationSummaryStatistics {
+    total_analyzed: number
+    pass_count: number
+    fail_count: number
+    na_count: number
+}
+
+export interface EvaluationSummary {
+    overall_assessment: string
+    pass_patterns: EvaluationPattern[]
+    fail_patterns: EvaluationPattern[]
+    na_patterns: EvaluationPattern[]
+    recommendations: string[]
+    statistics: EvaluationSummaryStatistics
 }

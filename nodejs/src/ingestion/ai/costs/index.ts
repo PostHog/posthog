@@ -11,6 +11,7 @@ import {
     requireSpecialCost,
 } from './cost-model-matching'
 import { calculateInputCost } from './input-costs'
+import { extractModalityTokens } from './modality-tokens'
 import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
 import { calculateRequestCost } from './request-costs'
@@ -73,6 +74,9 @@ const isString = (property: unknown): property is string => {
  * Calculates input, output, request, and web search costs based on model pricing.
  */
 export const processCost = (event: EventWithProperties): EventWithProperties => {
+    // First, extract modality tokens from raw usage if present
+    extractModalityTokens(event)
+
     const inputCost = event.properties['$ai_input_cost_usd']
     const outputCost = event.properties['$ai_output_cost_usd']
 

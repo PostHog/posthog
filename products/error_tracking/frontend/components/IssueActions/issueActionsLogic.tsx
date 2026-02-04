@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
@@ -77,6 +78,8 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     posthog.capture('error_tracking_issue_bulk_resolve')
                     await api.errorTracking.bulkMarkStatus(ids, 'resolved')
                 })
+
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ResolveFirstError)
             },
             suppressIssues: async ({ ids }) => {
                 await runMutation('suppressIssues', async () => {

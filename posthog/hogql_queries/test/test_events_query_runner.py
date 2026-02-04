@@ -11,13 +11,13 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.schema import (
     CachedEventsQueryResponse,
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
-    HogQLQueryModifiers,
     PropertyOperator,
 )
 
@@ -450,7 +450,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
-    def test_presorted_events_table(self):
+    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
+    def test_presorted_events_table(self, mock_flag):
         self._create_events(
             data=[
                 (
@@ -492,21 +493,104 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        runner_regular = EventsQueryRunner(query=query, team=self.team)
-        response_regular = runner_regular.run()
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
 
-        runner_presorted = EventsQueryRunner(
-            query=query, team=self.team, modifiers=HogQLQueryModifiers(usePresortedEventsTable=True)
+        assert isinstance(response, CachedEventsQueryResponse)
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
+    def test_presorted_events_table_order_by_event(self, mock_flag):
+        """Test presorted optimization when ordering by event column."""
+        self._create_events(data=[("p2", "2021-01-20T12:00:14Z", {})], event="beta_event")
+        self._create_events(data=[("p3", "2021-01-20T12:00:24Z", {})], event="gamma_event")
+        self._create_events(data=[("p1", "2021-01-20T12:00:04Z", {})], event="alpha_event")
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            kind="EventsQuery",
+            orderBy=["event ASC"],
+            select=["*"],
+            offset=0,
         )
-        response_presorted = runner_presorted.run()
 
-        assert isinstance(response_regular, CachedEventsQueryResponse)
-        assert isinstance(response_presorted, CachedEventsQueryResponse)
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
 
-        assert "cityHash" not in response_regular.hogql
-        assert "cityHash" in response_presorted.hogql
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # Alphabetical order: alpha < beta < gamma (different from creation order)
+        assert response.results[0][0]["distinct_id"] == "p1"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p3"
 
-        assert response_regular.results == response_presorted.results
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
+    def test_presorted_events_table_order_by_property(self, mock_flag):
+        """Test presorted optimization when ordering by property."""
+        self._create_events(
+            data=[
+                ("p2", "2021-01-20T12:00:14Z", {"priority": "medium"}),
+                ("p3", "2021-01-20T12:00:24Z", {"priority": "urgent"}),
+                ("p1", "2021-01-20T12:00:04Z", {"priority": "low"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["properties.priority ASC"],
+            select=["*"],
+            offset=0,
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # Alphabetical order: low < medium < urgent (different from creation order)
+        assert response.results[0][0]["distinct_id"] == "p1"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p3"
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    @patch("posthog.hogql_queries.events_query_runner.use_presorted_events_query", return_value=True)
+    def test_presorted_events_table_multiple_order_by(self, mock_flag):
+        """Test presorted optimization with multiple ORDER BY clauses."""
+        self._create_events(
+            data=[
+                ("p2", "2021-01-20T12:00:14Z", {}),
+                ("p1", "2021-01-20T12:00:04Z", {}),
+                ("p3", "2021-01-20T12:00:24Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp DESC", "event ASC"],
+            select=["*"],
+            offset=0,
+        )
+
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) == 3
+        # timestamp DESC: p3 (12:00:24) > p2 (12:00:14) > p1 (12:00:04)
+        assert response.results[0][0]["distinct_id"] == "p3"
+        assert response.results[1][0]["distinct_id"] == "p2"
+        assert response.results[2][0]["distinct_id"] == "p1"
 
     def test_select_person_column(self):
         self._create_events(

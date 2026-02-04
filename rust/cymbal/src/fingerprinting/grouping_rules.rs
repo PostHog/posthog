@@ -209,9 +209,8 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config,
         fingerprinting::resolve_fingerprint,
-        teams::TeamManager,
+        test_utils::create_test_context,
         types::{ExceptionList, RawErrProps},
     };
 
@@ -261,7 +260,7 @@ mod test {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_grouping_rules(db: PgPool) {
-        let config = Config::init_with_defaults().unwrap();
+        let ctx = create_test_context(db).await;
 
         let test_team_id = 1;
         let mut test_props = test_props();
@@ -271,12 +270,12 @@ mod test {
 
         let rule = get_test_rule();
         let expected_fingerprint = format!("custom-rule:{}", rule.id);
-        let team_manager = TeamManager::new(&config);
         // Insert the rule, so we skip the DB lookup
-        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
+        ctx.team_manager
+            .grouping_rules
+            .insert(test_team_id, vec![rule]);
 
-        let mut conn = db.acquire().await.unwrap();
-        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
             .await
             .unwrap();
 
@@ -287,9 +286,11 @@ mod test {
         let mut rule = get_test_rule();
         let expected_fingerprint = format!("custom-rule:{}", rule.id);
         rule.user_id = Some(1);
-        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
+        ctx.team_manager
+            .grouping_rules
+            .insert(test_team_id, vec![rule]);
 
-        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
             .await
             .unwrap();
 
@@ -302,7 +303,7 @@ mod test {
             .other
             .insert("test_value".to_string(), JsonValue::from("no_match"));
 
-        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
             .await
             .unwrap();
 

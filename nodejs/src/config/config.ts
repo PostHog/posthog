@@ -99,6 +99,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
+        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
+        INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
         LOG_LEVEL: isTestEnv() ? 'warn' : 'info',
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
@@ -120,6 +123,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         PLUGIN_SERVER_MODE: null,
+        NODEJS_CAPABILITY_GROUPS: null, // Set via hogli dev:setup - e.g. "cdp_workflows,session_replay"
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
@@ -192,7 +196,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_REDIS_HOST: '127.0.0.1',
-        CDP_REDIS_PORT: 6479,
+        CDP_REDIS_PORT: 6379,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
@@ -231,13 +235,16 @@ export function getDefaultConfig(): PluginsServerConfig {
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
 
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
+        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
+            : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
+        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        INGESTION_JOINED_PIPELINE: false,
 
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
@@ -334,7 +341,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
         LOGS_REDIS_HOST: '127.0.0.1',
-        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PORT: 6379,
         LOGS_REDIS_PASSWORD: '',
         LOGS_REDIS_TLS: isProdEnv() ? true : false,
         LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',

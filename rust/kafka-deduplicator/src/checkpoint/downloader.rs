@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::path::Path;
+use tokio_util::sync::CancellationToken;
 
 /// Trait for downloading checkpoint data files from remote storage
 #[async_trait]
@@ -18,12 +19,39 @@ pub trait CheckpointDownloader: Send + Sync + std::fmt::Debug {
 
     // Download a single file from remote storage and store it in the given local file path.
     // The method assumes the local path parent directories were pre-created
-    async fn download_and_store_file(&self, remote_key: &str, local_filepath: &Path) -> Result<()>;
+    async fn download_and_store_file(&self, remote_key: &str, local_filepath: &Path) -> Result<()> {
+        // Default implementation without cancellation support
+        self.download_and_store_file_cancellable(remote_key, local_filepath, None)
+            .await
+    }
+
+    /// Download and store a single file with optional cancellation support.
+    /// If cancel_token is provided and cancelled during streaming, returns an error early
+    /// and cleans up any partial file.
+    async fn download_and_store_file_cancellable(
+        &self,
+        remote_key: &str,
+        local_filepath: &Path,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<()>;
 
     /// Given a list of fully-qualified remote file keys, download all
     /// files in parallel from remote storage and into the given local
     /// directory path. Caller is responsible for creating the directory.
-    async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()>;
+    async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()> {
+        // Default implementation without cancellation support
+        self.download_files_cancellable(remote_keys, local_base_path, None)
+            .await
+    }
+
+    /// Download files with optional cancellation support.
+    /// If cancel_token is provided and cancelled, returns an error early.
+    async fn download_files_cancellable(
+        &self,
+        remote_keys: &[String],
+        local_base_path: &Path,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<()>;
 
     /// Check if the downloader is available and configured for use
     async fn is_available(&self) -> bool;

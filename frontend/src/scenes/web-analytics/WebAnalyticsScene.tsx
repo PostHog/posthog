@@ -6,6 +6,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
     return (
@@ -28,5 +29,5 @@ export function WebAnalyticsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: WebAnalyticsScene,
     logic: webAnalyticsLogic,
-    settingSectionId: 'environment-web-analytics',
+    productKey: ProductKey.WEB_ANALYTICS,
 }

@@ -15,12 +15,14 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_modeling.backend.api import EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
@@ -38,6 +40,7 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -58,6 +61,8 @@ from products.llm_analytics.backend.api import (
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
+    LLMEvaluationSummaryViewSet,
+    LLMModelsViewSet,
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
@@ -258,6 +263,9 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+
+# Signal reports endpoints
+projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
@@ -502,6 +510,18 @@ environments_router.register(
     "environment_managed_viewsets",
     ["team_id"],
 )
+environments_router.register(
+    r"data_modeling_nodes",
+    NodeViewSet,
+    "environment_data_modeling_nodes",
+    ["team_id"],
+)
+environments_router.register(
+    r"data_modeling_edges",
+    EdgeViewSet,
+    "environment_data_modeling_edges",
+    ["team_id"],
+)
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -580,6 +600,7 @@ router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_p
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
@@ -863,6 +884,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/autocapture_controls",
+    ErrorTrackingAutoCaptureControlsViewSet,
+    "environment_error_tracking_autocapture_controls",
+    ["team_id"],
+)
+
+environments_router.register(
     r"quick_filters",
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
@@ -1105,6 +1133,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/evaluation_summary",
+    LLMEvaluationSummaryViewSet,
+    "environment_llm_analytics_evaluation_summary",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_analytics/translate",
     LLMAnalyticsTranslateViewSet,
     "environment_llm_analytics_translate",
@@ -1122,6 +1157,13 @@ environments_router.register(
     r"llm_analytics/provider_key_validations",
     LLMProviderKeyValidationViewSet,
     "environment_llm_analytics_provider_key_validations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/models",
+    LLMModelsViewSet,
+    "environment_llm_analytics_models",
     ["team_id"],
 )
 

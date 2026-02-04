@@ -1,5 +1,6 @@
 """OpenAI provider for unified LLM client."""
 
+import json
 import uuid
 import logging
 from collections.abc import Generator
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-4.1",
@@ -73,9 +75,11 @@ class OpenAIAdapter:
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
 
         posthog_client = posthoganalytics.default_client
         client: Any
@@ -83,30 +87,42 @@ class OpenAIAdapter:
             client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
             )
         else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+            client = openai.OpenAI(
+                api_key=effective_api_key,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+            )
 
         messages: Any = self._build_messages(request)
 
         try:
             if request.response_format and issubclass(request.response_format, BaseModel):
-                response = client.beta.chat.completions.parse(
-                    model=request.model,
-                    messages=messages,
-                    response_format=request.response_format,
-                    **(self._build_analytics_kwargs(analytics, client)),
-                )
-                parsed = response.choices[0].message.parsed
-                content = parsed.model_dump_json() if parsed else ""
-                usage = self._extract_usage(response.usage)
-                return CompletionResponse(
-                    content=content,
-                    model=request.model,
-                    usage=usage,
-                    parsed=parsed,
-                )
+                try:
+                    # Try native structured output parsing first
+                    response = client.beta.chat.completions.parse(
+                        model=request.model,
+                        messages=messages,
+                        response_format=request.response_format,
+                        **(self._build_analytics_kwargs(analytics, client)),
+                    )
+                    parsed = response.choices[0].message.parsed
+                    content = parsed.model_dump_json() if parsed else ""
+                    usage = self._extract_usage(response.usage)
+                    return CompletionResponse(
+                        content=content,
+                        model=request.model,
+                        usage=usage,
+                        parsed=parsed,
+                    )
+                except openai.BadRequestError as e:
+                    # Fall back to manual JSON parsing for older models that don't support json_schema
+                    if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
+                        return self._complete_with_json_fallback(client, request, messages, analytics)
+                    raise
             else:
                 create_response = client.chat.completions.create(
                     model=request.model,
@@ -135,14 +151,66 @@ class OpenAIAdapter:
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
 
+    def _complete_with_json_fallback(
+        self,
+        client: Any,
+        request: CompletionRequest,
+        messages: list[dict],
+        analytics: AnalyticsContext,
+    ) -> CompletionResponse:
+        """Fallback for models that don't support json_schema response format."""
+        assert request.response_format is not None
+
+        json_schema = request.response_format.model_json_schema()
+        enhanced_system = f"""{request.system or ""}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(json_schema, indent=2)}
+
+Return ONLY the JSON object, no other text or markdown formatting."""
+
+        enhanced_messages = [{"role": "system", "content": enhanced_system}]
+        enhanced_messages.extend(request.messages)
+
+        create_response = client.chat.completions.create(
+            model=request.model,
+            messages=enhanced_messages,
+            temperature=request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE,
+            max_completion_tokens=request.max_tokens,
+            **(self._build_analytics_kwargs(analytics, client)),
+        )
+
+        content = create_response.choices[0].message.content or ""
+        usage = self._extract_usage(create_response.usage)
+
+        # Parse the JSON response
+        try:
+            clean_content = content.strip()
+            if clean_content.startswith("```"):
+                lines = clean_content.split("\n")
+                clean_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            parsed = request.response_format.model_validate_json(clean_content)
+        except Exception as e:
+            logger.warning(f"Failed to parse structured output from OpenAI fallback: {e}")
+            raise ValueError(f"Failed to parse structured output: {e}") from e
+
+        return CompletionResponse(
+            content=content,
+            model=request.model,
+            usage=usage,
+            parsed=parsed,
+        )
+
     def stream(
         self,
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
         model_id = request.model
 
         posthog_client = posthoganalytics.default_client
@@ -151,10 +219,15 @@ class OpenAIAdapter:
             client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
-                base_url=settings.OPENAI_BASE_URL,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
             )
         else:
-            client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
+            client = openai.OpenAI(
+                api_key=effective_api_key,
+                base_url=effective_base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+            )
 
         supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
         reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
@@ -244,7 +317,7 @@ class OpenAIAdapter:
         if not api_key.startswith(("sk-", "sk-proj-")):
             return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-' or 'sk-proj-')")
         try:
-            client = openai.OpenAI(api_key=api_key)
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
             client.models.list()
             return (LLMProviderKey.State.OK, None)
         except openai.AuthenticationError:
@@ -262,7 +335,7 @@ class OpenAIAdapter:
         """List available OpenAI models."""
         if api_key:
             try:
-                client = openai.OpenAI(api_key=api_key)
+                client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
                 all_models = [m.id for m in client.models.list()]
                 return [
                     m

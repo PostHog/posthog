@@ -112,3 +112,30 @@ fn test_get_git_info_from_vercel_env() {
     std::env::remove_var("VERCEL_GIT_COMMIT_REF");
     std::env::remove_var("VERCEL_GIT_COMMIT_SHA");
 }
+
+#[test]
+fn test_get_git_info_from_github_env() {
+    std::env::set_var("GITHUB_ACTIONS", "true");
+    std::env::set_var("GITHUB_SHA", "abc123def456");
+    std::env::set_var("GITHUB_REF_NAME", "main");
+    std::env::set_var("GITHUB_REPOSITORY", "PostHog/posthog");
+    std::env::set_var("GITHUB_SERVER_URL", "https://github.com");
+
+    let info = get_git_info(None)
+        .expect("should not error")
+        .expect("should return info");
+
+    assert_eq!(info.branch, "main");
+    assert_eq!(info.commit_id, "abc123def456");
+    assert_eq!(info.repo_name.as_deref(), Some("posthog"));
+    assert_eq!(
+        info.remote_url.as_deref(),
+        Some("https://github.com/PostHog/posthog.git")
+    );
+
+    std::env::remove_var("GITHUB_ACTIONS");
+    std::env::remove_var("GITHUB_SHA");
+    std::env::remove_var("GITHUB_REF_NAME");
+    std::env::remove_var("GITHUB_REPOSITORY");
+    std::env::remove_var("GITHUB_SERVER_URL");
+}

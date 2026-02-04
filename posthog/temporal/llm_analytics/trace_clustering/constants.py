@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 1000
+DEFAULT_MAX_SAMPLES = 2500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
@@ -23,6 +23,10 @@ WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-clustering-coordinator-schedule"
 CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
+
+# Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
+GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-schedule"
+GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -58,10 +62,12 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
+EVENT_NAME_GENERATION = "$ai_generation_clusters"  # For generation-level clustering
 
 # Document type for LLM trace summaries (clustering uses detailed mode only)
 # New format includes mode suffix
 LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary-detailed"
+LLMA_GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level clustering
 # Legacy format (before mode suffix was added) - used with rendering filter
 LLMA_TRACE_DOCUMENT_TYPE_LEGACY = "llm-trace-summary"
 # Legacy rendering value for detailed summaries
@@ -80,6 +86,7 @@ ALLOWED_TEAM_IDS: list[int] = [
     140227,
     237906,
     294356,
+    21999,
 ]
 
 # Cluster labeling agent configuration

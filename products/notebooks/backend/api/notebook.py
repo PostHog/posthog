@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.utils.timezone import now
 
 import structlog
@@ -29,6 +29,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -36,6 +38,8 @@ from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.tasks.backend.services.sandbox import SandboxStatus
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 
@@ -581,6 +585,54 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to execute notebook code."}, status=503)
 
         return Response(execution.as_dict())
+
+    @action(
+        methods=["POST"],
+        url_path="kernel/execute/stream",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+    )
+    def kernel_execute_stream(self, request: Request, **kwargs):
+        serializer = NotebookKernelExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        analysis = analyze_python_globals(serializer.validated_data["code"])
+        variable_names = [entry["name"] for entry in analysis.exported_with_types]
+        renderer = SafeJSONRenderer()
+
+        def stream():
+            try:
+                for event in get_kernel_runtime(notebook, self._current_user()).execute_stream(
+                    serializer.validated_data["code"],
+                    capture_variables=serializer.validated_data.get("return_variables", True),
+                    variable_names=variable_names,
+                    timeout=serializer.validated_data.get("timeout"),
+                ):
+                    if event["type"] == "result":
+                        payload = event["data"]
+                    else:
+                        payload = {"text": event.get("text", "")}
+                    payload_json = renderer.render(payload).decode()
+                    yield f"event: {event['type']}\ndata: {payload_json}\n\n".encode()
+            except SandboxProvisionError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                payload = {"error": "Failed to execute notebook code."}
+                payload_json = renderer.render(payload).decode()
+                yield f"event: error\ndata: {payload_json}\n\n".encode()
+            except RuntimeError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                payload = {"error": "Failed to execute notebook code."}
+                payload_json = renderer.render(payload).decode()
+                yield f"event: error\ndata: {payload_json}\n\n".encode()
+
+        streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
+        response = StreamingHttpResponse(
+            streaming_content=streaming_content, content_type=ServerSentEventRenderer.media_type
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):

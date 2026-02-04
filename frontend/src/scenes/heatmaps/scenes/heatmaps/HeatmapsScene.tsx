@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { HeatmapScreenshotType } from '~/types'
 
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
@@ -24,7 +25,7 @@ import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
 export const scene: SceneExport = {
     component: HeatmapsScene,
     logic: heatmapsSceneLogic,
-    settingSectionId: 'environment-autocapture',
+    productKey: ProductKey.HEATMAPS,
 }
 
 export function HeatmapsScene(): JSX.Element {
