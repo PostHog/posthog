@@ -300,7 +300,7 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
-        if (def.scenes.has(sceneId)) {
+        if (def.scenes?.has(sceneId)) {
             return mode as AgentMode
         }
     }
