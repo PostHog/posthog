@@ -38,9 +38,10 @@ export const SidePanelSettings = (): JSX.Element => {
 
     useEffect(() => {
         if (settings.settingId) {
-            setTimeout(() => {
+            const timeout = setTimeout(() => {
                 document.getElementById(settings.settingId!)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }, 100)
+            }, 1000 / 60)
+            return () => clearTimeout(timeout)
         }
     }, [settings.settingId])
 
