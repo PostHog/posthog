@@ -33,6 +33,7 @@ from posthog.passkey import (
 )
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -294,6 +295,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 {"error": "Authentication failed. Please check your passkey and try again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Evaluate signin attempt with WorkOS Radar (log-only mode, does not block)
+        evaluate_auth_attempt(
+            request=request._request,
+            email=user.email,
+            action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSKEY,
+            user_id=str(user.distinct_id),
+        )
 
         # Check axes lockout before attempting authentication
         if lockout_response := self._check_axes_lockout(request, user):

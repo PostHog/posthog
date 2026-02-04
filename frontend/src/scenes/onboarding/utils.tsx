@@ -27,8 +27,8 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
-        url: urls.dataPipelines('sources'),
-        scene: Scene.DataPipelines,
+        url: urls.sources(),
+        scene: Scene.Sources,
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',

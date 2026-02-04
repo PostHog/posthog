@@ -127,7 +127,7 @@ class TestVercelAPIClient:
 
     @patch("ee.vercel.client.requests.Session.request")
     def test_update_resource_secrets(self, mock_request, client, test_ids):
-        secrets = [{"name": "POSTHOG_PROJECT_API_KEY", "value": "test_key"}]
+        secrets = [{"name": "NEXT_PUBLIC_POSTHOG_KEY", "value": "test_key"}]
         self.assert_successful_request(
             mock_request,
             "PUT",
@@ -142,7 +142,7 @@ class TestVercelAPIClient:
     def test_update_resource_secrets_handles_errors(self, mock_request, client, test_ids):
         mock_request.return_value = self.ErrorFactory.http(400, "Bad Request")
 
-        secrets = [{"name": "POSTHOG_PROJECT_API_KEY", "value": "test_key"}]
+        secrets = [{"name": "NEXT_PUBLIC_POSTHOG_KEY", "value": "test_key"}]
         result = client.update_resource_secrets(test_ids["integration_config_id"], test_ids["resource_id"], secrets)
 
         assert not result.success

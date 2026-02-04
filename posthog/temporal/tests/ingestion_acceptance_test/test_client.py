@@ -93,7 +93,7 @@ class TestFetchEventByUuid:
         client._fetch_event_by_uuid("test-uuid")
 
         url = mock_post.call_args[0][0]
-        assert url == "https://test.posthog.com/api/environments/12345/query/"
+        assert url == "https://test.posthog.com/api/projects/12345/query/"
 
     @patch("posthog.temporal.ingestion_acceptance_test.client.requests.post")
     def test_returns_captured_event_when_found(self, mock_post: MagicMock, client: PostHogClient) -> None:
