@@ -204,7 +204,7 @@ class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
 
 
 class HeatmapEventItemSerializer(serializers.Serializer):
-    session_id = serializers.CharField(required=True, allow_null=True)
+    session_id = serializers.CharField(required=False, allow_null=True)
     distinct_id = serializers.CharField(required=True)
     timestamp = serializers.DateTimeField(required=True)
     pointer_relative_x = serializers.FloatField(required=True)
