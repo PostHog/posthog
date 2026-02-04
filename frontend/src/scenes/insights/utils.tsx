@@ -236,7 +236,7 @@ export function formatAggregationValue(
     if (property && formatPropertyValueForDisplay) {
         formattedValue = formatPropertyValueForDisplay(property, propertyValue)
         // yes, double equals not triple equals  ¯\_(ツ)_/¯ let JS compare strings and numbers however it wants
-        if (formattedValue == propertyValue) {
+        if (String(formattedValue) == String(propertyValue)) {
             // formatPropertyValueForDisplay didn't change the value...
             formattedValue = renderCount(propertyValue)
         }
@@ -257,7 +257,7 @@ export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | bigint | null | undefined | ReactNode): boolean {
     return (
         breakdown_value === BREAKDOWN_OTHER_STRING_LABEL ||
         breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL ||

@@ -4336,9 +4336,6 @@
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
-                "isUdf": {
-                    "type": "boolean"
-                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -15671,7 +15668,11 @@
                 "settings",
                 "health",
                 "sdk_doctor",
-                "pipeline_status"
+                "pipeline_status",
+                "llm_evaluations",
+                "llm_datasets",
+                "llm_prompts",
+                "llm_clusters"
             ],
             "type": "string"
         },
@@ -16598,9 +16599,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -22401,6 +22399,9 @@
                 "organization_name": {
                     "type": "string"
                 },
+                "skip_onboarding": {
+                    "type": "boolean"
+                },
                 "use_current_time": {
                     "type": "boolean"
                 }
@@ -22483,6 +22484,10 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "llm_cluster_explored",
+                "llm_dataset_created",
+                "llm_evaluation_created",
+                "llm_prompt_created",
                 "logs_docs_viewed",
                 "logs_set_filters",
                 "logs_settings_opened",
@@ -22595,6 +22600,10 @@
                 "links",
                 "live_debugger",
                 "llm_analytics",
+                "llm_clusters",
+                "llm_datasets",
+                "llm_evaluations",
+                "llm_prompts",
                 "logs",
                 "marketing_analytics",
                 "max",
@@ -26374,9 +26383,6 @@
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
-                        },
-                        "isUdf": {
-                            "type": "boolean"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",

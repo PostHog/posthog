@@ -259,11 +259,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setFilters: async () => {
             const { flagIds } = values
             if (flagIds.length > 0) {
                 await actions.loadAllFlagKeys(flagIds)
+            }
+            // Recalculate blast radius when filters change (e.g., from template application)
+            if (!props.readOnly) {
+                actions.calculateBlastRadius()
             }
         },
         duplicateConditionSet: async ({ index }, breakpoint) => {
