@@ -4336,9 +4336,6 @@
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
-                "isUdf": {
-                    "type": "boolean"
-                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -16363,6 +16360,10 @@
                 "breakdownAttributionValue": {
                     "$ref": "#/definitions/integer"
                 },
+                "breakdownSorting": {
+                    "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
+                    "type": "string"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
@@ -16594,9 +16595,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -22397,6 +22395,9 @@
                 "organization_name": {
                     "type": "string"
                 },
+                "skip_onboarding": {
+                    "type": "boolean"
+                },
                 "use_current_time": {
                     "type": "boolean"
                 }
@@ -22481,6 +22482,7 @@
                 "llm_analytics_docs_viewed",
                 "logs_docs_viewed",
                 "logs_set_filters",
+                "logs_settings_opened",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -26369,9 +26371,6 @@
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
-                        },
-                        "isUdf": {
-                            "type": "boolean"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",

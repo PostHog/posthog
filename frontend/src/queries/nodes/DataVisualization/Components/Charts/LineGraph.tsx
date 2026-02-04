@@ -125,7 +125,7 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { getTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
@@ -271,10 +271,10 @@ export const LineGraph = ({
                                     annotationsList[`line${curIndex}`].label.content = `${
                                         cur.label
                                     }: ${cur.value.toLocaleString()}`
-                                    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
 
                                     if (tooltipEl) {
-                                        tooltipEl.style.display = 'none'
+                                        tooltipEl.classList.add('opacity-0', 'invisible')
                                     }
 
                                     ctx.chart.update()
@@ -290,9 +290,9 @@ export const LineGraph = ({
                                 if (annotationsList[`line${curIndex}`]) {
                                     annotationsList[`line${curIndex}`].label.content = cur.label
 
-                                    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
                                     if (tooltipEl) {
-                                        tooltipEl.style.display = 'block'
+                                        tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
 
                                     ctx.chart.update()
