@@ -17,8 +17,8 @@ interface XMLViewerProps {
 export function XMLViewer({ children: xmlContent, collapsed = 3 }: XMLViewerProps): JSX.Element {
     const parsedXML = parseXML(xmlContent)
 
-    if (!parsedXML) {
-        return <span className="font-mono whitespace-pre-wrap text-danger">Invalid XML content</span>
+    if (!parsedXML || parsedXML.length === 0) {
+        return <span className="font-mono whitespace-pre-wrap">{xmlContent}</span>
     }
 
     return (
