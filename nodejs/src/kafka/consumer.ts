@@ -96,6 +96,38 @@ const histogramKafkaConsumeInterval = new Histogram({
     buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
 })
 
+// Rebalance coordination metrics
+const rebalanceCounter = new Counter({
+    name: 'kafka_consumer_rebalance_total',
+    help: 'Total number of rebalance events',
+    labelNames: ['groupId', 'type'], // type: 'revoke' | 'assign'
+})
+
+const rebalanceOffsetWaitResultCounter = new Counter({
+    name: 'kafka_consumer_rebalance_offset_wait_result_total',
+    help: 'Result of waiting for offset storage during rebalance',
+    labelNames: ['groupId', 'result'], // result: 'success' | 'timeout' | 'error'
+})
+
+const rebalanceOffsetCommitResultCounter = new Counter({
+    name: 'kafka_consumer_rebalance_offset_commit_result_total',
+    help: 'Result of offset commit during rebalance',
+    labelNames: ['groupId', 'result'], // result: 'success' | 'error'
+})
+
+const rebalanceBackgroundTasksGauge = new Gauge({
+    name: 'kafka_consumer_rebalance_background_tasks',
+    help: 'Number of background tasks pending when rebalance started',
+    labelNames: ['groupId'],
+})
+
+const rebalanceWaitDurationHistogram = new Histogram({
+    name: 'kafka_consumer_rebalance_wait_duration_ms',
+    help: 'Time spent waiting for offset storage before partition revocation',
+    labelNames: ['groupId', 'result'], // result: 'success' | 'timeout' | 'error'
+    buckets: [0, 10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000, Infinity],
+})
+
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
     const messagesByTopicPartition = messages.reduce(
@@ -403,7 +435,9 @@ export class KafkaConsumer {
         logger.info('🔁', 'kafka_consumer_rebalancing', { err, assignments })
 
         if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-            // Mark rebalancing as complete when partitions are assigned
+            rebalanceCounter.labels({ groupId: this.config.groupId, type: 'assign' }).inc()
+            // Defensive reset: isRebalancing should already be false from revocation's finally block,
+            // but reset here too in case revocation handling failed or was skipped.
             if (this.config.waitForBackgroundTasksOnRebalance) {
                 this.resetRebalanceCoordination()
             }
@@ -424,13 +458,16 @@ export class KafkaConsumer {
                 this.rdKafkaConsumer.assign(assignments)
             }
         } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+            rebalanceCounter.labels({ groupId: this.config.groupId, type: 'revoke' }).inc()
             // Mark rebalancing as starting when partitions are revoked
             if (this.config.waitForBackgroundTasksOnRebalance) {
                 this.rebalanceCoordination.isRebalancing = true
                 this.rebalanceCoordination.rebalanceStartTime = Date.now()
             }
+            const backgroundTaskCount = this.backgroundTask.length
+            rebalanceBackgroundTasksGauge.labels({ groupId: this.config.groupId }).set(backgroundTaskCount)
             logger.info('🔁', 'partition_revocation_starting', {
-                backgroundTaskCount: this.backgroundTask.length,
+                backgroundTaskCount,
                 revokedPartitions: assignments.map((tp) => ({
                     topic: tp.topic,
                     partition: tp.partition,
@@ -441,34 +478,89 @@ export class KafkaConsumer {
             // With cooperative-sticky protocol, the partition won't be reassigned to another consumer
             // until we call incrementalUnassign(), so we can safely wait for background tasks to complete
             // and commit offsets before releasing the partition.
-            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+            if (this.config.waitForBackgroundTasksOnRebalance && backgroundTaskCount > 0) {
+                const waitStartTime = Date.now()
+                const timeoutMs = this.rebalanceCoordination.rebalanceTimeoutMs
+
+                // Create a timeout promise that rejects after the configured timeout
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                    setTimeout(() => reject(new Error('timeout')), timeoutMs)
+                })
+
                 // Wait for all offsets to be stored (not just background tasks to complete).
                 // The offsetsStoredPromise tracks the finally() callback that stores offsets,
                 // which runs after the background task completes.
-                Promise.all(this.backgroundTask.map((t) => t.offsetsStoredPromise))
+                const offsetsStoredPromise = Promise.all(this.backgroundTask.map((t) => t.offsetsStoredPromise))
+
+                // Race between offset storage and timeout
+                Promise.race([offsetsStoredPromise, timeoutPromise])
                     .then(() => {
-                        logger.info('🔁', 'offsets_stored_before_partition_revocation')
+                        const waitDuration = Date.now() - waitStartTime
+                        rebalanceWaitDurationHistogram
+                            .labels({ groupId: this.config.groupId, result: 'success' })
+                            .observe(waitDuration)
+                        rebalanceOffsetWaitResultCounter
+                            .labels({ groupId: this.config.groupId, result: 'success' })
+                            .inc()
+                        logger.info('🔁', 'offsets_stored_before_partition_revocation', { waitDuration })
+
                         // All offsets have been stored via offsetsStore().
                         // Now force a synchronous commit to ensure offsets are persisted before we
                         // release the partition. This prevents duplicates when another consumer
                         // takes over the partition.
                         try {
                             this.rdKafkaConsumer.commitSync(null)
+                            rebalanceOffsetCommitResultCounter
+                                .labels({ groupId: this.config.groupId, result: 'success' })
+                                .inc()
                             logger.info('🔁', 'offsets_committed_before_partition_revocation')
                         } catch (commitError) {
                             // Log but continue - it's better to release the partition than get stuck.
                             // The stored offsets may still be committed by auto-commit or on disconnect.
+                            rebalanceOffsetCommitResultCounter
+                                .labels({ groupId: this.config.groupId, result: 'error' })
+                                .inc()
                             logger.error('🔁', 'commit_failed_before_partition_revocation', {
                                 error: String(commitError),
                             })
                         }
                     })
                     .catch((error) => {
-                        logger.error('🔁', 'offset_storage_error_during_revocation', { error })
-                        // Even if offset storage fails, try to commit whatever offsets were stored
+                        const waitDuration = Date.now() - waitStartTime
+                        const isTimeout = error instanceof Error && error.message === 'timeout'
+
+                        if (isTimeout) {
+                            rebalanceWaitDurationHistogram
+                                .labels({ groupId: this.config.groupId, result: 'timeout' })
+                                .observe(waitDuration)
+                            rebalanceOffsetWaitResultCounter
+                                .labels({ groupId: this.config.groupId, result: 'timeout' })
+                                .inc()
+                            logger.error('🔁', 'offset_storage_timeout_during_revocation', {
+                                waitDuration,
+                                timeoutMs,
+                                backgroundTaskCount,
+                            })
+                        } else {
+                            rebalanceWaitDurationHistogram
+                                .labels({ groupId: this.config.groupId, result: 'error' })
+                                .observe(waitDuration)
+                            rebalanceOffsetWaitResultCounter
+                                .labels({ groupId: this.config.groupId, result: 'error' })
+                                .inc()
+                            logger.error('🔁', 'offset_storage_error_during_revocation', { error, waitDuration })
+                        }
+
+                        // Even if offset storage fails/times out, try to commit whatever offsets were stored
                         try {
                             this.rdKafkaConsumer.commitSync(null)
+                            rebalanceOffsetCommitResultCounter
+                                .labels({ groupId: this.config.groupId, result: 'success' })
+                                .inc()
                         } catch (commitError) {
+                            rebalanceOffsetCommitResultCounter
+                                .labels({ groupId: this.config.groupId, result: 'error' })
+                                .inc()
                             logger.error('🔁', 'commit_failed_after_offset_storage_error', {
                                 error: String(commitError),
                             })

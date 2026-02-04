@@ -460,6 +460,67 @@ describe('consumer', () => {
 
             await consumerDisabled.disconnect()
         })
+
+        it('should timeout and proceed with revocation if offset storage takes too long', async () => {
+            // Set a short timeout for testing
+            consumer['rebalanceCoordination'].rebalanceTimeoutMs = 50
+
+            // Create a promise that will never resolve (simulating stuck offset storage)
+            const neverResolvingPromise = new Promise<void>(() => {
+                // Intentionally never resolves
+            })
+
+            void (consumer['backgroundTask'] = [
+                {
+                    promise: Promise.resolve(),
+                    createdAt: Date.now(),
+                    offsetsStoredPromise: neverResolvingPromise,
+                },
+            ])
+
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 1 },
+            ])
+
+            // Should not have called incrementalUnassign yet
+            await delay(10)
+            expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
+
+            // Wait for timeout to expire (50ms + some buffer)
+            await delay(60)
+
+            // After timeout, should have proceeded with revocation anyway
+            expect(mockRdKafkaConsumer.commitSync).toHaveBeenCalledWith(null)
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 1 },
+            ])
+        })
+
+        it('should handle offset storage error and still proceed with revocation', async () => {
+            // Create a promise that rejects (simulating offset storage error)
+            const rejectingPromise = Promise.reject(new Error('Offset storage failed'))
+
+            void (consumer['backgroundTask'] = [
+                {
+                    promise: Promise.resolve(),
+                    createdAt: Date.now(),
+                    offsetsStoredPromise: rejectingPromise,
+                },
+            ])
+
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 1 },
+            ])
+
+            // Wait for the rejection to be handled
+            await delay(10)
+
+            // Should still proceed with commit and revocation despite error
+            expect(mockRdKafkaConsumer.commitSync).toHaveBeenCalledWith(null)
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 1 },
+            ])
+        })
     })
 })
 
