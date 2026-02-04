@@ -106,7 +106,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         </ScenePanelActionsSection>
                                         <ScenePanelDivider />
                                         <ScenePanelActionsSection>
-                                            <ButtonPrimitive menuItem onClick={() => archiveWorkflow(workflow)}>
+                                            <ButtonPrimitive
+                                                menuItem
+                                                onClick={() => archiveWorkflow(workflow)}
+                                                variant="danger"
+                                            >
                                                 <IconArchive />
                                                 Archive
                                             </ButtonPrimitive>
