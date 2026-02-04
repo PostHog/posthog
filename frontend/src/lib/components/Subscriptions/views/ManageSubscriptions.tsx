@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 
@@ -84,23 +85,24 @@ export function ManageSubscriptions({
     const { subscriptions, subscriptionsLoading } = useValues(logic)
     const { deleteSubscription } = useActions(logic)
 
+    useEffect(() => {
+        if (!subscriptionsLoading && subscriptions.length === 0) {
+            onSelect('new')
+        }
+    }, [subscriptionsLoading, subscriptions.length, onSelect])
+
     return (
         <>
             <LemonModal.Header>
                 <h3> Manage Subscriptions</h3>
             </LemonModal.Header>
             <LemonModal.Content>
-                {subscriptionsLoading && !subscriptions.length ? (
-                    <div className="deprecated-space-y-2">
-                        <LemonSkeleton className="w-1/2 h-4" />
-                        <LemonSkeleton.Row repeat={2} />
-                    </div>
-                ) : subscriptions.length ? (
+                {subscriptions.length ? (
                     <div className="deprecated-space-y-2">
                         <div>
-                            <strong>{subscriptions?.length}</strong>
+                            <strong>{subscriptions.length}</strong>
                             {' active '}
-                            {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
+                            {pluralize(subscriptions.length, 'subscription', 'subscriptions', false)}
                         </div>
 
                         <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
@@ -115,14 +117,9 @@ export function ManageSubscriptions({
                         </div>
                     </div>
                 ) : (
-                    <div className="flex flex-col p-4 items-center text-center">
-                        <h3>There are no subscriptions for this insight</h3>
-
-                        <p>Once subscriptions are created they will display here. </p>
-
-                        <LemonButton type="primary" onClick={() => onSelect('new')}>
-                            Add subscription
-                        </LemonButton>
+                    <div className="deprecated-space-y-2">
+                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton.Row repeat={2} />
                     </div>
                 )}
             </LemonModal.Content>
