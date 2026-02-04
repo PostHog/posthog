@@ -1,6 +1,420 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "ActionCreateSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the action (must be unique within the project)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of what this action represents"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event": {
+                "type": "string",
+                "description": "Event name (e.g., '$pageview', '$autocapture', or custom event name)"
+              },
+              "properties": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "description": "Property key"
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          }
+                        }
+                      ],
+                      "description": "Property value to match"
+                    },
+                    "operator": {
+                      "type": "string",
+                      "enum": [
+                        "exact",
+                        "is_not",
+                        "is_set",
+                        "is_not_set",
+                        "icontains",
+                        "not_icontains",
+                        "regex",
+                        "not_regex",
+                        "gt",
+                        "gte",
+                        "lt",
+                        "lte"
+                      ],
+                      "description": "Comparison operator (default: exact)"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "event",
+                        "person"
+                      ],
+                      "description": "Property type"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Event properties to filter on"
+              },
+              "tag_name": {
+                "type": "string",
+                "description": "HTML tag name to match (e.g., \"button\", \"a\", \"input\")"
+              },
+              "text": {
+                "type": "string",
+                "description": "Element text content to match"
+              },
+              "text_matching": {
+                "type": "string",
+                "enum": [
+                  "contains",
+                  "regex",
+                  "exact"
+                ],
+                "description": "How to match text (default: exact)"
+              },
+              "href": {
+                "type": "string",
+                "description": "Link href attribute to match"
+              },
+              "href_matching": {
+                "type": "string",
+                "enum": [
+                  "contains",
+                  "regex",
+                  "exact"
+                ],
+                "description": "How to match href (default: exact)"
+              },
+              "selector": {
+                "type": "string",
+                "description": "CSS selector to match element"
+              },
+              "url": {
+                "type": "string",
+                "description": "Page URL to match"
+              },
+              "url_matching": {
+                "type": "string",
+                "enum": [
+                  "contains",
+                  "regex",
+                  "exact"
+                ],
+                "description": "How to match URL (default: contains)"
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "description": "Action steps - each step defines a trigger condition. Multiple steps are OR-ed together."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags for organizing actions"
+        },
+        "post_to_slack": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to post to Slack when this action is triggered"
+        },
+        "slack_message_format": {
+          "type": "string",
+          "description": "Custom Slack message format"
+        }
+      },
+      "required": [
+        "name",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "ActionDeleteSchema": {
+      "type": "object",
+      "properties": {
+        "actionId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "The ID of the action to delete"
+        }
+      },
+      "required": [
+        "actionId"
+      ],
+      "additionalProperties": false
+    },
+    "ActionGetAllSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "Maximum number of actions to return"
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of actions to skip for pagination"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ActionGetSchema": {
+      "type": "object",
+      "properties": {
+        "actionId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "The ID of the action to retrieve"
+        }
+      },
+      "required": [
+        "actionId"
+      ],
+      "additionalProperties": false
+    },
+    "ActionUpdateSchema": {
+      "type": "object",
+      "properties": {
+        "actionId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "The ID of the action to update"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Updated action name"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Updated description"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "description": "Event name (e.g., '$pageview', '$autocapture', or custom event name)"
+                  },
+                  "properties": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "description": "Property key"
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "number"
+                              }
+                            }
+                          ],
+                          "description": "Property value to match"
+                        },
+                        "operator": {
+                          "type": "string",
+                          "enum": [
+                            "exact",
+                            "is_not",
+                            "is_set",
+                            "is_not_set",
+                            "icontains",
+                            "not_icontains",
+                            "regex",
+                            "not_regex",
+                            "gt",
+                            "gte",
+                            "lt",
+                            "lte"
+                          ],
+                          "description": "Comparison operator (default: exact)"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "event",
+                            "person"
+                          ],
+                          "description": "Property type"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "description": "Event properties to filter on"
+                  },
+                  "tag_name": {
+                    "type": "string",
+                    "description": "HTML tag name to match (e.g., \"button\", \"a\", \"input\")"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Element text content to match"
+                  },
+                  "text_matching": {
+                    "type": "string",
+                    "enum": [
+                      "contains",
+                      "regex",
+                      "exact"
+                    ],
+                    "description": "How to match text (default: exact)"
+                  },
+                  "href": {
+                    "type": "string",
+                    "description": "Link href attribute to match"
+                  },
+                  "href_matching": {
+                    "type": "string",
+                    "enum": [
+                      "contains",
+                      "regex",
+                      "exact"
+                    ],
+                    "description": "How to match href (default: exact)"
+                  },
+                  "selector": {
+                    "type": "string",
+                    "description": "CSS selector to match element"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Page URL to match"
+                  },
+                  "url_matching": {
+                    "type": "string",
+                    "enum": [
+                      "contains",
+                      "regex",
+                      "exact"
+                    ],
+                    "description": "How to match URL (default: contains)"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "description": "Updated action steps"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Updated tags"
+            },
+            "post_to_slack": {
+              "type": "boolean",
+              "description": "Whether to post to Slack"
+            },
+            "slack_message_format": {
+              "type": "string",
+              "description": "Custom Slack message format"
+            },
+            "pinned_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Pin timestamp (set to pin, null to unpin)"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "actionId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
     "DashboardAddInsightSchema": {
       "type": "object",
       "properties": {
@@ -111,6 +525,30 @@
       ],
       "additionalProperties": false
     },
+    "DashboardReorderTilesSchema": {
+      "type": "object",
+      "properties": {
+        "dashboardId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "The ID of the dashboard to reorder tiles on"
+        },
+        "tileOrder": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "minItems": 1,
+          "description": "Array of tile IDs in the desired order from top to bottom"
+        }
+      },
+      "required": [
+        "dashboardId",
+        "tileOrder"
+      ],
+      "additionalProperties": false
+    },
     "DashboardUpdateSchema": {
       "type": "object",
       "properties": {
@@ -145,11 +583,53 @@
       ],
       "additionalProperties": false
     },
+    "DemoMcpUiAppsSchema": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "Optional message to include in the demo data"
+        }
+      },
+      "additionalProperties": false
+    },
     "DocumentationSearchSchema": {
       "type": "object",
       "properties": {
         "query": {
           "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "EntitySearchSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Search query to find entities by name or description"
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "insight",
+              "dashboard",
+              "experiment",
+              "feature_flag",
+              "notebook",
+              "action",
+              "cohort",
+              "event_definition",
+              "survey"
+            ]
+          },
+          "description": "Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey"
         }
       },
       "required": [
@@ -219,6 +699,71 @@
           ]
         }
       },
+      "additionalProperties": false
+    },
+    "EventDefinitionUpdateInputSchema": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Description explaining when the event is triggered"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")"
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly"
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data"
+        }
+      },
+      "additionalProperties": false
+    },
+    "EventDefinitionUpdateSchema": {
+      "type": "object",
+      "properties": {
+        "eventName": {
+          "type": "string",
+          "description": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Description explaining when the event is triggered"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")"
+            },
+            "verified": {
+              "type": "boolean",
+              "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly"
+            },
+            "hidden": {
+              "type": "boolean",
+              "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data"
+            }
+          },
+          "additionalProperties": false,
+          "description": "The event definition data to update"
+        }
+      },
+      "required": [
+        "eventName",
+        "data"
+      ],
       "additionalProperties": false
     },
     "ExperimentCreateSchema": {
@@ -414,7 +959,22 @@
     },
     "ExperimentGetAllSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
       "additionalProperties": false
     },
     "ExperimentGetSchema": {
@@ -826,6 +1386,13 @@
                   },
                   "rollout_percentage": {
                     "type": "number"
+                  },
+                  "variant": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Variant key to serve for this condition (for multivariate flags)"
                   }
                 },
                 "required": [
@@ -835,6 +1402,44 @@
                 "additionalProperties": false
               },
               "minItems": 1
+            },
+            "multivariate": {
+              "type": "object",
+              "properties": {
+                "variants": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Human-readable name for this variant"
+                      },
+                      "rollout_percentage": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "rollout_percentage"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 2
+                }
+              },
+              "required": [
+                "variants"
+              ],
+              "additionalProperties": false,
+              "description": "Multivariate configuration with variant definitions"
             }
           },
           "required": [
@@ -875,7 +1480,22 @@
     },
     "FeatureFlagGetAllSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
       "additionalProperties": false
     },
     "FeatureFlagGetDefinitionSchema": {
@@ -979,6 +1599,13 @@
                       },
                       "rollout_percentage": {
                         "type": "number"
+                      },
+                      "variant": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Variant key to serve for this condition (for multivariate flags)"
                       }
                     },
                     "required": [
@@ -988,6 +1615,44 @@
                     "additionalProperties": false
                   },
                   "minItems": 1
+                },
+                "multivariate": {
+                  "type": "object",
+                  "properties": {
+                    "variants": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "Human-readable name for this variant"
+                          },
+                          "rollout_percentage": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Percentage of users who will see this variant (0-100). Must be an integer."
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "rollout_percentage"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 2
+                    }
+                  },
+                  "required": [
+                    "variants"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Multivariate configuration with variant definitions"
                 }
               },
               "required": [
@@ -1221,6 +1886,122 @@
       ],
       "additionalProperties": false
     },
+    "LogsListAttributeValuesInputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "The attribute key to get values for"
+        },
+        "attributeType": {
+          "type": "string",
+          "enum": [
+            "log",
+            "resource"
+          ],
+          "description": "Type of attribute: \"log\" for log attributes, \"resource\" for resource attributes (default: log)"
+        },
+        "search": {
+          "type": "string",
+          "description": "Search filter for attribute values"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "LogsListAttributesInputSchema": {
+      "type": "object",
+      "properties": {
+        "search": {
+          "type": "string",
+          "description": "Search filter for attribute names"
+        },
+        "attributeType": {
+          "type": "string",
+          "enum": [
+            "log",
+            "resource"
+          ],
+          "description": "Type of attributes to list: \"log\" for log attributes, \"resource\" for resource attributes (default: log)"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of results (1-100, default: 100)"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset for pagination (default: 0)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "LogsQueryInputSchema": {
+      "type": "object",
+      "properties": {
+        "dateFrom": {
+          "type": "string",
+          "description": "Start of date range (ISO 8601 format, e.g., \"2024-01-01T00:00:00Z\")"
+        },
+        "dateTo": {
+          "type": "string",
+          "description": "End of date range (ISO 8601 format, e.g., \"2024-01-02T00:00:00Z\")"
+        },
+        "severityLevels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "trace",
+              "debug",
+              "info",
+              "warn",
+              "error",
+              "fatal"
+            ]
+          },
+          "description": "Filter by severity levels (trace, debug, info, warn, error, fatal)"
+        },
+        "serviceNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Filter by service names"
+        },
+        "searchTerm": {
+          "type": "string",
+          "description": "Free text search term to filter logs"
+        },
+        "orderBy": {
+          "type": "string",
+          "enum": [
+            "latest",
+            "earliest"
+          ],
+          "description": "Order results by timestamp (default: latest)"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Maximum number of results (1-1000, default: 100)"
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for pagination (from previous response nextCursor)"
+        }
+      },
+      "required": [
+        "dateFrom",
+        "dateTo"
+      ],
+      "additionalProperties": false
+    },
     "OrganizationGetAllSchema": {
       "type": "object",
       "properties": {},
@@ -1250,6 +2031,14 @@
         "q": {
           "type": "string",
           "description": "Search query to filter event names. Only use if there are lots of events."
+        },
+        "limit": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "additionalProperties": false
@@ -1277,6 +2066,14 @@
         "includePredefinedProperties": {
           "type": "boolean",
           "description": "Whether to include predefined properties"
+        },
+        "limit": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -3486,6 +4283,13 @@
                   },
                   "rollout_percentage": {
                     "type": "number"
+                  },
+                  "variant": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Variant key to serve for this condition (for multivariate flags)"
                   }
                 },
                 "required": [
@@ -3495,6 +4299,44 @@
                 "additionalProperties": false
               },
               "minItems": 1
+            },
+            "multivariate": {
+              "type": "object",
+              "properties": {
+                "variants": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Human-readable name for this variant"
+                      },
+                      "rollout_percentage": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "rollout_percentage"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 2
+                }
+              },
+              "required": [
+                "variants"
+              ],
+              "additionalProperties": false,
+              "description": "Multivariate configuration with variant definitions"
             }
           },
           "required": [
@@ -4480,6 +5322,13 @@
                   },
                   "rollout_percentage": {
                     "type": "number"
+                  },
+                  "variant": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Variant key to serve for this condition (for multivariate flags)"
                   }
                 },
                 "required": [
@@ -4489,6 +5338,44 @@
                 "additionalProperties": false
               },
               "minItems": 1
+            },
+            "multivariate": {
+              "type": "object",
+              "properties": {
+                "variants": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Human-readable name for this variant"
+                      },
+                      "rollout_percentage": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "rollout_percentage"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 2
+                }
+              },
+              "required": [
+                "variants"
+              ],
+              "additionalProperties": false,
+              "description": "Multivariate configuration with variant definitions"
             }
           },
           "required": [

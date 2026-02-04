@@ -5,6 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo, useRef, useState } from 'react'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -73,6 +74,13 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
+
+    // Clear editor state on unmount to avoid holding references to disposed editor
+    useOnMountEffect(() => {
+        return () => {
+            setMonacoAndEditor(null)
+        }
+    })
 
     const logic = multitabEditorLogic({
         tabId: tabId || '',
