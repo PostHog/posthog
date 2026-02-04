@@ -520,11 +520,11 @@ class VercelIntegration:
     def _build_secrets(team: Team) -> list[dict[str, str]]:
         return [
             {
-                "name": "POSTHOG_PROJECT_API_KEY",
+                "name": "NEXT_PUBLIC_POSTHOG_KEY",
                 "value": team.api_token,
             },
             {
-                "name": "POSTHOG_HOST",
+                "name": "NEXT_PUBLIC_POSTHOG_HOST",
                 "value": absolute_uri(),
             },
         ]

@@ -100,9 +100,11 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        header_block = next(b for b in blocks if b.get("type") == "header")
+        # First block is the header section
+        header_block = blocks[0]
+        assert header_block["type"] == "section"
         header_text = header_block["text"]["text"]
-        assert "Passed" in header_text
+        assert "Successful" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_failing_payload_contains_failure_header(
@@ -115,9 +117,11 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        header_block = next(b for b in blocks if b.get("type") == "header")
+        # First block is the header section
+        header_block = blocks[0]
+        assert header_block["type"] == "section"
         header_text = header_block["text"]["text"]
-        assert "Failed" in header_text
+        assert "Unsuccessful" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_summary_with_counts(
@@ -130,11 +134,13 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        section_blocks = [b for b in blocks if b.get("type") == "section"]
-        all_text = " ".join(str(b) for b in section_blocks)
+        # Second block is the summary context
+        summary_block = blocks[1]
+        assert summary_block["type"] == "context"
+        summary_text = summary_block["elements"][0]["text"]
 
-        assert "1" in all_text  # passed count
-        assert "1" in all_text  # failed count
+        assert "Passed: 1" in summary_text
+        assert "Failed" in summary_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_environment_info(
@@ -147,11 +153,13 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        context_blocks = [b for b in blocks if b.get("type") == "context"]
-        all_text = " ".join(str(b) for b in context_blocks)
+        # Last block is the environment context
+        env_block = blocks[-1]
+        assert env_block["type"] == "context"
+        env_text = env_block["elements"][0]["text"]
 
-        assert "test.posthog.com" in all_text
-        assert "12345" in all_text
+        assert "test.posthog.com" in env_text
+        assert "12345" in env_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_failing_payload_contains_error_message(
@@ -164,7 +172,10 @@ class TestSendSlackNotification:
         payload = mock_post.call_args[1]["json"]
         blocks = payload["blocks"]
 
-        all_text = " ".join(str(b) for b in blocks)
+        # Find context blocks with error info (between dividers)
+        context_blocks = [b for b in blocks if b.get("type") == "context"]
+        all_text = " ".join(str(b) for b in context_blocks)
+
         assert "test_failing" in all_text
         assert "AssertionError" in all_text
 
