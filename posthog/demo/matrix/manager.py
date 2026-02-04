@@ -1,10 +1,12 @@
 # ruff: noqa: T201 allow print statements
 
 import json
+import os
 import datetime as dt
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, Literal, cast
 
+import psutil
 from django.conf import settings
 from django.core import exceptions
 from django.db import IntegrityError, transaction
@@ -26,6 +28,31 @@ from posthog.models.utils import UUIDT
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
+
+
+def _log_perf(label: str, start_time: float | None = None) -> float:
+    """Log timing and resource usage for performance diagnostics."""
+    current = monotonic()
+    elapsed_ms = (current - start_time) * 1000 if start_time else 0
+
+    try:
+        process = psutil.Process(os.getpid())
+        mem = process.memory_info()
+        sys_mem = psutil.virtual_memory()
+        resource_str = (
+            f"rss={mem.rss / 1024 / 1024:.0f}MB, "
+            f"sys_mem={sys_mem.percent:.0f}% ({sys_mem.available / 1024 / 1024 / 1024:.1f}GB free), "
+            f"load={os.getloadavg()[0]:.1f}"
+        )
+    except Exception:
+        resource_str = ""
+
+    if start_time:
+        print(f"[PERF] {label} - {elapsed_ms:.0f}ms - {resource_str}")
+    else:
+        print(f"[PERF] {label} - {resource_str}")
+
+    return current
 
 
 class MatrixManager:
@@ -127,6 +154,7 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
+        run_start = _log_perf("Starting run_on_team")
         does_clickhouse_data_need_saving = True
         if self.use_pre_save:
             does_clickhouse_data_need_saving = not self._is_demo_data_pre_saved()
@@ -138,31 +166,45 @@ class MatrixManager:
                 if self.print_steps:
                     print(f"Simulating data...")
                 self.matrix.simulate()
+            step_start = _log_perf("Starting _save_analytics_data (saves events to Kafka/ClickHouse)")
             self._save_analytics_data(source_team)
+            _log_perf("_save_analytics_data completed", step_start)
         if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
+        step_start = _log_perf("Starting _sync_postgres_with_clickhouse_data")
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
+        _log_perf("_sync_postgres_with_clickhouse_data completed", step_start)
+        step_start = _log_perf("Starting set_project_up (creates insights, dashboards, etc.)")
         self.matrix.set_project_up(team, user)
+        _log_perf("set_project_up completed", step_start)
         if self.print_steps:
             print(f"Inferring taxonomy for data management...")
+        step_start = _log_perf("Starting infer_taxonomy_for_team")
         event_definition_count, property_definition_count, event_properties_count = infer_taxonomy_for_team(team.pk)
+        _log_perf("infer_taxonomy_for_team completed", step_start)
         if self.print_steps:
             print(
                 f"Inferred {event_definition_count} event definitions, {property_definition_count} property definitions, and {event_properties_count} event-property pairs."
             )
+        step_start = _log_perf("Starting cohort calculations")
         for cohort in Cohort.objects.filter(team__project_id=team.project_id):
             cohort.calculate_people_ch(pending_version=0)
+        _log_perf("Cohort calculations completed", step_start)
         team.project.save()
         team.save()
+        _log_perf(f"run_on_team completed for team ID {team.pk}", run_start)
         print(f"Demo data ready for team ID {team.pk}.")
 
     def _save_analytics_data(self, data_team: Team):
         if self.print_steps:
             print(f"Saving simulated data...")
+        save_start = _log_perf("_save_analytics_data: starting")
         sim_persons = self.matrix.people
         bulk_group_type_mappings = []
         if len(self.matrix.groups.keys()) + self.matrix.group_type_index_offset > 5:
             raise ValueError("Too many group types! The maximum for a project is 5.")
+
+        step_start = _log_perf("_save_analytics_data: saving groups")
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             group_type_index += self.matrix.group_type_index_offset  # Adjust
             bulk_group_type_mappings.append(
@@ -185,10 +227,21 @@ class MatrixManager:
             GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         except IntegrityError as e:
             print(f"SKIPPING GROUP TYPE MAPPING CREATION: {e}")
-        for sim_person in sim_persons:
+        _log_perf("_save_analytics_data: groups saved", step_start)
+
+        step_start = _log_perf(f"_save_analytics_data: saving {len(sim_persons)} persons and their events")
+        for i, sim_person in enumerate(sim_persons):
             self._save_sim_person(data_team, sim_person)
+            if (i + 1) % 50 == 0:
+                _log_perf(f"_save_analytics_data: saved {i + 1}/{len(sim_persons)} persons")
+        _log_perf(f"_save_analytics_data: all {len(sim_persons)} persons saved", step_start)
+
         # We need to wait a bit for data just queued into Kafka to show up in CH
+        step_start = _log_perf("_save_analytics_data: waiting for ClickHouse sync")
         self._sleep_until_person_data_in_clickhouse(data_team.pk)
+        _log_perf("_save_analytics_data: ClickHouse sync completed", step_start)
+
+        _log_perf("_save_analytics_data: completed", save_start)
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
@@ -387,6 +440,10 @@ class MatrixManager:
     def _sleep_until_person_data_in_clickhouse(self, team_id: int):
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
+        wait_start = _log_perf(
+            f"Waiting for ClickHouse sync: expecting {self._persons_created} persons, "
+            f"{self._person_distinct_ids_created} distinct IDs"
+        )
         MAX_WAIT_ITERATIONS = 240  # 240 * 0.5s = 120 seconds (increased from 60s for CI reliability)
         for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
@@ -398,12 +455,13 @@ class MatrixManager:
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
             if persons_ready and person_distinct_ids_ready:
+                _log_perf(
+                    f"ClickHouse sync completed after {i * 0.5:.1f}s. "
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.",
+                    wait_start,
+                )
                 if self.print_steps:
-                    print(
-                        f"Source person data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
-                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
-                        "Setting up project..."
-                    )
+                    print("Setting up project...")
                 break
             if self.print_steps:
                 print(
@@ -411,12 +469,19 @@ class MatrixManager:
                     f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
                 )
             elif i % 20 == 0 and i > 0:
-                print(
+                _log_perf(
                     f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.",
+                    wait_start,
                 )
             sleep(0.5)
         else:
+            _log_perf(
+                f"TIMEOUT: ClickHouse sync failed after {MAX_WAIT_ITERATIONS * 0.5}s. "
+                f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "
+                f"got {person_count} persons and {person_distinct_id_count} distinct IDs.",
+                wait_start,
+            )
             raise TimeoutError(
                 f"Person data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
                 f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "

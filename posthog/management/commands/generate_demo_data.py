@@ -9,6 +9,7 @@ from time import monotonic
 from typing import Optional
 from urllib.parse import quote
 
+import psutil
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
@@ -27,6 +28,31 @@ from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
+
+
+def log_perf(label: str, start_time: float | None = None) -> float:
+    """Log timing and resource usage for performance diagnostics."""
+    current = monotonic()
+    elapsed_ms = (current - start_time) * 1000 if start_time else 0
+
+    try:
+        process = psutil.Process(os.getpid())
+        mem = process.memory_info()
+        sys_mem = psutil.virtual_memory()
+        resource_str = (
+            f"rss={mem.rss / 1024 / 1024:.0f}MB, "
+            f"sys_mem={sys_mem.percent:.0f}% ({sys_mem.available / 1024 / 1024 / 1024:.1f}GB free), "
+            f"load={os.getloadavg()[0]:.1f}"
+        )
+    except Exception:
+        resource_str = ""
+
+    if start_time:
+        print(f"[PERF] {label} - {elapsed_ms:.0f}ms - {resource_str}")
+    else:
+        print(f"[PERF] {label} - {resource_str}")
+
+    return current
 
 
 class Command(BaseCommand):
@@ -115,6 +141,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         timer = monotonic()
+        overall_start = log_perf("========== Starting generate_demo_data ==========")
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
@@ -127,7 +154,7 @@ class Command(BaseCommand):
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
 
-        print("Instantiating the Matrix...")
+        step_start = log_perf("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
         except KeyError:
@@ -143,8 +170,12 @@ class Command(BaseCommand):
                 GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count() if existing_team else 0
             ),
         )
-        print("Running simulation...")
+        log_perf("Matrix instantiated", step_start)
+
+        step_start = log_perf("Running simulation...")
         matrix.simulate()
+        log_perf("Simulation completed", step_start)
+
         self.print_results(
             matrix,
             seed=seed,
@@ -154,7 +185,9 @@ class Command(BaseCommand):
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
+            step_start = log_perf("Creating MatrixManager...")
             matrix_manager = MatrixManager(matrix, print_steps=True)
+            log_perf("MatrixManager created", step_start)
             team: Optional[Team] = None
             user = None
 
@@ -167,6 +200,7 @@ class Command(BaseCommand):
                         user = team.organization.members.first()
                         matrix_manager.run_on_team(team, user)
                 else:
+                    step_start = log_perf("Calling ensure_account_and_save (creates org, team, user, saves events)...")
                     _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
@@ -175,6 +209,7 @@ class Command(BaseCommand):
                         password=password,
                         email_collision_handling="disambiguate",
                     )
+                    log_perf("ensure_account_and_save completed", step_start)
 
                     # Optionally generate demo issues for issue tracker if extension is available
                     gen_issues = getattr(self, "generate_demo_issues", None)
