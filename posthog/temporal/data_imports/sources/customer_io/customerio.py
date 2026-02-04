@@ -57,8 +57,9 @@ class CustomerIOPaginator(BasePaginator):
             return
 
         # Customer.io uses cursor-based pagination with a "next" field
+        # Check for truthy value (not just not None) to handle empty string case
         self._next_cursor = res.get("next")
-        self._has_next_page = self._next_cursor is not None
+        self._has_next_page = bool(self._next_cursor)
 
     def update_request(self, request: Request) -> None:
         if self._has_next_page and self._next_cursor:
