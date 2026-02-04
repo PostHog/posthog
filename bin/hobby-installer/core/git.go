@@ -39,6 +39,19 @@ func UpdatePostHog() error {
 		return err
 	}
 
+	// Check if we're on a branch or detached HEAD
+	branch, err := RunCommandWithDir("posthog", "git", "branch", "--show-current")
+	if err != nil {
+		return err
+	}
+	branch = strings.TrimSpace(branch)
+
+	if branch == "" {
+		// Detached HEAD (e.g., CI checked out a specific commit) - skip pull
+		logger.WriteString("On detached HEAD, skipping pull\n")
+		return nil
+	}
+
 	logger.WriteString("Pulling updates...\n")
 	_, err = RunCommandWithDir("posthog", "git", "pull")
 	return err
