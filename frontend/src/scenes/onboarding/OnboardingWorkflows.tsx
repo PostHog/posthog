@@ -2,6 +2,8 @@ import { Link } from '@posthog/lemon-ui'
 
 import { OnboardingStepKey } from '~/types'
 
+import { WorkflowTemplateChooser } from 'products/workflows/frontend/Workflows/templates/WorkflowTemplateChooser'
+
 import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepComponentType } from './onboardingLogic'
 
@@ -12,13 +14,16 @@ export const OnboardingWorkflowsSetup: OnboardingStepComponentType = () => {
             title="Set up workflows"
             continueText="Go to workflows"
         >
-            <div className="mt-6 space-y-4 text-secondary">
-                <p>
-                    Build automated workflows to notify users and trigger actions across your stack. We&apos;ll guide
-                    you through creating a trigger, adding an action, and launching your first workflow.
+            <div className="flex flex-col gap-2 text-secondary">
+                <p className="m-0">
+                    Build automated workflows to notify users and trigger actions across your stack. Below are some
+                    popular workflow templates to get you started:
                 </p>
-                <p>
-                    Need help getting started? Check the{' '}
+
+                <WorkflowTemplateChooser />
+
+                <p className="mt-4">
+                    Want to learn more about workflows? Check the{' '}
                     <Link to="https://posthog.com/docs/workflows/start-here" target="_blank">
                         Workflows docs
                     </Link>

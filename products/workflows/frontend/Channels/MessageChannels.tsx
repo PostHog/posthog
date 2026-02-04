@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
@@ -16,7 +17,7 @@ export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
         useValues(integrationsLogic)
-    const { openSetupModal, closeSetupModal } = useActions(integrationsLogic)
+    const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
 
     const allWorkflowIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
@@ -29,7 +30,10 @@ export function MessageChannels(): JSX.Element {
                 isOpen={setupModalOpen}
                 channelType={setupModalType}
                 integration={selectedIntegration || undefined}
-                onComplete={() => closeSetupModal()}
+                onComplete={() => {
+                    markTaskAsCompleted(SetupTaskId.SetUpFirstWorkflowChannel)
+                    closeSetupModal()
+                }}
             />
 
             <div className="flex flex-col gap-4">

@@ -42,7 +42,7 @@ export function NewWorkflowModal(): JSX.Element {
             }
         >
             <div className="NewWorkflowModal">
-                <WorkflowTemplateChooser />
+                <WorkflowTemplateChooser showEmptyWorkflow />
             </div>
         </LemonModal>
     )
