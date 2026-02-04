@@ -866,7 +866,7 @@ def get_or_create_internal_test_users_cohort(team: "Team") -> "Cohort":
     """
     Get or create a 'Internal / Test users' cohort for the team.
 
-    This cohort contains users with the $test_user person property set to true.
+    This cohort contains users with the $internal_or_test_user person property set to true.
     Used for filtering out test/internal users from analytics.
     """
     test_users_cohort, _ = Cohort.objects.get_or_create(
