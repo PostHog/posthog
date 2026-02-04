@@ -610,6 +610,7 @@ export interface ConversationsSettings {
     widget_identification_form_title?: string
     widget_identification_form_description?: string
     widget_placeholder_text?: string
+    widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
 }
 
 export interface LogsSettings {
