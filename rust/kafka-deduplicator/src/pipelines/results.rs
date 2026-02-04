@@ -8,6 +8,15 @@ use std::collections::{HashMap, HashSet};
 /// Field name for deduplication comparisons (dynamic string to support different event types)
 pub type DedupFieldName = String;
 
+/// An event enriched with its pre-computed deduplication key.
+///
+/// This struct pairs an event reference with its dedup key bytes to avoid
+/// recomputing the key during batch processing.
+pub struct EnrichedEvent<'a, E> {
+    pub event: &'a E,
+    pub dedup_key_bytes: Vec<u8>,
+}
+
 /// Type alias for property differences
 pub type PropertyDifference = (String, Option<(String, String)>);
 

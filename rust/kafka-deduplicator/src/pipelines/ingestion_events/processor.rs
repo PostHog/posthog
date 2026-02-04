@@ -36,6 +36,7 @@ use crate::pipelines::processor::{
     get_store_or_drop, DeduplicationResultLabels, StoreResult,
 };
 use crate::pipelines::traits::{DeduplicationKeyExtractor, EventParser};
+use crate::pipelines::EnrichedEvent;
 use crate::store::DeduplicationStoreConfig;
 use crate::store_manager::StoreManager;
 
@@ -114,12 +115,6 @@ impl DuplicateEventProducerWrapper {
             }
         }
     }
-}
-
-/// Enriched event with deduplication keys
-struct EnrichedEvent<'a> {
-    raw_event: &'a RawEvent,
-    timestamp_key_bytes: Vec<u8>,
 }
 
 /// Batch processor for ingestion events with timestamp-based deduplication.
@@ -391,22 +386,18 @@ impl IngestionEventsBatchProcessor {
             .with_label("service", "kafka-deduplicator");
 
         // Step 1: Prepare all keys and enrich events with parsed data
-        let enriched_events: Vec<EnrichedEvent> = events
+        let enriched_events: Vec<EnrichedEvent<RawEvent>> = events
             .into_iter()
-            .map(|raw_event| {
-                let timestamp_key_bytes = raw_event.extract_dedup_key();
-
-                EnrichedEvent {
-                    raw_event,
-                    timestamp_key_bytes,
-                }
+            .map(|event| EnrichedEvent {
+                dedup_key_bytes: event.extract_dedup_key(),
+                event,
             })
             .collect();
 
         // Step 2: Batch read for timestamp-based deduplication
         let timestamp_keys_refs: Vec<&[u8]> = enriched_events
             .iter()
-            .map(|e| e.timestamp_key_bytes.as_slice())
+            .map(|e| e.dedup_key_bytes.as_slice())
             .collect();
 
         let timestamp_results = batch_read_timestamp_records(&store, timestamp_keys_refs)?;
@@ -421,13 +412,13 @@ impl IngestionEventsBatchProcessor {
         let mut dedup_results: Vec<DeduplicationResult> = Vec::with_capacity(event_count);
 
         for (idx, enriched) in enriched_events.iter().enumerate() {
-            let raw_event = &enriched.raw_event;
+            let raw_event = enriched.event;
 
             // Check timestamp-based deduplication
             // First check RocksDB results, then check within-batch cache
             let timestamp_source: Option<&[u8]> = timestamp_results[idx].as_deref().or_else(|| {
                 batch_timestamp_cache
-                    .get(&enriched.timestamp_key_bytes)
+                    .get(&enriched.dedup_key_bytes)
                     .map(|v| v.as_slice())
             });
 
@@ -449,11 +440,10 @@ impl IngestionEventsBatchProcessor {
                                 bincode::config::standard(),
                             )?;
                             timestamp_writes
-                                .push((enriched.timestamp_key_bytes.clone(), value.clone()));
+                                .push((enriched.dedup_key_bytes.clone(), value.clone()));
 
                             // Update batch cache for within-batch duplicate detection
-                            batch_timestamp_cache
-                                .insert(enriched.timestamp_key_bytes.clone(), value);
+                            batch_timestamp_cache.insert(enriched.dedup_key_bytes.clone(), value);
                         }
 
                         result

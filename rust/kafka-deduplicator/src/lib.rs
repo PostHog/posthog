@@ -1,8 +1,6 @@
 pub mod checkpoint;
 pub mod checkpoint_manager;
 pub mod config;
-pub mod duplicate_metrics;
-pub mod event;
 pub mod kafka;
 pub mod metrics;
 pub mod metrics_const;
