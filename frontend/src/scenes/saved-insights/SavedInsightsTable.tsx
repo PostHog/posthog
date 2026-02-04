@@ -27,12 +27,11 @@ import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsight
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 interface SavedInsightsTableProps {
-    dashboardId?: number
     renderActionColumn?: (insight: QueryBasedInsightModel) => JSX.Element
     title?: string
 }
 
-export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
+export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
@@ -44,22 +43,18 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
     const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
 
-    const useDashboardMode = isExperimentEnabled && dashboardId !== undefined
-
     useEffect(() => {
-        if (useDashboardMode && dashboard?.tiles) {
+        if (isExperimentEnabled && dashboard?.tiles) {
             syncOptimisticStateWithDashboard(dashboard.tiles)
         }
-    }, [dashboard?.tiles, useDashboardMode, syncOptimisticStateWithDashboard])
+    }, [dashboard?.tiles, isExperimentEnabled, syncOptimisticStateWithDashboard])
 
     const handleRowClick = (insight: QueryBasedInsightModel): void => {
-        if (!useDashboardMode || !dashboardId) {
+        if (dashboardUpdatesInProgress[insight.id] || !isExperimentEnabled || !dashboard?.id) {
             return
         }
-        if (dashboardUpdatesInProgress[insight.id]) {
-            return
-        }
-        toggleInsightOnDashboard(insight, dashboardId, isInsightInDashboard(insight, dashboard?.tiles))
+
+        toggleInsightOnDashboard(insight, dashboard.id, isInsightInDashboard(insight, dashboard.tiles))
     }
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
@@ -88,7 +83,7 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                 return (
                     <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex min-w-0">
-                            {useDashboardMode ? (
+                            {isExperimentEnabled ? (
                                 <Tooltip title={displayName}>
                                     <span className="block truncate">{name || <i>{displayName}</i>}</span>
                                 </Tooltip>
@@ -132,7 +127,7 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                 )
             },
         },
-        ...(useDashboardMode
+        ...(isExperimentEnabled
             ? [
                   {
                       key: 'status',
@@ -194,7 +189,7 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                     loadingSkeletonRows={INSIGHTS_PER_PAGE}
                     nouns={['insight', 'insights']}
                     rowClassName={
-                        useDashboardMode
+                        isExperimentEnabled
                             ? (insight) =>
                                   isInsightInDashboard(insight, dashboard?.tiles)
                                       ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
@@ -202,7 +197,7 @@ export function SavedInsightsTable({ dashboardId, renderActionColumn, title }: S
                             : undefined
                     }
                     onRow={
-                        useDashboardMode
+                        isExperimentEnabled
                             ? (insight) => ({
                                   onClick: () => handleRowClick(insight),
                                   title: isInsightInDashboard(insight, dashboard?.tiles)
