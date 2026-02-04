@@ -51,5 +51,5 @@ SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED = (
 FAILED_MOMENTS_MIN_RATIO = 0.5  # If less than 50% of moments failed to generate videos, fail the analysis
 EXPIRES_AFTER_DAYS = 90  # How long to store the videos used for validation
 MOMENT_VIDEO_EXPORT_FORMAT = "video/webm"
-FULL_VIDEO_EXPORT_FORMAT = "video/mp4"  # TODO: Ask Alex L why WebM is no bueno for full exports
+FULL_VIDEO_EXPORT_FORMAT = "video/mp4"
 DEFAULT_VIDEO_UNDERSTANDING_MODEL = "gemini-3-flash-preview"
