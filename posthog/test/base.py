@@ -7,6 +7,7 @@ import datetime as dt
 import resource
 import threading
 from collections.abc import Callable, Generator, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -1418,20 +1419,30 @@ def failhard_threadhook_context():
         threading.excepthook = old_hook
 
 
-def run_clickhouse_statement_in_parallel(statements: list[str]):
-    jobs = []
+def _is_expected_kafka_table_error(exc: BaseException) -> bool:
+    """Check if exception is an expected Kafka table error during test setup."""
+    return hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc)
+
+
+def run_clickhouse_statement_in_parallel(statements: list[str], max_workers: int = 10):
+    """
+    Execute ClickHouse statements in parallel using a thread pool.
+
+    Uses a bounded thread pool to prevent thread exhaustion when executing
+    many statements (e.g., during test setup with 50+ table creation queries).
+    """
     with failhard_threadhook_context():
-        for item in statements:
-            thread = threading.Thread(target=sync_execute, args=(item,))
-            jobs.append(thread)
-
-        # Start the threads (i.e. calculate the random number lists)
-        for j in jobs:
-            j.start()
-
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(sync_execute, statement) for statement in statements]
+            # Wait for all futures to complete and re-raise any exceptions
+            for future in as_completed(futures):
+                try:
+                    future.result()  # This will raise if the task failed
+                except Exception as exc:
+                    # Filter out expected Kafka table errors during test setup
+                    if _is_expected_kafka_table_error(exc):
+                        continue
+                    raise
 
 
 def reset_clickhouse_database() -> None:
