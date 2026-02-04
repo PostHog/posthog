@@ -80,7 +80,12 @@ export type Filters = z.infer<typeof FiltersSchema>
 export const VariantSchema = z.object({
     key: z.string().describe('Unique identifier for this variant (e.g., "control", "test", "variant_a")'),
     name: z.string().optional().describe('Human-readable name for this variant'),
-    rollout_percentage: z.number().min(0).max(100).describe('Percentage of users who will see this variant (0-100)'),
+    rollout_percentage: z
+        .number()
+        .int()
+        .min(0)
+        .max(100)
+        .describe('Percentage of users who will see this variant (0-100). Must be an integer.'),
 })
 
 export type Variant = z.infer<typeof VariantSchema>

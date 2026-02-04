@@ -1420,10 +1420,10 @@
                         "description": "Human-readable name for this variant"
                       },
                       "rollout_percentage": {
-                        "type": "number",
+                        "type": "integer",
                         "minimum": 0,
                         "maximum": 100,
-                        "description": "Percentage of users who will see this variant (0-100)"
+                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                       }
                     },
                     "required": [
@@ -1633,10 +1633,10 @@
                             "description": "Human-readable name for this variant"
                           },
                           "rollout_percentage": {
-                            "type": "number",
+                            "type": "integer",
                             "minimum": 0,
                             "maximum": 100,
-                            "description": "Percentage of users who will see this variant (0-100)"
+                            "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                           }
                         },
                         "required": [
@@ -4317,10 +4317,10 @@
                         "description": "Human-readable name for this variant"
                       },
                       "rollout_percentage": {
-                        "type": "number",
+                        "type": "integer",
                         "minimum": 0,
                         "maximum": 100,
-                        "description": "Percentage of users who will see this variant (0-100)"
+                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                       }
                     },
                     "required": [
@@ -5356,10 +5356,10 @@
                         "description": "Human-readable name for this variant"
                       },
                       "rollout_percentage": {
-                        "type": "number",
+                        "type": "integer",
                         "minimum": 0,
                         "maximum": 100,
-                        "description": "Percentage of users who will see this variant (0-100)"
+                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
                       }
                     },
                     "required": [
