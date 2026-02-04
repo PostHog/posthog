@@ -26,23 +26,24 @@ export interface TableViewSelectorProps {
 export function TableViewSelector({ contextKey, query, setQuery }: TableViewSelectorProps): JSX.Element {
     const tableViewLogicProps = { contextKey, query, setQuery }
     const logic = tableViewLogic(tableViewLogicProps)
-    const { views, currentView, hasUnsavedChanges, viewsLoading } = useValues(logic)
+    const { views, currentView, hasUnsavedChanges, viewsLoading, canEditCurrentView, user } = useValues(logic)
     const { applyView, updateView, setShowDeleteConfirm, setIsCreating } = useActions(logic)
 
     const menuItems: LemonMenuItems = [
         {
-            items: views.map(
-                (view) =>
-                    ({
-                        label: view.name,
-                        icon:
-                            view.visibility === 'private' ? (
-                                <Tooltip title="This view is private. Only you can see and use it.">
-                                    <IconPerson className="text-muted" />
-                                </Tooltip>
-                            ) : undefined,
-                        active: currentView?.id === view.id,
-                        onClick: () => applyView(view),
+            items: views.map((view) => {
+                const canEditView = view.created_by === user?.id
+                return {
+                    label: view.name,
+                    icon:
+                        view.visibility === 'private' ? (
+                            <Tooltip title="This view is private. Only you can see and use it.">
+                                <IconPerson className="text-muted" />
+                            </Tooltip>
+                        ) : undefined,
+                    active: currentView?.id === view.id,
+                    onClick: () => applyView(view),
+                    ...(canEditView && {
                         sideAction: {
                             icon: <IconGear />,
                             tooltip: 'Manage view',
@@ -75,8 +76,9 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                                 ),
                             },
                         },
-                    }) as LemonMenuItem
-            ),
+                    }),
+                } as LemonMenuItem
+            }),
         },
         {
             items: [
@@ -109,7 +111,7 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                     </LemonButton>
                 )}
 
-                {currentView && hasUnsavedChanges && (
+                {currentView && hasUnsavedChanges && canEditCurrentView && (
                     <LemonButton
                         icon={<IconDownload />}
                         size="small"
