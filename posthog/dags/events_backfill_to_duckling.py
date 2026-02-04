@@ -284,7 +284,7 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
-        # Filter timestamp > '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
+        # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
         # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
         # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
         result = client.execute(
@@ -292,7 +292,7 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
             SELECT toDate(min(timestamp)) as earliest_date
             FROM events
             WHERE team_id = %(team_id)s
-              AND timestamp > '1970-01-01'
+              AND timestamp >= '1970-01-01'
             """,
             {"team_id": team_id},
         )
@@ -324,7 +324,7 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
-        # Filter _timestamp > '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
+        # Filter _timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
         # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
         # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
         result = client.execute(
@@ -332,7 +332,7 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
             SELECT toDate(min(_timestamp)) as earliest_date
             FROM person
             WHERE team_id = %(team_id)s
-              AND _timestamp > '1970-01-01'
+              AND _timestamp >= '1970-01-01'
             """,
             {"team_id": team_id},
         )
