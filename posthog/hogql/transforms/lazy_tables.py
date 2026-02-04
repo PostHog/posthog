@@ -523,7 +523,7 @@ class LazyTableResolver(TraversingVisitor):
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
+            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [select_type]))
             if self.context.property_swapper is not None:
                 subquery = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -566,7 +566,7 @@ class LazyTableResolver(TraversingVisitor):
                 FieldChainReplacer(overrides).visit(join_to_add)
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [node.type]))
+            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, self.dialect, [select_type]))
             if self.context.property_swapper is not None:
                 join_to_add = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
