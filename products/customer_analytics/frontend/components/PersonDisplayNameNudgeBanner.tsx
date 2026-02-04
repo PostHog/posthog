@@ -58,7 +58,7 @@ export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNud
         const uuidCount = persons.filter((person) => {
             return isUUIDLike(person.display_name)
         }).length
-        const shouldShow = dataLoading || uuidCount / persons.length > UUID_THRESHOLD
+        const shouldShow = uuidCount / persons.length > UUID_THRESHOLD
         setShowDisplayNameNudge(shouldShow)
     }, [response, dataLoading, isRefresh, setIsBannerLoading, setShowDisplayNameNudge])
 
@@ -66,7 +66,7 @@ export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNud
         return <LemonSkeleton className="h-14 my-2" />
     }
 
-    if (!showDisplayNameNudge) {
+    if (dataLoading || !showDisplayNameNudge) {
         return null
     }
 
