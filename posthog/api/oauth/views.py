@@ -273,13 +273,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if application.is_first_party:
             try:
                 # Auto-approve with all user's accessible teams
-                credentials["scoped_teams"] = []
+                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                credentials["scoped_teams"] = list(teams)
                 credentials["scoped_organizations"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
                 )
-                return Response({"redirect_uri": uri})
+                return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
@@ -295,7 +296,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
                         )
-                        return Response({"redirect_uri": uri})
+                        return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 

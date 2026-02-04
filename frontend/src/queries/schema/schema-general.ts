@@ -5001,6 +5001,7 @@ export interface TestSetupResponse {
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
+    skip_onboarding?: boolean
 }
 
 export interface PlaywrightWorkspaceSetupResult {
