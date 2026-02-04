@@ -164,7 +164,7 @@ class TestRadarEventLogging(TestCase):
         assert call_args[1]["distinct_id"] == "user_123"
         assert call_args[1]["event"] == "workos_radar_attempt"
         props = call_args[1]["properties"]
-        assert props["action"] == "signin"
+        assert props["action"] == "login"
         assert props["auth_method"] == "Password"
         assert props["verdict"] == "allow"
         assert props["would_challenge"] is False

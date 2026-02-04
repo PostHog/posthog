@@ -31,7 +31,7 @@ WORKOS_RADAR_TIMEOUT = 5.0
 
 class RadarAction(StrEnum):
     SIGNUP = "signup"
-    SIGNIN = "signin"
+    SIGNIN = "login"
 
 
 class RadarAuthMethod(StrEnum):
@@ -159,6 +159,7 @@ def _call_radar_api(
             logger.error(
                 "workos_radar_api_error",
                 status_code=response.status_code,
+                response_body=response.text[:500],
                 email_hash=_hash_email(email),
             )
             return RadarVerdict.ERROR
