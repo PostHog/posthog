@@ -18,7 +18,6 @@ pub enum MergeStep {
     PropertiesMerged,
     DistinctIdsMerged,
     TargetCleared,
-    SourcesDeleted,
     Completed,
     Failed,
 }
@@ -75,7 +74,6 @@ pub enum MergeState {
     PropertiesMerged(SourcesMarkedData),
     DistinctIdsMerged(SourcesMarkedData),
     TargetCleared(SourcesMarkedData),
-    SourcesDeleted(SourcesMarkedData),
     Completed(SourcesMarkedData),
     Failed { merge_id: String, error: String },
 }
@@ -105,7 +103,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => &d.target_marked.started.merge_id,
             MergeState::Failed { merge_id, .. } => merge_id,
         }
@@ -120,7 +117,6 @@ impl MergeState {
             MergeState::PropertiesMerged(_) => MergeStep::PropertiesMerged,
             MergeState::DistinctIdsMerged(_) => MergeStep::DistinctIdsMerged,
             MergeState::TargetCleared(_) => MergeStep::TargetCleared,
-            MergeState::SourcesDeleted(_) => MergeStep::SourcesDeleted,
             MergeState::Completed(_) => MergeStep::Completed,
             MergeState::Failed { .. } => MergeStep::Failed,
         }
@@ -135,7 +131,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => d.target_marked.started.version,
             MergeState::Failed { .. } => 0, // Failed states don't need version
         }
@@ -150,7 +145,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => Some(&d.target_marked.started.target_distinct_id),
             MergeState::Failed { .. } => None,
         }
@@ -165,7 +159,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => Some(&d.target_marked.started.source_distinct_ids),
             MergeState::Failed { .. } => None,
         }
@@ -180,7 +173,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => Some(&d.target_marked.target_person_uuid),
             MergeState::Failed { .. } => None,
         }
@@ -196,7 +188,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => d.valid_sources.keys().cloned().collect(),
         }
     }
@@ -209,7 +200,6 @@ impl MergeState {
             | MergeState::PropertiesMerged(d)
             | MergeState::DistinctIdsMerged(d)
             | MergeState::TargetCleared(d)
-            | MergeState::SourcesDeleted(d)
             | MergeState::Completed(d) => Some(&d.source_person_uuids),
         }
     }

@@ -1405,56 +1405,6 @@ async fn test_resume_from_target_cleared_step() {
 }
 
 #[tokio::test]
-async fn test_resume_from_sources_deleted_step() {
-    let target_person_uuid = "target-person-uuid";
-    let target_distinct_id = "target-distinct-id";
-    let source_distinct_id = "source-distinct-id";
-    let source_person_uuid = "source-person-uuid";
-    let version = 10003;
-
-    let properties_api = Arc::new(MockPersonPropertiesApi::new());
-    let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
-
-    // Pre-populate state at SourcesDeleted step
-    let state_repo = Arc::new(InMemoryMergeStateRepository::new());
-    let mut valid_sources = HashMap::new();
-    valid_sources.insert(
-        source_distinct_id.to_string(),
-        source_person_uuid.to_string(),
-    );
-    let initial_state = MergeState::SourcesDeleted(create_sources_marked_data(
-        "merge-1",
-        target_distinct_id,
-        vec![source_distinct_id.to_string()],
-        version,
-        target_person_uuid,
-        valid_sources,
-        vec![source_person_uuid.to_string()],
-    ));
-    state_repo.set(initial_state).await.unwrap();
-
-    let merge_service = PersonMergeService::new(
-        properties_api.clone(),
-        distinct_ids_api.clone(),
-        state_repo.clone(),
-    );
-
-    let results = merge_service.resume_all().await.unwrap();
-
-    assert_eq!(results.len(), 1);
-    assert!(results[0].1.is_ok());
-
-    // Nothing should be called - just mark as completed
-    assert_eq!(properties_api.get_persons_for_merge_call_count(), 0);
-    assert_eq!(properties_api.get_delete_person_calls().len(), 0);
-    assert!(distinct_ids_api.get_set_merged_calls().is_empty());
-
-    // Verify state is now Completed
-    let final_state = state_repo.get("merge-1").await.unwrap().unwrap();
-    assert_eq!(final_state.step(), MergeStep::Completed);
-}
-
-#[tokio::test]
 async fn test_resume_skips_completed_and_failed_states() {
     let properties_api = Arc::new(MockPersonPropertiesApi::new());
     let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
@@ -1499,10 +1449,10 @@ async fn test_resume_multiple_incomplete_merges() {
 
     let state_repo = Arc::new(InMemoryMergeStateRepository::new());
 
-    // Add first incomplete state at SourcesDeleted
+    // Add first incomplete state at DistinctIdsMerged
     let mut valid_sources1 = HashMap::new();
     valid_sources1.insert("source-1".to_string(), "source-person-1".to_string());
-    let state1 = MergeState::SourcesDeleted(create_sources_marked_data(
+    let state1 = MergeState::DistinctIdsMerged(create_sources_marked_data(
         "merge-1",
         "did-1",
         vec!["source-1".to_string()],
@@ -1775,7 +1725,7 @@ async fn test_service_restart_fail_at_distinct_ids_merged() {
 
 /// Test: Fail at delete_person (after TargetCleared), resume completes
 #[tokio::test]
-async fn test_service_restart_fail_at_sources_deleted() {
+async fn test_service_restart_fail_at_delete_person() {
     let target_distinct_id = "target-distinct-id";
     let source_distinct_id = "source-distinct-id";
     let target_person_uuid = "target-person-uuid";

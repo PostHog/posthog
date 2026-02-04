@@ -115,7 +115,6 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
             MergeState::PropertiesMerged(data) => self.resume_from_properties_merged(data).await,
             MergeState::DistinctIdsMerged(data) => self.resume_from_distinct_ids_merged(data).await,
             MergeState::TargetCleared(data) => self.resume_from_target_cleared(data).await,
-            MergeState::SourcesDeleted(data) => self.resume_from_sources_deleted(data).await,
             MergeState::Completed(data) => {
                 // Nothing to do - return current state as result
                 Ok(MergeResult {
@@ -353,7 +352,7 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
         self.resume_from_target_cleared(data).await
     }
 
-    /// Resume merge from TargetCleared step - source persons need to be deleted.
+    /// Resume merge from TargetCleared step - delete source persons and complete.
     async fn resume_from_target_cleared(&self, data: SourcesMarkedData) -> ApiResult<MergeResult> {
         let delete_futures: Vec<_> = data
             .source_person_uuids
@@ -363,18 +362,7 @@ impl<S: MergeStateRepository> PersonMergeService<S> {
 
         futures::future::try_join_all(delete_futures).await?;
 
-        // Transition to SourcesDeleted state
-        let state = MergeState::SourcesDeleted(data.clone());
-        self.save_state(&state).await?;
-
-        self.resume_from_sources_deleted(data).await
-    }
-
-    /// Resume merge from SourcesDeleted step - just mark as completed.
-    async fn resume_from_sources_deleted(&self, data: SourcesMarkedData) -> ApiResult<MergeResult> {
         let target_person_uuid = data.target_marked.target_person_uuid.clone();
-
-        // Transition to Completed state
         let merged: Vec<DistinctIdInfo> = data
             .valid_sources
             .keys()
