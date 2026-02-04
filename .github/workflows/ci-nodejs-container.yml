@@ -17,6 +17,7 @@ jobs:
         runs-on: ubuntu-24.04
         permissions:
             contents: read
+            pull-requests: read
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
         name: Determine need to run node Docker build
