@@ -39,10 +39,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::kafka::types::Partition;
-use crate::metrics_const::{
-    OWNED_PARTITIONS_COUNT, PARTITION_OWNERSHIP_ADDED, PARTITION_OWNERSHIP_REMOVED,
-    REBALANCING_COUNT,
-};
+use crate::metrics_const::{OWNED_PARTITIONS_COUNT, REBALANCING_COUNT};
 
 /// Type alias for the shared task handle. The closure maps JoinHandle's Result to ()
 /// so it can be Clone (required by Shared).
@@ -185,7 +182,6 @@ impl RebalanceTracker {
 
         let total_owned = self.owned_partitions.len();
         metrics::gauge!(OWNED_PARTITIONS_COUNT).set(total_owned as f64);
-        metrics::counter!(PARTITION_OWNERSHIP_ADDED).increment(added_count as u64);
 
         if added_count > 0 {
             info!(
@@ -215,7 +211,6 @@ impl RebalanceTracker {
 
         let total_owned = self.owned_partitions.len();
         metrics::gauge!(OWNED_PARTITIONS_COUNT).set(total_owned as f64);
-        metrics::counter!(PARTITION_OWNERSHIP_REMOVED).increment(removed_count as u64);
 
         if removed_count > 0 {
             info!(

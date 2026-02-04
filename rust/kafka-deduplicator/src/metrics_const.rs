@@ -88,7 +88,7 @@ pub const CHECKPOINT_FILE_UPLOADS_COUNTER: &str = "checkpoint_file_uploads_statu
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
 
 /// Histogram for checkpoint metadata file fetch duration; only measured on success
-pub const CHECKPOINT_FILE_FETCH_HISTOGRAM: &str = "checkpoint_file_fetch_seconds";
+pub const CHECKPOINT_METADATA_FETCH_HISTOGRAM: &str = "checkpoint_metadata_fetch_seconds";
 
 /// Histogram for checkpoint total batch download_files duration; only measured on success.
 /// The individual file ops are parallelized - we're measuring total elapsed time for the fanout
@@ -117,11 +117,10 @@ pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM: &str =
 /// when local store is missing after Kafka rebalances
 pub const REBALANCE_CHECKPOINT_IMPORT_COUNTER: &str = "rebalance_checkpoint_import_total";
 
-/// Counter for immediate cleanup of checkpoint imports after cancellation or ownership loss.
+/// Counter for immediate cleanup of checkpoint import directories.
 /// This counts directories cleaned up immediately rather than waiting for orphan cleaner.
-/// Tags: result=success|failed
-pub const CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER: &str =
-    "checkpoint_import_cancelled_cleanup_total";
+/// Tags: source=guard|post_import, result=success|failed
+pub const CHECKPOINT_IMPORT_CLEANUP_COUNTER: &str = "checkpoint_import_cleanup_total";
 
 // ==== Store Manager Diagnostics ====
 /// Histogram for store creation duration (in milliseconds)
@@ -143,20 +142,10 @@ pub const REBALANCING_COUNT: &str = "rebalancing_count";
 /// Updated on every ownership change for real-time visibility
 pub const OWNED_PARTITIONS_COUNT: &str = "owned_partitions_count";
 
-/// Counter for partitions added to ownership (ASSIGN callback)
-pub const PARTITION_OWNERSHIP_ADDED: &str = "partition_ownership_added_total";
-
-/// Counter for partitions removed from ownership (REVOKE callback)
-pub const PARTITION_OWNERSHIP_REMOVED: &str = "partition_ownership_removed_total";
-
 /// Counter for partition state changes from Kafka rebalance (assign/revoke)
 /// Labels: topic, partition, op (assign|revoke)
 /// Use this to track rebalance activity per partition for debugging and alerting
 pub const REBALANCE_PARTITION_STATE_CHANGE: &str = "rebalance_partition_state_change_total";
-
-/// Counter for async setup cancellations
-/// Incremented when a new rebalance starts before async setup completes
-pub const REBALANCE_ASYNC_SETUP_CANCELLED: &str = "rebalance_async_setup_cancelled_total";
 
 /// Counter for partitions skipped during store creation (no longer owned)
 /// Labels: reason (not_owned, cancelled)

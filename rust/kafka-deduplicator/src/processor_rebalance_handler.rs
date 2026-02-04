@@ -14,7 +14,7 @@ use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
-    CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER, PARTITION_STORE_FALLBACK_EMPTY,
+    CHECKPOINT_IMPORT_CLEANUP_COUNTER, PARTITION_STORE_FALLBACK_EMPTY,
     PARTITION_STORE_SETUP_SKIPPED, REBALANCE_CHECKPOINT_IMPORT_COUNTER,
     REBALANCE_PARTITION_STATE_CHANGE, REBALANCE_RESUME_SKIPPED_NO_OWNED,
 };
@@ -156,7 +156,8 @@ where
                                 match std::fs::remove_dir_all(&path) {
                                     Ok(_) => {
                                         metrics::counter!(
-                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            CHECKPOINT_IMPORT_CLEANUP_COUNTER,
+                                            "source" => "post_import",
                                             "result" => "success",
                                         )
                                         .increment(1);
@@ -170,7 +171,8 @@ where
                                     }
                                     Err(e) => {
                                         metrics::counter!(
-                                            CHECKPOINT_IMPORT_CANCELLED_CLEANUP_COUNTER,
+                                            CHECKPOINT_IMPORT_CLEANUP_COUNTER,
+                                            "source" => "post_import",
                                             "result" => "failed",
                                         )
                                         .increment(1);

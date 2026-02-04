@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use super::{CheckpointDownloader, CheckpointMetadata};
 use crate::metrics_const::{
-    CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, CHECKPOINT_IMPORT_DURATION_HISTOGRAM,
+    CHECKPOINT_IMPORT_ATTEMPT_DURATION_HISTOGRAM, CHECKPOINT_IMPORT_CLEANUP_COUNTER,
+    CHECKPOINT_IMPORT_DURATION_HISTOGRAM,
 };
 
 use anyhow::{Context, Result};
@@ -43,6 +44,12 @@ impl Drop for ImportCleanupGuard {
         if !self.defused && self.path.exists() {
             match std::fs::remove_dir_all(&self.path) {
                 Ok(_) => {
+                    metrics::counter!(
+                        CHECKPOINT_IMPORT_CLEANUP_COUNTER,
+                        "source" => "guard",
+                        "result" => "success",
+                    )
+                    .increment(1);
                     info!(
                         topic = %self.topic,
                         partition = self.partition,
@@ -51,6 +58,12 @@ impl Drop for ImportCleanupGuard {
                     );
                 }
                 Err(e) => {
+                    metrics::counter!(
+                        CHECKPOINT_IMPORT_CLEANUP_COUNTER,
+                        "source" => "guard",
+                        "result" => "failed",
+                    )
+                    .increment(1);
                     warn!(
                         topic = %self.topic,
                         partition = self.partition,

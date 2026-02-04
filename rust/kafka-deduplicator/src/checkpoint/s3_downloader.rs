@@ -10,8 +10,8 @@ use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
 use super::s3_client::create_s3_client;
 use crate::metrics_const::{
     CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
-    CHECKPOINT_FILE_FETCH_HISTOGRAM, CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM,
-    CHECKPOINT_LIST_METADATA_HISTOGRAM,
+    CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM, CHECKPOINT_LIST_METADATA_HISTOGRAM,
+    CHECKPOINT_METADATA_FETCH_HISTOGRAM,
 };
 
 use anyhow::{Context, Result};
@@ -150,7 +150,7 @@ impl CheckpointDownloader for S3Downloader {
         })?;
 
         let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_FILE_FETCH_HISTOGRAM).record(elapsed.as_secs_f64());
+        metrics::histogram!(CHECKPOINT_METADATA_FETCH_HISTOGRAM).record(elapsed.as_secs_f64());
         Ok(body.to_vec())
     }
 
