@@ -9,7 +9,7 @@ import { ClusterTraceList } from './ClusterTraceList'
 import { NOISE_CLUSTER_ID } from './constants'
 import { Cluster, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
-function formatTokens(tokens: number): string {
+export function formatTokens(tokens: number): string {
     if (tokens >= 1000000) {
         return `${(tokens / 1000000).toFixed(1)}M`
     }
@@ -19,7 +19,7 @@ function formatTokens(tokens: number): string {
     return tokens.toFixed(0)
 }
 
-function formatErrorRate(errorRate: number): string {
+export function formatErrorRate(errorRate: number): string {
     const percentage = errorRate * 100
     if (percentage === 0) {
         return '0%'

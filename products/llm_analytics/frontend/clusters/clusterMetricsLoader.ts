@@ -4,7 +4,7 @@ import { hogql } from '~/queries/utils'
 
 import { Cluster, ClusterMetrics, ClusteringLevel } from './types'
 
-interface ItemMetrics {
+export interface ItemMetrics {
     itemId: string
     cost: number | null
     latency: number | null
@@ -96,7 +96,13 @@ export async function loadClusterMetrics(
         }
     }
 
-    // Aggregate metrics per cluster
+    return aggregateClusterMetrics(clusters, itemMetrics)
+}
+
+export function aggregateClusterMetrics(
+    clusters: Cluster[],
+    itemMetrics: Record<string, ItemMetrics>
+): Record<number, ClusterMetrics> {
     const clusterMetrics: Record<number, ClusterMetrics> = {}
 
     for (const cluster of clusters) {
