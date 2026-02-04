@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { PropsWithChildren } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -38,7 +38,7 @@ const ContextualFilters = ({ children, logicKey }: PropsWithChildren<{ logicKey:
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttributes>): JSX.Element | null => {
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
-    const { expanded } = useValues(notebookNodeLogic)
+    const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setMenuItems } = useActions(notebookNodeLogic)
     const logicKey = getLogicKey({ tabId, personId, groupKey })
     const { removeNode } = useActions(customerProfileLogic)
@@ -66,6 +66,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
                     groupKey={groupKey}
                     groupTypeIndex={groupTypeIndex}
                     logicKey={logicKey}
+                    attachTo={notebookLogic}
                 />
             </ErrorTrackingSetupPrompt>
         </ContextualFilters>
@@ -77,9 +78,10 @@ interface IssuesQueryProps {
     groupKey?: string
     groupTypeIndex?: number
     logicKey: string
+    attachTo: BuiltLogic | LogicWrapper
 }
 
-const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey }: IssuesQueryProps): JSX.Element => {
+const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey, attachTo }: IssuesQueryProps): JSX.Element => {
     const { dateRange, filterTestAccounts, filterGroup, searchQuery } = useValues(issueFiltersLogic)
     const { assignee, orderBy, orderDirection, status } = useValues(issueQueryOptionsLogic)
 
@@ -102,7 +104,6 @@ const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey }: IssuesQue
     const insightProps: InsightLogicProps = {
         dashboardItemId: `new-NotebookNodeIssues-${personId || groupKey}`,
     }
-    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
