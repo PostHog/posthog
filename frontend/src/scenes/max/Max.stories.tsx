@@ -2102,7 +2102,7 @@ export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
     const longContentFormMessage: AssistantMessage = {
         type: AssistantMessageType.Assistant,
         content:
-            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the deep research, I need to confirm a few things to ensure I focus on what matters most to you.",
+            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the research, I need to confirm a few things to ensure I focus on what matters most to you.",
         id: 'long-content-form-msg',
         tool_calls: [
             {
@@ -2605,6 +2605,11 @@ export const NotebookArtifactWithLoadingAndErrors: StoryFn = () => {
     }
 
     return <Template />
+}
+NotebookArtifactWithLoadingAndErrors.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 // Changelog Stories

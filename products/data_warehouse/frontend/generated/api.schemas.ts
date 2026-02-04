@@ -16,7 +16,6 @@
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataModelingJobStatusEnumApi = {
     Running: 'Running',
     Completed: 'Completed',
@@ -53,6 +52,53 @@ export interface PaginatedDataModelingJobListApi {
     results: DataModelingJobApi[]
 }
 
+export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
+
+export const SyncTypeEnumApi = {
+    full_refresh: 'full_refresh',
+    incremental: 'incremental',
+    append: 'append',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | null
+
+export interface ExternalDataSchemaApi {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    readonly table: ExternalDataSchemaApiTable
+    should_sync?: boolean
+    /** @nullable */
+    readonly last_synced_at: string | null
+    /**
+     * The latest error that occurred when syncing this schema.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    readonly incremental: boolean
+    /** @nullable */
+    readonly status: string | null
+    readonly sync_type: SyncTypeEnumApi | null
+    /** @nullable */
+    readonly incremental_field: string | null
+    /** @nullable */
+    readonly incremental_field_type: string | null
+    readonly sync_frequency: string
+    readonly sync_time_of_day: string
+}
+
+export interface PaginatedExternalDataSchemaListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataSchemaApi[]
+}
+
 /**
  * * `Ashby` - Ashby
  * `Supabase` - Supabase
@@ -70,6 +116,7 @@ export interface PaginatedDataModelingJobListApi {
  * `Vitally` - Vitally
  * `BigQuery` - BigQuery
  * `Chargebee` - Chargebee
+ * `Clerk` - Clerk
  * `GoogleAds` - GoogleAds
  * `TemporalIO` - TemporalIO
  * `DoIt` - DoIt
@@ -87,10 +134,11 @@ export interface PaginatedDataModelingJobListApi {
  * `TikTokAds` - TikTokAds
  * `BingAds` - BingAds
  * `Shopify` - Shopify
+ * `Attio` - Attio
+ * `SnapchatAds` - SnapchatAds
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SourceTypeEnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
@@ -108,6 +156,7 @@ export const SourceTypeEnumApi = {
     Vitally: 'Vitally',
     BigQuery: 'BigQuery',
     Chargebee: 'Chargebee',
+    Clerk: 'Clerk',
     GoogleAds: 'GoogleAds',
     TemporalIO: 'TemporalIO',
     DoIt: 'DoIt',
@@ -125,6 +174,8 @@ export const SourceTypeEnumApi = {
     TikTokAds: 'TikTokAds',
     BingAds: 'BingAds',
     Shopify: 'Shopify',
+    Attio: 'Attio',
+    SnapchatAds: 'SnapchatAds',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -154,7 +205,7 @@ export interface ExternalDataSourceSerializersApi {
     description?: string | null
     readonly last_run_at: string
     readonly schemas: string
-    job_inputs?: unknown
+    job_inputs?: unknown | null
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -194,7 +245,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     description?: string | null
     readonly last_run_at?: string
     readonly schemas?: string
-    job_inputs?: unknown
+    job_inputs?: unknown | null
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -215,7 +266,6 @@ export interface PatchedExternalDataSourceSerializersApi {
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
@@ -229,14 +279,12 @@ export const RoleAtOrganizationEnumApi = {
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -262,7 +310,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
 /**
@@ -274,7 +322,6 @@ export interface UserBasicApi {
  */
 export type StatusD5cEnumApi = (typeof StatusD5cEnumApi)[keyof typeof StatusD5cEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StatusD5cEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
@@ -290,7 +337,6 @@ export const StatusD5cEnumApi = {
  */
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OriginEnumApi = {
     data_warehouse: 'data_warehouse',
     endpoint: 'endpoint',
@@ -316,7 +362,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: StatusD5cEnumApi | NullEnumApi
+    readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly managed_viewset_kind: string
@@ -329,7 +375,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi
+    readonly origin: OriginEnumApi | NullEnumApi | null
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -353,7 +399,7 @@ export interface DataWarehouseSavedQueryApi {
     /** @maxLength 128 */
     name: string
     /** HogQL query */
-    query?: unknown
+    query?: unknown | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly sync_frequency: string
@@ -365,7 +411,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: StatusD5cEnumApi | NullEnumApi
+    readonly status: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly managed_viewset_kind: string
@@ -383,7 +429,7 @@ export interface DataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi
+    readonly origin: OriginEnumApi | NullEnumApi | null
 }
 
 /**
@@ -398,7 +444,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** @maxLength 128 */
     name?: string
     /** HogQL query */
-    query?: unknown
+    query?: unknown | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly sync_frequency?: string
@@ -410,7 +456,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: StatusD5cEnumApi | NullEnumApi
+    readonly status?: StatusD5cEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     readonly managed_viewset_kind?: string
@@ -428,7 +474,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | NullEnumApi
+    readonly origin?: OriginEnumApi | NullEnumApi | null
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -478,6 +524,109 @@ export interface PatchedDataWarehouseSavedQueryDraftApi {
     edited_history_id?: string | null
 }
 
+/**
+ * * `CSV` - CSV
+ * `CSVWithNames` - CSVWithNames
+ * `Parquet` - Parquet
+ * `JSONEachRow` - JSON
+ * `Delta` - Delta
+ * `DeltaS3Wrapper` - DeltaS3Wrapper
+ */
+export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
+
+export const TableFormatEnumApi = {
+    CSV: 'CSV',
+    CSVWithNames: 'CSVWithNames',
+    Parquet: 'Parquet',
+    JSONEachRow: 'JSONEachRow',
+    Delta: 'Delta',
+    DeltaS3Wrapper: 'DeltaS3Wrapper',
+} as const
+
+export interface CredentialApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @maxLength 500 */
+    access_key: string
+    /** @maxLength 500 */
+    access_secret: string
+}
+
+export interface SimpleExternalDataSourceSerializersApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    readonly status: string
+    readonly source_type: SourceTypeEnumApi
+}
+
+export interface TableApi {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name: string
+    format: TableFormatEnumApi
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @maxLength 500 */
+    url_pattern: string
+    credential: CredentialApi
+    readonly columns: string
+    readonly external_data_source: SimpleExternalDataSourceSerializersApi
+    readonly external_schema: string
+}
+
+export interface PaginatedTableListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TableApi[]
+}
+
+export interface ViewLinkApi {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @maxLength 400 */
+    source_table_name: string
+    /** @maxLength 400 */
+    source_table_key: string
+    /** @maxLength 400 */
+    joining_table_name: string
+    /** @maxLength 400 */
+    joining_table_key: string
+    /** @maxLength 400 */
+    field_name: string
+    configuration?: unknown | null
+}
+
+export interface PaginatedViewLinkListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ViewLinkApi[]
+}
+
+export interface ViewLinkValidationApi {
+    /** @maxLength 255 */
+    joining_table_name: string
+    /** @maxLength 255 */
+    joining_table_key: string
+    /** @maxLength 255 */
+    source_table_name: string
+    /** @maxLength 255 */
+    source_table_key: string
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /** 
@@ -486,7 +635,7 @@ export interface QueryTabStateApi {
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
             for a user.
              */
-    state?: unknown
+    state?: unknown | null
 }
 
 export interface PaginatedQueryTabStateListApi {
@@ -506,59 +655,30 @@ export interface PatchedQueryTabStateApi {
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
             for a user.
              */
-    state?: unknown
+    state?: unknown | null
 }
 
-export type EnvironmentsDataModelingJobsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * @nullable
-     */
-    saved_query_id?: string | null
+export interface DataWarehouseModelPathApi {
+    readonly id: string
+    path: string
+    team: number
+    /** @nullable */
+    table?: string | null
+    /** @nullable */
+    saved_query?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
 }
 
-export type EnvironmentsExternalDataSourcesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsWarehouseSavedQueriesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type EnvironmentsWarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+export interface PaginatedDataWarehouseModelPathListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseModelPathApi[]
 }
 
 export type DataModelingJobsListParams = {
@@ -576,7 +696,134 @@ export type DataModelingJobsListParams = {
     saved_query_id?: string | null
 }
 
+export type ExternalDataSchemasListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type ExternalDataSourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseSavedQueriesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinkListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DataModelingJobsList2Params = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * @nullable
+     */
+    saved_query_id?: string | null
+}
+
+export type ExternalDataSchemasList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -602,11 +849,67 @@ export type QueryTabStateListParams = {
     offset?: number
 }
 
-export type WarehouseSavedQueriesListParams = {
+export type WarehouseModelPathsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseSavedQueriesList2Params = {
     /**
      * A page number within the paginated result set.
      */
     page?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseTablesList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinkList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type WarehouseViewLinksList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
     /**
      * A search term.
      */

@@ -1,9 +1,7 @@
 import { LogicWrapper } from 'kea'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
-
-import { SettingSectionId } from './settings/types'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
@@ -71,6 +69,7 @@ export enum Scene {
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
+    InsightOptions = 'InsightOptions',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -96,9 +95,11 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
+    TwoFactorReset = 'TwoFactorReset',
     Person = 'Person',
     Persons = 'Persons',
     Pipeline = 'Pipeline',
+    PipelineStatus = 'PipelineStatus',
     PipelineNode = 'PipelineNode',
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
@@ -116,8 +117,11 @@ export enum Scene {
     ReplaySingle = 'ReplaySingle',
     ReplayKiosk = 'ReplayKiosk',
     RevenueAnalytics = 'RevenueAnalytics',
+    SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
+    Health = 'Health',
+    SdkDoctor = 'SdkDoctor',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',
@@ -180,8 +184,8 @@ export interface SceneExport<T = SceneProps> {
     component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
-    /** setting section id to open when clicking the settings button */
-    settingSectionId?: SettingSectionId
+    /** product key associated with this scene - used for Quick Start setup tracking */
+    productKey?: ProductKey
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */

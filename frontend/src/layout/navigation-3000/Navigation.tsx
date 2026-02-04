@@ -1,6 +1,6 @@
 import './Navigation.scss'
 
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
@@ -8,6 +8,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -34,6 +35,7 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
+    useMountedLogic(maxGlobalLogic)
     const { isDev } = useValues(preflightLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
@@ -45,9 +47,9 @@ export function Navigation({
     const { activeTabId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Set container ref so we can measure the width of the scene layout in logic
@@ -82,8 +84,7 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
-                    'app-layout--sidepanel-open': isRemovingSidePanelFlag && sidePanelOpen && sidePanelAvailable,
-                    'app-layout--ai-first': isRemovingSidePanelFlag,
+                    'app-layout--scene-side-panel reduce-visual-noise': isRemovingSidePanelFlag,
                 })}
                 style={
                     {
@@ -117,6 +118,7 @@ export function Navigation({
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
                                 'lg:mr-2': isRemovingSidePanelFlag,
+                                'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
                             }
                         )}
                     >
@@ -126,12 +128,15 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300 rounded-t',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 transition-[width] duration-300 rounded-t',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
+                                    'focus-visible:outline-none': isRemovingSidePanelFlag,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
+                                        isRemovingSidePanelFlag && sidePanelOpen,
                                 }
                             )}
                             onScroll={(e) => {
@@ -154,6 +159,7 @@ export function Navigation({
                                     </div>
                                 )}
                                 {children}
+                                {isRemovingSidePanelFlag && <SidePanel />}
                             </SceneLayout>
                         </main>
 
@@ -184,7 +190,7 @@ export function Navigation({
                             </>
                         )}
                     </div>
-                    <SidePanel className="right-nav" />
+                    {!isRemovingSidePanelFlag && <SidePanel className="right-nav" />}
                 </ProjectDragAndDropProvider>
             </div>
         </>

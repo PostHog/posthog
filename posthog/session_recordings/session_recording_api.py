@@ -17,6 +17,7 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 import requests
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -82,10 +83,12 @@ from posthog.session_recordings.utils import (
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
+from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -918,6 +921,26 @@ class SessionRecordingViewSet(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="batch_check_exists")
+    def batch_check_exists(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Batch check which session IDs have recordings.
+
+        Returns a dict mapping session_id -> exists (boolean).
+        Only positive results (exists=True) are cached.
+        Negative results are not cached since recordings may still be ingesting.
+        """
+        session_ids = request.data.get("session_ids", [])
+
+        if not session_ids or not isinstance(session_ids, list):
+            raise exceptions.ValidationError("session_ids must be provided as a non-empty array")
+
+        if len(session_ids) > 100:
+            raise exceptions.ValidationError("Cannot check more than 100 session IDs at once")
+
+        results = SessionReplayEvents().batch_exists(session_ids, self.team)
+        return Response({"results": results})
+
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
@@ -992,9 +1015,20 @@ class SessionRecordingViewSet(
                     decompress=decompress,
                 )
             elif source == "blob_v2_lts" and "blob_key" in validated_data:
-                response = self._stream_lts_blob_v2_to_client(
-                    blob_key=validated_data["blob_key"], decompress=decompress
-                )
+                if not recording.full_recording_v2_path:
+                    raise exceptions.NotFound("Recording not found")
+                expected_blob_key = urlparse(recording.full_recording_v2_path).path.lstrip("/")
+                provided_blob_key = validated_data["blob_key"].lstrip("/")
+                if provided_blob_key != expected_blob_key:
+                    logger.warning(
+                        "blob_key_mismatch_for_lts_recording",
+                        team_id=self.team_id,
+                        session_id=recording.session_id,
+                        provided_blob_key=provided_blob_key,
+                        expected_blob_key=expected_blob_key,
+                    )
+                    raise exceptions.NotFound("Recording not found")
+                response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
                 response = self._gather_session_recording_sources(recording, timer)
 
@@ -1123,6 +1157,43 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
+    def _determine_video_based_summarization_enabled(self, user: User) -> bool:
+        """Check if video-based summarization is enabled (uses video as base instead of events)."""
+        return (
+            posthoganalytics.feature_enabled(
+                "max-session-summarization-video-as-base",
+                str(user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                send_feature_flag_events=False,
+            )
+            or False
+        )
+
+    def _generate_video_based_summary(self, session_id: str, user: User) -> Generator[str, None, None]:
+        """Execute video-based summarization and yield result as SSE event."""
+
+        try:
+            summary_result = async_to_sync(execute_summarize_session)(
+                session_id=session_id,
+                user=user,
+                team=self.team,
+                video_validation_enabled="full",
+            )
+            yield serialize_to_sse_event(
+                event_label="session-summary-stream",
+                event_data=json.dumps(summary_result),
+            )
+
+        except Exception as e:
+            # Capture detailed exception server-side while returning a generic error to the client
+            capture_exception(e)
+            error_payload = {"status": "error", "message": "Failed to generate session summary."}
+            yield serialize_to_sse_event(
+                event_label="session-summary-error",
+                event_data=json.dumps(error_payload),
+            )
+
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
     def summarize(self, request: request.Request, **kwargs):
@@ -1158,24 +1229,43 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
-        # Track streaming summary start (no completion tracking for streaming)
         tracking_id = generate_tracking_id()
-        capture_session_summary_started(
-            user=user,
-            team=self.team,
-            tracking_id=tracking_id,
-            summary_source="api",
-            summary_type="single",
-            is_streaming=True,
-            session_ids=[session_id],
-            video_validation_enabled=None,  # Not checked for streaming endpoint
-        )
-        # If you want to test sessions locally - override `session_id` and `self.team.pk`
-        # with session/team ids of your choice and set `local_reads_prod` to True
-        return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user=user, team=self.team),
-            content_type=ServerSentEventRenderer.media_type,
-        )
+        video_based_summarization_enabled = self._determine_video_based_summarization_enabled(user)
+
+        if video_based_summarization_enabled:
+            # Use non-streaming workflow for video-based summarization
+            capture_session_summary_started(
+                user=user,
+                team=self.team,
+                tracking_id=tracking_id,
+                summary_source="api",
+                summary_type="single",
+                is_streaming=False,
+                session_ids=[session_id],
+                video_validation_enabled="full",
+            )
+            return StreamingHttpResponse(
+                self._generate_video_based_summary(session_id, user),
+                content_type=ServerSentEventRenderer.media_type,
+            )
+        else:
+            # Use existing streaming workflow for event-based summarization
+            capture_session_summary_started(
+                user=user,
+                team=self.team,
+                tracking_id=tracking_id,
+                summary_source="api",
+                summary_type="single",
+                is_streaming=True,
+                session_ids=[session_id],
+                video_validation_enabled=None,
+            )
+            # If you want to test sessions locally - override `session_id` and `self.team.pk`
+            # with session/team ids of your choice and set `local_reads_prod` to True
+            return StreamingHttpResponse(
+                stream_recording_summary(session_id=session_id, user=user, team=self.team),
+                content_type=ServerSentEventRenderer.media_type,
+            )
 
     async def _stream_lts_blob_v2_to_client_async(
         self,

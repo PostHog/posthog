@@ -7,10 +7,9 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { AvailableFeature, UserBasicType } from '~/types'
+import { UserBasicType } from '~/types'
 
 import { eventDefinitionModalLogic } from './eventDefinitionModalLogic'
 
@@ -23,10 +22,7 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
     const logic = eventDefinitionModalLogic({ onClose })
     const { eventDefinitionForm, isEventDefinitionFormSubmitting, existingEvent } = useValues(logic)
     const { setEventDefinitionFormValue: setFormValue, submitEventDefinitionForm } = useActions(logic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
-
-    const hasIngestionTaxonomy = hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)
 
     return (
         <LemonModal
@@ -72,40 +68,36 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
                     />
                 </LemonField>
 
-                {hasIngestionTaxonomy && (
-                    <>
-                        <LemonField name="description" label="Description" showOptional>
-                            <LemonTextArea
-                                value={eventDefinitionForm.description}
-                                onChange={(value) => setFormValue('description', value)}
-                                placeholder="What does this event represent?"
-                                data-attr="event-definition-description-input"
-                            />
-                        </LemonField>
+                <LemonField name="description" label="Description" showOptional>
+                    <LemonTextArea
+                        value={eventDefinitionForm.description}
+                        onChange={(value) => setFormValue('description', value)}
+                        placeholder="What does this event represent?"
+                        data-attr="event-definition-description-input"
+                    />
+                </LemonField>
 
-                        <div className="flex items-center gap-4">
-                            <LemonField name="owner" label="Owner" showOptional className="w-60">
-                                <MemberSelect
-                                    value={eventDefinitionForm.owner ?? null}
-                                    onChange={(user: UserBasicType | null) => setFormValue('owner', user?.id ?? null)}
-                                    data-attr="event-definition-owner-select"
-                                />
-                            </LemonField>
+                <div className="flex items-center gap-4">
+                    <LemonField name="owner" label="Owner" showOptional className="w-60">
+                        <MemberSelect
+                            value={eventDefinitionForm.owner ?? null}
+                            onChange={(user: UserBasicType | null) => setFormValue('owner', user?.id ?? null)}
+                            data-attr="event-definition-owner-select"
+                        />
+                    </LemonField>
 
-                            <LemonField name="tags" label="Tags" showOptional className="flex-1">
-                                <LemonInputSelect
-                                    mode="multiple"
-                                    allowCustomValues
-                                    value={eventDefinitionForm.tags || []}
-                                    options={tags.map((tag) => ({ key: tag, label: tag }))}
-                                    onChange={(tags) => setFormValue('tags', tags)}
-                                    placeholder="Add tags..."
-                                    data-attr="event-definition-tags-input"
-                                />
-                            </LemonField>
-                        </div>
-                    </>
-                )}
+                    <LemonField name="tags" label="Tags" showOptional className="flex-1">
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            value={eventDefinitionForm.tags || []}
+                            options={tags.map((tag) => ({ key: tag, label: tag }))}
+                            onChange={(tags) => setFormValue('tags', tags)}
+                            placeholder="Add tags..."
+                            data-attr="event-definition-tags-input"
+                        />
+                    </LemonField>
+                </div>
             </Form>
         </LemonModal>
     )

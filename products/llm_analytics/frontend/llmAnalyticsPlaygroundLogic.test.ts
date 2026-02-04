@@ -211,7 +211,12 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             testLogic.unmount()
         })
 
-        it('should handle API errors gracefully', async () => {
+        it('should preserve model options when reload fails', async () => {
+            // First: successfully load with the beforeEach mock
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+
+            // Now: override mock to throw error
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': () => {
@@ -220,15 +225,12 @@ describe('llmAnalyticsPlaygroundLogic', () => {
                 },
             })
 
-            const errorLogic = llmAnalyticsPlaygroundLogic()
-            errorLogic.mount()
+            // Trigger reload
+            logic.actions.loadModelOptions()
+            await expectLogic(logic).toFinishAllListeners()
 
-            await expectLogic(errorLogic).toFinishAllListeners()
-
-            // Should not crash and maintain previous model options
-            expect(errorLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
-
-            errorLogic.unmount()
+            // Should preserve existing options after failed reload
+            expect(logic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
         })
     })
 

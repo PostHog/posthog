@@ -16,12 +16,7 @@ from posthog.temporal.llm_analytics.trace_summarization.models import Summarizat
 
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
-from products.llm_analytics.backend.summarization.models import (
-    GeminiModel,
-    OpenAIModel,
-    SummarizationMode,
-    SummarizationProvider,
-)
+from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
     format_trace_text_repr,
@@ -37,12 +32,12 @@ logger = structlog.get_logger(__name__)
 @temporalio.activity.defn
 async def generate_and_save_summary_activity(
     trace_id: str,
+    trace_first_timestamp: str,
     team_id: int,
     window_start: str,
     window_end: str,
     mode: str,
     batch_run_id: str,
-    provider: str,
     model: str | None = None,
     max_length: int | None = None,
 ) -> SummarizationActivityResult:
@@ -51,15 +46,18 @@ async def generate_and_save_summary_activity(
 
     Fetches trace data, generates LLM summary, and saves it as an event.
     Saves directly to avoid passing large objects through workflow history.
+
+    Args:
+        trace_first_timestamp: The first event timestamp of the trace,
+            provided by sampling for navigation in the cluster scatter plot.
     """
 
     def _fetch_trace_and_format(
         trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
-    ) -> tuple[dict, list, str, Team, str] | None:
+    ) -> tuple[dict, list, str, Team] | None:
         """Fetch trace data and format text representation.
 
-        Returns tuple of (trace_dict, hierarchy, text_repr, team, trace_timestamp) or None if not found.
-        trace_timestamp is the first event timestamp of the trace (ISO format).
+        Returns tuple of (trace_dict, hierarchy, text_repr, team) or None if not found.
         """
         team = Team.objects.get(id=team_id)
 
@@ -76,8 +74,6 @@ async def generate_and_save_summary_activity(
 
         llm_trace = response.results[0]
         trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
-        # Extract the trace's first event timestamp for efficient linking
-        trace_timestamp = llm_trace.createdAt
 
         options: FormatterOptions = {
             "include_line_numbers": True,
@@ -93,11 +89,9 @@ async def generate_and_save_summary_activity(
             options=options,
         )
 
-        return trace_dict, hierarchy, text_repr, team, trace_timestamp
+        return trace_dict, hierarchy, text_repr, team
 
-    def _save_summary_event(
-        summary_result: SummarizationResponse, hierarchy: list, text_repr: str, team: Team, trace_timestamp: str
-    ) -> None:
+    def _save_summary_event(summary_result: SummarizationResponse, hierarchy: list, text_repr: str, team: Team) -> None:
         """Save summary as $ai_trace_summary event to ClickHouse."""
 
         event_uuid = uuid4()
@@ -115,7 +109,7 @@ async def generate_and_save_summary_activity(
             "$ai_summary_interesting_notes": summary_notes_json,
             "$ai_text_repr_length": len(text_repr),
             "$ai_event_count": len(hierarchy),
-            "trace_timestamp": trace_timestamp,
+            "trace_timestamp": trace_first_timestamp,
         }
 
         create_event(
@@ -175,31 +169,24 @@ async def generate_and_save_summary_activity(
             skip_reason="trace_not_found",
         )
 
-    _trace, hierarchy, text_repr, team, trace_timestamp = result
+    _trace, hierarchy, text_repr, team = result
 
-    # Generate summary using LLM
+    # Generate summary using LLM via gateway
     # Note: text_repr is automatically reduced to fit LLM context if needed (see format_trace_text_repr)
-    # Convert string inputs to enum types
     mode_enum = SummarizationMode(mode)
-    provider_enum = SummarizationProvider(provider)
-    model_enum: OpenAIModel | GeminiModel | None = None
-    if model:
-        if provider_enum == SummarizationProvider.GEMINI:
-            model_enum = GeminiModel(model)
-        else:
-            model_enum = OpenAIModel(model)
+    model_enum = OpenAIModel(model) if model else None
 
-    summary_result = await summarize(
+    summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
         text_repr=text_repr,
         team_id=team_id,
         mode=mode_enum,
-        provider=provider_enum,
         model=model_enum,
+        user_id=f"temporal-workflow-team-{team_id}",
     )
 
     # Save event to ClickHouse immediately
     await database_sync_to_async(_save_summary_event, thread_sensitive=False)(
-        summary_result, hierarchy, text_repr, team, trace_timestamp
+        summary_result, hierarchy, text_repr, team
     )
 
     # Request embedding by sending to Kafka

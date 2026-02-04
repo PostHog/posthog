@@ -13,7 +13,7 @@ class TestGeminiConfig(SimpleTestCase):
         assert GeminiConfig.TEMPERATURE == 0
 
     def test_timeout_setting(self):
-        assert GeminiConfig.TIMEOUT == 300
+        assert GeminiConfig.TIMEOUT == 300_000
 
     def test_supported_models_include_expected(self):
         expected_models = [

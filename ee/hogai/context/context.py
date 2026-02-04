@@ -106,6 +106,10 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
+    @property
+    def is_subagent(self) -> bool:
+        return (self._config.get("configurable") or {}).get("is_subagent", False)
+
     def get_billing_context(self) -> MaxBillingContext | None:
         """
         Extracts the billing context from the runnable config.
@@ -135,7 +139,12 @@ class AssistantContextManager(AssistantContextMixin):
         """
         Returns the names of the team's groups.
         """
-        return [group async for group in self.get_groups().values_list("group_type", flat=True)]
+
+        @database_sync_to_async(thread_sensitive=False)
+        def _get_group_names_sync() -> list[str]:
+            return list(self.get_groups().values_list("group_type", flat=True))
+
+        return await _get_group_names_sync()
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """

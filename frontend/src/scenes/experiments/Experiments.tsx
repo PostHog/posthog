@@ -39,8 +39,8 @@ import {
     AccessControlResourceType,
     ActivityScope,
     Experiment,
+    ExperimentProgressStatus,
     ExperimentsTabs,
-    ProgressStatus,
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
@@ -62,6 +62,7 @@ import { isLegacyExperiment } from './utils'
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
+    productKey: ProductKey.EXPERIMENTS,
 }
 
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
@@ -130,15 +131,15 @@ const ExperimentsTableFilters = ({
                                 const { status: _, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                                onFiltersChange({ status: status as ExperimentProgressStatus, page: 1 })
                             }
                         }}
                         options={
                             [
                                 { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ProgressStatus.Draft },
-                                { label: 'Running', value: ProgressStatus.Running },
-                                { label: 'Complete', value: ProgressStatus.Complete },
+                                { label: 'Draft', value: ExperimentProgressStatus.Draft },
+                                { label: 'Running / Paused', value: ExperimentProgressStatus.Running },
+                                { label: 'Complete', value: ExperimentProgressStatus.Complete },
                             ] as { label: string; value: string }[]
                         }
                         value={filters.status ?? 'all'}
@@ -468,27 +469,32 @@ const ExperimentsTable = ({
                     </span>
                 </div>
             ) : null}
-            <LemonTable
-                dataSource={experiments.results}
-                columns={columns}
-                rowKey="id"
-                loading={experimentsLoading}
-                defaultSorting={{
-                    columnKey: 'created_at',
-                    order: -1,
-                }}
-                noSortingCancellation
-                pagination={pagination}
-                nouns={['experiment', 'experiments']}
-                data-attr="experiment-table"
-                emptyState="No results for this filter, change filter or create a new experiment."
-                onSort={(newSorting) =>
-                    setExperimentsFilters({
-                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
-                        page: 1,
-                    })
-                }
-            />
+
+            <div data-attr="experiments-table-container">
+                <LemonTable
+                    dataSource={experiments.results}
+                    columns={columns}
+                    rowKey="id"
+                    loading={experimentsLoading}
+                    defaultSorting={{
+                        columnKey: 'created_at',
+                        order: -1,
+                    }}
+                    noSortingCancellation
+                    pagination={pagination}
+                    nouns={['experiment', 'experiments']}
+                    data-attr="experiment-table"
+                    emptyState="No results for this filter, change filter or create a new experiment."
+                    onSort={(newSorting) =>
+                        setExperimentsFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                            page: 1,
+                        })
+                    }
+                />
+            </div>
         </SceneContent>
     )
 }

@@ -141,7 +141,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
-    '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+    '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
     '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
@@ -464,7 +464,13 @@ export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
-    endpoint: (name: string): string => `/endpoints/${name}`,
+    endpoint: (name: string, version?: number): string => {
+        const searchParams: Record<string, string> = {}
+        if (version) {
+            searchParams.version = String(version)
+        }
+        return combineUrl(`/endpoints/${name}`, searchParams).url
+    },
     endpointsUsage: (params?: {
         endpointFilter?: string[]
         dateFrom?: string
@@ -524,9 +530,24 @@ export const productUrls = {
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagNew: ({
+        type,
+        sourceId,
+    }: {
+        type?: 'boolean' | 'multivariate' | 'remote_config'
+        sourceId?: number | string | null
+    }): string => {
+        const params = new URLSearchParams()
+        if (type) {
+            params.set('type', type)
+        }
+        if (sourceId) {
+            params.set('sourceId', sourceId.toString())
+        }
+        return `/feature_flags/new?${params.toString()}`
+    },
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
@@ -578,7 +599,7 @@ export const productUrls = {
     llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
-    llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
+    llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
     llmAnalyticsSettings: (): string => '/llm-analytics/settings',
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
@@ -609,10 +630,10 @@ export const productUrls = {
         sceneSource?: InsightSceneSource
     } = {}): string => {
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor(query.query)
+            return urls.sqlEditor({ query: query.query })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor(query.source.query)
+            return urls.sqlEditor({ query: query.source.query })
         }
         return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
@@ -653,6 +674,7 @@ export const productUrls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
     alerts: (): string => `/insights?tab=alerts`,
+    insightOptions: (): string => '/insights/options',
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     replay: (
@@ -1033,7 +1055,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Data pipelines`,
-        intents: [ProductKey.PIPELINE_DESTINATIONS, ProductKey.PIPELINE_TRANSFORMATIONS, ProductKey.SITE_APPS],
+        intents: [
+            ProductKey.PIPELINE_BATCH_EXPORTS,
+            ProductKey.PIPELINE_DESTINATIONS,
+            ProductKey.PIPELINE_TRANSFORMATIONS,
+            ProductKey.SITE_APPS,
+        ],
         category: 'Tools',
         type: 'hog_function',
         iconType: 'data_pipeline',
@@ -1070,7 +1097,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Endpoints',
         intents: [ProductKey.ENDPOINTS],
-        category: 'Unreleased',
+        category: 'Tools',
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
@@ -1183,7 +1210,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
-        tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
     },
@@ -1267,7 +1293,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
-        category: 'Unreleased',
+        category: 'Behavior',
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
@@ -1408,7 +1434,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Endpoints',
-        category: 'Unreleased',
+        category: 'Tools',
         iconType: 'endpoints' as FileSystemIconType,
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         href: urls.endpoints(),
@@ -1474,6 +1500,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'RevenueAnalytics',
         sceneKeys: ['RevenueAnalytics'],
     },
+    { path: 'SQL variables', category: 'Schema', href: urls.variables(), sceneKeys: ['SqlVariableEdit'] },
     {
         path: `Sources`,
         category: 'Pipeline',
@@ -1485,7 +1512,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Support',
-        category: 'Unreleased',
+        category: 'Behavior',
         iconType: 'conversations' as FileSystemIconType,
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         href: urls.supportTickets(),
