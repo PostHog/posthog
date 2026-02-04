@@ -1232,7 +1232,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.api.event.cache")
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_uses_cached_window_when_result_count_meets_threshold(self, patch_query_with_columns, mock_cache):
-        # Cached window with result_count >= half_limit (50 >= 50 for limit=100)
+        # Cached window with result_count >= half_limit (60 >= 50 for limit=100)
         mock_cache.get.return_value = {"window": 3600, "result_count": 60}
 
         patch_query_with_columns.return_value = [
@@ -1253,10 +1253,8 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Should only call once since cached window returned enough results
         assert patch_query_with_columns.call_count == 1
 
-        # Should update cache with new result count
-        mock_cache.set.assert_called_once()
-        cached_data = mock_cache.set.call_args[0][1]
-        assert cached_data == {"window": 3600, "result_count": 60}
+        # Should NOT update cache when data is identical (optimization)
+        mock_cache.set.assert_not_called()
 
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event.query_events_list")
@@ -1297,8 +1295,10 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         first_call_kwargs = mock_query_events_list.call_args_list[0][1]
         assert first_call_kwargs["time_window_seconds"] == 60  # Not 3600
 
-        # Should cache new successful window
+        # Should cache new successful window with correct structure
         mock_cache.set.assert_called_once()
+        cached_data = mock_cache.set.call_args[0][1]
+        assert cached_data == {"window": 60, "result_count": 3500}
 
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event.query_events_list")

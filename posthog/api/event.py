@@ -79,7 +79,9 @@ def _get_event_list_cache_key(
     for a larger limit (e.g., 6000 with half_limit=3000) that needs more results.
 
     We use size categories (s/m/l) instead of exact limits to bound cache key
-    cardinality to ~3 keys per team/filter combination.
+    cardinality to ~3 keys per team/filter combination. Within a size category,
+    different limits share the same cache key but have different half_limit
+    thresholds - the result_count validation handles this.
     """
     event_flag = "1" if has_event_filter else "0"
     distinct_id_flag = "1" if has_distinct_id else "0"
@@ -332,11 +334,10 @@ class EventViewSet(
                     # Cache the successful window AND result count for future requests.
                     # This allows requests with smaller limits to reuse cached windows,
                     # while requests with larger limits will find their own windows.
-                    cache.set(
-                        cache_key,
-                        {"window": successful_window, "result_count": len(query_result)},
-                        EVENT_LIST_CACHE_TTL,
-                    )
+                    # Cache format: {"window": int, "result_count": int} (or int for legacy)
+                    new_cache_data = {"window": successful_window, "result_count": len(query_result)}
+                    if new_cache_data != cached_data:
+                        cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
                 elif applied_window is not None or not windows_to_try:
                     # Windows were applied but didn't return enough results, or no windows to try - run full query
                     query_result, _ = query_events_list(
