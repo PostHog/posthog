@@ -477,9 +477,17 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     if not team_id or not identifier:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
-    if request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1":
-        # If one-click unsubscribe, set all preferences to opted out
+    try:
         recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    except MessageRecipientPreference.DoesNotExist:
+        # A first-time preferences page visitor will not have a recipient in Postgres yet.
+        recipient = None
+
+    is_one_click_unsubscribe = (
+        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
+    )
+    if is_one_click_unsubscribe:
+        # If one-click unsubscribe, set all preferences to opted out
         categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing")
         preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
 
@@ -492,33 +500,41 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         if request.method == "POST":
             return HttpResponse(status=200)
 
-        return render(request, "message_preferences/one_click_unsubscribe_success.html")
-
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        # A first-time preferences page visitor will not have a recipient in Postgres yet.
-        recipient = None
-
     # Only fetch active categories and their preferences
     categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
 
+    categories_templating = [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.public_description,
+            "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
+        }
+        for cat in categories
+    ]
+
     context = {
         "recipient": recipient,
         "categories": [
+            *categories_templating,
             {
-                "id": cat.id,
-                "name": cat.name,
-                "description": cat.public_description,
-                "status": preferences.get(str(cat.id), PreferenceStatus.NO_PREFERENCE),
-            }
-            for cat in categories
+                "id": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "name": "All marketing communications",
+                "description": "Unsubscribe from all marketing emails. Overrides individual preferences.",
+                "status": preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus.NO_PREFERENCE),
+            },
         ],
         "token": token,
     }
 
-    return render(request, "message_preferences/preferences.html", context)
+    return render(
+        request,
+        "message_preferences/one_click_unsubscribe_success.html"
+        if is_one_click_unsubscribe
+        else "message_preferences/preferences.html",
+        context,
+    )
 
 
 @csrf_protect
