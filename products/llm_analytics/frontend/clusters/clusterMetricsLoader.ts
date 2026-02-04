@@ -10,7 +10,7 @@ interface ItemMetrics {
     latency: number | null
     inputTokens: number | null
     outputTokens: number | null
-    isError: boolean
+    errorCount: number
 }
 
 /**
@@ -36,31 +36,44 @@ export async function loadClusterMetrics(
         return {}
     }
 
-    // For trace-level, query $ai_trace events; for generation-level, query $ai_generation events
-    const eventName = level === 'generation' ? '$ai_generation' : '$ai_trace'
-    const idProperty = level === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
+    // Cost, latency, and token data live on $ai_generation events.
+    // For trace-level clustering, aggregate generation metrics by trace ID.
+    // For generation-level clustering, cluster keys are event UUIDs so match directly.
+    const isGeneration = level === 'generation'
 
-    // Query for metrics from the actual trace/generation events
-    // Error detection: $ai_error is set (non-empty, non-null) OR $ai_is_error is true
     const response = await api.queryHogQL(
-        hogql`
-            SELECT
-                JSONExtractString(properties, ${idProperty}) as item_id,
-                toFloat64OrNull(JSONExtractRaw(properties, '$ai_total_cost_usd')) as cost,
-                toFloat64OrNull(JSONExtractRaw(properties, '$ai_latency')) as latency,
-                toInt64OrNull(JSONExtractRaw(properties, '$ai_input_tokens')) as input_tokens,
-                toInt64OrNull(JSONExtractRaw(properties, '$ai_output_tokens')) as output_tokens,
-                (
-                    (JSONExtractRaw(properties, '$ai_error') != '' AND JSONExtractRaw(properties, '$ai_error') != 'null')
-                    OR JSONExtractBool(properties, '$ai_is_error') = true
-                ) as is_error
-            FROM events
-            WHERE event = ${eventName}
-                AND timestamp >= parseDateTimeBestEffort(${windowStart})
-                AND timestamp <= parseDateTimeBestEffort(${windowEnd})
-                AND JSONExtractString(properties, ${idProperty}) IN ${allItemIds}
-            LIMIT 50000
-        `,
+        isGeneration
+            ? hogql`
+                SELECT
+                    toString(uuid) as item_id,
+                    toFloat(properties.$ai_total_cost_usd) as cost,
+                    toFloat(properties.$ai_latency) as latency,
+                    toInt(properties.$ai_input_tokens) as input_tokens,
+                    toInt(properties.$ai_output_tokens) as output_tokens,
+                    if(properties.$ai_is_error = 'true', 1, 0) as error_count
+                FROM events
+                WHERE event = '$ai_generation'
+                    AND timestamp >= parseDateTimeBestEffort(${windowStart})
+                    AND timestamp <= parseDateTimeBestEffort(${windowEnd})
+                    AND toString(uuid) IN ${allItemIds}
+                LIMIT 50000
+            `
+            : hogql`
+                SELECT
+                    JSONExtractString(properties, '$ai_trace_id') as item_id,
+                    sum(toFloat(properties.$ai_total_cost_usd)) as cost,
+                    max(toFloat(properties.$ai_latency)) as latency,
+                    sum(toInt(properties.$ai_input_tokens)) as input_tokens,
+                    sum(toInt(properties.$ai_output_tokens)) as output_tokens,
+                    countIf(properties.$ai_is_error = 'true') as error_count
+                FROM events
+                WHERE event = '$ai_generation'
+                    AND timestamp >= parseDateTimeBestEffort(${windowStart})
+                    AND timestamp <= parseDateTimeBestEffort(${windowEnd})
+                    AND JSONExtractString(properties, '$ai_trace_id') IN ${allItemIds}
+                GROUP BY item_id
+                LIMIT 50000
+            `,
         { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
         // Window bounds are in UTC (from backend), so compare timestamps in UTC
         { queryParams: { modifiers: { convertToProjectTimezone: false } } }
@@ -78,7 +91,7 @@ export async function loadClusterMetrics(
                 latency: r[2] as number | null,
                 inputTokens: r[3] as number | null,
                 outputTokens: r[4] as number | null,
-                isError: Boolean(r[5]),
+                errorCount: (r[5] as number) || 0,
             }
         }
     }
@@ -100,9 +113,7 @@ export async function loadClusterMetrics(
             const metrics = itemMetrics[itemId]
             if (metrics) {
                 totalItemsWithData++
-                if (metrics.isError) {
-                    errorCount++
-                }
+                errorCount += metrics.errorCount
                 if (metrics.cost !== null && metrics.cost > 0) {
                     totalCost += metrics.cost
                     costCount++

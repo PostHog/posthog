@@ -3,41 +3,13 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { formatLLMCost, formatLLMLatency } from '../utils'
 import { ClusterDescription } from './ClusterDescriptionComponents'
 import { ClusterTraceList } from './ClusterTraceList'
 import { NOISE_CLUSTER_ID } from './constants'
 import { Cluster, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
-function formatCost(cost: number | null): string {
-    if (cost === null) {
-        return '-'
-    }
-    if (cost < 0.0001) {
-        return '<$0.0001'
-    }
-    if (cost < 0.01) {
-        return `$${cost.toFixed(4)}`
-    }
-    return `$${cost.toFixed(2)}`
-}
-
-function formatLatency(latency: number | null): string {
-    if (latency === null) {
-        return '-'
-    }
-    if (latency < 0.001) {
-        return '<1ms'
-    }
-    if (latency < 1) {
-        return `${Math.round(latency * 1000)}ms`
-    }
-    return `${latency.toFixed(2)}s`
-}
-
-function formatTokens(tokens: number | null): string {
-    if (tokens === null) {
-        return '-'
-    }
+function formatTokens(tokens: number): string {
     if (tokens >= 1000000) {
         return `${(tokens / 1000000).toFixed(1)}M`
     }
@@ -47,10 +19,7 @@ function formatTokens(tokens: number | null): string {
     return tokens.toFixed(0)
 }
 
-function formatErrorRate(errorRate: number | null): string {
-    if (errorRate === null) {
-        return '-'
-    }
+function formatErrorRate(errorRate: number): string {
     const percentage = errorRate * 100
     if (percentage === 0) {
         return '0%'
@@ -129,41 +98,42 @@ export function ClusterCard({
                         <ClusterDescription description={cluster.description} />
                         {/* Cluster Metrics */}
                         {hasMetrics && (
-                            <div className="flex items-center gap-4 mt-2 text-xs text-muted">
+                            <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
                                 {metrics.avgCost !== null && (
                                     <Tooltip title={`Average cost per ${clusteringLevel}`}>
-                                        <span className="flex items-center gap-1">
-                                            <span className="font-medium">Avg cost:</span>
-                                            <span>{formatCost(metrics.avgCost)}</span>
-                                        </span>
+                                        <LemonTag type="muted" size="small">
+                                            Avg Cost: {formatLLMCost(metrics.avgCost)}
+                                        </LemonTag>
                                     </Tooltip>
                                 )}
                                 {metrics.avgLatency !== null && (
                                     <Tooltip title={`Average latency per ${clusteringLevel}`}>
-                                        <span className="flex items-center gap-1">
-                                            <span className="font-medium">Avg latency:</span>
-                                            <span>{formatLatency(metrics.avgLatency)}</span>
-                                        </span>
+                                        <LemonTag type="muted" size="small">
+                                            Avg Latency: {formatLLMLatency(metrics.avgLatency)}
+                                        </LemonTag>
                                     </Tooltip>
                                 )}
                                 {metrics.avgTokens !== null && (
                                     <Tooltip title={`Average tokens (input + output) per ${clusteringLevel}`}>
-                                        <span className="flex items-center gap-1">
-                                            <span className="font-medium">Avg tokens:</span>
-                                            <span>{formatTokens(metrics.avgTokens)}</span>
-                                        </span>
+                                        <LemonTag type="muted" size="small">
+                                            Avg Tokens: {formatTokens(metrics.avgTokens)}
+                                        </LemonTag>
                                     </Tooltip>
                                 )}
                                 {metrics.errorRate !== null && (
                                     <Tooltip
                                         title={`Error rate: ${metrics.errorCount} errors out of ${metrics.itemCount} ${itemLabel}`}
                                     >
-                                        <span
-                                            className={`flex items-center gap-1 ${metrics.errorRate > 0 ? 'text-danger' : ''}`}
-                                        >
-                                            <span className="font-medium">Errors:</span>
-                                            <span>{formatErrorRate(metrics.errorRate)}</span>
-                                        </span>
+                                        <LemonTag type={metrics.errorRate > 0 ? 'danger' : 'muted'} size="small">
+                                            Errors: {formatErrorRate(metrics.errorRate)}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {metrics.totalCost !== null && (
+                                    <Tooltip title={`Total cost across all ${itemLabel} in this cluster`}>
+                                        <LemonTag type="muted" size="small">
+                                            Total Cost: {formatLLMCost(metrics.totalCost)}
+                                        </LemonTag>
                                     </Tooltip>
                                 )}
                             </div>
