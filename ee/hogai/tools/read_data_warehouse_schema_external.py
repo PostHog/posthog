@@ -70,22 +70,16 @@ class ReadDataWarehouseSchemaExternalTool(ExternalTool):
         system_tables = database.get_system_table_names()
         views = database.get_view_names()
 
-        def listify(items: set[str]) -> str:
+        def listify(items: list[str]) -> str:
             return "\n".join(f"- {item}" for item in sorted(items))
 
-        if warehouse_tables:
-            lines.append("# Data warehouse tables")
-            lines.append(listify(warehouse_tables))
-            lines.append("")
+        def section(title: str, items: list[str]) -> str:
+            return f"# {title}\n{listify(items)}\n" if items else ""
 
-        if system_tables:
-            lines.append("# PostHog Postgres tables")
-            lines.append(listify(system_tables))
-            lines.append("")
+        extra_sections = (
+            f"{section('Data warehouse tables', warehouse_tables)}"
+            f"{section('PostHog Postgres tables', system_tables)}"
+            f"{section('Data warehouse views', views)}"
+        )
 
-        if views:
-            lines.append("# Data warehouse views")
-            lines.append(listify(views))
-            lines.append("")
-
-        return "\n".join(lines)
+        return "\n".join(lines) + extra_sections
