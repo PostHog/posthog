@@ -58,7 +58,6 @@ export type HogTransformerHub = Pick<
     | 'SES_SECRET_ACCESS_KEY'
     | 'SES_REGION'
     | 'SES_ENDPOINT'
-    | 'SES_V2_ENABLED'
     // LegacyPluginExecutorService
     | 'postgres'
     // HogFunctionMonitoringService

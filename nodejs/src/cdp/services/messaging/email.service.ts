@@ -1,26 +1,28 @@
-import { MessageHeader, SESClient, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import AWS from 'aws-sdk'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
+import { isFeatureFlagEnabled } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { addPreheaderToEmail } from './helpers/preheader'
+import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 export type EmailServiceHub = Pick<
     Hub,
+    | 'ENCRYPTION_SALT_KEYS'
     | 'SES_ACCESS_KEY_ID'
     | 'SES_SECRET_ACCESS_KEY'
     | 'SES_REGION'
     | 'SES_ENDPOINT'
-    | 'SES_V2_ENABLED'
+    | 'SITE_URL'
     | 'integrationManager'
 >
 
@@ -73,7 +75,17 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params)
                     break
                 case 'ses':
-                    if (!!this.hub.SES_V2_ENABLED) {
+                    if (
+                        await isFeatureFlagEnabled('workflows-ses-v2', `${invocation.teamId}`, {
+                            groups: { project: `${invocation.teamId}` },
+                            groupProperties: {
+                                project: {
+                                    id: `${invocation.teamId}`,
+                                },
+                            },
+                            sendFeatureFlagEvents: false,
+                        })
+                    ) {
                         await this.sendEmailWithSESv2(result, params)
                     } else {
                         await this.sendEmailWithSES(result, params)
@@ -155,7 +167,7 @@ export class EmailService {
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
         const htmlWithTrackingAndPreheader = params.preheader
-            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
+            ? maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
             : htmlWithTracking
 
         const sendEmailParams: AWS.SES.SendEmailRequest = {
@@ -205,7 +217,7 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
-        const sesClient = new SESClient({
+        const sesClient = new SESv2Client({
             credentials: {
                 accessKeyId: this.hub.SES_ACCESS_KEY_ID,
                 secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
@@ -216,9 +228,7 @@ export class EmailService {
 
         const trackingCode = generateEmailTrackingCode(result.invocation)
         const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
-        const htmlWithTrackingAndPreheader = params.preheader
-            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
-            : htmlWithTracking
+        const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
 
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
