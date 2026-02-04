@@ -10,6 +10,7 @@ interface ItemMetrics {
     latency: number | null
     inputTokens: number | null
     outputTokens: number | null
+    isError: boolean
 }
 
 /**
@@ -42,6 +43,7 @@ export async function loadClusterMetrics(
     const idProperty = level === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
 
     // Query for metrics from the actual trace/generation events
+    // Error detection: $ai_error is set (non-empty, non-null) OR $ai_is_error is true
     const response = await api.queryHogQL(
         hogql`
             SELECT
@@ -49,7 +51,11 @@ export async function loadClusterMetrics(
                 toFloat64OrNull(JSONExtractRaw(properties, '$ai_total_cost_usd')) as cost,
                 toFloat64OrNull(JSONExtractRaw(properties, '$ai_latency')) as latency,
                 toInt64OrNull(JSONExtractRaw(properties, '$ai_input_tokens')) as input_tokens,
-                toInt64OrNull(JSONExtractRaw(properties, '$ai_output_tokens')) as output_tokens
+                toInt64OrNull(JSONExtractRaw(properties, '$ai_output_tokens')) as output_tokens,
+                (
+                    (JSONExtractRaw(properties, '$ai_error') != '' AND JSONExtractRaw(properties, '$ai_error') != 'null')
+                    OR JSONExtractBool(properties, '$ai_is_error') = true
+                ) as is_error
             FROM events
             WHERE event = ${eventName}
                 AND timestamp >= parseDateTimeBestEffort(${windowStart})
@@ -65,7 +71,7 @@ export async function loadClusterMetrics(
     // Build a map of itemId -> metrics
     const itemMetrics: Record<string, ItemMetrics> = {}
     for (const row of response.results || []) {
-        const r = row as (string | number | null)[]
+        const r = row as (string | number | boolean | null)[]
         const itemId = r[0] as string
         if (itemId) {
             itemMetrics[itemId] = {
@@ -74,6 +80,7 @@ export async function loadClusterMetrics(
                 latency: r[2] as number | null,
                 inputTokens: r[3] as number | null,
                 outputTokens: r[4] as number | null,
+                isError: Boolean(r[5]),
             }
         }
     }
@@ -88,10 +95,16 @@ export async function loadClusterMetrics(
         let costCount = 0
         let latencyCount = 0
         let tokenCount = 0
+        let errorCount = 0
+        let totalItemsWithData = 0
 
         for (const itemId of Object.keys(cluster.traces)) {
             const metrics = itemMetrics[itemId]
             if (metrics) {
+                totalItemsWithData++
+                if (metrics.isError) {
+                    errorCount++
+                }
                 if (metrics.cost !== null && metrics.cost > 0) {
                     totalCost += metrics.cost
                     costCount++
@@ -113,7 +126,9 @@ export async function loadClusterMetrics(
             avgLatency: latencyCount > 0 ? totalLatency / latencyCount : null,
             avgTokens: tokenCount > 0 ? totalTokens / tokenCount : null,
             totalCost: costCount > 0 ? totalCost : null,
-            itemCount: Math.max(costCount, latencyCount, tokenCount),
+            errorRate: totalItemsWithData > 0 ? errorCount / totalItemsWithData : null,
+            errorCount,
+            itemCount: Math.max(costCount, latencyCount, tokenCount, totalItemsWithData),
         }
     }
 

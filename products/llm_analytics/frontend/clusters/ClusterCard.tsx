@@ -47,6 +47,23 @@ function formatTokens(tokens: number | null): string {
     return tokens.toFixed(0)
 }
 
+function formatErrorRate(errorRate: number | null): string {
+    if (errorRate === null) {
+        return '-'
+    }
+    const percentage = errorRate * 100
+    if (percentage === 0) {
+        return '0%'
+    }
+    if (percentage < 0.1) {
+        return '<0.1%'
+    }
+    if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`
+    }
+    return `${Math.round(percentage)}%`
+}
+
 interface ClusterCardProps {
     cluster: Cluster
     totalTraces: number
@@ -76,7 +93,11 @@ export function ClusterCard({
 
     // Check if we have any metrics to show
     const hasMetrics =
-        metrics && (metrics.avgCost !== null || metrics.avgLatency !== null || metrics.avgTokens !== null)
+        metrics &&
+        (metrics.avgCost !== null ||
+            metrics.avgLatency !== null ||
+            metrics.avgTokens !== null ||
+            metrics.errorRate !== null)
 
     return (
         <div
@@ -130,6 +151,18 @@ export function ClusterCard({
                                         <span className="flex items-center gap-1">
                                             <span className="font-medium">Avg tokens:</span>
                                             <span>{formatTokens(metrics.avgTokens)}</span>
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                {metrics.errorRate !== null && (
+                                    <Tooltip
+                                        title={`Error rate: ${metrics.errorCount} errors out of ${metrics.itemCount} ${itemLabel}`}
+                                    >
+                                        <span
+                                            className={`flex items-center gap-1 ${metrics.errorRate > 0 ? 'text-danger' : ''}`}
+                                        >
+                                            <span className="font-medium">Errors:</span>
+                                            <span>{formatErrorRate(metrics.errorRate)}</span>
                                         </span>
                                     </Tooltip>
                                 )}
