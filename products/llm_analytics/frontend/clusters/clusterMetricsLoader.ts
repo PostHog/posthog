@@ -141,7 +141,7 @@ export function aggregateClusterMetrics(
             avgLatency: latencyCount > 0 ? totalLatency / latencyCount : null,
             avgTokens: tokenCount > 0 ? totalTokens / tokenCount : null,
             totalCost: costCount > 0 ? totalCost : null,
-            errorRate: totalItemsWithData > 0 ? errorCount / totalItemsWithData : null,
+            errorRate: totalItemsWithData > 0 ? Math.min(1.0, errorCount / totalItemsWithData) : null,
             errorCount,
             itemCount: totalItemsWithData,
         }

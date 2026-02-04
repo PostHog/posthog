@@ -101,7 +101,7 @@ describe('cluster metrics', () => {
             const result = aggregateClusterMetrics([cluster], itemMetrics)
 
             expect(result[0].errorCount).toBe(5)
-            expect(result[0].errorRate).toBeCloseTo(5 / 3)
+            expect(result[0].errorRate).toBeCloseTo(1.0)
         })
 
         it('handles multiple clusters independently', () => {
