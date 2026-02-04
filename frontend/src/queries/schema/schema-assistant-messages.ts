@@ -406,6 +406,7 @@ export type AssistantTool =
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'edit_survey'
     | 'analyze_survey_responses'
     | 'create_dashboard'
     | 'edit_current_dashboard'
@@ -436,12 +437,17 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'finalize_plan'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
     ErrorTracking = 'error_tracking',
+    Plan = 'plan',
+    Execution = 'execution',
+    Survey = 'survey',
+    Research = 'research',
 }
 
 export enum SlashCommandName {

@@ -33,6 +33,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openFixedDate: true,
         close: true,
         applyRange: true,
+        setFixedRangeGranularity: (granularity: 'day' | 'minute') => ({ granularity }),
         setDate: (
             dateFrom: string | null,
             dateTo: string | null,
@@ -98,6 +99,15 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             {
                 setExplicitDate: (_, { explicitDate }) => explicitDate,
                 setDate: (_, { explicitDate }) => explicitDate,
+            },
+        ],
+        fixedRangeGranularity: [
+            // Default based on whether the current dateFrom has time precision
+            (props.dateFrom && !dayjs.isDayjs(props.dateFrom) && dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00'
+                ? 'minute'
+                : 'day') as 'day' | 'minute',
+            {
+                setFixedRangeGranularity: (_, { granularity }) => granularity,
             },
         ],
     })),

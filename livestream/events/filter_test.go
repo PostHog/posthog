@@ -53,14 +53,16 @@ func TestUuidFromDistinctId(t *testing.T) {
 
 func TestConvertToResponseGeoEvent(t *testing.T) {
 	event := PostHogEvent{
-		Lat: 40.7128,
-		Lng: -74.0060,
+		Lat:        40.7128,
+		Lng:        -74.0060,
+		DistinctId: "user1",
 	}
 
 	result := convertToResponseGeoEvent(event)
 
 	assert.Equal(t, 40.7128, result.Lat)
 	assert.Equal(t, -74.0060, result.Lng)
+	assert.Equal(t, "user1", result.DistinctId)
 	assert.Equal(t, uint(1), result.Count)
 }
 
@@ -169,8 +171,9 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 
 	// Test geo event filtering
 	event := PostHogEvent{
-		Lat: 40.7128,
-		Lng: -74.0060,
+		Lat:        40.7128,
+		Lng:        -74.0060,
+		DistinctId: "user1",
 	}
 	inboundChan <- event
 
@@ -181,6 +184,7 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, 40.7128, geoEvent.Lat)
 		assert.Equal(t, -74.0060, geoEvent.Lng)
+		assert.Equal(t, "user1", geoEvent.DistinctId)
 		assert.Equal(t, uint(1), geoEvent.Count)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out waiting for geo event")

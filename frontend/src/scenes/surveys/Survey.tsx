@@ -23,7 +23,6 @@ export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
-    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {

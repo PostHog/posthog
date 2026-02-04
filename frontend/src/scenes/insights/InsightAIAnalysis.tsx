@@ -5,8 +5,11 @@ import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { AvailableFeature } from '~/types'
 
 import { InsightSuggestions } from './InsightSuggestions'
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
@@ -20,12 +23,16 @@ export interface InsightAIAnalysisProps {
 export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Element | null {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
+    const { billingLoading } = useValues(billingLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { analysis, isAnalyzing, hasClickedAnalyze, analysisFeedbackGiven } = useValues(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
     const { startAnalysis, resetAnalysis, reportAnalysisFeedback } = useActions(
         insightAIAnalysisLogic({ insightId: insight.id, query })
     )
+
+    const hasAIAnalysis = hasAvailableFeature(AvailableFeature.PRODUCT_ANALYTICS_AI)
 
     useEffect(() => {
         // Reset analysis when insight changes
@@ -51,7 +58,13 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                         onClick={startAnalysis}
                         loading={isAnalyzing}
                         disabledReason={
-                            insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
+                            billingLoading
+                                ? 'Loading billing information...'
+                                : !hasAIAnalysis
+                                  ? 'Upgrade to at least the Scale add-on to use AI analysis'
+                                  : insightDataLoading
+                                    ? 'Please wait for the insight to finish loading'
+                                    : undefined
                         }
                     >
                         Analyze with AI

@@ -2,6 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rdkafka::TopicPartitionList;
 
+use crate::kafka::batch_context::ConsumerCommandSender;
+
 /// Trait for handling Kafka consumer rebalance events
 /// Users implement this to define their partition-specific logic
 ///
@@ -46,15 +48,15 @@ use rdkafka::TopicPartitionList;
 ///
 /// ```text
 /// pre_rebalance(Revoke partition 0)
-///     └─► setup_revoked_partitions()   - adds partition 0 to pending_cleanup set
+///     └─► setup_revoked_partitions()   - removes partition 0 from owned_partitions
 ///
 /// post_rebalance(Assign partition 0)
-///     └─► setup_assigned_partitions()  - REMOVES partition 0 from pending_cleanup
+///     └─► setup_assigned_partitions()  - adds partition 0 back to owned_partitions
 ///                                       - reuses existing worker if present
 ///
 /// Async worker processes RebalanceEvent::Revoke:
-///     └─► cleanup_revoked_partitions() - checks pending_cleanup set
-///                                       - partition 0 NOT in set → SKIPS cleanup!
+///     └─► cleanup_revoked_partitions() - checks owned_partitions via coordinator
+///                                       - partition 0 IS owned → SKIPS cleanup!
 ///                                       - worker and store are preserved
 /// ```
 ///
@@ -106,7 +108,15 @@ pub trait RebalanceHandler: Send + Sync {
 
     /// Called asynchronously after partition assignment.
     /// Use for slow initialization: downloading checkpoints, warming caches.
-    async fn async_setup_assigned_partitions(&self, partitions: &TopicPartitionList) -> Result<()>;
+    ///
+    /// The `consumer_command_tx` can be used to send `ConsumerCommand::Resume` when
+    /// all stores are ready. Partitions are paused during assignment and must be
+    /// resumed after checkpoint import completes.
+    async fn async_setup_assigned_partitions(
+        &self,
+        partitions: &TopicPartitionList,
+        consumer_command_tx: &ConsumerCommandSender,
+    ) -> Result<()>;
 
     /// Called asynchronously after partition revocation.
     /// Use for slow cleanup: draining worker queues, uploading checkpoints, deleting files.
@@ -130,6 +140,7 @@ mod tests {
     use rdkafka::Offset;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     // Test implementation of RebalanceHandler
     #[derive(Default)]
@@ -165,6 +176,7 @@ mod tests {
         async fn async_setup_assigned_partitions(
             &self,
             _partitions: &TopicPartitionList,
+            _consumer_command_tx: &ConsumerCommandSender,
         ) -> Result<()> {
             Ok(())
         }
@@ -263,8 +275,9 @@ mod tests {
             .await
             .unwrap();
         // 6. Assign cleanup (async, in background)
+        let (tx, _rx) = mpsc::unbounded_channel();
         handler
-            .async_setup_assigned_partitions(&partitions)
+            .async_setup_assigned_partitions(&partitions, &tx)
             .await
             .unwrap();
 

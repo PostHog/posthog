@@ -391,8 +391,13 @@ class UpsertDashboardTool(MaxTool):
 
     async def _get_dashboard(self, dashboard_id: Any) -> Dashboard:
         """Get the dashboard and sorted tiles for the given dashboard ID."""
+        # LLMs sometimes output IDs as floats (e.g., "642161.0"), so we parse to int
         try:
-            dashboard = await Dashboard.objects.aget(id=dashboard_id, team=self._team, deleted=False)
+            parsed_id = int(float(dashboard_id))
+        except (ValueError, TypeError):
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+        try:
+            dashboard = await Dashboard.objects.aget(id=parsed_id, team=self._team, deleted=False)
         except Dashboard.DoesNotExist:
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 

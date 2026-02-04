@@ -103,6 +103,21 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 
 ## Security
 
+### SQL Security
+
+- **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
+- Use parameterized queries for all VALUES: `cursor.execute("SELECT * FROM t WHERE id = %s", [id])`
+- Table/column names from Django ORM metadata (`model._meta.db_table`) are trusted sources
+- For ClickHouse identifiers, use `escape_clickhouse_identifier()` from `posthog/hogql/escape_sql.py`
+- When raw SQL is necessary with dynamic table/column names:
+
+  ```python
+  # Build query string separately from execution, document why identifiers are safe
+  table = model._meta.db_table  # Trusted: from Django ORM metadata
+  query = f"SELECT COUNT(*) FROM {table} WHERE team_id = %s"
+  cursor.execute(query, [team_id])  # Values always parameterized
+  ```
+
 ### HogQL Security
 
 HogQL queries use `parse_expr()`, `parse_select()`, and `parse_order_expr()`. Two patterns exist:
@@ -166,6 +181,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
 - Python tests: do not add doc comments
+- Python tests: do not create `__init__.py` files in test directories (pytest discovers tests without them)
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead

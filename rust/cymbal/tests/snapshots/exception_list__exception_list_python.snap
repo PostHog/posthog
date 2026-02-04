@@ -1,0 +1,42 @@
+---
+source: cymbal/tests/exception_list.rs
+expression: body.0
+---
+[
+  {
+    "id": "REDACTED",
+    "type": "CustomError",
+    "value": "Custom error message",
+    "stacktrace": {
+      "type": "resolved",
+      "frames": [
+        {
+          "raw_id": "2375ee94d027b45da7088eb8f0fede5d755838eb40b39351e0f27f6258cb89e2a4297a35bf4463b4cf89c33925ab5553826762e69abaf066b072c5192ba1157e/0",
+          "mangled_name": "create_database",
+          "line": 14,
+          "source": "main.py",
+          "module": "testing",
+          "in_app": false,
+          "resolved_name": "create_database",
+          "lang": "python",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false
+        },
+        {
+          "raw_id": "8ded6c9d7e6735556f474a70059a7d8cdc4f9265f60065b9ee1b71e7bd58e14ba68d6e58760e858952a6044be2b57ead6dd0b8c2aba7f4498bfbade78f414d99/0",
+          "mangled_name": "migrate_database",
+          "line": 14,
+          "source": "main.py",
+          "module": "testing",
+          "in_app": false,
+          "resolved_name": "migrate_database",
+          "lang": "python",
+          "resolved": true,
+          "synthetic": false,
+          "suspicious": false
+        }
+      ]
+    }
+  }
+]

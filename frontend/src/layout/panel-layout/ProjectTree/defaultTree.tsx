@@ -6,8 +6,8 @@ import {
     IconBook,
     IconBug,
     IconCircleDashed,
+    IconCode,
     IconCode2,
-    IconCursor,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -17,6 +17,7 @@ import {
     IconFolder,
     IconFolderOpen,
     IconFunnels,
+    IconGear,
     IconGraph,
     IconHogQL,
     IconHome,
@@ -30,6 +31,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPiggyBank,
+    IconPlay,
     IconPlug,
     IconRetention,
     IconRewindPlay,
@@ -37,6 +39,7 @@ import {
     IconSearch,
     IconServer,
     IconSpotlight,
+    IconStethoscope,
     IconStickiness,
     IconSupport,
     IconToggle,
@@ -184,7 +187,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconBug />,
     },
     action: {
-        icon: <IconCursor />,
+        icon: <IconPlay />,
     },
     comment: {
         icon: <IconNotification />,
@@ -272,6 +275,18 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     toolbar: {
         icon: <IconToolbar />,
+    },
+    settings: {
+        icon: <IconGear />,
+    },
+    health: {
+        icon: <IconStethoscope />,
+    },
+    sdk_doctor: {
+        icon: <IconCode />,
+    },
+    pipeline_status: {
+        icon: <IconDatabase />,
     },
 }
 

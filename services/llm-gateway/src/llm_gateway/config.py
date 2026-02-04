@@ -11,9 +11,9 @@ class ProductCostLimit(BaseModel):
 
 
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
-    "llm_gateway": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
-    "wizard": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
-    "array": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
+    "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
+    "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
+    "twig": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
 }
 
 

@@ -55,6 +55,7 @@ class RelatedActorsQuery:
 
         # :KLUDGE: We need to fetch distinct_id + person properties to be able to link to user properly.
         person_ids = self._take_first(
+            # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
             sync_execute(
                 f"""
             SELECT DISTINCT {self.DISTINCT_ID_TABLE_ALIAS}.person_id
@@ -77,6 +78,7 @@ class RelatedActorsQuery:
             return []
 
         group_ids = self._take_first(
+            # nosemgrep: clickhouse-injection-taint, clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
             sync_execute(
                 f"""
             SELECT DISTINCT $group_{group_type_index} AS group_key

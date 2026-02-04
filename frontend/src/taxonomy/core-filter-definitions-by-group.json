@@ -128,12 +128,43 @@
             ],
             "label": "AI cache read input tokens (LLM)"
         },
+        "$ai_evaluation_allows_na": {
+            "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "AI Evaluation Allows N/A (LLM)"
+        },
+        "$ai_evaluation_applicable": {
+            "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "AI Evaluation Applicable (LLM)"
+        },
         "$ai_evaluation_id": {
             "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
             "examples": [
                 "550e8400-e29b-41d4-a716-446655440000"
             ],
             "label": "AI Evaluation ID (LLM)"
+        },
+        "$ai_evaluation_key_id": {
+            "description": "The ID of the LLM provider key used for the evaluation.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Evaluation Key ID (LLM)"
+        },
+        "$ai_evaluation_key_type": {
+            "description": "The type of API key used for the evaluation (byok = user's own key, posthog = PostHog default).",
+            "examples": [
+                "byok",
+                "posthog"
+            ],
+            "label": "AI Evaluation Key Type (LLM)"
         },
         "$ai_evaluation_model": {
             "description": "The LLM model used as the judge for the evaluation.",
@@ -150,6 +181,15 @@
                 "Response relevance"
             ],
             "label": "AI Evaluation Name (LLM)"
+        },
+        "$ai_evaluation_provider": {
+            "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
+            "examples": [
+                "openai",
+                "anthropic",
+                "gemini"
+            ],
+            "label": "AI Evaluation Provider (LLM)"
         },
         "$ai_evaluation_reasoning": {
             "description": "The LLM's explanation for why the evaluation passed or failed.",
@@ -356,6 +396,14 @@
                 1.0
             ],
             "label": "AI temperature (LLM)"
+        },
+        "$ai_time_to_first_token": {
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [
+                0.125,
+                0.5
+            ],
+            "label": "AI time to first token (LLM)"
         },
         "$ai_tools": {
             "description": "The tools available to the LLM.",
@@ -729,6 +777,12 @@
             "description": "Whether dead clicks were enabled in remote config",
             "label": "Dead clicks enabled server side",
             "system": true
+        },
+        "$debug_first_full_snapshot_timestamp": {
+            "description": "The timestamp of the first full snapshot in the replay session.",
+            "label": "First full snapshot timestamp",
+            "type": "Numeric",
+            "used_for_debug": true
         },
         "$device": {
             "description": "The mobile device that was used.",
@@ -1485,6 +1539,12 @@
             "label": "Person profile processing flag",
             "system": true
         },
+        "$product_tours_enabled_server_side": {
+            "description": "Whether product tours are enabled server-side.",
+            "label": "Product tours enabled server side",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
         "$python_runtime": {
             "description": "The Python runtime that was used to capture the event.",
             "examples": [
@@ -1591,6 +1651,25 @@
             "type": "Numeric",
             "used_for_debug": true
         },
+        "$sdk_debug_extensions_init_method": {
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": [
+                "deferred",
+                "synchronous"
+            ],
+            "label": "PostHog.js extensions init method",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_extensions_init_time_ms": {
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": [
+                "150"
+            ],
+            "label": "PostHog.js extensions init time (ms)",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_event_trigger_status": {
             "description": "The status of the recording event trigger.",
             "examples": [
@@ -1606,6 +1685,11 @@
             "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
             "label": "Estimated bytes flushed",
             "type": "Numeric",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_full_snapshots": {
+            "description": "Debug information about full snapshots in the replay session.",
+            "label": "Replay full snapshots debug info",
             "used_for_debug": true
         },
         "$sdk_debug_replay_internal_buffer_length": {
@@ -2275,23 +2359,6 @@
             "description": "Snapchat Click ID",
             "label": "sccid"
         },
-        "sdk_debug_extensions_init_method": {
-            "description": "The method used to initialize PostHog.js extensions.",
-            "examples": [
-                "deferred",
-                "synchronous"
-            ],
-            "label": "PostHog.js extensions init method",
-            "used_for_debug": true
-        },
-        "sdk_debug_extensions_init_time_ms": {
-            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
-            "examples": [
-                "150"
-            ],
-            "label": "PostHog.js extensions init time (ms)",
-            "used_for_debug": true
-        },
         "token": {
             "description": "Token used for authentication.",
             "examples": [
@@ -2661,12 +2728,43 @@
             ],
             "label": "AI cache read input tokens (LLM)"
         },
+        "$ai_evaluation_allows_na": {
+            "description": "Whether the evaluation allows N/A responses when the criteria doesn't apply.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "AI Evaluation Allows N/A (LLM)"
+        },
+        "$ai_evaluation_applicable": {
+            "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "AI Evaluation Applicable (LLM)"
+        },
         "$ai_evaluation_id": {
             "description": "The unique identifier of the evaluation configuration used to judge the AI event.",
             "examples": [
                 "550e8400-e29b-41d4-a716-446655440000"
             ],
             "label": "AI Evaluation ID (LLM)"
+        },
+        "$ai_evaluation_key_id": {
+            "description": "The ID of the LLM provider key used for the evaluation.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Evaluation Key ID (LLM)"
+        },
+        "$ai_evaluation_key_type": {
+            "description": "The type of API key used for the evaluation (byok = user's own key, posthog = PostHog default).",
+            "examples": [
+                "byok",
+                "posthog"
+            ],
+            "label": "AI Evaluation Key Type (LLM)"
         },
         "$ai_evaluation_model": {
             "description": "The LLM model used as the judge for the evaluation.",
@@ -2683,6 +2781,15 @@
                 "Response relevance"
             ],
             "label": "AI Evaluation Name (LLM)"
+        },
+        "$ai_evaluation_provider": {
+            "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
+            "examples": [
+                "openai",
+                "anthropic",
+                "gemini"
+            ],
+            "label": "AI Evaluation Provider (LLM)"
         },
         "$ai_evaluation_reasoning": {
             "description": "The LLM's explanation for why the evaluation passed or failed.",
@@ -2889,6 +2996,14 @@
                 1.0
             ],
             "label": "AI temperature (LLM)"
+        },
+        "$ai_time_to_first_token": {
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [
+                0.125,
+                0.5
+            ],
+            "label": "AI time to first token (LLM)"
         },
         "$ai_tools": {
             "description": "The tools available to the LLM.",
@@ -3262,6 +3377,12 @@
             "description": "Whether dead clicks were enabled in remote config",
             "label": "Dead clicks enabled server side",
             "system": true
+        },
+        "$debug_first_full_snapshot_timestamp": {
+            "description": "The timestamp of the first full snapshot in the replay session.",
+            "label": "First full snapshot timestamp",
+            "type": "Numeric",
+            "used_for_debug": true
         },
         "$device": {
             "description": "The mobile device that was used.",
@@ -4422,6 +4543,12 @@
             "label": "Person profile processing flag",
             "system": true
         },
+        "$product_tours_enabled_server_side": {
+            "description": "Whether product tours are enabled server-side.",
+            "label": "Product tours enabled server side",
+            "type": "Boolean",
+            "used_for_debug": true
+        },
         "$python_runtime": {
             "description": "The Python runtime that was used to capture the event.",
             "examples": [
@@ -4528,6 +4655,25 @@
             "type": "Numeric",
             "used_for_debug": true
         },
+        "$sdk_debug_extensions_init_method": {
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": [
+                "deferred",
+                "synchronous"
+            ],
+            "label": "PostHog.js extensions init method",
+            "type": "String",
+            "used_for_debug": true
+        },
+        "$sdk_debug_extensions_init_time_ms": {
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": [
+                "150"
+            ],
+            "label": "PostHog.js extensions init time (ms)",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_event_trigger_status": {
             "description": "The status of the recording event trigger.",
             "examples": [
@@ -4543,6 +4689,11 @@
             "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
             "label": "Estimated bytes flushed",
             "type": "Numeric",
+            "used_for_debug": true
+        },
+        "$sdk_debug_replay_full_snapshots": {
+            "description": "Debug information about full snapshots in the replay session.",
+            "label": "Replay full snapshots debug info",
             "used_for_debug": true
         },
         "$sdk_debug_replay_internal_buffer_length": {
@@ -5255,23 +5406,6 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
-        },
-        "sdk_debug_extensions_init_method": {
-            "description": "The method used to initialize PostHog.js extensions.",
-            "examples": [
-                "deferred",
-                "synchronous"
-            ],
-            "label": "PostHog.js extensions init method",
-            "used_for_debug": true
-        },
-        "sdk_debug_extensions_init_time_ms": {
-            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
-            "examples": [
-                "150"
-            ],
-            "label": "PostHog.js extensions init time (ms)",
-            "used_for_debug": true
         },
         "token": {
             "description": "Token used for authentication.",

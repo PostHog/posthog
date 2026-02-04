@@ -172,7 +172,7 @@ export class SessionFilter {
                 sessionId,
                 blockingEnabled: this.blockingEnabled,
             })
-            SessionBatchMetrics.incrementNewSessionsRateLimited()
+            SessionBatchMetrics.incrementNewSessionsRateLimited(teamId)
 
             if (this.blockingEnabled && this.filterEnabled) {
                 await this.blockSession(teamId, sessionId)

@@ -44,8 +44,8 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
+    // Default multivariate now includes control/test at 50/50, so just rename them
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
-    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
@@ -89,7 +89,7 @@ test.describe('Quick create survey from feature flag', () => {
         })
 
         // start ff creation
-        await page.getByText('New feature flag').click()
+        await page.locator('[data-attr="new-feature-flag"]').click()
         await page.locator('[data-attr="feature-flag-key"]').fill(name)
         await page.locator('[data-attr="rollout-percentage"]').fill('100')
     })
@@ -229,12 +229,23 @@ test.describe('Quick create survey from feature flag', () => {
     test('warning shown when surveys are disabled', async ({ page }) => {
         await saveFeatureFlag(page)
 
-        await page.route('**/api/environments/@current/', async (route) => {
-            const response = await route.fetch()
-            const json = await response.json()
-            json.surveys_opt_in = false
-
-            await route.fulfill({ json })
+        // The team data comes from POSTHOG_APP_CONTEXT which is server-rendered into HTML.
+        // API mocks don't work because teamLogic uses the preloaded context directly.
+        // We need to intercept and modify the context before React hydrates.
+        await page.addInitScript(() => {
+            let _context: any = undefined
+            Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+                get() {
+                    if (_context?.current_team) {
+                        _context.current_team.surveys_opt_in = false
+                    }
+                    return _context
+                },
+                set(value) {
+                    _context = value
+                },
+                configurable: true,
+            })
         })
 
         await page.reload()

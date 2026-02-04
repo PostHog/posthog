@@ -3,7 +3,7 @@ import { v4 } from 'uuid'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { PipelineEvent, ProjectId, Team } from '../../types'
-import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
+import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
 

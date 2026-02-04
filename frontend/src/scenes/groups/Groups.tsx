@@ -6,8 +6,6 @@ import { IconPeople } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
@@ -20,18 +18,19 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 
 import { getCRMColumns } from './crm/utils'
-import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
 
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
+    productKey: ProductKey.GROUP_ANALYTICS,
 }
 
 export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
@@ -43,9 +42,6 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const mountedGroupsListLogic = groupsListLogic({ groupTypeIndex })
     const { query, queryWasModified } = useValues(mountedGroupsListLogic)
     const { setQuery } = useActions(mountedGroupsListLogic)
-
-    const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
-    const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
 
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -115,7 +111,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`groups-query-${tabId}`}
                 attachTo={groupsSceneLogic({ tabId })}
-                query={{ ...query, hiddenColumns, showCount: true }}
+                query={{ ...query, hiddenColumns, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
@@ -139,41 +135,6 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 }}
                 dataAttr="groups-table"
             />
-
-            {hasCustomerAnalyticsEnabled && (
-                <LemonModal
-                    isOpen={saveGroupViewModalOpen}
-                    onClose={() => setSaveGroupViewModalOpen(false)}
-                    title="Save filtered groups view"
-                    footer={
-                        <>
-                            <LemonButton onClick={() => setSaveGroupViewModalOpen(false)}>Cancel</LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => saveGroupView(window.location.href, groupTypeIndex)}
-                                disabledReason={!groupViewName.trim() ? 'Name is required' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                        </>
-                    }
-                >
-                    <div className="space-y-4">
-                        <p>Save this filtered view as a shortcut in the People panel.</p>
-                        <LemonInput
-                            placeholder="Enter view name"
-                            value={groupViewName}
-                            onChange={setGroupViewName}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && groupViewName.trim()) {
-                                    saveGroupView(window.location.href, groupTypeIndex)
-                                }
-                            }}
-                            autoFocus
-                        />
-                    </div>
-                </LemonModal>
-            )}
         </SceneContent>
     )
 }

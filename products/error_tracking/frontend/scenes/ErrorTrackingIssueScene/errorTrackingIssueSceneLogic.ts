@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -393,6 +394,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),
 ])

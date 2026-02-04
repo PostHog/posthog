@@ -7,6 +7,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.clickhouse import query_tagging
@@ -86,7 +87,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
-        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
+        hogql_query = clone_expr(sql.SELECT_FROM_SESSIONS_HOGQL)
 
         where_and = ast.And(
             exprs=[

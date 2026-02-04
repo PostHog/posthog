@@ -108,6 +108,7 @@ describe('TemporalService', () => {
                 taskQueue: 'llm-analytics-evals-task-queue',
                 workflowId: 'eval-123-event-456-ingestion',
                 workflowIdConflictPolicy: 'USE_EXISTING',
+                workflowTaskTimeout: '2 minutes',
                 args: [
                     {
                         evaluation_id: 'eval-123',
