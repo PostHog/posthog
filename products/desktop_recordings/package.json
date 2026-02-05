@@ -1,20 +1,19 @@
 {
-    "name": "@posthog/products-endpoints",
+    "name": "@posthog/products-desktop_recordings",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
     "dependencies": {
         "kea": "^3.1.7",
         "kea-loaders": "^3.1.1",
-        "kea-router": "^3.4.1",
-        "kea-forms": "^3.2.0"
+        "kea-router": "^3.4.1"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
-        "clsx": "*",
-        "fuse.js": "*",
         "react": "*"
-    },
-    "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "turbo": {
         "extends": [

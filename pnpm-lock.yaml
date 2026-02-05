@@ -1775,6 +1775,27 @@ importers:
 
   products/data_warehouse: {}
 
+  products/desktop_recordings:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.3.1)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.3.1))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
   products/early_access_features:
     dependencies:
       '@posthog/icons':
@@ -2276,6 +2297,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/nas: {}
+
   products/notebooks:
     dependencies:
       '@posthog/icons':
@@ -2547,6 +2570,27 @@ importers:
       posthog-js:
         specifier: 1.341.0
         version: 1.341.0
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
+  products/visual_review:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.3.1)
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.3.1))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -12280,9 +12324,6 @@ packages:
   cssstyle@2.3.0:
     resolution: {integrity: sha512-AZL67abkUzIuvcHqk7c09cezpGNcxUxU4Ioi/05xHk4DQeTkWmGYftIE6ctU6AEt+Gn4n1lDStOtj7FKycP71A==}
     engines: {node: '>=8'}
-
-  csstype@3.1.3:
-    resolution: {integrity: sha512-M1uQkMl8rQK/szD0LNhtqxIPLpimGm8sOBwU7lLnCpSbTyY3yeU1Vc7l4KT5zT4s/yOxHH5O7tIuuLOCnLADRw==}
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -29957,7 +29998,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -33497,8 +33538,6 @@ snapshots:
     dependencies:
       cssom: 0.3.8
 
-  csstype@3.1.3: {}
-
   csstype@3.2.3: {}
 
   cva@1.0.0-beta.3(typescript@5.4.5):
@@ -33894,7 +33933,7 @@ snapshots:
   dom-helpers@5.2.1:
     dependencies:
       '@babel/runtime': 7.28.6
-      csstype: 3.1.3
+      csstype: 3.2.3
 
   dom-serializer@0.2.2:
     dependencies:
@@ -36413,6 +36452,25 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-cli@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      '@jest/test-result': 29.7.0
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      create-jest: 29.7.0(@types/node@25.0.10)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.10)(typescript@5.4.5))
+      exit: 0.1.2
+      import-local: 3.1.0
+      jest-config: 29.7.0(@types/node@25.0.10)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@25.0.10)(typescript@5.4.5))
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      yargs: 17.7.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest-cli@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
@@ -36850,7 +36908,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -37130,7 +37188,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.6.2
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -37179,6 +37237,18 @@ snapshots:
       jest-util: 30.0.5
       merge-stream: 2.0.0
       supports-color: 8.1.1
+
+  jest@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5))
+      '@jest/types': 29.6.3
+      import-local: 3.1.0
+      jest-cli: 29.7.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
 
   jest@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.4.5)):
     dependencies:
@@ -37480,7 +37550,7 @@ snapshots:
       react: 18.3.1
       redux: 4.2.0
       reselect: 4.1.7
-      use-sync-external-store: 1.5.0(react@18.3.1)
+      use-sync-external-store: 1.6.0(react@18.3.1)
 
   keyv@4.5.4:
     dependencies:
@@ -40936,7 +41006,7 @@ snapshots:
       '@types/lodash': 4.17.16
       base16: 1.0.0
       color: 3.2.1
-      csstype: 3.1.3
+      csstype: 3.2.3
       lodash.curry: 4.1.1
 
   react-colorful@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
@@ -41014,7 +41084,7 @@ snapshots:
       algoliasearch-helper: 3.16.2(algoliasearch@4.22.1)
       instantsearch.js: 4.65.0(algoliasearch@4.22.1)
       react: 18.3.1
-      use-sync-external-store: 1.5.0(react@18.3.1)
+      use-sync-external-store: 1.6.0(react@18.3.1)
 
   react-instantsearch@7.6.0(algoliasearch@4.22.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -43984,7 +44054,7 @@ snapshots:
 
   zustand@4.5.6(@types/react@18.3.27)(immer@9.0.21)(react@18.3.1):
     dependencies:
-      use-sync-external-store: 1.5.0(react@18.3.1)
+      use-sync-external-store: 1.6.0(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.27
       immer: 9.0.21
