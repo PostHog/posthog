@@ -13,7 +13,7 @@ import { alphabet } from 'lib/utils'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { percentageDistribution } from '../utils'
+import { isEvenlyDistributed, percentageDistribution } from '../utils'
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
@@ -124,17 +124,19 @@ export const VariantsPanelCreateFeatureFlag = ({
                             <span>Split</span>
                             {!disabled && (
                                 <>
+                                    {!isEvenlyDistributed(variants) && (
+                                        <LemonButton
+                                            onClick={() => distributeVariantsEqually()}
+                                            tooltip="Distribute split evenly"
+                                        >
+                                            <IconBalance />
+                                        </LemonButton>
+                                    )}
                                     <LemonButton
                                         onClick={() => setIsCustomSplit(!isCustomSplit)}
                                         tooltip="Customize split"
                                     >
                                         <IconPencil />
-                                    </LemonButton>
-                                    <LemonButton
-                                        onClick={() => distributeVariantsEqually()}
-                                        tooltip="Distribute split evenly"
-                                    >
-                                        <IconBalance />
                                     </LemonButton>
                                 </>
                             )}
