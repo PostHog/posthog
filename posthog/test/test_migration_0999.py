@@ -90,6 +90,33 @@ class RemovePresortedEventsModifierMigrationTest(NonAtomicTestMigrations):
             query={"kind": "TrendsQuery"},
         )
 
+        # Other query fields preserved
+        self.insights["other_query_fields_preserved"] = Insight.objects.create(
+            team=self.team,
+            name="Other query fields preserved",
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"event": "pageview", "kind": "EventsNode"}],
+                "dateRange": {"date_from": "-7d"},
+                "modifiers": {"usePresortedEventsTable": True},
+            },
+        )
+
+        # Other source fields preserved
+        self.insights["other_source_fields_preserved"] = Insight.objects.create(
+            team=self.team,
+            name="Other source fields preserved",
+            query={
+                "kind": "DataVisualizationNode",
+                "display": "LineChart",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "pageview", "kind": "EventsNode"}],
+                    "modifiers": {"usePresortedEventsTable": True},
+                },
+            },
+        )
+
     @parameterized.expand(
         [
             (
@@ -123,6 +150,27 @@ class RemovePresortedEventsModifierMigrationTest(NonAtomicTestMigrations):
             (
                 "no_modifiers_key",
                 {"kind": "TrendsQuery"},
+            ),
+            (
+                "other_query_fields_preserved",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "modifiers": {},
+                },
+            ),
+            (
+                "other_source_fields_preserved",
+                {
+                    "kind": "DataVisualizationNode",
+                    "display": "LineChart",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "pageview", "kind": "EventsNode"}],
+                        "modifiers": {},
+                    },
+                },
             ),
         ]
     )
