@@ -22,8 +22,7 @@ export function StepScreenshotThumbnail({
         <img
             src={`/uploaded_media/${mediaId}`}
             alt="Element screenshot"
-            className={clsx('rounded cursor-pointer border hover:border-primary transition-colors', className)}
-            style={{ maxHeight: 48, maxWidth: 150 }}
+            className={clsx(className)}
             onClick={onClick}
             title="Click to view screenshot"
             onError={() => setHasError(true)}
