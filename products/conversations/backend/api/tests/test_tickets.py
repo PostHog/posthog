@@ -102,7 +102,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         """Test that retrieve includes person data when person exists."""
         person = Person.objects.create(
             team=self.team,
-            distinct_ids=["user-123"],
+            distinct_ids=["user-123", "user@example.com", "another-id"],
             properties={"email": "test@example.com", "name": "Test User"},
         )
 
@@ -112,6 +112,11 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertIsNotNone(response.json()["person"])
         self.assertEqual(response.json()["person"]["id"], str(person.uuid))
         self.assertEqual(response.json()["person"]["properties"]["email"], "test@example.com")
+        # Verify all distinct_ids are returned, not just the ticket's
+        self.assertCountEqual(
+            response.json()["person"]["distinct_ids"],
+            ["user-123", "user@example.com", "another-id"],
+        )
 
     def test_retrieve_ticket_person_null_when_no_person(self, mock_on_commit):
         """Test that person is null when no person exists for distinct_id."""
@@ -124,7 +129,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         """Test that list includes person data for tickets with persons."""
         Person.objects.create(
             team=self.team,
-            distinct_ids=["user-123"],
+            distinct_ids=["user-123", "user@example.com"],
             properties={"email": "test@example.com"},
         )
 
@@ -134,6 +139,11 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertIn("person", response.json()["results"][0])
         self.assertIsNotNone(response.json()["results"][0]["person"])
         self.assertEqual(response.json()["results"][0]["person"]["properties"]["email"], "test@example.com")
+        # Verify all distinct_ids are returned, not just the ticket's
+        self.assertCountEqual(
+            response.json()["results"][0]["person"]["distinct_ids"],
+            ["user-123", "user@example.com"],
+        )
 
     def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
         """Test that person is null in list when no person exists."""
@@ -510,9 +520,9 @@ class TestTicketAPI(BaseConversationsAPITest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
-        # person distinct_id query (batch), person prefetch
+        # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total

@@ -38,7 +38,7 @@ class TicketPagination(pagination.LimitOffsetPagination):
 class PersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
 
-    id = serializers.UUIDField(read_only=True)
+    id = serializers.UUIDField(source="uuid", read_only=True)
     name = serializers.SerializerMethodField()
     distinct_ids = serializers.ListField(child=serializers.CharField(), read_only=True)
     properties = serializers.DictField(read_only=True)
@@ -198,18 +198,30 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .prefetch_related(
                 Prefetch(
                     "person",
-                    queryset=Person.objects.filter(team_id=self.team_id),
+                    queryset=Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=self.team_id),
                 )
             )
         )
 
         # Build distinct_id -> person mapping
         distinct_id_to_person: dict[str, Person] = {}
+        person_ids: set[int] = set()
         for pdi in person_distinct_ids:
             if pdi.person:
-                # Avoid loading all distinct_ids for each person (optimization)
-                pdi.person._distinct_ids = [pdi.distinct_id]
                 distinct_id_to_person[pdi.distinct_id] = pdi.person
+                person_ids.add(pdi.person.id)
+
+        # Batch-load all distinct_ids for all persons
+        if person_ids:
+            all_pdis = PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                person_id__in=person_ids, team_id=self.team_id
+            )
+            person_to_distinct_ids: dict[int, list[str]] = {}
+            for pdi in all_pdis:
+                person_to_distinct_ids.setdefault(pdi.person_id, []).append(pdi.distinct_id)
+
+            for person in distinct_id_to_person.values():
+                person._distinct_ids = person_to_distinct_ids.get(person.id, [])
 
         # Attach person to each ticket
         for ticket in tickets:
