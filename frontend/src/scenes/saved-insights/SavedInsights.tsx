@@ -711,6 +711,7 @@ export function SavedInsights(): JSX.Element {
                     <>
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
+                            skipContext
                             title={
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
