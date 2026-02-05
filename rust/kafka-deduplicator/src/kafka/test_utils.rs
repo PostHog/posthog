@@ -19,6 +19,15 @@ pub struct TestRebalanceHandler {
     pub post_rebalance_count: AtomicUsize,
     pub assigned_partitions: Mutex<Vec<Partition>>,
     pub revoked_partitions: Mutex<Vec<Partition>>,
+    /// Stores the consumer command sender for test access (e.g., to send SeekPartitions)
+    command_sender: Mutex<Option<ConsumerCommandSender>>,
+}
+
+impl TestRebalanceHandler {
+    /// Get the stored command sender for test use (e.g., sending SeekPartitions)
+    pub fn get_command_sender(&self) -> Option<ConsumerCommandSender> {
+        self.command_sender.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
@@ -46,6 +55,8 @@ impl RebalanceHandler for TestRebalanceHandler {
         partitions: &TopicPartitionList,
         consumer_command_tx: &ConsumerCommandSender,
     ) -> Result<()> {
+        // Store sender for test access
+        *self.command_sender.lock().unwrap() = Some(consumer_command_tx.clone());
         // Send Resume command to unblock paused partitions (required for tests to work)
         let _ = consumer_command_tx.send(ConsumerCommand::Resume(partitions.clone()));
         Ok(())

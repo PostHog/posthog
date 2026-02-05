@@ -98,12 +98,13 @@ impl CheckpointImporter {
     /// 2. For each metadata file (newest to oldest), attempt to download all tracked files directly
     ///    to the store directory: `<store_base_path>/<topic>/<partition>/`
     /// 3. If a checkpoint import fails, fall back to the next most recent (up to import_attempt_depth)
-    /// 4. If successful, return the store path where files were imported
+    /// 4. If successful, return the store path where files were imported and the checkpoint metadata
+    ///    (metadata contains consumer_offset needed for seeking after restore)
     pub async fn import_checkpoint_for_topic_partition(
         &self,
         topic: &str,
         partition_number: i32,
-    ) -> Result<PathBuf> {
+    ) -> Result<(PathBuf, CheckpointMetadata)> {
         self.import_checkpoint_for_topic_partition_cancellable(topic, partition_number, None)
             .await
     }
@@ -111,12 +112,13 @@ impl CheckpointImporter {
     /// Import checkpoint files with optional cancellation support.
     /// If cancel_token is provided and cancelled during download, returns an error early.
     /// The import is wrapped with a timeout to prevent exceeding Kafka max poll interval.
+    /// Returns the store path and checkpoint metadata (contains consumer_offset for seeking).
     pub async fn import_checkpoint_for_topic_partition_cancellable(
         &self,
         topic: &str,
         partition_number: i32,
         cancel_token: Option<&CancellationToken>,
-    ) -> Result<PathBuf> {
+    ) -> Result<(PathBuf, CheckpointMetadata)> {
         let start_time = Instant::now();
 
         // Wrap the entire import with a timeout to prevent exceeding Kafka max poll interval
@@ -148,13 +150,14 @@ impl CheckpointImporter {
     }
 
     /// Inner implementation of checkpoint import, called with a timeout wrapper.
+    /// Returns the store path and checkpoint metadata on success.
     async fn import_checkpoint_inner(
         &self,
         topic: &str,
         partition_number: i32,
         cancel_token: Option<&CancellationToken>,
         start_time: Instant,
-    ) -> Result<PathBuf> {
+    ) -> Result<(PathBuf, CheckpointMetadata)> {
         let mut checkpoint_metadata = match self
             .fetch_checkpoint_metadata(topic, partition_number)
             .await
@@ -263,6 +266,7 @@ impl CheckpointImporter {
                     info!(
                         checkpoint = attempt_tag,
                         local_store_path = local_path_tag,
+                        consumer_offset = attempt.consumer_offset,
                         original_checkpoint_timestamp = %attempt.attempt_timestamp,
                         local_store_timestamp_millis = import_timestamp.timestamp_millis(),
                         marker_file = %marker_filename,
@@ -276,7 +280,7 @@ impl CheckpointImporter {
                         .record(start_time.elapsed().as_secs_f64());
 
                     // Defuse guard - import succeeded, keep the directory
-                    return Ok(guard.defuse());
+                    return Ok((guard.defuse(), attempt));
                 }
                 Err(e) => {
                     // Guard drops here automatically, cleans up directory
@@ -670,8 +674,9 @@ mod tests {
         let after_import = Utc::now();
 
         assert!(result.is_ok(), "Import should succeed: {:?}", result.err());
-        let import_path = result.unwrap();
+        let (import_path, imported_metadata) = result.unwrap();
         assert!(import_path.exists(), "Import path should exist");
+        assert_eq!(imported_metadata.consumer_offset, 100); // From create_test_metadata
 
         // Verify the import path uses a current timestamp (Utc::now()), not the checkpoint's old timestamp
         let timestamp_str = import_path.file_name().unwrap().to_str().unwrap();

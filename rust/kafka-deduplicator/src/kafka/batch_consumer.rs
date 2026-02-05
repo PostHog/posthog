@@ -6,6 +6,7 @@ use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
 use crate::kafka::metrics_consts::{
     BATCH_CONSUMER_BATCH_COLLECTION_DURATION_MS, BATCH_CONSUMER_BATCH_FILL_RATIO,
     BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
+    BATCH_CONSUMER_SEEK_ERROR,
 };
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::rebalance_handler::RebalanceHandler;
@@ -25,6 +26,9 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot::Receiver;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
+
+/// Timeout for consumer.seek_partitions() operations after checkpoint import
+const SEEK_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[async_trait]
 pub trait BatchConsumerProcessor<T>: Send + Sync {
@@ -142,6 +146,48 @@ where
                                     partition_count = partition_count,
                                     "Successfully resumed partitions - messages will now be delivered"
                                 );
+                            }
+                        }
+                        ConsumerCommand::SeekPartitions(offsets) => {
+                            let partition_count = offsets.count();
+                            info!(
+                                partition_count = partition_count,
+                                "Received seek_partitions command after checkpoint import"
+                            );
+                            match consumer.seek_partitions(offsets, SEEK_TIMEOUT) {
+                                Ok(result_tpl) => {
+                                    // Check for per-partition errors in the result
+                                    let mut error_count = 0;
+                                    for elem in result_tpl.elements() {
+                                        if let Err(e) = elem.error() {
+                                            error!(
+                                                topic = elem.topic(),
+                                                partition = elem.partition(),
+                                                error = %e,
+                                                "Failed to seek partition"
+                                            );
+                                            error_count += 1;
+                                        }
+                                    }
+                                    if error_count > 0 {
+                                        metrics::counter!(BATCH_CONSUMER_SEEK_ERROR)
+                                            .increment(error_count);
+                                    }
+                                    info!(
+                                        partition_count = partition_count,
+                                        error_count = error_count,
+                                        "Batch seek_partitions completed"
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        partition_count = partition_count,
+                                        error = %e,
+                                        "Batch seek_partitions failed"
+                                    );
+                                    metrics::counter!(BATCH_CONSUMER_SEEK_ERROR)
+                                        .increment(partition_count as u64);
+                                }
                             }
                         }
                     }

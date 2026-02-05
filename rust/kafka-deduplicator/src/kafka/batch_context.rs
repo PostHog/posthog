@@ -23,6 +23,10 @@ pub enum RebalanceEvent {
 pub enum ConsumerCommand {
     /// Resume consumption for the specified partitions (after checkpoint import completes)
     Resume(TopicPartitionList),
+    /// Batch seek partitions to their specified offsets (fire-and-forget).
+    /// Used after checkpoint import to align consumer position with restored store state.
+    /// Offsets are set in the TPL elements via add_partition_offset().
+    SeekPartitions(TopicPartitionList),
 }
 
 /// Sender for consumer commands - passed to rebalance handler
