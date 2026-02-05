@@ -134,7 +134,7 @@ impl ClickHouseEventsBatchProcessor {
         topic: &str,
         partition: i32,
         events: Vec<&ClickHouseEvent>,
-    ) -> Result<Vec<crate::pipelines::DeduplicationResult>> {
+    ) -> Result<Vec<crate::pipelines::DeduplicationResult<ClickHouseEvent>>> {
         self.deduplicator
             .deduplicate_batch(topic, partition, events)
             .await
@@ -269,14 +269,14 @@ mod tests {
             .unwrap();
         assert!(matches!(results1[0], DeduplicationResult::New));
 
-        // Second occurrence (same UUID = retry)
+        // Second occurrence (exact same event = SameEvent)
         let results2 = processor
             .deduplicate_batch("test-topic", 0, vec![&event])
             .await
             .unwrap();
         assert!(matches!(
-            results2[0],
-            DeduplicationResult::ConfirmedDuplicate(DuplicateReason::SameUuid)
+            &results2[0],
+            DeduplicationResult::ConfirmedDuplicate(info) if info.reason == DuplicateReason::SameEvent
         ));
     }
 
@@ -319,9 +319,10 @@ mod tests {
             .deduplicate_batch("test-topic", 0, vec![&event2])
             .await
             .unwrap();
+        // Different UUID with same dedup key is detected as OnlyUuidDifferent
         assert!(matches!(
-            results2[0],
-            DeduplicationResult::PotentialDuplicate
+            &results2[0],
+            DeduplicationResult::ConfirmedDuplicate(info) if info.reason == DuplicateReason::OnlyUuidDifferent
         ));
     }
 
@@ -351,9 +352,10 @@ mod tests {
 
         assert_eq!(results.len(), 2);
         assert!(matches!(results[0], DeduplicationResult::New));
+        // Same exact event in batch = SameEvent (not SameUuid, which is for different content)
         assert!(matches!(
-            results[1],
-            DeduplicationResult::ConfirmedDuplicate(DuplicateReason::SameUuid)
+            &results[1],
+            DeduplicationResult::ConfirmedDuplicate(info) if info.reason == DuplicateReason::SameEvent
         ));
     }
 

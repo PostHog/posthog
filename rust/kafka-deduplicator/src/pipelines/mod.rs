@@ -68,7 +68,7 @@ pub mod traits;
 pub use processor::{
     batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
     get_result_labels, get_store_or_drop, DeduplicationResult, DeduplicationResultLabels,
-    DuplicateReason, StoreResult,
+    DuplicateInfo, DuplicateReason, StoreResult,
 };
 pub use results::{DedupFieldName, EnrichedEvent, EventSimilarity, PropertyDifference};
 pub use timestamp_deduplicator::{

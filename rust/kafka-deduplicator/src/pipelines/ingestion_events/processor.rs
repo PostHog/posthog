@@ -1,9 +1,10 @@
 //! Batch processor for ingestion events pipeline.
 //!
 //! This processor implements timestamp-based deduplication for PostHog
-//! ingestion events (CapturedEvent/RawEvent).
+//! ingestion events (CapturedEvent/RawEvent) using the shared `TimestampDeduplicator`.
 
-use std::{collections::HashMap, sync::Arc, time::Duration, time::Instant};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::async_trait;
@@ -17,7 +18,6 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use tracing::{debug, error, warn};
 
-use super::metadata::TimestampMetadata;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::offset_tracker::OffsetTracker;
@@ -28,19 +28,14 @@ use crate::metrics_const::{
     KAFKA_PRODUCER_SEND_DURATION_MS, PARTITION_BATCH_PROCESSING_DURATION_MS,
     TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
     TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
-    UNIQUE_EVENTS_TOTAL_COUNTER,
+    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, UNIQUE_EVENTS_TOTAL_COUNTER,
 };
-use crate::pipelines::processor::{
-    batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
-    get_store_or_drop, DeduplicationResultLabels, StoreResult,
-};
-use crate::pipelines::traits::{DeduplicationKeyExtractor, EventParser};
-use crate::pipelines::EnrichedEvent;
+use crate::pipelines::traits::EventParser;
+use crate::pipelines::DeduplicationResult;
+use crate::pipelines::{TimestampDeduplicator, TimestampDeduplicatorConfig};
 use crate::store::DeduplicationStoreConfig;
 use crate::store_manager::StoreManager;
 
-use super::dedup_result::{DeduplicationResult, DeduplicationResultReason, DeduplicationType};
 use super::duplicate_event::DuplicateEvent;
 use super::IngestionEventParser;
 
@@ -122,7 +117,7 @@ impl DuplicateEventProducerWrapper {
 /// This processor:
 /// 1. Parses CapturedEvent (wire format) into RawEvent (domain format)
 /// 2. Extracts deduplication keys based on timestamp + event + distinct_id + token
-/// 3. Checks for duplicates in RocksDB
+/// 3. Checks for duplicates in RocksDB using `TimestampDeduplicator`
 /// 4. Publishes non-duplicate events to output topic
 /// 5. Optionally publishes duplicate detection results to a separate topic
 pub struct IngestionEventsBatchProcessor {
@@ -134,8 +129,8 @@ pub struct IngestionEventsBatchProcessor {
     /// Kafka producer for publishing duplicate detection results
     duplicate_producer: Option<DuplicateEventProducerWrapper>,
 
-    /// Store manager that handles concurrent store creation and access
-    store_manager: Arc<StoreManager>,
+    /// Generic timestamp-based deduplicator
+    deduplicator: TimestampDeduplicator<RawEvent>,
 
     /// Offset tracker for recording producer offsets (used for checkpointing)
     offset_tracker: Option<Arc<OffsetTracker>>,
@@ -178,11 +173,20 @@ impl IngestionEventsBatchProcessor {
         producer: Option<Arc<FutureProducer<KafkaContext>>>,
         duplicate_producer: Option<DuplicateEventProducerWrapper>,
     ) -> Result<Self> {
+        // Create deduplicator - publishing is handled by this processor directly,
+        // not by the deduplicator, so we don't set publisher config.
+        let dedup_config = TimestampDeduplicatorConfig {
+            pipeline_name: "ingestion_events".to_string(),
+            publisher: None,
+            offset_tracker: None,
+        };
+        let deduplicator = TimestampDeduplicator::new(dedup_config, store_manager);
+
         Ok(Self {
             config,
             producer,
             duplicate_producer,
-            store_manager,
+            deduplicator,
             offset_tracker: None,
         })
     }
@@ -195,11 +199,18 @@ impl IngestionEventsBatchProcessor {
         duplicate_producer: Option<DuplicateEventProducerWrapper>,
         offset_tracker: Arc<OffsetTracker>,
     ) -> Result<Self> {
+        let dedup_config = TimestampDeduplicatorConfig {
+            pipeline_name: "ingestion_events".to_string(),
+            publisher: None,
+            offset_tracker: Some(offset_tracker.clone()),
+        };
+        let deduplicator = TimestampDeduplicator::new(dedup_config, store_manager);
+
         Ok(Self {
             config,
             producer,
             duplicate_producer,
-            store_manager,
+            deduplicator,
             offset_tracker: Some(offset_tracker),
         })
     }
@@ -227,14 +238,24 @@ impl IngestionEventsBatchProcessor {
         // Collect successful parses and extract metadata sequentially
         // This avoids cloning the entire message - we just copy the small pieces we need
         let successful_count = parsed_events.iter().filter(|r| r.is_ok()).count();
-        let mut events = Vec::with_capacity(successful_count);
+        let mut events_owned: Vec<RawEvent> = Vec::with_capacity(successful_count);
         let mut payloads = Vec::with_capacity(successful_count);
         let mut headers_vec = Vec::with_capacity(successful_count);
         let mut keys = Vec::with_capacity(successful_count);
+        let mut event_indices: Vec<usize> = Vec::with_capacity(successful_count);
 
         for (idx, msg) in messages.iter().enumerate() {
             if let Ok(event) = &parsed_events[idx] {
-                events.push(event);
+                event_indices.push(events_owned.len());
+                events_owned.push(RawEvent {
+                    uuid: event.uuid,
+                    event: event.event.clone(),
+                    distinct_id: event.distinct_id.clone(),
+                    token: event.token.clone(),
+                    timestamp: event.timestamp.clone(),
+                    properties: event.properties.clone(),
+                    ..Default::default()
+                });
 
                 // Extract original contents (both borrow, no cloning!)
                 let (payload_ref, headers_ref) = msg.to_original_contents();
@@ -255,14 +276,21 @@ impl IngestionEventsBatchProcessor {
             }
         }
 
-        if events.is_empty() {
+        if events_owned.is_empty() {
             return Ok(());
         }
 
-        // Deduplicate the batch for this partition
+        // Deduplicate the batch for this partition using TimestampDeduplicator
+        let event_refs: Vec<&RawEvent> = events_owned.iter().collect();
         let dedup_results = self
-            .deduplicate_batch(partition.topic(), partition.partition_number(), events)
+            .deduplicator
+            .deduplicate_batch(partition.topic(), partition.partition_number(), event_refs)
             .await?;
+
+        // Create metrics helper for similarity metrics
+        let metrics =
+            MetricsHelper::with_partition(partition.topic(), partition.partition_number())
+                .with_label("service", "kafka-deduplicator");
 
         // Process results: emit metrics and collect publish futures
         // We batch all Kafka sends and execute them concurrently for better throughput
@@ -270,17 +298,13 @@ impl IngestionEventsBatchProcessor {
         let mut duplicate_event_futures = Vec::new();
 
         for (idx, result) in dedup_results.iter().enumerate() {
+            let raw_event = &events_owned[idx];
             let payload = &payloads[idx];
             let headers = &headers_vec[idx];
             let key = &keys[idx];
 
-            // Emit deduplication result metrics (synchronous, fast)
-            emit_deduplication_result_metrics(
-                partition.topic(),
-                partition.partition_number(),
-                "ingestion_events",
-                Self::get_result_labels(result),
-            );
+            // Emit similarity metrics for duplicates
+            Self::emit_similarity_metrics(result, raw_event, &metrics);
 
             // Collect duplicate event publish futures
             if let Some(ref duplicate_producer) = self.duplicate_producer {
@@ -369,131 +393,12 @@ impl IngestionEventsBatchProcessor {
         Ok(())
     }
 
-    async fn deduplicate_batch(
-        &self,
-        topic: &str,
-        partition: i32,
-        events: Vec<&RawEvent>,
-    ) -> Result<Vec<DeduplicationResult>> {
-        // Get the store for this partition (gracefully drops if not found)
-        let store = match get_store_or_drop(&self.store_manager, topic, partition, events.len())? {
-            StoreResult::Found(store) => store,
-            StoreResult::NotFound => return Ok(vec![]),
-        };
-
-        // Create metrics helper for this partition
-        let metrics = MetricsHelper::with_partition(topic, partition)
-            .with_label("service", "kafka-deduplicator");
-
-        // Step 1: Prepare all keys and enrich events with parsed data
-        let enriched_events: Vec<EnrichedEvent<RawEvent>> = events
-            .into_iter()
-            .map(|event| EnrichedEvent {
-                dedup_key_bytes: event.extract_dedup_key(),
-                event,
-            })
-            .collect();
-
-        // Step 2: Batch read for timestamp-based deduplication
-        let timestamp_keys_refs: Vec<&[u8]> = enriched_events
-            .iter()
-            .map(|e| e.dedup_key_bytes.as_slice())
-            .collect();
-
-        let timestamp_results = batch_read_timestamp_records(&store, timestamp_keys_refs)?;
-
-        // Step 3: Process deduplication results and prepare batch writes
-        // Track keys we've seen in this batch to detect within-batch duplicates
-        let event_count = enriched_events.len();
-        let mut batch_timestamp_cache: HashMap<Vec<u8>, Vec<u8>> =
-            HashMap::with_capacity(event_count);
-
-        let mut timestamp_writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(event_count);
-        let mut dedup_results: Vec<DeduplicationResult> = Vec::with_capacity(event_count);
-
-        for (idx, enriched) in enriched_events.iter().enumerate() {
-            let raw_event = enriched.event;
-
-            // Check timestamp-based deduplication
-            // First check RocksDB results, then check within-batch cache
-            let timestamp_source: Option<&[u8]> = timestamp_results[idx].as_deref().or_else(|| {
-                batch_timestamp_cache
-                    .get(&enriched.dedup_key_bytes)
-                    .map(|v| v.as_slice())
-            });
-
-            let timestamp_result =
-                match Self::check_timestamp_duplicate_from_bytes(timestamp_source, raw_event) {
-                    Ok((result, metadata)) => {
-                        // Emit metrics for timestamp deduplication (before moving metadata)
-                        Self::emit_similarity_metrics(
-                            &result,
-                            raw_event,
-                            &metrics,
-                            metadata.as_ref(),
-                        );
-
-                        if let Some(metadata) = metadata {
-                            // Update metadata and prepare for write
-                            let value = bincode::serde::encode_to_vec(
-                                &metadata,
-                                bincode::config::standard(),
-                            )?;
-                            timestamp_writes
-                                .push((enriched.dedup_key_bytes.clone(), value.clone()));
-
-                            // Update batch cache for within-batch duplicate detection
-                            batch_timestamp_cache.insert(enriched.dedup_key_bytes.clone(), value);
-                        }
-
-                        result
-                    }
-                    Err(e) => {
-                        error!("Failed to check timestamp duplicate: {}", e);
-                        DeduplicationResult::Skipped
-                    }
-                };
-
-            dedup_results.push(timestamp_result);
-        }
-
-        // Step 4: Batch write all updates
-        batch_write_timestamp_records(&store, &timestamp_writes)?;
-
-        Ok(dedup_results)
-    }
-
     /// Determine if an event should be published to the duplicate events topic
-    fn should_publish_duplicate_event(&self, result: &DeduplicationResult) -> bool {
+    fn should_publish_duplicate_event(&self, result: &DeduplicationResult<RawEvent>) -> bool {
         matches!(
             result,
-            DeduplicationResult::ConfirmedDuplicate(_, _, _, _)
-                | DeduplicationResult::PotentialDuplicate(_, _, _)
+            DeduplicationResult::ConfirmedDuplicate(_) | DeduplicationResult::PotentialDuplicate(_)
         )
-    }
-
-    fn get_result_labels(result: &DeduplicationResult) -> DeduplicationResultLabels {
-        match result {
-            DeduplicationResult::New => DeduplicationResultLabels {
-                result_type: "new",
-                reason: None,
-            },
-            DeduplicationResult::PotentialDuplicate(_, _, _) => DeduplicationResultLabels {
-                result_type: "potential_duplicate",
-                reason: None,
-            },
-            DeduplicationResult::ConfirmedDuplicate(_, reason, _, _) => DeduplicationResultLabels {
-                result_type: "confirmed_duplicate",
-                reason: Some(match reason {
-                    DeduplicationResultReason::SameEvent => "same_event",
-                    DeduplicationResultReason::OnlyUuidDifferent => "only_uuid_different",
-                }),
-            },
-            DeduplicationResult::Skipped => DeduplicationResultLabels {
-                result_type: "skipped",
-                reason: None,
-            },
-        }
     }
 
     /// Publish event to output topic (static version for concurrent execution)
@@ -540,69 +445,14 @@ impl IngestionEventsBatchProcessor {
         }
     }
 
-    /// Check timestamp-based duplicate from raw bytes
-    fn check_timestamp_duplicate_from_bytes(
-        existing_bytes: Option<&[u8]>,
-        raw_event: &RawEvent,
-    ) -> Result<(DeduplicationResult, Option<TimestampMetadata>)> {
-        match existing_bytes {
-            Some(bytes) => {
-                // Deserialize existing metadata
-                let mut metadata: TimestampMetadata =
-                    bincode::serde::decode_from_slice(bytes, bincode::config::standard())
-                        .map(|(m, _)| m)?;
-
-                // Calculate similarity and get original event
-                let similarity = metadata.calculate_similarity(raw_event)?;
-                let original_event = metadata.get_original_event()?;
-
-                // Update metadata to track this duplicate
-                metadata.update_duplicate(raw_event);
-
-                // Determine the deduplication result based on similarity
-                let dedup_result = if similarity.overall_score == 1.0 {
-                    DeduplicationResult::ConfirmedDuplicate(
-                        DeduplicationType::Timestamp,
-                        DeduplicationResultReason::SameEvent,
-                        similarity,
-                        original_event,
-                    )
-                } else if similarity.different_fields.len() == 1
-                    && similarity.different_fields[0].0 == "uuid"
-                {
-                    DeduplicationResult::ConfirmedDuplicate(
-                        DeduplicationType::Timestamp,
-                        DeduplicationResultReason::OnlyUuidDifferent,
-                        similarity,
-                        original_event,
-                    )
-                } else {
-                    DeduplicationResult::PotentialDuplicate(
-                        DeduplicationType::Timestamp,
-                        similarity,
-                        original_event,
-                    )
-                };
-
-                Ok((dedup_result, Some(metadata)))
-            }
-            None => {
-                // New event - create metadata
-                let metadata = TimestampMetadata::new(raw_event);
-                Ok((DeduplicationResult::New, Some(metadata)))
-            }
-        }
-    }
-
     /// Emit similarity-related metrics for duplicate detection.
     ///
     /// These metrics track how similar duplicate events are to their originals,
     /// helping identify SDK bugs vs legitimate retries.
     fn emit_similarity_metrics(
-        result: &DeduplicationResult,
+        result: &DeduplicationResult<RawEvent>,
         raw_event: &RawEvent,
         metrics: &MetricsHelper,
-        metadata: Option<&TimestampMetadata>,
     ) {
         if let Some(similarity) = result.get_similarity() {
             if let Some(lib_info) = raw_event.extract_library_info() {
@@ -611,14 +461,6 @@ impl IngestionEventsBatchProcessor {
                     .with_label("lib", &lib_info.name)
                     .with_label("dedup_type", "timestamp")
                     .increment(1);
-
-                // Emit unique UUIDs histogram if metadata is available
-                if let Some(meta) = metadata {
-                    metrics
-                        .histogram(TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM)
-                        .with_label("lib", &lib_info.name)
-                        .record(meta.seen_uuids.len() as f64);
-                }
 
                 metrics
                     .histogram(TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
@@ -663,6 +505,7 @@ impl IngestionEventsBatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipelines::DuplicateReason;
     use crate::store::DeduplicationStoreConfig;
     use crate::test_utils::create_test_tracker;
     use serde_json::json;
@@ -727,13 +570,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         // Create a batch of new events
         let events = [
@@ -759,6 +597,7 @@ mod tests {
 
         let event_refs: Vec<&RawEvent> = events.iter().collect();
         let results = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, event_refs)
             .await
             .unwrap();
@@ -784,13 +623,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         let uuid1 = Uuid::new_v4();
         let uuid2 = Uuid::new_v4();
@@ -802,6 +636,7 @@ mod tests {
         ];
 
         let results1 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch1.iter().collect())
             .await
             .unwrap();
@@ -817,6 +652,7 @@ mod tests {
 
         let refs2: Vec<&RawEvent> = batch2.iter().collect();
         let results2 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, refs2)
             .await
             .unwrap();
@@ -839,13 +675,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         let uuid1 = Uuid::new_v4();
         let uuid2 = Uuid::new_v4();
@@ -859,6 +690,7 @@ mod tests {
         )];
 
         let results1 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch1.iter().collect())
             .await
             .unwrap();
@@ -873,6 +705,7 @@ mod tests {
         ];
 
         let results2 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch2.iter().collect())
             .await
             .unwrap();
@@ -896,13 +729,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         // First batch - events without UUIDs
         let batch1 = [
@@ -911,6 +739,7 @@ mod tests {
         ];
 
         let results1 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch1.iter().collect())
             .await
             .unwrap();
@@ -927,6 +756,7 @@ mod tests {
         )];
 
         let results2 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch2.iter().collect())
             .await
             .unwrap();
@@ -947,13 +777,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         // Create a large batch of unique events
         let batch_size = 100;
@@ -969,6 +794,7 @@ mod tests {
             .collect();
 
         let results = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, events.iter().collect())
             .await
             .unwrap();
@@ -992,6 +818,7 @@ mod tests {
             .collect();
 
         let results2 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, events2.iter().collect())
             .await
             .unwrap();
@@ -1017,13 +844,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         let uuid1 = Uuid::new_v4();
 
@@ -1036,6 +858,7 @@ mod tests {
         )];
 
         processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch1.iter().collect())
             .await
             .unwrap();
@@ -1050,19 +873,15 @@ mod tests {
         )];
 
         let results2 = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch2.iter().collect())
             .await
             .unwrap();
 
         // Should be detected as timestamp duplicate with only UUID different
         assert!(matches!(
-            results2[0],
-            DeduplicationResult::ConfirmedDuplicate(
-                DeduplicationType::Timestamp,
-                DeduplicationResultReason::OnlyUuidDifferent,
-                _,
-                _
-            )
+            &results2[0],
+            DeduplicationResult::ConfirmedDuplicate(info) if info.reason == DuplicateReason::OnlyUuidDifferent
         ));
     }
 
@@ -1080,13 +899,8 @@ mod tests {
             .await
             .unwrap();
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         let uuid = Uuid::new_v4();
 
@@ -1097,6 +911,7 @@ mod tests {
         ];
 
         let results = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, batch.iter().collect())
             .await
             .unwrap();
@@ -1121,13 +936,8 @@ mod tests {
 
         // NOTE: We intentionally do NOT pre-create a store here
 
-        let processor = IngestionEventsBatchProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
+        let processor =
+            IngestionEventsBatchProcessor::new(config, store_manager.clone(), None, None).unwrap();
 
         // Create a batch of events
         let events = [create_test_raw_event(
@@ -1141,6 +951,7 @@ mod tests {
 
         // deduplicate_batch should return Ok(vec![]) - graceful drop, not an error
         let result = processor
+            .deduplicator
             .deduplicate_batch("test-topic", 0, event_refs)
             .await;
 
