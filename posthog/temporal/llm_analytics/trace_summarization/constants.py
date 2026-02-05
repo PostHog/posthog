@@ -53,20 +53,6 @@ GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-l
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
 
-# Team allowlist - only these teams will be processed by the coordinator
-# Empty list means no teams will be processed (coordinator skips)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-    21999,
-]
-
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"

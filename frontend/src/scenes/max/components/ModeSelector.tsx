@@ -147,6 +147,7 @@ interface GetModeOptionsParams {
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
     hasExistingMessages: boolean
+    flagsModeEnabled: boolean
 }
 
 function getModeOptions({
@@ -156,11 +157,12 @@ function getModeOptions({
     errorTrackingModeEnabled,
     surveyModeEnabled,
     hasExistingMessages,
+    flagsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
             value: null as ModeValue,
-            label: SPECIAL_MODES.auto.name,
+            label: SPECIAL_MODES.auto.name as string | JSX.Element,
             icon: SPECIAL_MODES.auto.icon,
             tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
         },
@@ -168,7 +170,16 @@ function getModeOptions({
     if (planModeEnabled) {
         specialOptions.push({
             value: 'plan' as ModeValue,
-            label: SPECIAL_MODES.plan.name,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.plan.name}
+                    {SPECIAL_MODES.plan.beta && (
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
             icon: SPECIAL_MODES.plan.icon,
             tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools({ webSearchEnabled })),
         })
@@ -177,7 +188,16 @@ function getModeOptions({
     if (deepResearchEnabled && !hasExistingMessages) {
         specialOptions.push({
             value: 'deep_research' as ModeValue,
-            label: SPECIAL_MODES.deep_research.name,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.deep_research.name}
+                    {SPECIAL_MODES.deep_research.beta && (
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
             icon: SPECIAL_MODES.deep_research.icon,
             tooltip: <div>{SPECIAL_MODES.deep_research.description}</div>,
         })
@@ -190,6 +210,9 @@ function getModeOptions({
         if (mode === AgentMode.Survey && !surveyModeEnabled) {
             return false
         }
+        if (mode === AgentMode.Flags && !flagsModeEnabled) {
+            return false
+        }
         return true
     })
 
@@ -198,7 +221,16 @@ function getModeOptions({
         {
             options: modeEntries.map(([mode, def]) => ({
                 value: mode as AgentMode,
-                label: def.name,
+                label: def.beta ? (
+                    <span className="flex items-center gap-1">
+                        {def.name}
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    </span>
+                ) : (
+                    def.name
+                ),
                 icon: def.icon,
                 tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
             })),
@@ -214,6 +246,7 @@ export function ModeSelector(): JSX.Element | null {
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
+    const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
 
     const currentValue: ModeValue =
         agentMode === AgentMode.Research ? 'deep_research' : agentMode === AgentMode.Plan ? 'plan' : agentMode
@@ -226,6 +259,7 @@ export function ModeSelector(): JSX.Element | null {
                 deepResearchEnabled,
                 webSearchEnabled,
                 errorTrackingModeEnabled,
+                flagsModeEnabled,
                 surveyModeEnabled,
                 hasExistingMessages,
             }),
@@ -236,6 +270,8 @@ export function ModeSelector(): JSX.Element | null {
             errorTrackingModeEnabled,
             surveyModeEnabled,
             hasExistingMessages,
+            flagsModeEnabled,
+            surveyModeEnabled,
         ]
     )
 

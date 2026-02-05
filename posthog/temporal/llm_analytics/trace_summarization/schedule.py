@@ -73,7 +73,14 @@ async def create_batch_generation_summarization_schedule(client: Client):
             id=GENERATION_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(hours=SCHEDULE_INTERVAL_HOURS),
+                    offset=timedelta(minutes=30),
+                )
+            ]
+        ),
     )
 
     if await a_schedule_exists(client, GENERATION_COORDINATOR_SCHEDULE_ID):
