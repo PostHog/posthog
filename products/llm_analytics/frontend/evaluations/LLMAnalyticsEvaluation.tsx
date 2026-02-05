@@ -230,7 +230,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         <div className="flex items-center gap-1">
                                             <span>API key</span>
                                             <span className="text-muted">-</span>
-                                            <Link to={urls.llmAnalyticsSettings()}>Manage</Link>
+                                            <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>Manage</Link>
                                         </div>
                                     }
                                 >
