@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconChevronDown, IconCursorClick, IconExternal, IconPlay, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconCursorClick, IconExternal, IconPlay, IconPlus, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { STEP_TYPE_ICONS, STEP_TYPE_LABELS } from 'scenes/product-tours/stepUtils'
+import { hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
@@ -14,7 +14,6 @@ import {
     PRODUCT_TOURS_MIN_JS_VERSION,
     TourStep,
     hasMinProductToursVersion,
-    hasValidSelector,
     productToursLogic,
 } from './productToursLogic'
 import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
@@ -85,8 +84,7 @@ export function ProductToursSidebar(): JSX.Element | null {
             return 'Enter a tour name'
         }
 
-        const hasInvalidSteps = steps.some((step) => !hasValidSelector(step))
-        if (hasInvalidSteps) {
+        if (steps.some(hasIncompleteTargeting)) {
             return 'Some steps are missing element selection'
         }
     }
@@ -104,8 +102,7 @@ export function ProductToursSidebar(): JSX.Element | null {
             return 'Add at least one step'
         }
 
-        const hasInvalidSteps = steps.some((step) => !hasValidSelector(step))
-        if (hasInvalidSteps) {
+        if (steps.some(hasIncompleteTargeting)) {
             return 'Some steps are missing element selection'
         }
     }
@@ -238,38 +235,17 @@ export function ProductToursSidebar(): JSX.Element | null {
                         </div>
                     )}
 
-                    <div className="mt-3">
-                        <LemonMenu
-                            items={[
-                                {
-                                    icon: STEP_TYPE_ICONS['element'],
-                                    label: STEP_TYPE_LABELS['element']!,
-                                    onClick: () => addStep('element'),
-                                },
-                                {
-                                    icon: STEP_TYPE_ICONS['modal'],
-                                    label: STEP_TYPE_LABELS['modal']!,
-                                    onClick: () => addStep('modal'),
-                                },
-                                {
-                                    icon: STEP_TYPE_ICONS['survey'],
-                                    label: STEP_TYPE_LABELS['survey']!,
-                                    onClick: () => addStep('survey'),
-                                },
-                            ]}
-                            placement="bottom-start"
-                            maxContentWidth
+                    <div className="mt-3 flex gap-2">
+                        <LemonButton
+                            type="primary"
+                            center
+                            fullWidth
+                            icon={<IconPlus />}
+                            onClick={() => addStep('modal')}
+                            disabledReason={isAddingStep ? 'Already adding step' : undefined}
                         >
-                            <LemonButton
-                                type="secondary"
-                                fullWidth
-                                icon={<IconPlus />}
-                                sideIcon={<IconChevronDown />}
-                                disabledReason={isAddingStep ? 'Already adding step' : undefined}
-                            >
-                                Add step
-                            </LemonButton>
-                        </LemonMenu>
+                            Add step
+                        </LemonButton>
                     </div>
                 </div>
 

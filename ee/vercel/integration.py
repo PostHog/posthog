@@ -399,6 +399,29 @@ class VercelIntegration:
     def delete_installation(installation_id: str) -> dict[str, Any]:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
+        organization = installation.organization
+
+        # Notify billing service to cancel subscription and reset billing provider
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+                logger.info(
+                    "Deauthorized billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to deauthorize billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+                # Continue with deletion even if billing deauthorization fails
+                # The billing service will handle the orphaned state gracefully
+
         installation.delete()
         logger.info(
             "Successfully deleted Vercel installation",
