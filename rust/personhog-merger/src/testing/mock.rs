@@ -35,7 +35,6 @@
 
 use std::collections::VecDeque;
 use std::future::Future;
-use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -101,7 +100,7 @@ impl<Args> Future for ExpectedCall<Args> {
             Poll::Ready(Ok(args)) => {
                 let channels = this.channels.take().unwrap();
                 Poll::Ready(CallGuard {
-                    args,
+                    args: Some(args),
                     release_tx: channels.release_tx,
                 })
             }
@@ -116,7 +115,7 @@ impl<Args> Future for ExpectedCall<Args> {
 /// The mock method that created this guard is paused until this guard is dropped
 /// or `release()` is called. Use `Deref` to access the arguments directly.
 pub struct CallGuard<Args> {
-    args: Args,
+    args: Option<Args>,
     release_tx: Option<oneshot::Sender<()>>,
 }
 
@@ -129,16 +128,9 @@ impl<Args> CallGuard<Args> {
 
     /// Release the mock and return the captured arguments.
     /// This is useful when you want to verify the args after releasing.
-    pub fn into_args(self) -> Args {
-        // Wrap in ManuallyDrop to prevent Drop from running
-        let mut this = ManuallyDrop::new(self);
-        // Send release signal
-        if let Some(tx) = this.release_tx.take() {
-            let _ = tx.send(());
-        }
-        // SAFETY: We've already handled the release_tx, ManuallyDrop prevents the
-        // destructor from running, and we're extracting args which is safe to read.
-        unsafe { std::ptr::read(&this.args) }
+    pub fn into_args(mut self) -> Args {
+        self.args.take().expect("args already taken")
+        // Drop sends the release signal
     }
 }
 
@@ -146,7 +138,7 @@ impl<Args> Deref for CallGuard<Args> {
     type Target = Args;
 
     fn deref(&self) -> &Self::Target {
-        &self.args
+        self.args.as_ref().expect("args already taken")
     }
 }
 
