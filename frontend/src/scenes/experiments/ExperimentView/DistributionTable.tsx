@@ -131,7 +131,7 @@ export function DistributionModal(): JSX.Element {
 
                     {!areVariantRolloutsValid && (
                         <p className="text-danger mt-2">
-                            Percentage rollouts must sum to 100 (currently {variantRolloutSum}).
+                            Percentage splits must sum to 100 (currently {variantRolloutSum}).
                         </p>
                     )}
                 </div>
