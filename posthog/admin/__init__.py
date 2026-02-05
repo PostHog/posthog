@@ -18,7 +18,6 @@ def register_all_admin():
         EventIngestionRestrictionConfigAdmin,
         ExperimentAdmin,
         ExperimentSavedMetricAdmin,
-        ExportedAssetAdmin,
         FeatureFlagAdmin,
         GroupTypeMappingAdmin,
         HogFunctionAdmin,
@@ -40,6 +39,7 @@ def register_all_admin():
         UserAdmin,
         UserProductListAdmin,
     )
+    from posthog.admin.admins.exported_asset_admin import ExportedAssetAdmin
     from posthog.models import (
         AsyncDeletion,
         BatchImport,

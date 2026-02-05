@@ -1,7 +1,5 @@
 from django.contrib import admin
 
-from posthog.admin.admins.team_admin import TeamAutocompleteFilter
-
 from .models import SignalReportArtefact
 
 
@@ -29,7 +27,7 @@ class SignalReportAdmin(admin.ModelAdmin):
         "promoted_at",
     )
     list_display_links = ("id",)
-    list_filter = (TeamAutocompleteFilter, "status")
+    list_filter = ("status",)
     search_fields = ("id", "team_id", "title", "summary")
     ordering = ("-created_at",)
     show_full_result_count = False
@@ -64,9 +62,3 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
