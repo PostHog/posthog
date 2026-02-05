@@ -429,6 +429,134 @@ describe('LogsRateLimiterService', () => {
             expect(result.allowed).toHaveLength(1)
             expect(result.dropped).toHaveLength(0)
         })
+
+        describe('created_at header parsing', () => {
+            const createMessageWithHeaders = (
+                teamId: number,
+                bytesUncompressed: number,
+                headers?: Record<string, string>[]
+            ): any => ({
+                teamId,
+                bytesUncompressed,
+                bytesCompressed: Math.floor(bytesUncompressed / 2),
+                recordCount: 1,
+                token: `token-${teamId}`,
+                message: {
+                    value: Buffer.from('test'),
+                    headers: headers?.map((h) => {
+                        const result: Record<string, Buffer> = {}
+                        for (const [key, value] of Object.entries(h)) {
+                            result[key] = Buffer.from(value)
+                        }
+                        return result
+                    }),
+                },
+            })
+
+            it('should use created_at header timestamp for rate limiting', async () => {
+                // First message at time T uses most of the bucket
+                const pastTime = new Date('2024-01-01T00:00:00Z').toISOString()
+                const messages1 = [createMessageWithHeaders(1, 8192, [{ created_at: pastTime }])] // 8KB
+
+                const result1 = await rateLimiter.filterMessages(messages1)
+                expect(result1.allowed).toHaveLength(1)
+                expect(result1.dropped).toHaveLength(0)
+
+                // Second message at same time T should be limited (only 2KB left)
+                const messages2 = [createMessageWithHeaders(1, 5120, [{ created_at: pastTime }])] // 5KB
+
+                const result2 = await rateLimiter.filterMessages(messages2)
+                expect(result2.allowed).toHaveLength(0)
+                expect(result2.dropped).toHaveLength(1)
+
+                // Third message 10 seconds later should have refilled (10KB refilled at 1KB/s)
+                const laterTime = new Date('2024-01-01T00:00:10Z').toISOString()
+                const messages3 = [createMessageWithHeaders(1, 5120, [{ created_at: laterTime }])] // 5KB
+
+                const result3 = await rateLimiter.filterMessages(messages3)
+                expect(result3.allowed).toHaveLength(1)
+                expect(result3.dropped).toHaveLength(0)
+            })
+
+            it('should fallback to current time when created_at header is missing', async () => {
+                const messages = [createMessageWithHeaders(1, 5120)] // No headers
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(1)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should fallback to current time when created_at header is invalid', async () => {
+                const messages = [createMessageWithHeaders(1, 5120, [{ created_at: 'invalid-date' }])]
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(1)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should handle RFC3339 date format', async () => {
+                const rfcTime = '2024-06-15T14:30:00.000Z'
+                const messages = [createMessageWithHeaders(1, 5120, [{ created_at: rfcTime }])]
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(1)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should handle ISO8601 date format with timezone offset', async () => {
+                const isoTime = '2024-06-15T14:30:00+02:00'
+                const messages = [createMessageWithHeaders(1, 5120, [{ created_at: isoTime }])]
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(1)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should use first message timestamp for team when multiple messages in batch', async () => {
+                const time1 = new Date('2024-01-01T00:00:00Z').toISOString()
+                const time2 = new Date('2024-01-01T00:00:10Z').toISOString() // 10 seconds later
+
+                // Both messages for same team, first one's timestamp should be used
+                const messages = [
+                    createMessageWithHeaders(1, 5120, [{ created_at: time1 }]), // 5KB
+                    createMessageWithHeaders(1, 3072, [{ created_at: time2 }]), // 3KB - should use time1's timestamp
+                ]
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(2)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should handle empty headers array', async () => {
+                const message: any = {
+                    teamId: 1,
+                    bytesUncompressed: 5120,
+                    bytesCompressed: 2560,
+                    recordCount: 1,
+                    token: 'token-1',
+                    message: { value: Buffer.from('test'), headers: [] },
+                }
+
+                const result = await rateLimiter.filterMessages([message])
+
+                expect(result.allowed).toHaveLength(1)
+                expect(result.dropped).toHaveLength(0)
+            })
+
+            it('should handle headers without created_at key', async () => {
+                const messages = [createMessageWithHeaders(1, 5120, [{ other_header: 'value' }])]
+
+                const result = await rateLimiter.filterMessages(messages)
+
+                expect(result.allowed).toHaveLength(1)
+                expect(result.dropped).toHaveLength(0)
+            })
+        })
     })
 
     describe('team-specific limits', () => {
