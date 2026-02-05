@@ -2413,6 +2413,7 @@ class TestOAuthAPI(APIBaseTest):
             data = refresh_response.json()
             self.assertEqual(data["refresh_token"], original_refresh_token)
             self.assertNotEqual(data["access_token"], original_access_token)
+            self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
             original_access_token = data["access_token"]
 
         # Verify the refresh token was never revoked
