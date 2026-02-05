@@ -1238,6 +1238,16 @@ def export_persons_full_to_duckling_s3(
     # Join person with person_distinct_id2 to get distinct_ids
     # Use FINAL to handle ReplacingMergeTree deduplication
     # No date filtering - export all persons for the team
+    # Full exports need more memory due to FINAL + JOIN + ORDER BY on large datasets
+    # Also enable external sorting to spill to disk if memory is still exceeded
+    full_export_settings = settings.copy()
+    full_export_settings.update(
+        {
+            "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB for full exports
+            "max_bytes_before_external_sort": 50 * 1024 * 1024 * 1024,  # Spill to disk after 50GB
+        }
+    )
+
     export_sql = f"""
     INSERT INTO FUNCTION s3(
         '{s3_url}',
@@ -1251,7 +1261,6 @@ def export_persons_full_to_duckling_s3(
       AND pd.team_id = {team_id}
       AND p.is_deleted = 0
       AND pd.is_deleted = 0
-    ORDER BY distinct_id, _timestamp
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
@@ -1269,7 +1278,7 @@ def export_persons_full_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, settings, info)
+        _execute_export_with_retry(client, export_sql, full_export_settings, info)
         context.log.info(f"Successfully exported all persons for {info}")
         logger.info("duckling_persons_full_export_success", team_id=team_id)
         return s3_path
