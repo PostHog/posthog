@@ -80,7 +80,18 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                                             key: 'label-placement',
                                             label: () => (
                                                 <div className="flex gap-1 mx-2 mb-2">
-                                                    <LemonLabel className="font-medium mr-1">Label position</LemonLabel>
+                                                    <LemonLabel
+                                                        className="font-medium mr-1 cursor-pointer"
+                                                        onClick={() =>
+                                                            updateGoalLine(
+                                                                goalLineIndex,
+                                                                'position',
+                                                                position === 'start' ? 'end' : 'start'
+                                                            )
+                                                        }
+                                                    >
+                                                        Label position
+                                                    </LemonLabel>
                                                     <LemonSegmentedButton
                                                         value={position ?? 'end'}
                                                         onChange={(value) =>
