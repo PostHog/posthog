@@ -73,7 +73,7 @@
       conv.id,
       conv.source
   
-  LIMIT 100
+  LIMIT 2000
   '''
 # ---
 # name: TestConversionGoalsAggregator.test_campaign_name_mapping_no_mappings
@@ -150,7 +150,7 @@
       conv.id,
       conv.source
   
-  LIMIT 100
+  LIMIT 2000
   '''
 # ---
 # name: TestConversionGoalsAggregator.test_campaign_name_mapping_single_source_sql
@@ -227,7 +227,7 @@
       conv.id,
       conv.source
   
-  LIMIT 100
+  LIMIT 2000
   '''
 # ---
 # name: TestConversionGoalsAggregator.test_campaign_name_mapping_sql_generation
@@ -304,7 +304,7 @@
       conv.id,
       conv.source
   
-  LIMIT 100
+  LIMIT 2000
   '''
 # ---
 # name: TestConversionGoalsAggregator.test_multiple_goals_sql_snapshot
@@ -505,7 +505,7 @@
       conv.id,
       conv.source
   
-  LIMIT 100
+  LIMIT 2000
   '''
 # ---
 # name: TestConversionGoalsAggregator.test_unified_cte_sql_snapshot
@@ -643,6 +643,6 @@
       conv.id,
       conv.source
   
-  LIMIT 100
+  LIMIT 2000
   '''
 # ---
