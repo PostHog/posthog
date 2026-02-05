@@ -146,26 +146,31 @@ export function PropertyValue({
             return options
         }
 
-        // Create a map for quick lookup of options by key
-        const optionsByKey = new Map<string, (typeof options)[0]>()
+        // Create a map of all options (from API) for deduplication
+        const allOptionsMap = new Map<string, (typeof options)[0]>()
+        for (const option of options) {
+            allOptionsMap.set(toString(option.name), option)
+        }
+
+        // Build suggested array in original order, including values not in latest API response
+        const suggested: typeof options = []
         const others: typeof options = []
 
-        for (const option of options) {
-            const optionKey = toString(option.name)
-            if (initialSuggestedValues.set.has(optionKey)) {
-                optionsByKey.set(optionKey, option)
+        for (const key of initialSuggestedValues.orderedKeys) {
+            const existingOption = allOptionsMap.get(key)
+            if (existingOption) {
+                // Value exists in API response
+                suggested.push(existingOption)
+                allOptionsMap.delete(key) // Remove to avoid duplicates later
             } else {
-                others.push(option)
+                // Value not in API response, but keep it as suggested
+                suggested.push({ name: key } as (typeof options)[0])
             }
         }
 
-        // Build suggested array in original order
-        const suggested: typeof options = []
-        for (const key of initialSuggestedValues.orderedKeys) {
-            const option = optionsByKey.get(key)
-            if (option) {
-                suggested.push(option)
-            }
+        // Add remaining API values (non-suggested)
+        for (const option of allOptionsMap.values()) {
+            others.push(option)
         }
 
         // Return suggested first (in original order), then others
