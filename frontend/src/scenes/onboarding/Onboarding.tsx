@@ -20,8 +20,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
-import { OnboardingChat } from './OnboardingChat'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
+import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
@@ -418,7 +418,7 @@ export function Onboarding(): JSX.Element | null {
     // Once a product is selected, fall through to the normal onboarding steps
     if (!productKey) {
         if (isAIChatOnboarding) {
-            return <OnboardingChat />
+            return <OnboardingMax />
         }
         return <ProductSelection />
     }
