@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconAI, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -60,8 +60,8 @@ export function InsightAIAnalysis({ query }: InsightAIAnalysisProps): JSX.Elemen
                     <AIConsentPopoverWrapper onApprove={startAnalysis}>
                         <LemonButton
                             type="primary"
-                            icon={<IconAI />}
                             onClick={startAnalysis}
+                            sideIcon={null}
                             loading={isAnalyzing}
                             disabledReason={
                                 insightDataLoading ? 'Please wait for the insight to finish loading' : undefined
