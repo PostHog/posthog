@@ -176,8 +176,6 @@ export function HogFlowFunctionConfiguration({
         sampleGlobals.groups = {}
     }
 
-    // DEBUG: trace sampleGlobals contents
-
     return (
         <>
             <CyclotronJobInputs
