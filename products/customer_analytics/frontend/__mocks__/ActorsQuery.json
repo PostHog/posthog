@@ -1,0 +1,65 @@
+{
+    "results": [
+        [
+            {
+                "type": "person",
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
+                "uuid": "01234567-89ab-cdef-0123-456789abcdef",
+                "created_at": "2024-06-15T10:30:00Z",
+                "properties": {
+                    "email": "power.user1@example.com",
+                    "$os": "Mac OS X"
+                },
+                "is_identified": true,
+                "name": "power.user1@example.com",
+                "distinct_ids": ["user-001"],
+                "matched_recordings": []
+            },
+            482,
+            "2025-01-14T18:30:00Z"
+        ],
+        [
+            {
+                "type": "person",
+                "id": "12345678-9abc-def0-1234-56789abcdef0",
+                "uuid": "12345678-9abc-def0-1234-56789abcdef0",
+                "created_at": "2024-07-20T14:00:00Z",
+                "properties": {
+                    "email": "power.user2@example.com",
+                    "$os": "Windows"
+                },
+                "is_identified": true,
+                "name": "power.user2@example.com",
+                "distinct_ids": ["user-002"],
+                "matched_recordings": []
+            },
+            347,
+            "2025-01-14T16:45:00Z"
+        ],
+        [
+            {
+                "type": "person",
+                "id": "23456789-abcd-ef01-2345-6789abcdef01",
+                "uuid": "23456789-abcd-ef01-2345-6789abcdef01",
+                "created_at": "2024-08-10T09:15:00Z",
+                "properties": {
+                    "email": "power.user3@example.com",
+                    "$os": "Linux"
+                },
+                "is_identified": true,
+                "name": "power.user3@example.com",
+                "distinct_ids": ["user-003"],
+                "matched_recordings": []
+            },
+            291,
+            "2025-01-14T12:00:00Z"
+        ]
+    ],
+    "columns": ["person_display_name -- Person", "event_count", "last_seen"],
+    "types": ["String", "UInt64", "DateTime64(6, 'UTC')"],
+    "hogql": "SELECT person_display_name, event_count, last_seen FROM actors ORDER BY event_count DESC LIMIT 10",
+    "hasMore": false,
+    "limit": 10,
+    "offset": 0,
+    "timings": []
+}
