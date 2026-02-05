@@ -27,12 +27,12 @@ test.describe('Insights list', () => {
 
         await test.step('search for the insight in the list', async () => {
             await insight.goToList()
-            await page.getByPlaceholder('Search').fill(insightName)
-            await expect(page.getByText(insightName)).toBeVisible()
+            await page.getByPlaceholder('Search for insights').fill(insightName)
+            await expect(page.getByRole('link', { name: insightName })).toBeVisible()
         })
 
         await test.step('open the insight from the list', async () => {
-            await page.getByText(insightName).click()
+            await page.getByRole('link', { name: insightName }).click()
             await expect(page).toHaveURL(/\/insights\/\w+/)
             await expect(insight.topBarName).toContainText(insightName)
         })
@@ -51,8 +51,8 @@ test.describe('Insights list', () => {
 
         await test.step('delete the insight via row menu', async () => {
             await insight.goToList()
-            await page.getByPlaceholder('Search').fill(insightName)
-            await expect(page.getByText(insightName)).toBeVisible()
+            await page.getByPlaceholder('Search for insights').fill(insightName)
+            await expect(page.getByRole('link', { name: insightName })).toBeVisible()
             await page.locator('table tbody tr').first().hover()
             await page.locator('table tbody tr').first().getByTestId('more-button').click()
             await page.getByRole('button', { name: 'Delete' }).click()
@@ -76,8 +76,8 @@ test.describe('Insights list', () => {
 
         await test.step('duplicate the insight via row menu', async () => {
             await insight.goToList()
-            await page.getByPlaceholder('Search').fill(insightName)
-            await expect(page.getByText(insightName)).toBeVisible()
+            await page.getByPlaceholder('Search for insights').fill(insightName)
+            await expect(page.getByRole('link', { name: insightName })).toBeVisible()
             await page.locator('table tbody tr').first().hover()
             await page.locator('table tbody tr').first().getByTestId('more-button').click()
             await page.getByRole('button', { name: 'Duplicate' }).click()
