@@ -150,7 +150,6 @@ export enum AvailableFeature {
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    ENVIRONMENTS = 'environments',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
@@ -611,6 +610,7 @@ export interface ConversationsSettings {
     widget_identification_form_title?: string
     widget_identification_form_description?: string
     widget_placeholder_text?: string
+    widget_position?: 'bottom_left' | 'bottom_right' | 'top_left' | 'top_right'
 }
 
 export interface LogsSettings {
@@ -3793,7 +3793,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
-    status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    status: 'ACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
@@ -3814,6 +3814,7 @@ export interface OrganizationFeatureFlagsCopyBody {
     feature_flag_key: FeatureFlagType['key']
     from_project: TeamType['id']
     target_project_ids: TeamType['id'][]
+    copy_schedule?: boolean
 }
 
 export type OrganizationFeatureFlags = {
@@ -3824,7 +3825,6 @@ export type OrganizationFeatureFlags = {
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
-    INACTIVE = 'inactive',
     STALE = 'stale',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
@@ -3986,6 +3986,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    auth_brand?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -5755,7 +5756,7 @@ export enum SDKTag {
     OTHER = 'Other',
 }
 
-export type SDKInstructionsMap = Partial<Record<SDKKey, ReactNode>>
+export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
 
 export interface AppMetricsUrlParams {
     tab?: AppMetricsTab

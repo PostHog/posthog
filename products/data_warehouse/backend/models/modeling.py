@@ -8,9 +8,11 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.models.team import Team
@@ -21,6 +23,40 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 LabelPath = list[str]
+
+
+class CycleDetectingResolver(Resolver):
+    """A resolver that detects circular dependencies in view references.
+
+    This extends the base Resolver to track which views are currently being
+    resolved, raising a QueryError if a cycle is detected.
+    """
+
+    def __init__(self, *args, initial_view_name: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # seeded with the current view name so its "visited"
+        self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        """Override to add cycle detection when resolving views."""
+        # CTEs are handled entirely by the parent class, but for views we track visited for cycle detection
+        if isinstance(node.table, ast.Field) and self.database is not None:
+            try:
+                database_table = self.database.get_table([str(n) for n in node.table.chain])
+            except QueryError:
+                pass  # falls through to the parent class
+            else:
+                if isinstance(database_table, SavedQuery):
+                    view_name = database_table.name
+                    if view_name in self.resolving_views:
+                        raise QueryError(f"Circular dependency detected in view '{view_name}'")
+                    self.resolving_views.add(view_name)
+                    try:
+                        return super().visit_join_expr(node)
+                    finally:
+                        self.resolving_views.discard(view_name)
+
+        return super().visit_join_expr(node)
 
 
 class LabelTreeField(models.Field):
@@ -90,40 +126,49 @@ LabelTreeField.register_lookup(LabelQuery)
 LabelTreeField.register_lookup(LabelQueryArray)
 
 
-def get_parents_from_model_query(model_query: str) -> set[str]:
+def get_parents_from_model_query(team: Team, model_name: str, model_query: str) -> set[str]:
     """Get parents from a given query.
 
     The parents of a query are any names in the `FROM` clause of the query.
-    """
+    Uses CycleDetectingResolver to detect circular dependencies in view references.
 
-    parents = set()
-    ctes = set()
+    Args:
+        model_query: The HogQL query string to parse
+        team: The team context for database resolution
+        view_name: Optional name of the view being parsed. If provided, cycles back to
+                   this view through other views will be detected.
+    """
+    from posthog.hogql.context import HogQLContext
 
     hogql_query = parse_select(model_query)
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        enable_select_queries=True,
+    )
+    if context.database is None:
+        context.database = Database.create_for(
+            context.team_id,
+            modifiers=context.modifiers,
+            team=context.team,
+        )
 
-    if isinstance(hogql_query, ast.SelectSetQuery):
-        queries = list(extract_select_queries(hogql_query))
-        # for SelectSetQuery, CTEs defined on the first query are accessible
-        # to all queries in the union. we pre-collect these CTE names before processing
-        # to ensure they're not mistakenly added as parents.
-        first_query = queries[0]
-        if first_query.ctes is not None:
-            for name in first_query.ctes.keys():
-                ctes.add(name)
+    # use cycledetectingresolver to resolve types and detect circular view dependencies
+    resolver = CycleDetectingResolver(context=context, dialect="hogql", initial_view_name=model_name)
+    prepared_ast = resolver.visit(hogql_query)
+
+    if prepared_ast is None:
+        return set()
+
+    if isinstance(prepared_ast, ast.SelectSetQuery):
+        queries = list(extract_select_queries(prepared_ast))
     else:
-        queries = [hogql_query]
+        queries = [prepared_ast]
+
+    parents: set[str] = set()
 
     while queries:
         query = queries.pop()
-
-        if query.ctes is not None:
-            for name, cte in query.ctes.items():
-                ctes.add(name)
-
-                if isinstance(cte.expr, ast.SelectSetQuery):
-                    queries.extend(list(extract_select_queries(cte.expr)))
-                elif isinstance(cte.expr, ast.SelectQuery):
-                    queries.append(cte.expr)
 
         join = query.select_from
 
@@ -149,7 +194,7 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
             else:
                 raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
-            if parent_name not in ctes and isinstance(parent_name, str):
+            if isinstance(parent_name, str):
                 parents.add(parent_name)
 
             join = join.next_join
@@ -288,8 +333,9 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             ValueError: If no paths exists for the provided `DataWarehouseSavedQuery`.
         """
         return self.create_leaf_paths_from_query(
-            query=saved_query.query["query"],
             team=saved_query.team,
+            model_name=saved_query.name,
+            model_query=saved_query.query["query"],
             saved_query_id=saved_query.id,
             created_by=saved_query.created_by,
             label=saved_query.id.hex,
@@ -297,8 +343,9 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
     def create_leaf_paths_from_query(
         self,
-        query: str,
         team: Team,
+        model_name: str,
+        model_query: str,
         label: str,
         saved_query_id: uuid.UUID,
         created_by: User | None = None,
@@ -312,7 +359,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             if self.filter(team=team, saved_query_id=saved_query_id).exists():
                 raise ModelPathAlreadyExistsError(saved_query_id.hex)
 
-            parent_paths = self.get_or_create_query_parent_paths(query, team=team)
+            parent_paths = self.get_or_create_query_parent_paths(team, model_name, model_query)
 
             # If we don't have any parent paths then we can treat ourselves as a root node
             # This can happen when creating a query that returns a static set of rows, like a SELECT 1.e
@@ -385,10 +432,12 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             leaf_id = leaf_id.hex
         return self.filter(team=team, path__lquery=f"*.{leaf_id}")
 
-    def get_or_create_query_parent_paths(self, query: str, team: Team) -> list["DataWarehouseModelPath"]:
+    def get_or_create_query_parent_paths(
+        self, team: Team, model_name: str, model_query: str
+    ) -> list["DataWarehouseModelPath"]:
         """Get a list of model paths for a query's parents, creating root nodes if they do not exist."""
         parent_paths = []
-        for parent in get_parents_from_model_query(query):
+        for parent in get_parents_from_model_query(team, model_name, model_query):
             try:
                 parent_query = (
                     DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
@@ -429,7 +478,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 parent_paths.append(parent_path)
                 continue
 
-            raise UnknownParentError(parent, query)
+            raise UnknownParentError(parent, model_query)
 
         return parent_paths
 
@@ -439,16 +488,18 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
             raise ValueError("Provided saved query contains no paths to update.")
 
         self.update_paths_from_query(
-            query=saved_query.query["query"],
             team=saved_query.team,
+            model_name=saved_query.name,
+            model_query=saved_query.query["query"],
             label=saved_query.id.hex,
             saved_query_id=saved_query.id,
         )
 
     def update_paths_from_query(
         self,
-        query: str,
         team: Team,
+        model_name: str,
+        model_query: str,
         label: str,
         saved_query_id: uuid.UUID | None = None,
         table_id: uuid.UUID | None = None,
@@ -462,7 +513,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         This may lead to duplicate paths, so we have to defer constraints, until the end of
         the transaction and clean them up.
         """
-        parents = get_parents_from_model_query(query)
+        parents = get_parents_from_model_query(team, model_name, model_query)
         posthog_table_names = self.get_hogql_database(team).get_posthog_table_names()
 
         base_params = {
@@ -504,7 +555,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                                         .get()
                                     )
                             except (ObjectDoesNotExist, QueryError):
-                                raise UnknownParentError(parent, query)
+                                raise UnknownParentError(parent, model_query)
                             else:
                                 parent_id = parent_table.id.hex
                         else:

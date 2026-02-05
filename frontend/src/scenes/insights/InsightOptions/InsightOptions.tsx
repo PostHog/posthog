@@ -49,6 +49,11 @@ const INSIGHT_PREVIEWS: Partial<Record<InsightType, { static: string; animated: 
         animated:
             'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_01_26_at_19_32_09_d05fabc1ec.gif',
     },
+    [InsightType.SQL]: {
+        static: 'https://res.cloudinary.com/dmukukwp6/image/upload/w_500,c_limit,q_auto,f_auto/Screenshot_2026_02_03_at_20_37_05_07c110094d.png',
+        animated:
+            'https://res.cloudinary.com/dmukukwp6/image/upload/Screen_Recording_2026_02_03_at_20_37_10_f187209e14.gif',
+    },
 }
 
 export const scene: SceneExport = {
