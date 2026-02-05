@@ -15,7 +15,6 @@
 //! - Duplicates are detected by matching these fields
 //! - Similarity scoring tracks how different duplicate events are
 
-mod dedup_result;
 mod duplicate_event;
 mod keys;
 mod metadata;
@@ -25,7 +24,6 @@ mod similarity;
 
 use common_types::RawEvent;
 
-pub use dedup_result::{DeduplicationResult, DeduplicationResultReason, DeduplicationType};
 pub use duplicate_event::DuplicateEvent;
 pub use metadata::{SerializableRawEvent, TimestampMetadata};
 pub use parser::IngestionEventParser;

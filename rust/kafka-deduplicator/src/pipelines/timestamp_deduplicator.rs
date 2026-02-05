@@ -34,10 +34,11 @@ use crate::kafka::offset_tracker::OffsetTracker;
 use crate::metrics_const::PARTITION_BATCH_PROCESSING_DURATION_MS;
 use crate::pipelines::processor::{
     batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
-    get_result_labels, get_store_or_drop, StoreResult,
+    get_result_labels, get_store_or_drop, DeduplicationResult, DuplicateInfo, DuplicateReason,
+    StoreResult,
 };
 use crate::pipelines::traits::{DeduplicationKeyExtractor, DeduplicationMetadata};
-use crate::pipelines::{DeduplicationResult, DuplicateReason, EnrichedEvent};
+use crate::pipelines::EnrichedEvent;
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
@@ -131,7 +132,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
         topic: &str,
         partition: i32,
         events: Vec<&E>,
-    ) -> Result<Vec<DeduplicationResult>> {
+    ) -> Result<Vec<DeduplicationResult<E>>> {
         let batch_start = Instant::now();
 
         // Get the store for this partition (gracefully drops if not found)
@@ -166,7 +167,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
         &self,
         store: &DeduplicationStore,
         events: &[&E],
-    ) -> Result<Vec<DeduplicationResult>> {
+    ) -> Result<Vec<DeduplicationResult<E>>> {
         // Step 1: Extract dedup keys
         let enriched_events: Vec<EnrichedEvent<E>> = events
             .iter()
@@ -187,7 +188,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
         let event_count = enriched_events.len();
         let mut batch_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::with_capacity(event_count);
         let mut writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(event_count);
-        let mut dedup_results: Vec<DeduplicationResult> = Vec::with_capacity(event_count);
+        let mut dedup_results: Vec<DeduplicationResult<E>> = Vec::with_capacity(event_count);
 
         for (idx, enriched) in enriched_events.iter().enumerate() {
             // Check RocksDB first, then batch cache for within-batch duplicates
@@ -214,24 +215,55 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
     }
 
     /// Check if an event is a duplicate based on existing metadata.
+    ///
+    /// Returns the deduplication result and the updated metadata.
+    /// The result includes similarity information and the original event for duplicates.
     fn check_duplicate(
         &self,
         existing_bytes: Option<&[u8]>,
         event: &E,
-    ) -> Result<(DeduplicationResult, E::Metadata)> {
+    ) -> Result<(DeduplicationResult<E>, E::Metadata)> {
         match existing_bytes {
             Some(bytes) => {
                 let mut metadata = E::Metadata::from_bytes(bytes)?;
+
+                // Calculate similarity with the original event
+                let similarity = metadata.calculate_similarity(event)?;
+                let original_event = metadata.get_original_event()?;
                 let is_same_uuid = event.has_same_uuid(&metadata);
+
+                // Update metadata to track this duplicate
                 metadata.update_duplicate(event);
 
-                let result = if is_same_uuid {
-                    DeduplicationResult::ConfirmedDuplicate(DuplicateReason::SameUuid)
+                // Determine the duplicate reason based on similarity and UUID
+                let reason = if similarity.overall_score == 1.0 {
+                    DuplicateReason::SameEvent
+                } else if is_same_uuid {
+                    DuplicateReason::SameUuid
+                } else if similarity.different_fields.len() == 1
+                    && similarity.different_fields[0].0 == "uuid"
+                {
+                    DuplicateReason::OnlyUuidDifferent
                 } else {
-                    DeduplicationResult::PotentialDuplicate
+                    // Different content - this is a potential duplicate, not confirmed
+                    return Ok((
+                        DeduplicationResult::PotentialDuplicate(DuplicateInfo {
+                            reason: DuplicateReason::OnlyUuidDifferent,
+                            similarity,
+                            original_event,
+                        }),
+                        metadata,
+                    ));
                 };
 
-                Ok((result, metadata))
+                Ok((
+                    DeduplicationResult::ConfirmedDuplicate(DuplicateInfo {
+                        reason,
+                        similarity,
+                        original_event,
+                    }),
+                    metadata,
+                ))
             }
             None => {
                 let metadata = E::Metadata::new(event);

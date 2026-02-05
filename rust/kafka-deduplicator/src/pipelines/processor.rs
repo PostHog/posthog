@@ -13,6 +13,7 @@ use crate::metrics_const::{
     DEDUPLICATION_RESULT_COUNTER, MESSAGES_DROPPED_NO_STORE, ROCKSDB_MULTI_GET_DURATION_MS,
     ROCKSDB_PUT_BATCH_DURATION_MS,
 };
+use crate::pipelines::EventSimilarity;
 use crate::store::deduplication_store::{DeduplicationStore, TimestampBatchEntry};
 use crate::store_manager::{StoreError, StoreManager};
 
@@ -27,6 +28,17 @@ pub enum DuplicateReason {
     OnlyUuidDifferent,
 }
 
+/// Metadata about a duplicate event detection.
+#[derive(Debug)]
+pub struct DuplicateInfo<E> {
+    /// Why this is considered a duplicate
+    pub reason: DuplicateReason,
+    /// Similarity between the new event and the original
+    pub similarity: EventSimilarity,
+    /// The original event that was stored
+    pub original_event: E,
+}
+
 /// Deduplication result shared across all pipelines.
 ///
 /// This type captures the outcome of deduplication checks:
@@ -35,22 +47,48 @@ pub enum DuplicateReason {
 /// - `PotentialDuplicate`: Same dedup key but different content
 /// - `Skipped`: Processing was skipped due to an error
 #[derive(Debug)]
-pub enum DeduplicationResult {
+pub enum DeduplicationResult<E> {
     /// First time seeing this event
     New,
-    /// Confirmed duplicate with reason
-    ConfirmedDuplicate(DuplicateReason),
+    /// Confirmed duplicate with full info
+    ConfirmedDuplicate(DuplicateInfo<E>),
     /// Same dedup key but different content (not confirmed as duplicate)
-    PotentialDuplicate,
+    PotentialDuplicate(DuplicateInfo<E>),
     /// Processing was skipped (error)
     Skipped,
 }
 
-impl DeduplicationResult {
+impl<E> DeduplicationResult<E> {
     /// Returns true only for confirmed duplicates.
     /// Potential duplicates are NOT treated as duplicates for filtering purposes.
     pub fn is_duplicate(&self) -> bool {
         matches!(self, DeduplicationResult::ConfirmedDuplicate(_))
+    }
+
+    /// Get the similarity info if this is a duplicate.
+    pub fn get_similarity(&self) -> Option<&EventSimilarity> {
+        match self {
+            DeduplicationResult::ConfirmedDuplicate(info) => Some(&info.similarity),
+            DeduplicationResult::PotentialDuplicate(info) => Some(&info.similarity),
+            _ => None,
+        }
+    }
+
+    /// Get the original event if this is a duplicate.
+    pub fn get_original_event(&self) -> Option<&E> {
+        match self {
+            DeduplicationResult::ConfirmedDuplicate(info) => Some(&info.original_event),
+            DeduplicationResult::PotentialDuplicate(info) => Some(&info.original_event),
+            _ => None,
+        }
+    }
+
+    /// Get the duplicate reason if this is a confirmed duplicate.
+    pub fn get_reason(&self) -> Option<DuplicateReason> {
+        match self {
+            DeduplicationResult::ConfirmedDuplicate(info) => Some(info.reason),
+            _ => None,
+        }
     }
 }
 
@@ -61,21 +99,21 @@ pub struct DeduplicationResultLabels {
 }
 
 /// Get metric labels for a deduplication result.
-pub fn get_result_labels(result: &DeduplicationResult) -> DeduplicationResultLabels {
+pub fn get_result_labels<E>(result: &DeduplicationResult<E>) -> DeduplicationResultLabels {
     match result {
         DeduplicationResult::New => DeduplicationResultLabels {
             result_type: "new",
             reason: None,
         },
-        DeduplicationResult::ConfirmedDuplicate(reason) => DeduplicationResultLabels {
+        DeduplicationResult::ConfirmedDuplicate(info) => DeduplicationResultLabels {
             result_type: "confirmed_duplicate",
-            reason: Some(match reason {
+            reason: Some(match info.reason {
                 DuplicateReason::SameEvent => "same_event",
                 DuplicateReason::SameUuid => "same_uuid",
                 DuplicateReason::OnlyUuidDifferent => "only_uuid_different",
             }),
         },
-        DeduplicationResult::PotentialDuplicate => DeduplicationResultLabels {
+        DeduplicationResult::PotentialDuplicate(_) => DeduplicationResultLabels {
             result_type: "potential_duplicate",
             reason: None,
         },
