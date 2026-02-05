@@ -510,7 +510,7 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [34]
+                concurrency: [38]
                 group:
                     [
                         1,
@@ -547,6 +547,10 @@ jobs:
                         32,
                         33,
                         34,
+                        35,
+                        36,
+                        37,
+                        38,
                     ]
                 include:
                     - segment: 'Core'
