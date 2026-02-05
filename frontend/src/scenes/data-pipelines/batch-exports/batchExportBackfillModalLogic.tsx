@@ -177,7 +177,11 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         dayOfWeekName: [
             (s) => [s.dayOfWeek],
             (dayOfWeek: number | null): string | null => {
-                return dayOfWeek ? dayOptions[dayOfWeek].label : null
+                if (dayOfWeek === null) {
+                    return null
+                }
+                let dayOfWeekName = dayOptions[dayOfWeek].label
+                return dayOfWeekName
             },
         ],
         hourOffset: [
