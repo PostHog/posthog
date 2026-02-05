@@ -1,5 +1,6 @@
 from typing import cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from rest_framework import serializers, status, viewsets
@@ -269,20 +270,22 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
-            LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).update(
-                provider_key=replacement_key
-            )
+            with transaction.atomic():
+                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).update(
+                    provider_key=replacement_key
+                )
+                return super().destroy(request, *args, **kwargs)
         else:
             model_config_ids = list(
                 LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
                     "id", flat=True
                 )
             )
-            Evaluation.objects.filter(
-                model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
-            ).update(enabled=False)
-
-        return super().destroy(request, *args, **kwargs)
+            with transaction.atomic():
+                Evaluation.objects.filter(
+                    model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
+                ).update(enabled=False)
+                return super().destroy(request, *args, **kwargs)
 
 
 class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
