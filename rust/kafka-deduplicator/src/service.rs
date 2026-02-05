@@ -365,9 +365,10 @@ impl KafkaDeduplicatorService {
 
         // Create head fetcher for fetching head-of-log from output topic after checkpoint imports
         let head_fetcher = output_topic.as_ref().map(|_| {
-            let fetch_config = ConsumerConfigBuilder::new_for_fetch(&self.config.kafka_hosts)
-                .with_tls(self.config.kafka_tls)
-                .build_for_fetch();
+            let fetch_config =
+                ConsumerConfigBuilder::for_manual_assignment(&self.config.kafka_hosts)
+                    .with_tls(self.config.kafka_tls)
+                    .build();
             let timeout = Duration::from_millis(self.config.head_fetch_timeout_ms);
             Arc::new(HeadFetcher::new(fetch_config, timeout))
         });
@@ -384,32 +385,30 @@ impl KafkaDeduplicatorService {
         ));
 
         // Create consumer config using the kafka module's builder
-        let consumer_config =
-            ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
-                .with_tls(self.config.kafka_tls)
-                .with_max_partition_fetch_bytes(
-                    self.config.kafka_consumer_max_partition_fetch_bytes,
-                )
-                .with_topic_metadata_refresh_interval_ms(
-                    self.config.kafka_topic_metadata_refresh_interval_ms,
-                )
-                .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
-                .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
-                .with_offset_reset(&self.config.kafka_consumer_offset_reset)
-                // Fetch settings for throughput optimization
-                .with_fetch_min_bytes(self.config.kafka_consumer_fetch_min_bytes)
-                .with_fetch_max_bytes(self.config.kafka_consumer_fetch_max_bytes)
-                .with_fetch_wait_max_ms(self.config.kafka_consumer_fetch_wait_max_ms)
-                // Prefetch settings for batching efficiency
-                .with_queued_min_messages(self.config.kafka_consumer_queued_min_messages)
-                .with_queued_max_messages_kbytes(
-                    self.config.kafka_consumer_queued_max_messages_kbytes,
-                )
-                // Consumer group membership settings
-                .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
-                .with_session_timeout_ms(self.config.kafka_session_timeout_ms)
-                .with_heartbeat_interval_ms(self.config.kafka_heartbeat_interval_ms)
-                .build();
+        let consumer_config = ConsumerConfigBuilder::for_group_consumer(
+            &self.config.kafka_hosts,
+            &self.config.kafka_consumer_group,
+        )
+        .with_tls(self.config.kafka_tls)
+        .with_max_partition_fetch_bytes(self.config.kafka_consumer_max_partition_fetch_bytes)
+        .with_topic_metadata_refresh_interval_ms(
+            self.config.kafka_topic_metadata_refresh_interval_ms,
+        )
+        .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
+        .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
+        .with_offset_reset(&self.config.kafka_consumer_offset_reset)
+        // Fetch settings for throughput optimization
+        .with_fetch_min_bytes(self.config.kafka_consumer_fetch_min_bytes)
+        .with_fetch_max_bytes(self.config.kafka_consumer_fetch_max_bytes)
+        .with_fetch_wait_max_ms(self.config.kafka_consumer_fetch_wait_max_ms)
+        // Prefetch settings for batching efficiency
+        .with_queued_min_messages(self.config.kafka_consumer_queued_min_messages)
+        .with_queued_max_messages_kbytes(self.config.kafka_consumer_queued_max_messages_kbytes)
+        // Consumer group membership settings
+        .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
+        .with_session_timeout_ms(self.config.kafka_session_timeout_ms)
+        .with_heartbeat_interval_ms(self.config.kafka_heartbeat_interval_ms)
+        .build();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

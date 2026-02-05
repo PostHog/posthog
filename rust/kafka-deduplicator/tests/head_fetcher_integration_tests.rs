@@ -111,7 +111,7 @@ fn create_head_fetcher() -> HeadFetcher {
 
 /// Create a HeadFetcher with custom timeout
 fn create_head_fetcher_with_timeout(timeout: Duration) -> HeadFetcher {
-    let config = ConsumerConfigBuilder::new_for_fetch(KAFKA_BROKERS).build_for_fetch();
+    let config = ConsumerConfigBuilder::for_manual_assignment(KAFKA_BROKERS).build();
     HeadFetcher::new(config, timeout)
 }
 

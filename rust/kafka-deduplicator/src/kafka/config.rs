@@ -1,13 +1,20 @@
 use rdkafka::ClientConfig;
 
-/// Default Kafka consumer configuration builder with sensible defaults for PostHog services
+/// Kafka consumer configuration builder with sensible defaults for PostHog services.
+///
+/// Use the factory methods to create a builder for your specific use case:
+/// - `for_group_consumer()` - Long-lived consumers that participate in consumer groups
+/// - `for_manual_assignment()` - One-shot fetch operations using manual partition assignment
 pub struct ConsumerConfigBuilder {
     config: ClientConfig,
 }
 
 impl ConsumerConfigBuilder {
-    /// Create a new consumer config builder with PostHog defaults
-    pub fn new(bootstrap_servers: &str, group_id: &str) -> Self {
+    /// Create a consumer config builder for long-lived consumers that participate in consumer groups.
+    ///
+    /// Includes sensible defaults for group membership, session timeouts, and offset management.
+    /// Use this for `BatchConsumer` and other consumers that use `subscribe()`.
+    pub fn for_group_consumer(bootstrap_servers: &str, group_id: &str) -> Self {
         let mut config = ClientConfig::new();
 
         // Required settings
@@ -23,6 +30,28 @@ impl ConsumerConfigBuilder {
             .set("session.timeout.ms", "60000")
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
+
+        Self { config }
+    }
+
+    /// Create a minimal consumer config builder for one-shot fetch operations.
+    ///
+    /// Uses a placeholder group.id since rdkafka requires it even for manual assignment.
+    /// The group is never actually used for coordination since we use `assign()` instead
+    /// of `subscribe()`. Use this for `HeadFetcher` and similar one-shot operations.
+    pub fn for_manual_assignment(bootstrap_servers: &str) -> Self {
+        let mut config = ClientConfig::new();
+
+        config.set("bootstrap.servers", bootstrap_servers);
+
+        // rdkafka requires group.id even for manual assign() - use placeholder
+        config.set("group.id", "manual-assignment-no-group");
+
+        // Minimal defaults for fetch operations
+        config
+            .set("enable.auto.offset.store", "false")
+            .set("enable.auto.commit", "false")
+            .set("socket.timeout.ms", "10000");
 
         Self { config }
     }
@@ -137,40 +166,5 @@ impl ConsumerConfigBuilder {
     /// Build the final configuration
     pub fn build(self) -> ClientConfig {
         self.config
-    }
-
-    /// Build a minimal config for one-shot fetch operations.
-    ///
-    /// Removes group.instance.id (static membership) since manual assignment via `assign()`
-    /// doesn't use consumer group coordination. Keeps a placeholder group.id since
-    /// rdkafka requires it. This is used by `HeadFetcher` for fetching head-of-log messages.
-    pub fn build_for_fetch(mut self) -> ClientConfig {
-        // Remove group.instance.id - static membership not needed for manual assign
-        self.config.remove("group.instance.id");
-        self.config
-    }
-}
-
-impl ConsumerConfigBuilder {
-    /// Create a minimal consumer config builder for one-shot fetch operations.
-    ///
-    /// Uses a placeholder group.id since rdkafka requires it even for manual assignment.
-    /// The group is never actually used for coordination since we use `assign()` instead
-    /// of `subscribe()`.
-    pub fn new_for_fetch(bootstrap_servers: &str) -> Self {
-        let mut config = ClientConfig::new();
-
-        config.set("bootstrap.servers", bootstrap_servers);
-
-        // rdkafka requires group.id even for manual assign() - use placeholder
-        config.set("group.id", "head-fetcher-no-group");
-
-        // Minimal defaults for fetch operations
-        config
-            .set("enable.auto.offset.store", "false")
-            .set("enable.auto.commit", "false")
-            .set("socket.timeout.ms", "10000");
-
-        Self { config }
     }
 }
