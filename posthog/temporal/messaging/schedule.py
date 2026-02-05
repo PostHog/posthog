@@ -25,8 +25,8 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
 )
 
 # Default configuration for realtime cohort calculation coordinator
-DEFAULT_COORDINATOR_PARALLELISM = 10
-DEFAULT_WORKFLOWS_PER_BATCH = 5
+DEFAULT_COORDINATOR_PARALLELISM = 6
+DEFAULT_WORKFLOWS_PER_BATCH = 2
 DEFAULT_BATCH_DELAY_MINUTES = 5
 
 # PostHog team ID for realtime cohort calculation processing
