@@ -63,12 +63,12 @@ export function SavedInsightsFilters({
                         >
                             Favorites
                         </LemonButton>
+                        <FeatureFlagInsightsToggle
+                            hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
+                            onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
+                        />
                     </>
                 )}
-                <FeatureFlagInsightsToggle
-                    hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
-                    onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
-                />
             </div>
         </div>
     )

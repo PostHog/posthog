@@ -28,10 +28,9 @@ import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 interface SavedInsightsTableProps {
     renderActionColumn?: (insight: QueryBasedInsightModel) => JSX.Element
-    title?: string
 }
 
-export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
+export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTableProps): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
     const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage } =
         useValues(addSavedInsightsModalLogic)
@@ -160,23 +159,10 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
     ]
 
     return (
-        <div className="saved-insights">
+        <div className="saved-insights overflow-hidden">
             {isExperimentEnabled ? (
                 <>
-                    {title ? (
-                        <div className="flex items-center gap-4 mb-2">
-                            <h4 className="font-semibold m-0 shrink-0">{title}</h4>
-                            <div className="flex-1">
-                                <SavedInsightsFilters
-                                    filters={filters}
-                                    setFilters={setModalFilters}
-                                    showQuickFilters={false}
-                                />
-                            </div>
-                        </div>
-                    ) : (
-                        <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
-                    )}
+                    <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
                     <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-secondary">

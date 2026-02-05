@@ -47,7 +47,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                     <div className="flex items-center gap-3 p-4 bg-surface-secondary rounded-lg">
                         <IconPlus className="text-2xl text-secondary shrink-0" />
                         <div className="flex-1">
-                            <div className="font-semibold text-base">Create new insight</div>
+                            <div className="font-semibold text-base">Create a new insight</div>
                             <div className="text-sm text-secondary">
                                 Build a new insight and add it to this dashboard
                             </div>
