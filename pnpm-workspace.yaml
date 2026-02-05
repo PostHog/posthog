@@ -12,7 +12,7 @@ packages:
     - nodejs/src/scripts
     - products/*
     - docs/onboarding
-    - services/mcp/typescript
+    - services/mcp
     - rust/cyclotron-node
 
 # posthog-js needs to be excluded because we only update our CDN

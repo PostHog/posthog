@@ -89,13 +89,7 @@ export const groupsModel = kea<groupsModelType>([
                     (groupTypesRaw ?? []).map((groupType) => [groupType.group_type_index, groupType])
                 ),
         ],
-        groupTypesLoading: [
-            (s) => [s.groupTypesRawLoading],
-            (groupTypesRawLoading) => groupTypesRawLoading,
-            {
-                devModeChecks: { identityFunctionCheck: 'never' },
-            },
-        ],
+        groupTypesLoading: [(s) => [s.groupTypesRawLoading], (groupTypesRawLoading) => groupTypesRawLoading],
 
         showGroupsOptions: [
             (s) => [s.groupsAccessStatus, s.groupsEnabled, s.groupTypes],
