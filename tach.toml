@@ -1,7 +1,6 @@
 # ============================================================================
-# NOTE: Tach is currently NOT enforced in CI
+# Tach module boundary config — enforced in CI (check-migrations job)
 # ============================================================================
-# This config documents existing coupling and provides infrastructure for future isolation.
 #
 # Current state:
 # - All existing products in 'non_isolated' layer (can import from each other)
@@ -9,15 +8,12 @@
 # - Zero violations = current code is blessed as-is
 #
 # For new isolated products:
-# - Add with layer="products" to prevent coupling
+# - Run `hogli product:bootstrap <name>` (auto-adds with layer="products")
 # - See commented example at bottom of file
 #
-# Local development usage:
+# Local development:
 #   tach check        # Verify you haven't violated boundaries
-#   tach test         # Run only tests affected by your changes
 #   tach sync         # Update dependencies from actual imports
-#
-# To enforce in CI: Add to GitHub Actions workflow after team alignment
 # ============================================================================
 
 interfaces = []

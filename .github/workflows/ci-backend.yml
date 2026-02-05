@@ -317,7 +317,8 @@ jobs:
                   bin/check_postgres_up
 
             - name: Run product tests
-              run: pnpm turbo run backend:test --output-logs=new-only
+              # Sequential execution to avoid parallel tests fighting over shared DB
+              run: pnpm turbo run backend:test --output-logs=new-only --concurrency=1
 
     check-migrations:
         needs: [changes]
@@ -412,6 +413,9 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Check module boundaries (tach)
+              run: tach check
 
             - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
