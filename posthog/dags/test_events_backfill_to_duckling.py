@@ -474,7 +474,8 @@ class TestDeleteRangePredicate:
             deleted = result[0] if result else 0
             assert deleted == expected_deleted
 
-            remaining = conn.execute("SELECT count(*) FROM events").fetchone()[0]
+            row = conn.execute("SELECT count(*) FROM events").fetchone()
+            remaining = row[0] if row else 0
             assert remaining == expected_remaining
         finally:
             conn.close()
