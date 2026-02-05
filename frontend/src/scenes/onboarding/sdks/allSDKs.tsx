@@ -1,7 +1,6 @@
 /**
  * SDK logos can be either:
- * - Cloudinary URLs (string) - preferred, for logos hosted on Cloudinary CDN
- * - SVG/PNG files (imported as images) - for logos not yet on Cloudinary
+ * - SVG/PNG files (imported as images) - for logos with fixed colors that don't need dark mode support
  * - TSX components (React.memo) - for logos that need Tailwind's `dark:fill-white` class to work,
  *   since CSS classes inside SVG files don't apply when rendered as <img> tags
  */
@@ -20,6 +19,7 @@ import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import { RudderstackLogo } from './logos/RudderstackLogo'
 import { SentryLogo } from './logos/SentryLogo'
+import { VercelLogo } from './logos/VercelLogo'
 import { WordpressLogo } from './logos/WordpressLogo'
 import androidImage from './logos/android.svg'
 import angularImage from './logos/angular.svg'
@@ -31,11 +31,13 @@ import gatsbyImage from './logos/gatsby.svg'
 import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
+import heliconeImage from './logos/helicone.svg'
 import htmlImage from './logos/html.svg'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
 import langfuseImage from './logos/langfuse.svg'
 import laravelImage from './logos/laravel.svg'
+import litellmImage from './logos/litellm.png'
 import moengageImage from './logos/moengage.png'
 import n8nImage from './logos/n8n.svg'
 import nextjsImage from './logos/nextjs.svg'
@@ -182,247 +184,65 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/go',
     },
     {
+        name: 'Helicone',
+        key: SDKKey.HELICONE,
+        tags: [SDKTag.LLM],
+        image: heliconeImage,
+        docsLink: 'https://posthog.com/docs/llm-analytics/integrations/helicone-posthog',
+    },
+    {
         name: 'OpenAI',
         key: SDKKey.OPENAI,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER, SDKTag.FRAMEWORK],
+        tags: [SDKTag.LLM],
         image: <OpenAILogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai',
     },
     {
-        name: 'OpenAI Agents',
-        key: SDKKey.OPENAI_AGENTS,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: <OpenAILogo />,
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai-agents',
-    },
-    {
         name: 'Anthropic',
         key: SDKKey.ANTHROPIC,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
+        tags: [SDKTag.LLM],
         image: <AnthropicLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/anthropic',
     },
     {
         name: 'Google Gemini',
         key: SDKKey.GOOGLE_GEMINI,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
+        tags: [],
         image: geminiImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/google',
     },
     {
         name: 'Vercel AI SDK',
         key: SDKKey.VERCEL_AI,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
+        tags: [],
+        image: <VercelLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/vercel-ai',
     },
     {
         name: 'LangChain',
         key: SDKKey.LANGCHAIN,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
+        tags: [],
         image: <LangChainLogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/langchain',
     },
     {
         name: 'LiteLLM',
         key: SDKKey.LITELLM,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK, SDKTag.GATEWAY],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/litellmicon_a2805d75e5.png',
+        tags: [],
+        image: litellmImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/litellm',
     },
     {
         name: 'OpenRouter',
         key: SDKKey.OPENROUTER,
-        tags: [SDKTag.LLM, SDKTag.GATEWAY],
+        tags: [],
         image: openrouterImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
     },
     {
-        name: 'DeepSeek',
-        key: SDKKey.DEEPSEEK,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/deepseek_df02608124.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/deepseek',
-    },
-    {
-        name: 'LangGraph',
-        key: SDKKey.LANGGRAPH,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/langgraph_2f91869ac8.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/langgraph',
-    },
-    {
-        name: 'Ollama',
-        key: SDKKey.OLLAMA,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/ollama_ff56896a1f.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/ollama',
-    },
-    {
-        name: 'Azure OpenAI',
-        key: SDKKey.AZURE_OPENAI,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/azure_openai_884ba0124a.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/azure-openai',
-    },
-    {
-        name: 'Groq',
-        key: SDKKey.GROQ,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/groq_a0ed539e47.png',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/groq',
-    },
-    {
-        name: 'Mistral',
-        key: SDKKey.MISTRAL,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mistral_551c75e2dd.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mistral',
-    },
-    {
-        name: 'LlamaIndex',
-        key: SDKKey.LLAMAINDEX,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/llamaindex_258912007e.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/llamaindex',
-    },
-    {
-        name: 'CrewAI',
-        key: SDKKey.CREWAI,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/crewai_c23c66095b.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/crewai',
-    },
-    {
-        name: 'Instructor',
-        key: SDKKey.INSTRUCTOR,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/instructor_93242d0c60.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/instructor',
-    },
-    {
-        name: 'Pydantic AI',
-        key: SDKKey.PYDANTIC_AI,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/pydantic_ai_55029bc39b.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/pydantic-ai',
-    },
-    {
-        name: 'xAI',
-        key: SDKKey.XAI,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/xai_77b917714b.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/xai',
-    },
-    {
-        name: 'Perplexity',
-        key: SDKKey.PERPLEXITY,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/perplexity_0af900d054.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/perplexity',
-    },
-    {
-        name: 'Together AI',
-        key: SDKKey.TOGETHER_AI,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/together_ai_49ac1a57fb.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/together-ai',
-    },
-    {
-        name: 'Fireworks AI',
-        key: SDKKey.FIREWORKS_AI,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/fireworks_ai_a3d8a59e96.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/fireworks-ai',
-    },
-    {
-        name: 'Cohere',
-        key: SDKKey.COHERE,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cohere_0ddf02d545.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cohere',
-    },
-    {
-        name: 'Hugging Face',
-        key: SDKKey.HUGGING_FACE,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/hugging_face_ae0a406f62.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/hugging-face',
-    },
-    {
-        name: 'DSPy',
-        key: SDKKey.DSPY,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/dspy_5e947378e0.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dspy',
-    },
-    {
-        name: 'AutoGen',
-        key: SDKKey.AUTOGEN,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/autogen_a8c56d013e.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/autogen',
-    },
-    {
-        name: 'Semantic Kernel',
-        key: SDKKey.SEMANTIC_KERNEL,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/semantic_kernel_07a9ab4646.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/semantic-kernel',
-    },
-    {
-        name: 'smolagents',
-        key: SDKKey.SMOLAGENTS,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/smolagents_84211ed873.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/smolagents',
-    },
-    {
-        name: 'Mastra',
-        key: SDKKey.MASTRA,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mastra_1cf5ad1556.png',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mastra',
-    },
-    {
-        name: 'Mirascope',
-        key: SDKKey.MIRASCOPE,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/mirascope_33f38e04ea.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/mirascope',
-    },
-    {
-        name: 'Cerebras',
-        key: SDKKey.CEREBRAS,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cerebras_4d953c1c2b.png',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cerebras',
-    },
-    {
-        name: 'Vercel AI Gateway',
-        key: SDKKey.VERCEL_AI_GATEWAY,
-        tags: [SDKTag.LLM, SDKTag.GATEWAY],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/vercel-ai-gateway',
-    },
-    {
-        name: 'Portkey',
-        key: SDKKey.PORTKEY,
-        tags: [SDKTag.LLM, SDKTag.GATEWAY],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/portkey_15a83f0395.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/portkey',
-    },
-    {
-        name: 'Helicone',
-        key: SDKKey.HELICONE,
-        tags: [SDKTag.LLM, SDKTag.GATEWAY],
-        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/helicone_7c41fa4c2d.svg',
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/helicone',
-    },
-    {
         name: 'Manual Capture',
         key: SDKKey.MANUAL_CAPTURE,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK, SDKTag.MODEL_PROVIDER, SDKTag.GATEWAY],
+        tags: [],
         image: (
             <span className="flex w-8 pb-3">
                 <Logomark />
@@ -447,7 +267,7 @@ export const ALL_SDKS: SDK[] = [
     {
         name: 'Langfuse',
         key: SDKKey.LANGFUSE,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
+        tags: [SDKTag.LLM],
         image: langfuseImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/langfuse-posthog',
     },
@@ -526,7 +346,7 @@ export const ALL_SDKS: SDK[] = [
     {
         name: 'Traceloop',
         key: SDKKey.TRACELOOP,
-        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
+        tags: [SDKTag.LLM],
         image: traceloopImage,
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/traceloop-posthog',
     },
