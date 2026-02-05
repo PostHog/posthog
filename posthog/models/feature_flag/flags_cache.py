@@ -83,10 +83,8 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     Returns:
         dict: {"flags": [...]} where flags is a list of flag dictionaries
     """
-    flags = get_feature_flags(team=team)
-    # Exclude encrypted remote config flags - they can only be accessed via the
-    # dedicated /remote_config endpoint which handles decryption
-    flags = [f for f in flags if not (f.is_remote_configuration and f.has_encrypted_payloads)]
+    # Exclude encrypted remote config flags at DB level for efficiency
+    flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
     flags_data = serialize_feature_flags(flags)
 
     logger.info(
