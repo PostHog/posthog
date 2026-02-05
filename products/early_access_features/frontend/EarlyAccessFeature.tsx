@@ -678,7 +678,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
             columns: {
                 person_display_name: {
                     render: ({ value }) => {
-                        const person = value as { id: string; distinct_id: string; display_name: string }
+                        const person = value as { id: string; display_name: string }
                         return (
                             <CopyToClipboardInline
                                 explicitValue={person.display_name}
@@ -687,7 +687,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
                             >
                                 <PersonDisplay
                                     withIcon
-                                    person={{ id: person.id, distinct_id: person.distinct_id }}
+                                    person={{ id: person.id }}
                                     displayName={person.display_name}
                                     noPopover
                                 />
