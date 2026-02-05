@@ -5,7 +5,7 @@ use crate::{
     stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
-        event::ExceptionProperties,
+        exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
         Exception, ExceptionList,
     },

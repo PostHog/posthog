@@ -6,7 +6,7 @@ use crate::{
     metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
     stages::{grouping::GroupingStage, pipeline::ExceptionEventHandledError},
     types::{
-        event::ExceptionProperties,
+        exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
     },
 };

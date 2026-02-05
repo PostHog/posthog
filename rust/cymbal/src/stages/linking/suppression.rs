@@ -6,7 +6,7 @@ use crate::{
     metric_consts::{ISSUE_SUPPRESSION_OPERATOR, SUPPRESSED_ISSUE_DROPPED_EVENTS},
     stages::{linking::LinkingStage, pipeline::ExceptionEventHandledError},
     types::{
-        event::ExceptionProperties,
+        exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
     },
 };

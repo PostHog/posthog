@@ -5,8 +5,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
-    fingerprinting::FingerprintRecordPart, frames::releases::ReleaseInfo, issue_resolution::Issue,
-    types::ExceptionList,
+    error::UnhandledError,
+    fingerprinting::FingerprintRecordPart,
+    frames::releases::ReleaseInfo,
+    issue_resolution::Issue,
+    types::{ExceptionList, OutputErrProps},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,4 +64,13 @@ pub struct ExceptionProperties {
 
     #[serde(skip)]
     pub issue: Option<Issue>,
+}
+
+impl ExceptionProperties {
+    pub fn to_output(&self, issue_id: Uuid) -> Result<OutputErrProps, UnhandledError> {
+        let mut cloned_props = self.clone();
+        cloned_props.issue_id.replace(issue_id);
+        let json_value = serde_json::to_value(cloned_props)?;
+        serde_json::from_value(json_value).map_err(|e| e.into())
+    }
 }

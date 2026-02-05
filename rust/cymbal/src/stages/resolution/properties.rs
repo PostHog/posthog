@@ -3,7 +3,7 @@ use crate::{
     metric_consts::PROPERTIES_RESOLVER_OPERATOR,
     stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
     types::{
-        event::ExceptionProperties,
+        exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
     },
 };

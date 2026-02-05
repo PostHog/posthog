@@ -10,7 +10,7 @@ use crate::{
     stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
     types::{
         batch::Batch,
-        event::ExceptionProperties,
+        exception_properties::ExceptionProperties,
         stage::{Stage, StageResult},
     },
 };

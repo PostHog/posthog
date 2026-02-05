@@ -18,7 +18,7 @@ use crate::{
         post_processing::PostProcessingStage, pre_processing::PreProcessingStage,
         resolution::ResolutionStage,
     },
-    types::{batch::Batch, event::ExceptionProperties, stage::Stage},
+    types::{batch::Batch, exception_properties::ExceptionProperties, stage::Stage},
 };
 
 pub struct ExceptionEventPipeline {

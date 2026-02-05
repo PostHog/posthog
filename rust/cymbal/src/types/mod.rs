@@ -20,7 +20,7 @@ mod exception;
 mod stacktrace;
 
 pub mod batch;
-pub mod event;
+pub mod exception_properties;
 pub mod operator;
 pub mod stage;
 
