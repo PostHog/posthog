@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { userPreferencesLogicType } from './userPreferencesLogicType'
 
-type SqlEditorNewTabPreference = 'search' | 'editor'
+export type SqlEditorNewTabPreference = 'search' | 'editor'
 
 // This logic is for browser stored user preferences where it's not super important that it is persisted to the server
 export const userPreferencesLogic = kea<userPreferencesLogicType>([

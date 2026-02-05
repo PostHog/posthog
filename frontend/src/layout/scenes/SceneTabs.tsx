@@ -36,7 +36,7 @@ export function SceneTabs(): JSX.Element {
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
-    const { sqlEditorNewTabOpensSearch } = useValues(userPreferencesLogic)
+    const { sqlEditorNewTabPreference } = useValues(userPreferencesLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -125,10 +125,8 @@ export function SceneTabs(): JSX.Element {
                                 onClick={(e) => {
                                     e.preventDefault()
                                     const currentPath = router.values.location.pathname
-                                    // If on /sql route and user prefers SQL tabs, open a new /sql tab
-                                    // Otherwise default to /search (null)
                                     const isSqlRoute = currentPath.endsWith('/sql')
-                                    const openSqlTab = isSqlRoute && !sqlEditorNewTabOpensSearch
+                                    const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
                                     newTab(openSqlTab ? '/sql' : null)
                                 }}
                                 tooltip="New tab"
