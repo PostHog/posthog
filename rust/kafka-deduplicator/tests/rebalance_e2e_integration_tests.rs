@@ -331,6 +331,8 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
             router.clone(),
             offset_tracker.clone(),
             Some(importer),
+            None,
+            None,
         ));
 
     // Create routing processor
@@ -456,6 +458,8 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
             coordinator,
             offset_tracker.clone(),
             None,
+            None,
+            None,
         );
 
     // Assign partition 0
@@ -543,6 +547,8 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
             store_manager.clone(),
             coordinator,
             offset_tracker.clone(),
+            None,
+            None,
             None,
         );
 

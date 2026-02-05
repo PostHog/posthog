@@ -3,6 +3,7 @@ pub mod batch_consumer;
 pub mod batch_context;
 pub mod batch_message;
 pub mod config;
+pub mod head_fetcher;
 pub mod metrics_consts;
 pub mod offset_tracker;
 pub mod partition_router;
@@ -16,6 +17,7 @@ pub mod test_utils;
 
 // Public API
 pub use config::ConsumerConfigBuilder;
+pub use head_fetcher::HeadFetcher;
 pub use offset_tracker::{OffsetTracker, OffsetTrackerError};
 pub use partition_router::{PartitionRouter, PartitionRouterConfig};
 pub use partition_worker::{PartitionBatch, PartitionWorker, PartitionWorkerConfig};

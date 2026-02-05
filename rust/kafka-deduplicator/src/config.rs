@@ -140,6 +140,12 @@ pub struct Config {
     // 5 minutes - max time between poll() calls before consumer leaves group
     pub kafka_max_poll_interval_ms: u32,
 
+    // Timeout for head-of-log fetch operations (used after checkpoint import to
+    // fetch latest message from output topic for validation). Applies to each
+    // Kafka operation: watermark fetch, seek, and poll.
+    #[envconfig(default = "10000")] // 10 seconds
+    pub head_fetch_timeout_ms: u64,
+
     // Partition worker channel buffer size for pipeline parallelism
     #[envconfig(default = "10")]
     pub partition_worker_channel_buffer_size: usize,
