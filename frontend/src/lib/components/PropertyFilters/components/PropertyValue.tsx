@@ -86,8 +86,6 @@ export function PropertyValue({
     // This will require detecting isOperatorSemver(operator) and validating the input
     // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
-    // Track initial suggested values to keep them at the top of search results
-    // Store both the set for quick lookup and array to preserve original order
     const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
         set: Set<string>
         orderedKeys: string[]
@@ -123,7 +121,6 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    // Capture initial suggested values when they first load (with no search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
             const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
@@ -134,47 +131,39 @@ export function PropertyValue({
         }
     }, [propertyOptions?.status, propertyOptions?.values])
 
-    // Reset initial suggested values when property key changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
     }, [propertyKey])
 
-    // Sort options to keep initially suggested values at the top of search results
     const displayOptions = useMemo(() => {
         const options = propertyOptions?.values || []
         if (initialSuggestedValues.set.size === 0) {
             return options
         }
 
-        // Create a map of all options (from API) for deduplication
         const allOptionsMap = new Map<string, (typeof options)[0]>()
         for (const option of options) {
             allOptionsMap.set(toString(option.name), option)
         }
 
-        // Build suggested array in original order, including values not in latest API response
-        const suggested: typeof options = []
-        const others: typeof options = []
+        const suggestedOptions: typeof options = []
+        const otherOptions: typeof options = []
 
         for (const key of initialSuggestedValues.orderedKeys) {
             const existingOption = allOptionsMap.get(key)
             if (existingOption) {
-                // Value exists in API response
-                suggested.push(existingOption)
-                allOptionsMap.delete(key) // Remove to avoid duplicates later
+                suggestedOptions.push(existingOption)
+                allOptionsMap.delete(key)
             } else {
-                // Value not in API response, but keep it as suggested
-                suggested.push({ name: key } as (typeof options)[0])
+                suggestedOptions.push({ name: key } as (typeof options)[0])
             }
         }
 
-        // Add remaining API values (non-suggested)
         for (const option of allOptionsMap.values()) {
-            others.push(option)
+            otherOptions.push(option)
         }
 
-        // Return suggested first (in original order), then others
-        return [...suggested, ...others]
+        return [...suggestedOptions, ...otherOptions]
     }, [propertyOptions?.values, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
