@@ -5,7 +5,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
-    fingerprinting::FingerprintRecordPart, frames::releases::ReleaseInfo, types::ExceptionList,
+    fingerprinting::FingerprintRecordPart, frames::releases::ReleaseInfo, issue_resolution::Issue,
+    types::ExceptionList,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,4 +39,7 @@ pub struct ExceptionEvent {
 
     #[serde(flatten)]
     pub props: HashMap<String, Value>,
+
+    #[serde(skip)]
+    pub issue: Option<Issue>,
 }

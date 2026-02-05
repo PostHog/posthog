@@ -1,12 +1,13 @@
 use sha2::{Digest, Sha512};
 
 use crate::{
-    error::{EventError, UnhandledError},
+    error::UnhandledError,
     fingerprinting::{grouping_rules::evaluate_grouping_rules, Fingerprint, FingerprintRecordPart},
     stages::grouping::GroupingStage,
     types::{
         event::ExceptionEvent,
         operator::{OperatorResult, ValueOperator},
+        pipeline::ExceptionEventHandledError,
     },
 };
 
@@ -16,7 +17,7 @@ pub struct FingerprintGenerator;
 impl ValueOperator for FingerprintGenerator {
     type Context = GroupingStage;
     type Item = ExceptionEvent;
-    type HandledError = EventError;
+    type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
     async fn execute_value(

@@ -28,9 +28,14 @@ impl From<&Arc<AppContext>> for GroupingStage {
 }
 
 impl Stage for GroupingStage {
-    type Item = ExceptionEventPipelineItem;
+    type Input = ExceptionEventPipelineItem;
+    type Output = ExceptionEventPipelineItem;
+    type Error = UnhandledError;
 
-    async fn process(self, batch: Batch<Self::Item>) -> Result<Batch<Self::Item>, UnhandledError> {
+    async fn process(
+        self,
+        batch: Batch<Self::Input>,
+    ) -> Result<Batch<Self::Output>, UnhandledError> {
         batch.apply_operator(FingerprintGenerator, self).await
     }
 }

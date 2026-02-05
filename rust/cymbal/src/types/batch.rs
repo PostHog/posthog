@@ -1,8 +1,8 @@
 use std::future::Future;
 
-use crate::{
-    error::UnhandledError,
-    types::{operator::Operator, stage::Stage},
+use crate::types::{
+    operator::Operator,
+    stage::{Stage, StageResult},
 };
 
 pub struct Batch<T>(Vec<T>);
@@ -29,14 +29,18 @@ impl<T> From<Batch<T>> for Vec<T> {
 }
 
 impl<T> Batch<T> {
+    pub fn inner_ref(&self) -> &Vec<T> {
+        &self.0
+    }
+
     pub fn apply_func<Ctx, O, F, Fu, E>(
         self,
-        func: F,
+        mut func: F,
         ctx: Ctx,
     ) -> impl Future<Output = Result<Batch<O>, E>>
     where
         Ctx: Clone + Send,
-        F: Fn(T, Ctx) -> Fu + 'static,
+        F: FnMut(T, Ctx) -> Fu + 'static,
         Fu: Future<Output = Result<O, E>> + Send + 'static,
         O: Send + 'static,
         E: Send + 'static,
@@ -75,12 +79,9 @@ impl<T> Batch<T> {
         )
     }
 
-    pub fn apply_stage<S>(
-        self,
-        stage: S,
-    ) -> impl Future<Output = Result<Batch<S::Item>, UnhandledError>>
+    pub fn apply_stage<S>(self, stage: S) -> impl Future<Output = StageResult<S>>
     where
-        S: Stage<Item = T> + 'static,
+        S: Stage<Input = T> + 'static,
     {
         stage.process(self)
     }

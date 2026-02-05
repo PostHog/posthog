@@ -1,11 +1,12 @@
 use crate::{
-    error::{EventError, UnhandledError},
+    error::UnhandledError,
     frames::RawFrame,
     stages::resolution::ResolutionStage,
     types::{
         batch::Batch,
         event::ExceptionEvent,
         operator::{OperatorResult, ValueOperator},
+        pipeline::ExceptionEventHandledError,
         Exception, ExceptionList,
     },
 };
@@ -34,7 +35,7 @@ impl ExceptionResolver {
 impl ValueOperator for ExceptionResolver {
     type Context = ResolutionStage;
     type Item = ExceptionEvent;
-    type HandledError = EventError;
+    type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
     async fn execute_value(

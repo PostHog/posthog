@@ -19,9 +19,11 @@ pub struct LinkingStage {
 }
 
 impl Stage for LinkingStage {
-    type Item = ExceptionEventPipelineItem;
+    type Input = ExceptionEventPipelineItem;
+    type Output = ExceptionEventPipelineItem;
+    type Error = UnhandledError;
 
-    async fn process(self, batch: Batch<Self::Item>) -> Result<Batch<Self::Item>, UnhandledError> {
+    async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
         batch.apply_operator(IssueLinker, self).await
     }
 }

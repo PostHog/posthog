@@ -6,13 +6,14 @@ use tracing::warn;
 
 use crate::{
     app_context::AppContext,
-    error::{EventError, UnhandledError},
+    error::UnhandledError,
     fingerprinting::Fingerprint,
     issue_resolution::{resolve_issue, Issue},
     stages::linking::LinkingStage,
     types::{
         event::ExceptionEvent,
         operator::{OperatorResult, ValueOperator},
+        pipeline::ExceptionEventHandledError,
         FingerprintedErrProps,
     },
 };
@@ -64,7 +65,7 @@ impl IssueLinker {
 impl ValueOperator for IssueLinker {
     type Item = ExceptionEvent;
     type Context = LinkingStage;
-    type HandledError = EventError;
+    type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
     async fn execute_value(

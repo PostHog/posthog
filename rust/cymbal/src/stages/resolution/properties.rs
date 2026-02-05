@@ -1,9 +1,10 @@
 use crate::{
-    error::{EventError, UnhandledError},
+    error::UnhandledError,
     stages::resolution::ResolutionStage,
     types::{
         event::ExceptionEvent,
         operator::{OperatorResult, ValueOperator},
+        pipeline::ExceptionEventHandledError,
     },
 };
 
@@ -13,7 +14,7 @@ pub struct PropertiesResolver;
 impl ValueOperator for PropertiesResolver {
     type Item = ExceptionEvent;
     type Context = ResolutionStage;
-    type HandledError = EventError;
+    type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
     async fn execute_value(

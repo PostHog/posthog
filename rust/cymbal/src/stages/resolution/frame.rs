@@ -1,11 +1,12 @@
 use crate::{
-    error::{EventError, UnhandledError},
+    error::UnhandledError,
     frames::{Frame, RawFrame},
     stages::resolution::ResolutionStage,
     types::{
         batch::Batch,
         event::ExceptionEvent,
         operator::{OperatorResult, ValueOperator},
+        pipeline::ExceptionEventHandledError,
         Exception, ExceptionList, Stacktrace,
     },
 };
@@ -64,7 +65,7 @@ impl FrameResolver {
 impl ValueOperator for FrameResolver {
     type Context = ResolutionStage;
     type Item = ExceptionEvent;
-    type HandledError = EventError;
+    type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
     async fn execute_value(
