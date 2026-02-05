@@ -498,10 +498,13 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         needs: [changes, playwright]
-        if: needs.changes.outputs.shouldRun == 'true'
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
+            needs.changes.outputs.shouldRun == 'true' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -509,6 +512,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Playwright tests pass'
                   runner: 'depot'
 
     # Aggregate all screenshot artifacts and commit once
