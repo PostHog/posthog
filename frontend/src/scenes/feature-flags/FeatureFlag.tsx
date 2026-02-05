@@ -1254,98 +1254,26 @@ function FeatureFlagRollout({
                     </div>
                     <SceneDivider />
                     {featureFlag.filters.multivariate && (
-                        <>
-                            <SceneSection title="Variant keys">
-                                <FeatureFlagVariantsForm
-                                    variants={variants}
-                                    payloads={featureFlag.filters?.payloads}
-                                    readOnly={true}
-                                    flagKey={featureFlag.key}
-                                    hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
-                                    onViewRecordings={(variantKey) => {
-                                        reportViewRecordingsClicked(variantKey)
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.FEATURE_FLAGS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    onGetFeedback={onGetFeedback}
-                                    surveys={featureFlag.surveys ?? []}
-                                    variantErrors={variantErrors}
-                                />
-                            </SceneSection>
-
-                            <SceneSection title="Evaluation contexts">
-                                <div className="text-secondary text-sm mb-2">
-                                    Evaluation contexts provide fine-grained control over where and when your feature
-                                    flags evaluate. Combine evaluation runtime and context tags to control where and
-                                    when your feature flags evaluate.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                        target="_blank"
-                                        targetBlankIcon
-                                    >
-                                        Learn more about using evaluation contexts
-                                    </Link>
-                                </div>
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                                    <div>
-                                        <span className="card-secondary">Evaluation runtime</span>
-                                        <div className="mt-2">
-                                            <div className="flex items-center gap-2">
-                                                {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
-                                                    <>
-                                                        <IconGlobe className="text-lg text-muted" />
-                                                        <span className="font-medium">Both client and server</span>
-                                                        <LemonTag type="primary" size="small">
-                                                            Single + multi-user
-                                                        </LemonTag>
-                                                    </>
-                                                ) : featureFlag.evaluation_runtime ===
-                                                  FeatureFlagEvaluationRuntime.CLIENT ? (
-                                                    <>
-                                                        <IconLaptop className="text-lg text-muted" />
-                                                        <span className="font-medium">Client-side only</span>
-                                                        <LemonTag type="completion" size="small">
-                                                            Single-user apps
-                                                        </LemonTag>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <IconServer className="text-lg text-muted" />
-                                                        <span className="font-medium">Server-side only</span>
-                                                        <LemonTag type="caution" size="small">
-                                                            Multi-user systems
-                                                        </LemonTag>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                                {featureFlag.tags && featureFlag.tags.length > 0 && (
-                                    <>
-                                        <SceneDivider />
-                                        <div>
-                                            <span className="card-secondary">Tags</span>
-                                            <div className="mt-2">
-                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                    <FeatureFlagEvaluationTags
-                                                        tags={featureFlag.tags}
-                                                        evaluationTags={featureFlag.evaluation_tags || []}
-                                                        flagId={featureFlag.id}
-                                                        context="static"
-                                                    />
-                                                ) : (
-                                                    <ObjectTags tags={featureFlag.tags} staticOnly />
-                                                )}
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-                            </SceneSection>
-                        </>
+                        <SceneSection title="Variant keys">
+                            <FeatureFlagVariantsForm
+                                variants={variants}
+                                payloads={featureFlag.filters?.payloads}
+                                readOnly={true}
+                                flagKey={featureFlag.key}
+                                hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
+                                onViewRecordings={(variantKey) => {
+                                    reportViewRecordingsClicked(variantKey)
+                                    addProductIntentForCrossSell({
+                                        from: ProductKey.FEATURE_FLAGS,
+                                        to: ProductKey.SESSION_REPLAY,
+                                        intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                    })
+                                }}
+                                onGetFeedback={onGetFeedback}
+                                surveys={featureFlag.surveys ?? []}
+                                variantErrors={variantErrors}
+                            />
+                        </SceneSection>
                     )}
                 </>
             ) : (

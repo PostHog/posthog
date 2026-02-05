@@ -438,7 +438,9 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                         >
                                             Debug{' '}
                                             <span>
-                                                {'kind' in item.logComment.query ? item.logComment.query.kind : 'query'}
+                                                {'kind' in item.logComment.query
+                                                    ? String(item.logComment.query.kind)
+                                                    : 'query'}
                                             </span>{' '}
                                             in new tab
                                         </LemonButton>
@@ -598,7 +600,7 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
                     ) : null}
                     <tr>
                         <td>Container hostname</td>
-                        <td>{container_hostname}</td>
+                        <td>{String(container_hostname ?? '')}</td>
                     </tr>
                 </tbody>
             </table>

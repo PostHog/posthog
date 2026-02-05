@@ -151,13 +151,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     }
 
     useAppShortcut({
-        name: 'collapse-left-navigation',
+        name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
-        intent: 'Collapse left navigation',
+        intent: 'Toggle collapse left navigation',
         interaction: 'function',
-        callback: () => {
-            toggleLayoutNavCollapsed(!isLayoutNavCollapsed)
-        },
+        callback: toggleLayoutNavCollapsed,
     })
 
     const navItems: {
@@ -599,7 +597,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     />
                                 </>
                             ) : (
-                                <div className="flex gap-1">
+                                <div
+                                    className={cn('flex gap-1', {
+                                        'items-center flex-col-reverse': isLayoutNavCollapsed,
+                                    })}
+                                >
                                     <HelpMenu />
                                     <HealthMenu />
                                 </div>

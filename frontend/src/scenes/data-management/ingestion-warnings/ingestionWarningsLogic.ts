@@ -75,7 +75,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                     },
                     {
                         key: DataManagementTab.IngestionWarnings,
-                        name: 'Ingestion warnings',
+                        name: 'Event ingestion warnings',
                         path: urls.ingestionWarnings(),
                         iconType: 'ingestion_warning',
                     },

@@ -78,7 +78,7 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError("experiment_id is required")
 
         try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
