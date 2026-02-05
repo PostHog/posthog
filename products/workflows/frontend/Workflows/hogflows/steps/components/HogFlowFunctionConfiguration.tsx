@@ -6,7 +6,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
-import { CyclotronJobInputType, HogFunctionMappingType, SurveyQuestionType } from '~/types'
+import { CyclotronJobInputType, HogFunctionMappingType, SurveyEventName, SurveyQuestionType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { surveyTriggerLogic } from '../surveyTriggerLogic'
@@ -56,19 +56,19 @@ export function HogFlowFunctionConfiguration({
         }
     }, [templateId])
 
-    // Detect survey trigger early so we can ensure surveys are loaded
+    // Detect survey trigger: exactly one event filter of 'survey sent'
     const triggerType = workflow?.trigger?.type
-    const isSurveyTriggerEarly =
-        triggerType === 'event' &&
-        workflow?.trigger &&
-        'filters' in workflow.trigger &&
-        (workflow.trigger.filters?.events ?? []).some((e: any) => e.id === 'survey sent')
+    const triggerEvents =
+        triggerType === 'event' && workflow?.trigger && 'filters' in workflow.trigger
+            ? (workflow.trigger.filters?.events ?? [])
+            : []
+    const isSurveyTrigger = triggerEvents.length === 1 && triggerEvents[0]?.id === SurveyEventName.SENT
 
     useEffect(() => {
-        if (isSurveyTriggerEarly && allSurveys.length === 0 && !surveysLoading) {
+        if (isSurveyTrigger && allSurveys.length === 0 && !surveysLoading) {
             loadSurveys()
         }
-    }, [isSurveyTriggerEarly, allSurveys.length, surveysLoading, loadSurveys])
+    }, [isSurveyTrigger, allSurveys.length, surveysLoading, loadSurveys])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (
@@ -81,13 +81,6 @@ export function HogFlowFunctionConfiguration({
     if (!template) {
         return <div>Template not found!</div>
     }
-
-    // Detect if the trigger is a survey trigger (reuse triggerType from above)
-    const triggerEvents =
-        triggerType === 'event' && workflow?.trigger && 'filters' in workflow.trigger
-            ? (workflow.trigger.filters?.events ?? [])
-            : []
-    const isSurveyTrigger = triggerEvents.some((e: any) => e.id === 'survey sent')
 
     // If a specific survey is selected, find it for question-aware autocomplete
     const surveyIdProp =
@@ -182,6 +175,8 @@ export function HogFlowFunctionConfiguration({
         }
         sampleGlobals.groups = {}
     }
+
+    // DEBUG: trace sampleGlobals contents
 
     return (
         <>
