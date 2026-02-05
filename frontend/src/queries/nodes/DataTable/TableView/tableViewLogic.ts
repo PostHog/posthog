@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
@@ -88,6 +89,9 @@ export const tableViewLogic = kea<tableViewLogicType>([
     props({} as TableViewLogicProps),
     key((props) => props.contextKey),
     path(['queries', 'nodes', 'DataTable', 'TableView', 'tableViewLogic']),
+    connect({
+        values: [userLogic, ['user']],
+    }),
 
     actions({
         loadViews: true,
@@ -188,6 +192,15 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 }
                 const queryFromView = getQueryFromView(query, currentView)
                 return !equal(queryFromView, query)
+            },
+        ],
+        canEditCurrentView: [
+            (s) => [s.currentView, s.user],
+            (currentView, user): boolean => {
+                if (!currentView || !user) {
+                    return false
+                }
+                return currentView.created_by === user.id
             },
         ],
     })),
