@@ -1,5 +1,8 @@
+import json
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 
 from django.utils import timezone
 
@@ -21,6 +24,20 @@ logger = structlog.get_logger(__name__)
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
+
+
+def compute_insight_query_hash(query: dict | None) -> Optional[str]:
+    """
+    Compute a deterministic hash of an insight query for change detection.
+
+    Returns None if query is None, otherwise returns a SHA256 hex string.
+    """
+    if query is None:
+        return None
+
+    # Create deterministic JSON string with sorted keys at all levels
+    json_str = json.dumps(query, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]

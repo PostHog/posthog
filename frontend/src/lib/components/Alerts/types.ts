@@ -28,9 +28,11 @@ export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
 export interface AlertCheck {
     id: string
     created_at: string
-    calculated_value: number
+    calculated_value: number | null
     state: AlertState
     targets_notified: boolean
+    /** null = hash not recorded (legacy checks), true = insight query changed since check */
+    query_has_changed: boolean | null
 }
 
 export interface AlertType extends AlertTypeBase {
