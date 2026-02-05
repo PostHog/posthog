@@ -68,6 +68,7 @@ from products.llm_analytics.backend.api import (
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.signals.backend.views import SignalViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
@@ -883,6 +884,13 @@ environments_router.register(
     r"error_tracking/autocapture_controls",
     ErrorTrackingAutoCaptureControlsViewSet,
     "environment_error_tracking_autocapture_controls",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"signals",
+    SignalViewSet,
+    "environment_signals",
     ["team_id"],
 )
 

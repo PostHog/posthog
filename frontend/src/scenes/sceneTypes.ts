@@ -125,6 +125,7 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
+    SignalsDebug = 'SignalsDebug',
     Site = 'Site',
     Coupons = 'Coupons',
     StartupProgram = 'StartupProgram',
