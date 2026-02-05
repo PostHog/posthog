@@ -829,7 +829,7 @@ export const billingLogic = kea<billingLogicType>([
                 const planName = capitalizeFirstLetter(trial.target)
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial for the ${planName} plan ends in ${timeRemaining}. Nothing will change except you'll start being charged for the ${planName} plan.`,
+                    title: `Your free trial for the ${planName} plan ends in ${timeRemaining}. Your service will continue without interruption, and you'll be charged for the ${planName} plan.`,
                     message: `Questions? Reach out to ${contactName} at ${contactEmail}.`,
                 })
                 return
