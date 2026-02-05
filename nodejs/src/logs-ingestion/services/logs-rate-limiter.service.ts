@@ -3,6 +3,12 @@ import { Hub } from '~/types'
 
 import { LogsIngestionMessage } from '../types'
 
+/** Convert milliseconds to seconds */
+const msToSeconds = (ms: number): number => Math.round(ms / 1000)
+
+/** Convert bytes to kilobytes (rounded up) */
+const bytesToKb = (bytes: number): number => Math.ceil(bytes / 1000)
+
 /** Narrowed Hub type for LogsRateLimiterService */
 export type LogsRateLimiterServiceHub = Pick<
     Hub,
@@ -118,11 +124,11 @@ export class LogsRateLimiterService {
         if (createdAtHeader) {
             const timestamp = Date.parse(createdAtHeader) // Parse RFC3339/ISO8601 string
             if (!isNaN(timestamp)) {
-                return Math.round(timestamp / 1000) // Convert ms to seconds
+                return msToSeconds(timestamp)
             }
         }
         // Fallback to current time
-        return Math.round(Date.now() / 1000)
+        return msToSeconds(Date.now())
     }
 
     public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, LogsRateLimit][]> {
@@ -182,7 +188,7 @@ export class LogsRateLimiterService {
             }
             const currentCost = teamCosts.get(message.teamId) ?? 0
             // Cost is in KB (uncompressed bytes / 1000)
-            const costKb = Math.ceil(message.bytesUncompressed / 1000)
+            const costKb = bytesToKb(message.bytesUncompressed)
             teamCosts.set(message.teamId, currentCost + costKb)
 
             // Store the timestamp for this team (use the first message's timestamp)
@@ -196,7 +202,7 @@ export class LogsRateLimiterService {
             Array.from(teamCosts.entries()).map(([teamId, cost]) => [
                 teamId.toString(),
                 cost,
-                teamTimestamps.get(teamId) ?? Math.round(Date.now() / 1000),
+                teamTimestamps.get(teamId) ?? msToSeconds(Date.now()),
             ])
         )
 
@@ -221,7 +227,7 @@ export class LogsRateLimiterService {
 
             const kbUsed = teamKbUsed.get(message.teamId) ?? 0
             const availableKb = limit.tokensBefore
-            const messageKb = Math.ceil(message.bytesUncompressed / 1024)
+            const messageKb = bytesToKb(message.bytesUncompressed)
 
             // Allow message if we haven't exceeded the available tokens
             if (kbUsed + messageKb <= availableKb) {
