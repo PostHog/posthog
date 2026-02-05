@@ -4,34 +4,46 @@ This document describes how to set up and run Python tests in a Claude Code for 
 
 ## Problem
 
-The project requires Python 3.12.12 exactly (pinned in `pyproject.toml`), but:
-- Claude Code for web environments typically have Python 3.12.3 (from system packages)
-- `uv python install 3.12.12` may fail if the version isn't yet indexed by uv
+The project requires a specific Python version pinned in `pyproject.toml` (check `requires-python`), but:
+- Claude Code for web environments may have a different system Python version
+- `uv python install <version>` may fail if the version isn't yet indexed by uv
 - `uv sync` enforces the exact version constraint and will fail with the wrong Python version
 
-## Solution: Download Python 3.12.12 from python-build-standalone
+## Solution: Download Python from python-build-standalone
 
-Python 3.12.12 is available from the [python-build-standalone](https://github.com/astral-sh/python-build-standalone) GitHub releases. Download and extract it, then use it with `uv sync`.
+First, check the required Python version:
 
-### Step 1: Download and install Python 3.12.12
+```bash
+grep requires-python pyproject.toml
+# Example output: requires-python = "==3.12.12"
+```
+
+Then download the exact version from [python-build-standalone](https://github.com/astral-sh/python-build-standalone) GitHub releases.
+
+### Example: Installing Python 3.12.12
+
+The following example shows how to install Python 3.12.12. Adjust the version numbers as needed for your `pyproject.toml` requirements.
+
+#### Step 1: Download and install Python
 
 ```bash
 # Create installation directory
 mkdir -p /tmp/python-install && cd /tmp/python-install
 
 # Download Python 3.12.12 from python-build-standalone
-curl -L -o python-3.12.12.tar.gz \
+# Note: Replace version and release tag as needed
+curl -L -o python.tar.gz \
   "https://github.com/astral-sh/python-build-standalone/releases/download/20260203/cpython-3.12.12%2B20260203-x86_64-unknown-linux-gnu-install_only.tar.gz"
 
 # Extract
-tar -xzf python-3.12.12.tar.gz
+tar -xzf python.tar.gz
 
 # Verify installation
 /tmp/python-install/python/bin/python3.12 --version
 # Should output: Python 3.12.12
 ```
 
-### Step 2: Run uv sync with Python 3.12.12
+#### Step 2: Run uv sync with the installed Python
 
 ```bash
 cd /home/user/posthog
@@ -40,7 +52,7 @@ uv sync --python /tmp/python-install/python/bin/python3.12
 
 This creates a `.venv` directory with all dependencies installed using the correct Python version.
 
-### Step 3: Run tests
+#### Step 3: Run tests
 
 ```bash
 # Run a specific test
@@ -48,6 +60,20 @@ This creates a `.venv` directory with all dependencies installed using the corre
 
 # Run all tests in a directory
 .venv/bin/pytest posthog/hogql/test/ -v
+```
+
+### Finding the correct download URL
+
+If you need a different Python version or the release tag has changed:
+
+```bash
+# Get the latest release tag
+RELEASE_TAG=$(curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+echo "Latest release: $RELEASE_TAG"
+
+# Find the download URL for your version (replace X.Y.Z with your version)
+curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" | \
+  grep "browser_download_url" | grep "3.12.12" | grep "x86_64-unknown-linux-gnu-install_only.tar.gz"
 ```
 
 ## Docker Services
@@ -78,7 +104,7 @@ echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo te
 
 ## Environment Variables
 
-Tests expect certain environment variables. The CI uses these (from `.github/workflows/ci-backend.yml`):
+Tests expect certain environment variables. These are defined in [`.github/workflows/ci-backend.yml`](.github/workflows/ci-backend.yml):
 
 ```bash
 export SECRET_KEY='6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
@@ -129,6 +155,15 @@ The `pytest.ini` sets:
 
 Default ignores: `--ignore=posthog/user_scripts --ignore=services/llm-gateway --ignore=common/ingestion/acceptance_tests`
 
+## Debugging Installation Issues
+
+If you encounter issues with the test setup, refer to [`.github/workflows/ci-backend.yml`](.github/workflows/ci-backend.yml) for the authoritative CI configuration. This file shows:
+- Exact Python version used in CI
+- System dependencies installed
+- Environment variables set
+- Docker services configuration
+- Test execution commands
+
 ## Limitations
 
 - **Docker unavailable**: Tests requiring services will fail without Docker
@@ -138,11 +173,14 @@ Default ignores: `--ignore=posthog/user_scripts --ignore=services/llm-gateway --
 ## Quick Reference
 
 ```bash
-# One-time Python setup
+# Check required Python version
+grep requires-python pyproject.toml
+
+# One-time Python setup (example for 3.12.12)
 mkdir -p /tmp/python-install && cd /tmp/python-install
-curl -L -o python-3.12.12.tar.gz \
+curl -L -o python.tar.gz \
   "https://github.com/astral-sh/python-build-standalone/releases/download/20260203/cpython-3.12.12%2B20260203-x86_64-unknown-linux-gnu-install_only.tar.gz"
-tar -xzf python-3.12.12.tar.gz
+tar -xzf python.tar.gz
 
 # One-time project setup
 cd /home/user/posthog
@@ -174,16 +212,3 @@ docker --version && docker compose version
 ```
 
 If Docker is not available, you can only run unit tests that don't require external services. Many HogQL tests, for example, can run without services.
-
-## Finding the correct Python release
-
-If Python 3.12.12 is no longer available at the URL above (release tags change), find the latest release:
-
-```bash
-# Get the latest release tag
-RELEASE_TAG=$(curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
-
-# Find the Python 3.12.12 download URL
-curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" | \
-  grep "browser_download_url" | grep "3.12.12" | grep "x86_64-unknown-linux-gnu-install_only.tar.gz"
-```
