@@ -14,5 +14,6 @@ pub mod store_manager;
 pub mod test_utils;
 pub mod utils;
 
-// Re-export traits from pipelines module for convenience
+// Re-export commonly used types for convenience
+pub use config::PipelineType;
 pub use pipelines::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};

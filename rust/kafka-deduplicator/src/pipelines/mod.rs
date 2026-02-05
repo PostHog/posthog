@@ -58,12 +58,16 @@
 //!     └── duplicate_event.rs # Duplicate event publishing format
 //! ```
 
+mod pipeline_builder;
+
 pub mod clickhouse_events;
 pub mod ingestion_events;
 pub mod processor;
 pub mod results;
 pub mod timestamp_deduplicator;
 pub mod traits;
+
+pub use pipeline_builder::{PipelineBuilder, PipelineConsumer};
 
 pub use processor::{
     batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
