@@ -497,7 +497,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags])
+    }, [featureFlags, toggleProduct])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>

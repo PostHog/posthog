@@ -315,7 +315,7 @@ export function LineGraph_({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed])
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     // Add scrollend event on main element to hide tooltips when scrolling
     useEffect(() => {
