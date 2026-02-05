@@ -76,32 +76,31 @@ from posthog.ducklake.storage import configure_cross_account_connection
 logger = structlog.get_logger(__name__)
 
 # Columns to export from ClickHouse events table for duckling backfill.
-# Uses fromUnixTimestamp64Micro(toUnixTimestamp64Micro(col)) to strip timezone from timestamp columns.
-# DuckLake's ducklake_add_data_files expects plain TIMESTAMP types, not TIMESTAMP WITH TIME ZONE.
-# Converting through Unix microseconds (Int64) forces timezone removal since integers have no TZ concept.
+# ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
+# DuckLake table uses TIMESTAMPTZ to match this format.
 EVENTS_COLUMNS = """
     toString(uuid) as uuid,
     event,
     properties,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(timestamp)) as timestamp,
+    timestamp,
     team_id,
     toInt64(team_id) as project_id,
     distinct_id,
     elements_chain,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(created_at)) as created_at,
+    created_at,
     toString(person_id) as person_id,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(person_created_at)) as person_created_at,
+    person_created_at,
     person_properties,
     group0_properties,
     group1_properties,
     group2_properties,
     group3_properties,
     group4_properties,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group0_created_at)) as group0_created_at,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group1_created_at)) as group1_created_at,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group2_created_at)) as group2_created_at,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group3_created_at)) as group3_created_at,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group4_created_at)) as group4_created_at,
+    group0_created_at,
+    group1_created_at,
+    group2_created_at,
+    group3_created_at,
+    group4_created_at,
     person_mode,
     historical_migration,
     now64(6) as _inserted_at
@@ -124,19 +123,19 @@ PERSONS_CONCURRENCY_TAG = {
 
 # Persons columns for export - joined with person_distinct_id2 to include distinct_ids
 # This creates one row per distinct_id, with the person's properties denormalized
-# Uses fromUnixTimestamp64Micro(toUnixTimestamp64Micro(col)) to strip timezone from timestamp columns.
-# DuckLake's ducklake_add_data_files expects plain TIMESTAMP types, not TIMESTAMP WITH TIME ZONE.
-# Converting through Unix microseconds (Int64) forces timezone removal since integers have no TZ concept.
+# ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
+# DuckLake table uses TIMESTAMPTZ to match this format.
+# Note: _timestamp is DateTime (not DateTime64), so we convert it to DateTime64 for consistency.
 PERSONS_COLUMNS = """
     pd.team_id AS team_id,
     pd.distinct_id AS distinct_id,
     toString(p.id) AS id,
     p.properties AS properties,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(p.created_at)) AS created_at,
+    p.created_at AS created_at,
     p.is_identified AS is_identified,
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
-    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(p._timestamp)) AS _timestamp,
+    toDateTime64(p._timestamp, 6) AS _timestamp,
     now64(6) AS _inserted_at
 """
 
@@ -158,57 +157,51 @@ duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_even
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
 
 # SQL for creating the events table in DuckLake if it doesn't exist
-# Note: Using TIMESTAMP instead of TIMESTAMPTZ because ducklake_add_data_files
-# expects plain timestamps (TIMESTAMP_NS/TIMESTAMP/TIMESTAMP_MS/TIMESTAMP_S),
-# not TIMESTAMP WITH TIME ZONE. ClickHouse exports DateTime64 as TZ-aware
-# Parquet timestamps, but DuckLake doesn't handle the TZ mapping for file registration.
+# Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 EVENTS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     uuid VARCHAR,
     event VARCHAR,
     properties VARCHAR,
-    timestamp TIMESTAMP,
+    timestamp TIMESTAMPTZ,
     team_id BIGINT,
     project_id BIGINT,
     distinct_id VARCHAR,
     elements_chain VARCHAR,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPTZ,
     person_id VARCHAR,
-    person_created_at TIMESTAMP,
+    person_created_at TIMESTAMPTZ,
     person_properties VARCHAR,
     group0_properties VARCHAR,
     group1_properties VARCHAR,
     group2_properties VARCHAR,
     group3_properties VARCHAR,
     group4_properties VARCHAR,
-    group0_created_at TIMESTAMP,
-    group1_created_at TIMESTAMP,
-    group2_created_at TIMESTAMP,
-    group3_created_at TIMESTAMP,
-    group4_created_at TIMESTAMP,
+    group0_created_at TIMESTAMPTZ,
+    group1_created_at TIMESTAMPTZ,
+    group2_created_at TIMESTAMPTZ,
+    group3_created_at TIMESTAMPTZ,
+    group4_created_at TIMESTAMPTZ,
     person_mode VARCHAR,
     historical_migration BOOLEAN,
-    _inserted_at TIMESTAMP
+    _inserted_at TIMESTAMPTZ
 )
 """
 
 # SQL for creating the persons table in DuckLake if it doesn't exist
-# Note: Using TIMESTAMP instead of TIMESTAMPTZ because ducklake_add_data_files
-# expects plain timestamps (TIMESTAMP_NS/TIMESTAMP/TIMESTAMP_MS/TIMESTAMP_S),
-# not TIMESTAMP WITH TIME ZONE. ClickHouse exports DateTime64 as TZ-aware
-# Parquet timestamps, but DuckLake doesn't handle the TZ mapping for file registration.
+# Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 PERSONS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     team_id BIGINT,
     distinct_id VARCHAR,
     id VARCHAR,
     properties VARCHAR,
-    created_at TIMESTAMP,
+    created_at TIMESTAMPTZ,
     is_identified BOOLEAN,
     person_distinct_id_version BIGINT,
     person_version BIGINT,
-    _timestamp TIMESTAMP,
-    _inserted_at TIMESTAMP
+    _timestamp TIMESTAMPTZ,
+    _inserted_at TIMESTAMPTZ
 )
 """
 
