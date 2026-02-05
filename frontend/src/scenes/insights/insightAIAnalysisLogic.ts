@@ -47,13 +47,8 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                         return null
                     }
 
-                    try {
-                        const response = await api.insights.analyze(props.insightId)
-                        return response.result
-                    } catch (e) {
-                        console.error('[InsightAIAnalysis] Error fetching analysis', e)
-                        return null
-                    }
+                    const response = await api.insights.analyze(props.insightId)
+                    return response.result
                 },
             },
         ],
@@ -99,6 +94,23 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                     [suggestionIndex]: isPositive,
                 }),
                 resetAnalysis: () => ({}),
+            },
+        ],
+        analysisError: [
+            null as string | null,
+            {
+                startAnalysis: () => null,
+                startAnalysisFailure: (_, { error }) => {
+                    // Extract error message from API response
+                    if (error?.detail) {
+                        return error.detail
+                    }
+                    if (error?.message) {
+                        return error.message
+                    }
+                    return 'Failed to generate analysis'
+                },
+                resetAnalysis: () => null,
             },
         ],
     }),
