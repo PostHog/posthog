@@ -32,16 +32,4 @@
             pointer-events: none;
         }
     }
-
-    .JsonEditorInput__toggle {
-        position: absolute;
-        top: 0.25rem;
-        right: 0.25rem;
-        opacity: 0.5;
-        transition: opacity 150ms ease;
-
-        &:hover {
-            opacity: 1;
-        }
-    }
 }

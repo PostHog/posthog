@@ -659,33 +659,31 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </div>
                                 )}
                                 {!multivariateEnabled && !featureFlag.is_remote_configuration && (
-                                    <div className="flex flex-col gap-2">
-                                        {payloadExpanded ? (
-                                            <>
-                                                <LemonLabel info="Optionally specify a JSON payload to be returned when the flag evaluates to true.">
-                                                    Payload
-                                                </LemonLabel>
-                                                <div className="text-secondary text-xs mb-1">
-                                                    When the flag evaluates to <code className="text-xs">true</code>,
-                                                    this payload will be available via{' '}
-                                                    <code className="text-xs">getFeatureFlagPayload</code>.
-                                                </div>
-                                                <Group name={['filters', 'payloads']}>
-                                                    <LemonField name="true">
-                                                        <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
-                                                    </LemonField>
-                                                </Group>
-                                            </>
-                                        ) : (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                onClick={() => setPayloadExpanded(true)}
-                                            >
-                                                Add payload
-                                            </LemonButton>
-                                        )}
-                                    </div>
+                                    <LemonCollapse
+                                        activeKeys={payloadExpanded ? ['payload'] : []}
+                                        onChange={(keys) => setPayloadExpanded(keys?.includes('payload') ?? false)}
+                                        panels={[
+                                            {
+                                                key: 'payload',
+                                                header: 'Payload',
+                                                content: (
+                                                    <div className="flex flex-col gap-2">
+                                                        <div className="text-secondary text-xs">
+                                                            When the flag evaluates to{' '}
+                                                            <code className="text-xs">true</code>, this payload will be
+                                                            available via{' '}
+                                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                                        </div>
+                                                        <Group name={['filters', 'payloads']}>
+                                                            <LemonField name="true">
+                                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                                            </LemonField>
+                                                        </Group>
+                                                    </div>
+                                                ),
+                                            },
+                                        ]}
+                                    />
                                 )}
                             </div>
 
