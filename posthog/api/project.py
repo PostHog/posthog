@@ -308,6 +308,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         return TeamSerializer.validate_logs_settings(cast(TeamSerializer, self), value)
 
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        return TeamSerializer.validate_modifiers(value)
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)

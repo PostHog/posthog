@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -54,6 +55,7 @@ export function ActiveUsersInsights(): JSX.Element {
 function PowerUsersTable(): JSX.Element {
     const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
     const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
+    const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = `power-users-${tabId}`
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -63,7 +65,7 @@ function PowerUsersTable(): JSX.Element {
     const isB2c = businessType === 'b2c'
     const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
     const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
-    const revenueFields = isRevenueAnalyticsEnabled ? ['$virt_mrr', '$virt_revenue'] : []
+    const revenueFields = isRevenueAnalyticsEnabled && revenueFieldsEnabled ? ['$virt_mrr', '$virt_revenue'] : []
 
     const query = {
         kind: NodeKind.DataTableNode,

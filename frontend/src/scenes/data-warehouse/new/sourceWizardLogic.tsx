@@ -408,15 +408,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataPipelines,
-                        name: 'Data pipelines',
-                        path: urls.dataPipelines('overview'),
-                        iconType: 'data_pipeline',
-                    },
-                    {
-                        key: [Scene.DataPipelines, 'sources'],
-                        name: `Sources`,
-                        path: urls.dataPipelines('sources'),
+                        key: Scene.Sources,
+                        name: 'Sources',
+                        path: urls.sources(),
                         iconType: 'data_pipeline',
                     },
                     {
@@ -680,7 +674,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-            router.actions.push(urls.dataPipelines('sources'))
+            router.actions.push(urls.sources())
         },
         cancelWizard: () => {
             actions.onClear()

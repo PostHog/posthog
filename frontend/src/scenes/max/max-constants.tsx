@@ -110,7 +110,8 @@ export interface ModeDefinition {
     description: string
     icon: JSX.Element
     /** Scenes that should trigger this agent mode */
-    scenes: Set<Scene>
+    scenes?: Set<Scene>
+    beta?: boolean
 }
 
 /** Default tools available in all modes */
@@ -525,7 +526,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -537,7 +538,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_transformation_function: {
         name: 'Write and tweak Hog code',
         description: 'Write and tweak Hog code of transformations',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -549,7 +550,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_inputs: {
         name: 'Manage function variables',
         description: 'Manage function variables in Hog functions',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -992,7 +993,7 @@ export const MODE_DEFINITIONS: Record<
     },
 }
 
-export const SPECIAL_MODES = {
+export const SPECIAL_MODES: Record<string, ModeDefinition> = {
     auto: {
         name: 'Auto',
         description:
@@ -1004,12 +1005,14 @@ export const SPECIAL_MODES = {
         description:
             "Creates a plan to guide the agent's actions and achieve your goals. The tools that are available in all modes are listed below.",
         icon: <IconNotebook />,
+        beta: true,
     },
     deep_research: {
         name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,
+        beta: true,
     },
 }
 
