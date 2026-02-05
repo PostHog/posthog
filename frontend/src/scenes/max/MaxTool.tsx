@@ -78,7 +78,7 @@ export function MaxTool({
                 >
                     <button
                         className={clsx(
-                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',
+                            'absolute z-[750] transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',
                             position === 'top-right' && '-top-2 -right-2',
                             position === 'bottom-right' && '-bottom-2 -right-2',
                             position === 'top-left' && '-top-2 -left-2',

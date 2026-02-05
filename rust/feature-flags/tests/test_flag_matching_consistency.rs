@@ -12,7 +12,7 @@ use feature_flags::{
 };
 use serde_json::json;
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     let flags = create_flag_from_json(Some(
         json!([{
@@ -112,8 +112,8 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
+        let reader = setup_pg_reader_client(None);
+        let writer = setup_pg_writer_client(None);
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
         let distinct_id = format!("distinct_id_{i}");
@@ -156,7 +156,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     let flags = create_flag_from_json(Some(
         json!([{
@@ -1211,8 +1211,8 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
+        let reader = setup_pg_reader_client(None);
+        let writer = setup_pg_writer_client(None);
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let distinct_id = format!("distinct_id_{i}");
 

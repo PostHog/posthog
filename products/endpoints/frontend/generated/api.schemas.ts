@@ -2411,6 +2411,14 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
+
+export const AggregationTypeApi = {
+    count: 'count',
+    sum: 'sum',
+    avg: 'avg',
+} as const
+
 export type RetentionDashboardDisplayTypeApi =
     (typeof RetentionDashboardDisplayTypeApi)[keyof typeof RetentionDashboardDisplayTypeApi]
 
@@ -2517,6 +2525,13 @@ export const TimeWindowModeApi = {
 } as const
 
 export interface RetentionFilterApi {
+    /**
+     * The property to aggregate when aggregationType is sum or avg
+     * @nullable
+     */
+    aggregationProperty?: string | null
+    /** The aggregation type to use for retention */
+    aggregationType?: AggregationTypeApi | null
     /** @nullable */
     cumulative?: boolean | null
     dashboardDisplay?: RetentionDashboardDisplayTypeApi | null
@@ -3396,13 +3411,15 @@ export interface EndpointRequestApi {
 }
 
 /**
- * Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of $pageview's
- * @nullable
- */
-export type EndpointRunRequestApiQueryOverride = { [key: string]: unknown } | null | null
+ * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
-/**
- * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {"from_date": "1970-01-01"}
+For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+
+For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+
+For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+
+Unknown variable names will return a 400 error.
  * @nullable
  */
 export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null | null
@@ -3459,25 +3476,25 @@ export interface EndpointRunRequestApi {
      * @nullable
      */
     debug?: boolean | null
-    /** A map for overriding insight query filters.
-
-Tip: Use to get data for a specific customer or user. */
     filters_override?: DashboardFilterApi | null
     /**
      * Maximum number of results to return. If not provided, returns all results.
      * @nullable
      */
     limit?: number | null
-    /**
-     * Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of $pageview's
-     * @nullable
-     */
-    query_override?: EndpointRunRequestApiQueryOverride
     refresh?: EndpointRefreshModeApi | null
     /**
-     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {"from_date": "1970-01-01"}
-     * @nullable
-     */
+   * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
+
+For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+
+For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+
+For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+
+Unknown variable names will return a 400 error.
+   * @nullable
+   */
     variables?: EndpointRunRequestApiVariables
     /**
      * Specific endpoint version to execute. If not provided, the latest version is used.

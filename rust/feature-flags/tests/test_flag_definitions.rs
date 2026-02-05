@@ -1,6 +1,6 @@
 mod common;
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_hypercache_config_generation() {
     use common_hypercache::{HyperCacheConfig, KeyType};
     use common_types::TeamIdentifier;
@@ -71,7 +71,7 @@ async fn test_hypercache_config_generation() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_flag_definitions_endpoint_exists() {
     use feature_flags::config::Config;
     use reqwest;
@@ -94,7 +94,7 @@ async fn test_flag_definitions_endpoint_exists() {
     assert_eq!(response.status(), 401);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_authentication_no_key() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -135,7 +135,7 @@ async fn test_personal_api_key_authentication_no_key() {
     assert_eq!(body["attr"], Value::Null);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_authentication_invalid_key() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -177,7 +177,7 @@ async fn test_personal_api_key_authentication_invalid_key() {
     assert_eq!(body["attr"], Value::Null);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_authentication_valid_key_with_scopes() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -229,7 +229,7 @@ async fn test_personal_api_key_authentication_valid_key_with_scopes() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -276,7 +276,7 @@ async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
     assert_eq!(response.status(), 401);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_authentication_inactive_user() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -324,7 +324,7 @@ async fn test_personal_api_key_authentication_inactive_user() {
     assert_eq!(response.status(), 401);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_secret_api_token_authentication_valid_token() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -363,7 +363,7 @@ async fn test_secret_api_token_authentication_valid_token() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_secret_api_token_authentication_invalid_token() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -402,7 +402,7 @@ async fn test_secret_api_token_authentication_invalid_token() {
     assert_eq!(body["attr"], Value::Null);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_missing_token_parameter() {
     use feature_flags::config::Config;
     use reqwest;
@@ -423,7 +423,7 @@ async fn test_missing_token_parameter() {
     assert_eq!(response.status(), 400);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_token_mismatch_secret_token_for_different_team() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -460,7 +460,7 @@ async fn test_token_mismatch_secret_token_for_different_team() {
     assert_eq!(response.status(), 401);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_with_scoped_teams_allowed() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -525,7 +525,7 @@ async fn test_personal_api_key_with_scoped_teams_allowed() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_with_scoped_teams_denied() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -576,7 +576,7 @@ async fn test_personal_api_key_with_scoped_teams_denied() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_with_scoped_organizations_allowed() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -637,7 +637,7 @@ async fn test_personal_api_key_with_scoped_organizations_allowed() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_with_scoped_organizations_denied() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -690,7 +690,7 @@ async fn test_personal_api_key_with_scoped_organizations_denied() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_cache_miss_returns_503() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -749,7 +749,7 @@ async fn test_cache_miss_returns_503() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_with_all_access_scopes() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -808,7 +808,7 @@ async fn test_personal_api_key_with_all_access_scopes() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_personal_api_key_with_feature_flag_write_scope() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -873,7 +873,7 @@ async fn test_personal_api_key_with_feature_flag_write_scope() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_backup_secret_api_token_authentication() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -921,7 +921,7 @@ async fn test_backup_secret_api_token_authentication() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_invalid_project_api_key() {
     use feature_flags::config::Config;
     use reqwest;
@@ -962,7 +962,7 @@ async fn test_invalid_project_api_key() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_secret_token_takes_priority_over_personal_api_key() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -1033,7 +1033,7 @@ async fn test_secret_token_takes_priority_over_personal_api_key() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_flag_definitions_rate_limit_enforced() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -1104,7 +1104,7 @@ async fn test_flag_definitions_rate_limit_enforced() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
@@ -1195,7 +1195,7 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_flag_definitions_rate_limit_metrics_incremented() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;

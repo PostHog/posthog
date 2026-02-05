@@ -1449,6 +1449,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
 
+    def test_move_tile_between_dashboards_is_project_scoped(self) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other dashboard")
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "my dashboard"})
+        self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "insight": "TRENDS"}, "dashboards": [dashboard_id]}
+        )
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+        tile = dashboard["tiles"][0]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/move_tile",
+            {"tile": tile, "toDashboard": other_dashboard.id},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+        assert len(dashboard["tiles"]) == 1
+
     def test_relations_on_insights_when_dashboards_were_deleted(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
