@@ -158,12 +158,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a form...'
         },
     },
-    create_dashboard: {
-        name: 'Create dashboards',
-        description: 'Create dashboards with insights based on your requirements',
-        icon: iconForType('dashboard'),
-        modes: [AgentMode.ProductAnalytics],
-    },
     search: {
         name: 'Search PostHog data',
         description:
@@ -694,18 +688,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Filtered web analytics'
             }
             return 'Filtering web analytics...'
-        },
-    },
-    edit_current_dashboard: {
-        name: 'Add an insight to the dashboard',
-        description: "Add an insight to the dashboard you're viewing",
-        product: Scene.Dashboard,
-        icon: iconForType('dashboard'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Added an insight to the dashboard'
-            }
-            return 'Adding an insight to the dashboard...'
         },
     },
     upsert_dashboard: {
