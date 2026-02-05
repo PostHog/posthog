@@ -4,6 +4,7 @@ Exporting the session as a video.
 (Python modules have to start with a letter, hence the file is prefixed `a1_` instead of `1_`.)
 """
 
+import time
 import uuid
 from datetime import timedelta
 
@@ -15,6 +16,7 @@ import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.models import Team
 from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -23,22 +25,20 @@ from posthog.temporal.ai.session_summary.types.video import VideoSummarySingleSe
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
-from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
-    EXPIRES_AFTER_DAYS,
-    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
-)
-from ee.hogai.session_summaries.session.input_data import get_team
+from ee.hogai.session_summaries.constants import EXPIRES_AFTER_DAYS, MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S
+from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 
 logger = structlog.get_logger(__name__)
 
 # We can speed things up a bit right now - but not too much, as CSS animations are the same speed
-VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 1
 
 
 @temporalio.activity.defn
 async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs) -> int | None:
     """Export full session video and return ExportedAsset ID, or None if session is too short"""
+    start_time = time.monotonic()
+    success = False
     try:
         # Check for existing exported asset for this session
         # TODO: Find a way to attach Gemini Files API id to the asset, with an expiration date, so we can reuse it (instead of re-uploading)
@@ -46,7 +46,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         existing_asset = (
             await ExportedAsset.objects.filter(
                 team_id=inputs.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                # TODO: Use constant
+                export_format="video/mp4",
                 export_context__session_recording_id=inputs.session_id,
             )
             .exclude(content_location__isnull=True, content__isnull=True)
@@ -77,7 +78,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             return existing_asset.id
 
         # Get session duration from metadata
-        team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
+        team = await Team.objects.aget(id=inputs.team_id)
         metadata = await database_sync_to_async(SessionReplayEvents().get_metadata)(
             session_id=inputs.session_id,
             team=team,
@@ -101,7 +102,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         created_at = now()
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            # TODO: Use constant
+            export_format="video/mp4",
             export_context={
                 "session_recording_id": inputs.session_id,
                 "timestamp": 0,  # Start from beginning
@@ -109,6 +111,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 "duration": session_duration,
                 "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
                 "mode": "video",
+                "show_metadata_footer": True,
             },
             created_by_id=inputs.user_id,
             created_at=created_at,
@@ -121,11 +124,13 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         try:
             await client.execute_workflow(
                 VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=True),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                # Keep hard limit to avoid hanging workflows
+                execution_timeout=timedelta(hours=3),
             )
         except WorkflowAlreadyStartedError:
             # Another request already started exporting this session - wait for it to complete
@@ -145,6 +150,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             signals_type="session-summaries",
         )
 
+        success = True
         return exported_asset.id
 
     except Exception as e:
@@ -154,3 +160,14 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             signals_type="session-summaries",
         )
         raise
+    finally:
+        duration_seconds = time.monotonic() - start_time
+        team = await Team.objects.aget(id=inputs.team_id)
+        capture_session_summary_timing(
+            user_distinct_id=inputs.user_distinct_id_to_log,
+            team=team,
+            session_id=inputs.session_id,
+            timing_type="video_render",
+            duration_seconds=duration_seconds,
+            success=success,
+        )

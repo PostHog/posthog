@@ -84,7 +84,7 @@ capabilities:
         docker_profiles: []
 
     cyclotron:
-        description: 'Cyclotron janitor service'
+        description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
         requires: [core_infra]
         docker_profiles: []
 
@@ -134,6 +134,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [dev_tools]
 
+    mcp_server:
+        description: 'MCP server for AI assistant integration'
+        requires: [core_infra]
+        docker_profiles: []
+
 # Intents map to products/features developers work on
 intents:
     product_analytics:
@@ -154,7 +159,15 @@ intents:
 
     experiments:
         description: 'A/B testing and experimentation'
-        capabilities: [event_ingestion, flag_evaluation, property_definitions, celery_workers, nodejs_feature_flags]
+        capabilities:
+            [
+                event_ingestion,
+                flag_evaluation,
+                property_definitions,
+                celery_workers,
+                nodejs_feature_flags,
+                dagster_pipelines,
+            ]
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
@@ -178,7 +191,8 @@ intents:
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows]
+        capabilities:
+            [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows, cyclotron]
 
     ai_features:
         description: 'AI features'
@@ -190,7 +204,7 @@ intents:
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows]
+        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows, cyclotron]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'
@@ -199,6 +213,10 @@ intents:
     debug_tools:
         description: 'Kafka UI, Flower (Celery), maildev, webhook tester'
         capabilities: [dev_tools]
+
+    mcp:
+        description: 'MCP server for AI assistant integration'
+        capabilities: [mcp_server]
 
 # Always-required processes regardless of intent
 # This is the core stack needed for any development

@@ -1,3 +1,4 @@
+import ast
 from typing import Any
 from uuid import uuid4
 
@@ -8,6 +9,33 @@ from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import get_auth_user, get_product, get_time_to_first_token
 
 logger = structlog.get_logger(__name__)
+
+
+def _replace_binary_content(data: Any) -> Any:
+    """
+    Replace binary content with metadata before storing in PostHog.
+    Handles both raw bytes/tuples and their stringified repr() forms.
+    """
+    match data:
+        case None | int() | float() | bool():
+            return data
+        case str() if "b'\\x" in data or 'b"\\x' in data:
+            try:
+                return _replace_binary_content(ast.literal_eval(data))
+            except (ValueError, SyntaxError):
+                return data
+        case str():
+            return data
+        case bytes():
+            return {"type": "binary", "size_bytes": len(data)}
+        case tuple():
+            return tuple(_replace_binary_content(item) for item in data)
+        case list():
+            return [_replace_binary_content(item) for item in data]
+        case dict():
+            return {k: _replace_binary_content(v) for k, v in data.items()}
+        case _:
+            return data
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -50,7 +78,7 @@ class PostHogCallback(InstrumentedCallback):
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
             "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
-            "$ai_input": standard_logging_object.get("messages"),
+            "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
             "$ai_latency": standard_logging_object.get("response_time", 0.0),

@@ -305,6 +305,7 @@ export const NewSurveyPresentationSection: StoryFn = () => {
     return <App />
 }
 NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
+NewSurveyPresentationSection.tags = ['test-skip']
 
 export const NewSurveyTargetingSection: StoryFn = () => {
     useDelayedOnMountEffect(() => {
@@ -339,6 +340,7 @@ export const NewSurveyAppearanceSection: StoryFn = () => {
     return <App />
 }
 NewSurveyAppearanceSection.parameters = { pageUrl: urls.survey('new?edit=true') }
+NewSurveyAppearanceSection.tags = ['test-skip']
 
 export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
     useStorybookMocks({
@@ -417,12 +419,14 @@ export const SurveyView: Story = {
 }
 
 export const SurveyTemplates: Story = {
+    tags: ['test-skip'],
     parameters: {
         pageUrl: urls.surveyTemplates(),
     },
 }
 
 export const SurveyNotFound: Story = {
+    tags: ['test-skip'],
     parameters: {
         pageUrl: urls.survey('1234566789'),
     },

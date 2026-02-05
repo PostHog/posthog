@@ -212,6 +212,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         )
 
         node_results: list[NodeResult] = []
+        ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
         downstreams = _get_downstream_lookup(edge_lookup)
         for i, level in enumerate(levels):
@@ -221,6 +222,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             )
             execute_nodes = []
             skip_nodes = []
+            ephemeral_nodes = []
             for node_id in level:
                 should_skip = False
                 skip_reason = None
@@ -231,6 +233,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         break
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
+                elif node_id in ephemeral_node_set:
+                    ephemeral_nodes.append(node_id)
                 else:
                     execute_nodes.append(node_id)
 
@@ -242,6 +246,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         skipped=True,
                         skip_reason=skip_reason,
                     )
+                )
+            for node_id in ephemeral_nodes:
+                node_results.append(
+                    NodeResult(
+                        node_id=node_id,
+                        success=True,
+                    )
+                )
+                temporalio.workflow.logger.info(
+                    f"Node {node_id} is ephemeral, skipping materialization",
+                    extra=inputs.properties_to_log,
                 )
 
             if not execute_nodes:
@@ -313,7 +328,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         end_time = temporalio.workflow.now()
         duration_seconds = (end_time - start_time).total_seconds()
 
-        successful_nodes = sum(1 for r in node_results if r.success)
+        successful_nodes = sum(1 for r in node_results if r.success and not r.skipped)
         failed_nodes = sum(1 for r in node_results if not r.success and not r.skipped)
         skipped_nodes = sum(1 for r in node_results if r.skipped)
 

@@ -1500,16 +1500,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "4.2.27"
+version = "4.2.28"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ce/ff/6aa5a94b85837af893ca82227301ac6ddf4798afda86151fb2066d26ca0a/django-4.2.27.tar.gz", hash = "sha256:b865fbe0f4a3d1ee36594c5efa42b20db3c8bbb10dff0736face1c6e4bda5b92", size = 10432781, upload-time = "2025-12-02T14:01:49.006Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/a9/25b75b11a4c7a6efe1661c181afe504992e0659ca6eedb72a065cdd91a25/django-4.2.28.tar.gz", hash = "sha256:a4b9cd881991add394cafa8bb3b11ad1742d1e1470ba99c3ef53dc540316ccfe", size = 10464933, upload-time = "2026-02-03T13:55:27.686Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/f5/1a2319cc090870bfe8c62ef5ad881a6b73b5f4ce7330c5cf2cb4f9536b12/django-4.2.27-py3-none-any.whl", hash = "sha256:f393a394053713e7d213984555c5b7d3caeee78b2ccb729888a0774dff6c11a8", size = 7995090, upload-time = "2025-12-02T14:01:44.234Z" },
+    { url = "https://files.pythonhosted.org/packages/68/20/6d0808bc7500a6c654eae17b53f791a50af2c3f3ac4f328cbec324948c31/django-4.2.28-py3-none-any.whl", hash = "sha256:49a23c1b83ef31525f8d71a57b040f91d34660edb3f086280a8519855655ed3c", size = 7995543, upload-time = "2026-02-03T13:55:09.798Z" },
 ]
 
 [[package]]
@@ -2693,14 +2693,14 @@ wheels = [
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.4"
+version = "1.3.10"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/52/4e/526ad5126dd907e0fcaea0a71a1b2aa1d483335659d5bdfdc08b19bfb64e/hogql_parser-1.3.4.tar.gz", hash = "sha256:a75fb109a81f52471b322d2cc22fad84d877041d1c8dcd149aee3fae2840352a", size = 83956, upload-time = "2026-01-20T11:30:44.835Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/25/790f927e2b20d66050d78074e99d66b25096049c257d98a053356dcdb79f/hogql_parser-1.3.10.tar.gz", hash = "sha256:79e9097fc3cbf97eb53c881b0f13ee3aca3409e191bd1b404c8529d6b3895746", size = 84099, upload-time = "2026-01-28T10:11:13.968Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/f4/8dec602b19159188569117c9bd879838c0306865ca104122b76e4739ec8d/hogql_parser-1.3.4-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:69711e18f1d8eb34c0be63670c3e8bb4f4e75c4ff88057f62226afb39599f619", size = 601954, upload-time = "2026-01-20T11:30:29.79Z" },
-    { url = "https://files.pythonhosted.org/packages/16/8a/837e95167cff2275d0d631b664235e6c478459f67256a42f562a2fc8d378/hogql_parser-1.3.4-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:c2925f5995994729c1f817ced38b2d11e215503d0ed1768dc6e108c26946c618", size = 611483, upload-time = "2026-01-20T11:30:31.787Z" },
-    { url = "https://files.pythonhosted.org/packages/3a/53/70e454e44549c1f8b28190ad84243e2ced211d293cf788542bcdc6a19d86/hogql_parser-1.3.4-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:d8594d9e703820bf2bb0bc9b890d6f8a0aececf6725bda2cd4b538bdb8d4e73d", size = 4425222, upload-time = "2026-01-20T11:30:33.911Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/6e/6ea48fa79ed3c264848c9b61083a96ae730beddff79372149f0cc62f6fb6/hogql_parser-1.3.4-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:f2f5bec0fd569a0947f89403baa7e8377ab9225714990df9191c94e0e1317b6e", size = 4555237, upload-time = "2026-01-20T11:30:36.021Z" },
+    { url = "https://files.pythonhosted.org/packages/74/ed/f95ea18c6913006caecedb87206e9b037c03654dc1aaee4bc8e81f4b0f84/hogql_parser-1.3.10-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:36c7702a93fa4a899b496653e4551c6001d3f1faa87316cab821836312ee391f", size = 604320, upload-time = "2026-01-28T10:10:59.083Z" },
+    { url = "https://files.pythonhosted.org/packages/55/3a/c26f98958c9aef4f18262e931e9dc095ccf4f82d485721699d5c1b5f896c/hogql_parser-1.3.10-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:3194c0019a775683f38de175948d59eadf1bd735c207cc484a7961775bd36e82", size = 612128, upload-time = "2026-01-28T10:11:00.994Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/65/0110e47df927ebad2bf615a6b21beb168fe128397a20b552a2f1aaccbc67/hogql_parser-1.3.10-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:a4b6f296274abe732181368e7a7121f6b5a031a1ab0494dcd2b8bc7e68c26264", size = 4438646, upload-time = "2026-01-28T10:11:02.882Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/a1/18fd46ee7abb8436449c7d54a13c01917c560c7dfe816cffb9264a3cc867/hogql_parser-1.3.10-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:844138eea6ff881d4e0e40578e05e1e1dee14ae180a6ef31e07066dca558c939", size = 4567637, upload-time = "2026-01-28T10:11:05.007Z" },
 ]
 
 [[package]]
@@ -4710,7 +4710,7 @@ requires-dist = [
     { name = "deltalake", specifier = "==0.25.2" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "==0.5.0" },
-    { name = "django", specifier = "~=4.2.27" },
+    { name = "django", specifier = "~=4.2.28" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },
@@ -4748,7 +4748,7 @@ requires-dist = [
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "grimp", specifier = "==3.13" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.4" },
+    { name = "hogql-parser", specifier = "==1.3.10" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=9578c79f29635ee2c1d01b7979e89adab8383de2" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },

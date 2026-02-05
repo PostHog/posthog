@@ -7,9 +7,24 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
     urls: {
-        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
         featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-        featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+        featureFlagNew: ({
+            type,
+            sourceId,
+        }: {
+            type?: 'boolean' | 'multivariate' | 'remote_config'
+            sourceId?: number | string | null
+        }): string => {
+            const params = new URLSearchParams()
+            if (type) {
+                params.set('type', type)
+            }
+            if (sourceId) {
+                params.set('sourceId', sourceId.toString())
+            }
+            return `/feature_flags/new?${params.toString()}`
+        },
     },
     fileSystemTypes: {
         feature_flag: {

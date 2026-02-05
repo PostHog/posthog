@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 1000
+DEFAULT_MAX_SAMPLES = 2500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
@@ -26,6 +26,7 @@ CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
 
 # Generation-level schedule configuration (reuses same coordinator workflow with different inputs)
 GENERATION_COORDINATOR_SCHEDULE_ID = "llma-generation-clustering-coordinator-schedule"
+GENERATION_CHILD_WORKFLOW_ID_PREFIX = "llma-generation-clustering-team"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -74,18 +75,6 @@ LLMA_TRACE_RENDERING_LEGACY = "llma_trace_detailed"
 
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"
-
-# Team allowlist (empty list = no teams processed)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-]
 
 # Cluster labeling agent configuration
 LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning
