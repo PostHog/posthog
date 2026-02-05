@@ -52,6 +52,13 @@ class ExportedAssetAdmin(admin.ModelAdmin):
         if not obj.content_location:
             return "-"
 
+        if not settings.OBJECT_STORAGE_ENDPOINT:
+            return "-"
+
+        # Validate content_location to prevent open redirect attacks
+        if obj.content_location.startswith("/") or "://" in obj.content_location:
+            return "-"
+
         base = settings.OBJECT_STORAGE_ENDPOINT.rstrip("/") + "/"
         bucket_path = f"{settings.OBJECT_STORAGE_BUCKET}/{obj.content_location}"
         url = urljoin(base, bucket_path)
