@@ -31,6 +31,7 @@ from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
 )
+from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.llm_analytics.trace_clustering.schedule import (
     create_generation_clustering_coordinator_schedule,
     create_trace_clustering_coordinator_schedule,
@@ -322,6 +323,7 @@ schedules = [
     create_delete_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
+    create_ingestion_acceptance_test_schedule,
 ]
 
 if settings.EE_AVAILABLE:
