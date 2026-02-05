@@ -21,6 +21,10 @@ export const NotebookMarkLink = Mark.create({
     },
 
     renderHTML({ HTMLAttributes }) {
+        const href = HTMLAttributes.href || ''
+        if (!isSafeProtocol(href)) {
+            HTMLAttributes.href = ''
+        }
         const target = isPostHogLink(HTMLAttributes.href) ? undefined : '_blank'
         return ['a', mergeAttributes(HTMLAttributes, { target }), 0]
     },
@@ -41,7 +45,7 @@ export const NotebookMarkLink = Mark.create({
                                 const link = event.target as HTMLAnchorElement
                                 const href = link.href
 
-                                if (href) {
+                                if (href && isSafeProtocol(href)) {
                                     event.preventDefault()
                                     window.open(href, link.target)
                                 }
@@ -58,6 +62,12 @@ export const NotebookMarkLink = Mark.create({
         ]
     },
 })
+
+const SAFE_LINK_PROTOCOLS = /^(https?:|mailto:)/i
+
+export const isSafeProtocol = (href: string): boolean => {
+    return SAFE_LINK_PROTOCOLS.test(href)
+}
 
 const isPostHogLink = (href: string): boolean => {
     try {
