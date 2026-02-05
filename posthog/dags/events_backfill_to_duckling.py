@@ -104,7 +104,7 @@ EVENTS_COLUMNS = """
     toDateTime64(group4_created_at, 6) as group4_created_at,
     person_mode,
     historical_migration,
-    toDateTime64(now64(6), 6) as _inserted_at
+    now64(6) as _inserted_at
 """
 
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
@@ -135,7 +135,7 @@ PERSONS_COLUMNS = """
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
     toDateTime64(p._timestamp, 6) AS _timestamp,
-    toDateTime64(now64(6), 6) AS _inserted_at
+    now64(6) AS _inserted_at
 """
 
 # Expected columns in the duckling's persons table for schema validation
