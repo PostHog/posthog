@@ -1035,9 +1035,11 @@ export function MyHedgehogBuddy({
     }
     const disappear = (): void => {
         setPopoverVisible(false)
+        if (actor) {
+            onClose?.(actor)
+        }
         actor?.setAnimation('wave', {
             onComplete() {
-                onClose?.(actor)
                 return true
             },
         })
