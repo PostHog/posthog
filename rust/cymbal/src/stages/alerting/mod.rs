@@ -4,10 +4,10 @@ mod spike_alert;
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
-    stages::alerting::spike_alert::SpikeAlertStage,
+    metric_consts::ALERTING_STAGE,
+    stages::{alerting::spike_alert::SpikeAlertStage, pipeline::ExceptionEventPipelineItem},
     types::{
         batch::Batch,
-        pipeline::ExceptionEventPipelineItem,
         stage::{Stage, StageResult},
     },
 };
@@ -29,6 +29,10 @@ impl Stage for AlertingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
     type Error = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        ALERTING_STAGE
+    }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         batch.apply_stage(SpikeAlertStage::new(self.context)).await

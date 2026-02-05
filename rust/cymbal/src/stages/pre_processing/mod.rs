@@ -8,11 +8,12 @@ use uuid::Uuid;
 
 use crate::{
     error::{EventError, UnhandledError},
+    metric_consts::PRE_PROCESSING_STAGE,
     recursively_sanitize_properties,
+    stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
     types::{
         batch::Batch,
         event::ExceptionProperties,
-        pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
         stage::{Stage, StageResult},
     },
 };
@@ -71,6 +72,10 @@ impl Stage for PreProcessingStage {
     type Input = ClickHouseEvent;
     type Output = ExceptionEventPipelineItem;
     type Error = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        PRE_PROCESSING_STAGE
+    }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let events_by_id = self.events_by_id.clone();

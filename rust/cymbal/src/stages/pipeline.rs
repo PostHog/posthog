@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
-    future::Future,
     sync::Arc,
 };
 
@@ -13,27 +12,18 @@ use uuid::Uuid;
 use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
+    metric_consts::EXCEPTION_PROPERTIES_PIPELINE,
     stages::{
         alerting::AlertingStage, grouping::GroupingStage, linking::LinkingStage,
         post_processing::PostProcessingStage, pre_processing::PreProcessingStage,
         resolution::ResolutionStage,
     },
-    types::{batch::Batch, event::ExceptionProperties},
+    types::{batch::Batch, event::ExceptionProperties, stage::Stage},
 };
 
-pub trait Pipeline {
-    type Input;
-    type Output;
-    type Error;
-
-    fn run(
-        &self,
-        batch: Batch<Self::Input>,
-        app_context: Arc<AppContext>,
-    ) -> impl Future<Output = Result<Batch<Self::Output>, Self::Error>>;
+pub struct ExceptionEventPipeline {
+    app_context: Arc<AppContext>,
 }
-
-pub struct ExceptionEventPipeline {}
 
 pub type EventPipelineItem = Result<ClickHouseEvent, EventError>;
 
@@ -57,15 +47,18 @@ impl Display for ExceptionEventHandledError {
 
 pub type ExceptionEventPipelineItem = Result<ExceptionProperties, ExceptionEventHandledError>;
 
-impl Pipeline for ExceptionEventPipeline {
+impl Stage for ExceptionEventPipeline {
     type Input = ClickHouseEvent;
     type Output = ClickHouseEvent;
     type Error = UnhandledError;
 
-    async fn run(
-        &self,
+    fn name(&self) -> &'static str {
+        EXCEPTION_PROPERTIES_PIPELINE
+    }
+
+    async fn process(
+        self,
         batch: Batch<Self::Input>,
-        app_context: Arc<AppContext>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
         let events_by_id = Arc::new(Mutex::new(HashMap::<Uuid, ClickHouseEvent>::new()));
         batch
@@ -73,16 +66,16 @@ impl Pipeline for ExceptionEventPipeline {
             .apply_stage(PreProcessingStage::new(events_by_id.clone()))
             .await?
             // Resolve stack traces
-            .apply_stage(ResolutionStage::from(&app_context))
+            .apply_stage(ResolutionStage::from(&self.app_context))
             .await?
             // Group events by fingerprint
-            .apply_stage(GroupingStage::from(&app_context))
+            .apply_stage(GroupingStage::from(&self.app_context))
             .await?
-            // Link events to issues
-            .apply_stage(LinkingStage::from(&app_context))
+            // Link events to issues and suppress
+            .apply_stage(LinkingStage::from(&self.app_context))
             .await?
             // Send internal events for alerting
-            .apply_stage(AlertingStage::from(&app_context))
+            .apply_stage(AlertingStage::from(&self.app_context))
             .await?
             // Handle errors, conversion to CH events
             .apply_stage(PostProcessingStage::new(events_by_id.clone()))

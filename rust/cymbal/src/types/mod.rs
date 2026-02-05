@@ -22,7 +22,6 @@ mod stacktrace;
 pub mod batch;
 pub mod event;
 pub mod operator;
-pub mod pipeline;
 pub mod stage;
 
 pub use exception::*;

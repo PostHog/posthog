@@ -8,6 +8,7 @@ pub trait Operator {
     type Output: Send;
     type Error: Send;
 
+    fn name(&self) -> &'static str;
     fn execute(
         &self,
         input: Self::Input,
@@ -21,6 +22,7 @@ pub trait ValueOperator {
     type HandledError: Send;
     type UnhandledError: Send;
 
+    fn name(&self) -> &'static str;
     fn execute_value(
         &self,
         input: Self::Item,
@@ -40,6 +42,10 @@ where
     type Input = Result<T::Item, T::HandledError>;
     type Output = Result<T::Item, T::HandledError>;
     type Error = T::UnhandledError;
+
+    fn name(&self) -> &'static str {
+        self.name()
+    }
 
     async fn execute(
         &self,

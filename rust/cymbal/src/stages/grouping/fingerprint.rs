@@ -3,11 +3,11 @@ use sha2::{Digest, Sha512};
 use crate::{
     error::UnhandledError,
     fingerprinting::{grouping_rules::evaluate_grouping_rules, Fingerprint, FingerprintRecordPart},
-    stages::grouping::GroupingStage,
+    metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
+    stages::{grouping::GroupingStage, pipeline::ExceptionEventHandledError},
     types::{
         event::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
-        pipeline::ExceptionEventHandledError,
     },
 };
 
@@ -19,6 +19,10 @@ impl ValueOperator for FingerprintGenerator {
     type Item = ExceptionProperties;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        FINGERPRINT_GENERATOR_OPERATOR
+    }
 
     async fn execute_value(
         &self,

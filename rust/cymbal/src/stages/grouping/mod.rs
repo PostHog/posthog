@@ -7,9 +7,10 @@ pub mod fingerprint;
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
-    stages::grouping::fingerprint::FingerprintGenerator,
+    metric_consts::GROUPING_STAGE,
+    stages::{grouping::fingerprint::FingerprintGenerator, pipeline::ExceptionEventPipelineItem},
     teams::TeamManager,
-    types::{batch::Batch, pipeline::ExceptionEventPipelineItem, stage::Stage},
+    types::{batch::Batch, stage::Stage},
 };
 
 #[derive(Clone)]
@@ -31,6 +32,10 @@ impl Stage for GroupingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
     type Error = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        GROUPING_STAGE
+    }
 
     async fn process(
         self,

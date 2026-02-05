@@ -9,6 +9,8 @@ pub trait Stage {
     type Output;
     type Error;
 
+    fn name(&self) -> &'static str;
+
     fn process(
         self,
         batch: Batch<Self::Input>,

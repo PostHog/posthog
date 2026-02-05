@@ -1,10 +1,10 @@
 use crate::{
     error::UnhandledError,
-    stages::resolution::ResolutionStage,
+    metric_consts::PROPERTIES_RESOLVER_OPERATOR,
+    stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
     types::{
         event::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
-        pipeline::ExceptionEventHandledError,
     },
 };
 
@@ -16,6 +16,10 @@ impl ValueOperator for PropertiesResolver {
     type Context = ResolutionStage;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        PROPERTIES_RESOLVER_OPERATOR
+    }
 
     async fn execute_value(
         &self,

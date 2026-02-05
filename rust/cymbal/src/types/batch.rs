@@ -60,6 +60,7 @@ impl<T> Batch<T> {
         }
     }
 
+    #[allow(clippy::manual_async_fn)]
     pub fn apply_operator<C, Op>(
         self,
         operator: Op,
@@ -70,19 +71,32 @@ impl<T> Batch<T> {
         C: Clone + Send + 'static,
         Op: Operator<Input = T, Output = T, Context = C> + Clone + Send + Sync + 'static,
     {
-        self.apply_func(
-            move |item, ctx| {
-                let cloned_operator = operator.clone();
-                async move { cloned_operator.execute(item, ctx).await }
-            },
-            ctx,
-        )
+        async {
+            let time = common_metrics::timing_guard(operator.name(), &[]);
+            let res = self
+                .apply_func(
+                    move |item, ctx| {
+                        let cloned_operator = operator.clone();
+                        async move { cloned_operator.execute(item, ctx).await }
+                    },
+                    ctx,
+                )
+                .await?;
+            time.label("outcome", "success");
+            Ok(res)
+        }
     }
 
+    #[allow(clippy::manual_async_fn)]
     pub fn apply_stage<S>(self, stage: S) -> impl Future<Output = StageResult<S>>
     where
-        S: Stage<Input = T> + 'static,
+        S: Stage<Input = T>,
     {
-        stage.process(self)
+        async {
+            let time = common_metrics::timing_guard(stage.name(), &[]);
+            let res = stage.process(self).await?;
+            time.label("outcome", "success");
+            Ok(res)
+        }
     }
 }

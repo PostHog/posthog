@@ -1,12 +1,12 @@
 use crate::{
     error::UnhandledError,
     frames::{Frame, RawFrame},
-    stages::resolution::ResolutionStage,
+    metric_consts::FRAME_RESOLVER_OPERATOR,
+    stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
         event::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
-        pipeline::ExceptionEventHandledError,
         Exception, ExceptionList, Stacktrace,
     },
 };
@@ -67,6 +67,10 @@ impl ValueOperator for FrameResolver {
     type Item = ExceptionProperties;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        FRAME_RESOLVER_OPERATOR
+    }
 
     async fn execute_value(
         &self,

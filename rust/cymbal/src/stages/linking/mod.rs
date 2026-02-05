@@ -9,8 +9,12 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     issue_resolution::Issue,
-    stages::linking::{issue::IssueLinker, suppression::IssueSuppression},
-    types::{batch::Batch, operator::TeamId, pipeline::ExceptionEventPipelineItem, stage::Stage},
+    metric_consts::LINKING_STAGE,
+    stages::{
+        linking::{issue::IssueLinker, suppression::IssueSuppression},
+        pipeline::ExceptionEventPipelineItem,
+    },
+    types::{batch::Batch, operator::TeamId, stage::Stage},
 };
 
 #[derive(Clone)]
@@ -23,6 +27,10 @@ impl Stage for LinkingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
     type Error = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        LINKING_STAGE
+    }
 
     async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
         batch

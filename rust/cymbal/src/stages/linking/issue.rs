@@ -9,11 +9,11 @@ use crate::{
     error::UnhandledError,
     fingerprinting::Fingerprint,
     issue_resolution::{resolve_issue, Issue},
-    stages::linking::LinkingStage,
+    metric_consts::ISSUE_LINKER_OPERATOR,
+    stages::{linking::LinkingStage, pipeline::ExceptionEventHandledError},
     types::{
         event::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
-        pipeline::ExceptionEventHandledError,
         FingerprintedErrProps,
     },
 };
@@ -67,6 +67,10 @@ impl ValueOperator for IssueLinker {
     type Context = LinkingStage;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        ISSUE_LINKER_OPERATOR
+    }
 
     async fn execute_value(
         &self,

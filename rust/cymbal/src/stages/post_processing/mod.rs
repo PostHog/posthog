@@ -6,10 +6,11 @@ use uuid::Uuid;
 
 use crate::{
     error::{EventError, UnhandledError},
+    metric_consts::POST_PROCESSING_STAGE,
+    stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
     types::{
         batch::Batch,
         event::ExceptionProperties,
-        pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
         stage::{Stage, StageResult},
     },
 };
@@ -85,6 +86,10 @@ impl Stage for PostProcessingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ClickHouseEvent;
     type Error = UnhandledError;
+
+    fn name(&self) -> &'static str {
+        POST_PROCESSING_STAGE
+    }
 
     async fn process(self, input: Batch<Self::Input>) -> StageResult<Self> {
         // Implement error handling logic here

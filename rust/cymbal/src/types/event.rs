@@ -11,14 +11,25 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExceptionProperties {
+    #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
 
+    #[serde(rename = "$exception_sources")]
     pub exception_sources: Option<Vec<String>>,
+    #[serde(rename = "$exception_types")]
     pub exception_types: Option<Vec<String>>,
+    #[serde(rename = "$exception_messages")]
     pub exception_messages: Option<Vec<String>>,
+    #[serde(rename = "$exception_functions")]
     pub exception_functions: Option<Vec<String>>,
+    #[serde(rename = "$exception_handled")]
     pub exception_handled: Option<bool>,
 
+    #[serde(
+        rename = "$exception_releases",
+        skip_serializing_if = "HashMap::is_empty",
+        default
+    )]
     pub releases: HashMap<String, ReleaseInfo>,
 
     #[serde(rename = "$exception_fingerprint")]
@@ -28,8 +39,11 @@ pub struct ExceptionProperties {
     #[serde(rename = "$exception_fingerprint_record")]
     pub fingerprint_record: Option<Vec<FingerprintRecordPart>>,
 
+    #[serde(rename = "$exception_issue_id")]
     pub issue_id: Option<Uuid>,
+    #[serde(rename = "$issue_name", skip_serializing_if = "Option::is_none")]
     pub proposed_issue_name: Option<String>,
+    #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
     pub proposed_issue_description: Option<String>,
 
     #[serde(flatten)]
