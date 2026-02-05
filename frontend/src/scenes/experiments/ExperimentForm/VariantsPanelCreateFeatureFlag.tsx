@@ -1,40 +1,17 @@
-import { useActions, useValues } from 'kea'
-import { useDebouncedCallback } from 'use-debounce'
-
-import { IconBalance, IconCheck, IconPlus, IconTrash } from '@posthog/icons'
+import { IconBalance, IconPlus, IconTrash } from '@posthog/icons'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { alphabet } from 'lib/utils'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { percentageDistribution } from '../utils'
-import { variantsPanelLogic } from './variantsPanelLogic'
-
-export const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
-    const baseKey = name
-        .toLowerCase()
-        .replace(/[^A-Za-z0-9-_]+/g, '-')
-        .replace(/-+$/, '')
-        .replace(/^-+/, '')
-
-    let key = baseKey
-    let counter = 1
-
-    while (unavailableFeatureFlagKeys?.has(key)) {
-        key = `${baseKey}-${counter}`
-        counter++
-    }
-    return key
-}
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
@@ -48,20 +25,13 @@ interface VariantsPanelCreateFeatureFlagProps {
         }
     }) => void
     disabled?: boolean
-    showNewExperimentFormLayout?: boolean
 }
 
 export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
     disabled = false,
-    showNewExperimentFormLayout = false,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
-    const { featureFlagKeyValidation, featureFlagKeyValidationLoading } = useValues(
-        variantsPanelLogic({ experiment, disabled })
-    )
-    const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic({ experiment, disabled }))
-
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
         { key: 'test', rollout_percentage: 50 },
@@ -138,69 +108,9 @@ export const VariantsPanelCreateFeatureFlag = ({
         })
     }
 
-    const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
-        if (key) {
-            validateFeatureFlagKey(key)
-        }
-    }, 100)
-
     return (
         <div className="flex flex-col gap-4">
-            {!showNewExperimentFormLayout && (
-                <LemonField.Pure label="Feature flag key" htmlFor="experiment-feature-flag-key">
-                    <>
-                        <LemonInput
-                            id="experiment-feature-flag-key"
-                            placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                            value={experiment.feature_flag_key || ''}
-                            onChange={
-                                disabled
-                                    ? undefined
-                                    : (value) => {
-                                          /**
-                                           * if the user changes the feature flag key, we need to set the dirty flag to true
-                                           * so that we don't generate a new key automatically
-                                           * TODO: clear dirty flag when the name is empty
-                                           */
-                                          setFeatureFlagKeyDirty()
-                                          const normalizedValue = value.replace(/\s+/g, '-')
-                                          onChange({
-                                              feature_flag_key: normalizedValue,
-                                          })
-                                          debouncedValidateFeatureFlagKey(normalizedValue)
-                                      }
-                            }
-                            disabledReason={
-                                disabled
-                                    ? 'You cannot change the feature flag key when editing an experiment.'
-                                    : undefined
-                            }
-                            suffix={
-                                featureFlagKeyValidationLoading ? (
-                                    <Spinner size="small" />
-                                ) : featureFlagKeyValidation?.valid ? (
-                                    <IconCheck className="text-success" />
-                                ) : null
-                            }
-                            status={featureFlagKeyValidation?.error ? 'danger' : 'default'}
-                        />
-                        {featureFlagKeyValidation?.error && (
-                            <div className="text-xs text-danger">{featureFlagKeyValidation.error}</div>
-                        )}
-                        <div className="text-sm text-secondary">
-                            Each experiment is backed by a feature flag. This key will be used to control the experiment
-                            in your code.
-                        </div>
-                    </>
-                </LemonField.Pure>
-            )}
-
-            <LemonField.Pure
-                label="Variant keys"
-                {...(!showNewExperimentFormLayout
-                    ? { help: 'The rollout percentage of experiment variants must add up to 100%' }
-                    : {})}
-            >
+            <LemonField.Pure label="Variant keys">
                 <div className="text-sm border border-primary rounded p-4">
                     <div className="grid grid-cols-24 gap-2 font-bold mb-2 items-center">
                         <div />
@@ -339,23 +249,13 @@ export const VariantsPanelCreateFeatureFlag = ({
                     }
                 />
                 <div className="text-secondary text-sm pl-6 mt-2">
-                    {showNewExperimentFormLayout ? (
-                        <>
-                            This is only relevant if your feature flag is shown to both logged out AND logged in users.{' '}
-                            <Link
-                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                target="_blank"
-                            >
-                                Learn more
-                            </Link>
-                        </>
-                    ) : (
-                        <>
-                            If your feature flag is evaluated for anonymous users, use this option to ensure the flag
-                            value remains consistent after the user logs in. Note that this feature requires creating
-                            profiles for anonymous users.
-                        </>
-                    )}
+                    This is only relevant if your feature flag is shown to both logged out AND logged in users.{' '}
+                    <Link
+                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                        target="_blank"
+                    >
+                        Learn more
+                    </Link>
                 </div>
             </div>
         </div>
