@@ -1833,7 +1833,6 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
             run_requests.append(
                 RunRequest(
                     partition_key=partition_key,
-                    run_key=f"{partition_key}_full_backfill",
                 )
             )
             current_month = month
