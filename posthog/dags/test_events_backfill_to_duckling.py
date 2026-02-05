@@ -17,6 +17,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _validate_identifier,
     get_months_in_range,
     get_s3_url_for_clickhouse,
+    is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
     table_exists,
@@ -385,3 +386,21 @@ class TestExportSQLOrderBy:
         persons_columns_lower = PERSONS_COLUMNS.lower()
         assert "distinct_id" in persons_columns_lower
         assert "_timestamp" in persons_columns_lower
+
+
+class TestIsFullExportPartition:
+    @parameterized.expand(
+        [
+            ("12345", True),
+            ("1", True),
+            ("999999", True),
+            ("12345_2024-01-15", False),
+            ("12345_2024-01", False),
+            ("1_2020-12-31", False),
+            ("12345-2024-01", False),  # Invalid format with hyphen instead of underscore
+            ("abc", False),  # Non-numeric
+            ("", False),  # Empty string
+        ]
+    )
+    def test_detects_partition_format(self, key, expected):
+        assert is_full_export_partition(key) == expected
