@@ -20,6 +20,7 @@ import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { isEvenlyDistributed } from '../utils'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './components'
@@ -91,10 +92,15 @@ export function DistributionModal(): JSX.Element {
                         <LemonButton
                             size="small"
                             onClick={distributeVariantsEqually}
-                            tooltip="Redistribute variant rollout percentages equally"
+                            tooltip="Distribute split evenly"
                             icon={<IconBalance />}
+                            className={
+                                isEvenlyDistributed(featureFlag?.filters?.multivariate?.variants || [])
+                                    ? 'invisible'
+                                    : ''
+                            }
                         >
-                            Distribute equally
+                            Distribute evenly
                         </LemonButton>
                     </div>
 
@@ -107,7 +113,7 @@ export function DistributionModal(): JSX.Element {
                                 render: (value) => <span className="font-semibold">{value}</span>,
                             },
                             {
-                                title: 'Rollout Percentage',
+                                title: 'Split',
                                 dataIndex: 'rollout_percentage',
                                 render: (_, record, index) => (
                                     <LemonInput
@@ -125,7 +131,7 @@ export function DistributionModal(): JSX.Element {
 
                     {!areVariantRolloutsValid && (
                         <p className="text-danger mt-2">
-                            Percentage rollouts must sum to 100 (currently {variantRolloutSum}).
+                            Percentage splits must sum to 100 (currently {variantRolloutSum}).
                         </p>
                     )}
                 </div>
@@ -172,7 +178,7 @@ export function DistributionTable(): JSX.Element {
         {
             className: className,
             key: 'rollout_percentage',
-            title: 'Rollout',
+            title: 'Split',
             render: function Key(_, item): JSX.Element {
                 return <div>{`${item.rollout_percentage}%`}</div>
             },

@@ -24,7 +24,7 @@ def create_endpoint_with_version(
     )
     EndpointVersion.objects.create(
         endpoint=endpoint,
-        version=1,
+        version=current_version,
         query=query,
         description=description,
         cache_age_seconds=cache_age_seconds,

@@ -45,6 +45,12 @@ export class DashboardPage {
 
         await this.page.getByTestId('create-dashboard-blank').click()
 
+        // Wait for the toast confirming the insight was added to the dashboard.
+        // This ensures the async updateInsight API call has completed before we
+        // check for the InsightCard, avoiding a race condition where the dashboard
+        // page loads before the insight is actually added.
+        await expect(this.page.getByText('Insight added to dashboard')).toBeVisible({ timeout: 30000 })
+
         await expect(this.page.locator('.InsightCard')).toBeVisible({ timeout: 30000 })
         await this.closeSidePanels()
     }
@@ -73,6 +79,26 @@ export class DashboardPage {
         await this.topBarName.getByRole('button').click()
         await this.topBarName.getByRole('textbox').fill(dashboardName)
         await this.topBarName.getByRole('button').getByText('Save').click()
+    }
+
+    async findCardByTitle(title: string): Promise<Locator> {
+        const cards = this.page.locator('.InsightCard')
+        const count = await cards.count()
+
+        for (let i = 0; i < count; i++) {
+            const card = cards.nth(i)
+            await card.scrollIntoViewIfNeeded()
+            const titleText = await card
+                .locator('[data-attr="insight-card-title"]')
+                .textContent({ timeout: 5000 })
+                .catch(() => null)
+
+            if (titleText?.includes(title)) {
+                return card
+            }
+        }
+
+        throw new Error(`Could not find InsightCard with title "${title}"`)
     }
 
     async openFirstTileMenu(): Promise<void> {
