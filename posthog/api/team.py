@@ -14,7 +14,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode
+from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
@@ -683,6 +683,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                                 f"You can only update retention settings once per 24 hours. "
                                 f"Please wait {int(hours_remaining)} more hour(s)."
                             )
+
+        return value
+
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if "bounceRateDurationSeconds" in value:
+            bounce_rate = value["bounceRateDurationSeconds"]
+            if bounce_rate is not None:
+                if not isinstance(bounce_rate, (int, float)):
+                    raise exceptions.ValidationError({"bounceRateDurationSeconds": "Must be a number."})
+                if bounce_rate < 1 or bounce_rate > 120:
+                    raise exceptions.ValidationError(
+                        {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
+                    )
+
+        try:
+            HogQLQueryModifiers(**value)
+        except Exception:
+            raise exceptions.ValidationError(f"Invalid modifier key.")
 
         return value
 
