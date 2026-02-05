@@ -30,6 +30,7 @@ export function SavedInsightsFilters({
                 onChange={(value) => setFilters({ search: value })}
                 value={search || ''}
                 autoFocus
+                data-attr="insight-dashboard-modal-search"
             />
             <div className="flex items-center gap-2 flex-wrap">
                 {showQuickFilters && (

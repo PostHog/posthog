@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { IconCheck } from '@posthog/icons'
@@ -54,7 +55,13 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             return
         }
 
-        toggleInsightOnDashboard(insight, dashboard.id, isInsightInDashboard(insight, dashboard.tiles))
+        const currentlyInDashboard = isInsightInDashboard(insight, dashboard.tiles)
+        posthog.capture('insight dashboard modal row clicked', {
+            action: currentlyInDashboard ? 'remove' : 'add',
+            insight_id: insight.id,
+            dashboard_id: dashboard.id,
+        })
+        toggleInsightOnDashboard(insight, dashboard.id, currentlyInDashboard)
     }
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
