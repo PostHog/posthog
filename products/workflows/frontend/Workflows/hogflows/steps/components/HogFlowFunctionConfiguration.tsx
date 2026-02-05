@@ -6,10 +6,28 @@ import { Spinner } from '@posthog/lemon-ui'
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
-import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
+import { CyclotronJobInputType, HogFunctionMappingType, SurveyQuestionType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { surveyTriggerLogic } from '../surveyTriggerLogic'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
+
+function getSampleValueForQuestionType(type: string): any {
+    switch (type) {
+        case SurveyQuestionType.Open:
+            return 'User response text'
+        case SurveyQuestionType.Rating:
+            return '8'
+        case SurveyQuestionType.SingleChoice:
+            return 'Selected option'
+        case SurveyQuestionType.MultipleChoice:
+            return ['Option A', 'Option B']
+        case SurveyQuestionType.Link:
+            return null
+        default:
+            return 'response'
+    }
+}
 
 export function HogFlowFunctionConfiguration({
     templateId,
@@ -27,6 +45,7 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
+    const { allSurveys } = useValues(surveyTriggerLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     useEffect(() => {
@@ -49,6 +68,20 @@ export function HogFlowFunctionConfiguration({
     }
 
     const triggerType = workflow?.trigger?.type
+
+    // Detect if the trigger is a survey trigger
+    const triggerEvents =
+        triggerType === 'event' && workflow?.trigger && 'filters' in workflow.trigger
+            ? (workflow.trigger.filters?.events ?? [])
+            : []
+    const isSurveyTrigger = triggerEvents.some((e: any) => e.id === 'survey sent')
+
+    // If a specific survey is selected, find it for question-aware autocomplete
+    const surveyIdProp =
+        isSurveyTrigger && workflow?.trigger && 'filters' in workflow.trigger
+            ? workflow.trigger.filters?.properties?.find((p: any) => p.key === '$survey_id' && p.operator === 'exact')
+            : null
+    const selectedSurvey = surveyIdProp ? allSurveys.find((s) => s.id === surveyIdProp.value) : null
 
     // Build workflow variables object for autocomplete
     const workflowVariables: Record<string, any> = {}
@@ -79,14 +112,53 @@ export function HogFlowFunctionConfiguration({
             params: {},
         }
     } else if (triggerType === 'event') {
-        // Event-based triggers
-        sampleGlobals.event = {
-            event: 'example_event',
-            distinct_id: 'user123',
-            properties: {
-                $current_url: 'https://example.com',
-            },
-            timestamp: '2024-01-01T12:00:00Z',
+        if (isSurveyTrigger) {
+            // Properties matching the actual posthog-js SDK survey sent event schema
+            const surveyProperties: Record<string, any> = {
+                $survey_id: selectedSurvey?.id ?? 'survey-uuid',
+                $survey_name: selectedSurvey?.name ?? 'Survey name',
+                $survey_completed: true,
+                $survey_submission_id: 'submission-uuid',
+                $survey_iteration: null,
+                $survey_iteration_start_date: null,
+                $survey_questions: [{ id: 'question-id', question: 'Question text', response: 'Response' }],
+            }
+
+            if (selectedSurvey?.questions) {
+                // Per-question response fields keyed by question ID
+                selectedSurvey.questions.forEach((question) => {
+                    if (question.type === SurveyQuestionType.Link) {
+                        return // Link questions don't capture responses
+                    }
+                    if (question.id) {
+                        surveyProperties[`$survey_response_${question.id}`] = getSampleValueForQuestionType(
+                            question.type
+                        )
+                    }
+                })
+                // $survey_questions contains objects with {id, question, response}
+                surveyProperties.$survey_questions = selectedSurvey.questions.map((q) => ({
+                    id: q.id ?? '',
+                    question: q.question,
+                    response: getSampleValueForQuestionType(q.type),
+                }))
+            }
+
+            sampleGlobals.event = {
+                event: 'survey sent',
+                distinct_id: 'user123',
+                properties: surveyProperties,
+                timestamp: '2024-01-01T12:00:00Z',
+            }
+        } else {
+            sampleGlobals.event = {
+                event: 'example_event',
+                distinct_id: 'user123',
+                properties: {
+                    $current_url: 'https://example.com',
+                },
+                timestamp: '2024-01-01T12:00:00Z',
+            }
         }
         sampleGlobals.person = {
             id: 'person123',
