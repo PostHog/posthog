@@ -82,6 +82,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const isNewFeatureFlag = id === 'new' || id === undefined
     const [highlightedFields, setHighlightedFields] = useState<ModifiedField[]>([])
     const implementationRef = useRef<HTMLDivElement>(null)
+    const hasBooleanPayload = !!featureFlag?.filters?.payloads?.['true']
+    const [payloadExpanded, setPayloadExpanded] = useState(hasBooleanPayload)
 
     const handleTemplateApplied = (fields: ModifiedField[]): void => {
         setHighlightedFields(fields)
@@ -646,36 +648,49 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
 
                                 {/* Payload section - for boolean and remote config flags */}
-                                {!multivariateEnabled && (
+                                {!multivariateEnabled && featureFlag.is_remote_configuration && (
                                     <div className="flex flex-col gap-2">
-                                        <LemonLabel
-                                            info={
-                                                featureFlag.is_remote_configuration
-                                                    ? 'Specify a JSON payload to be returned for this remote config flag.'
-                                                    : 'Optionally specify a JSON payload to be returned when the flag evaluates to true.'
-                                            }
-                                        >
+                                        <LemonLabel info="Specify a JSON payload to be returned for this remote config flag.">
                                             Payload
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
-                                            {featureFlag.is_remote_configuration ? (
-                                                <>
-                                                    Remote config flags always return the payload. Access it via{' '}
-                                                    <code className="text-xs">getFeatureFlagPayload</code>.
-                                                </>
-                                            ) : (
-                                                <>
-                                                    When the flag evaluates to <code className="text-xs">true</code>,
-                                                    this payload will be available via{' '}
-                                                    <code className="text-xs">getFeatureFlagPayload</code>.
-                                                </>
-                                            )}
+                                            Remote config flags always return the payload. Access it via{' '}
+                                            <code className="text-xs">getFeatureFlagPayload</code>.
                                         </div>
                                         <Group name={['filters', 'payloads']}>
                                             <LemonField name="true">
                                                 <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
                                             </LemonField>
                                         </Group>
+                                    </div>
+                                )}
+                                {!multivariateEnabled && !featureFlag.is_remote_configuration && (
+                                    <div className="flex flex-col gap-2">
+                                        {payloadExpanded ? (
+                                            <>
+                                                <LemonLabel info="Optionally specify a JSON payload to be returned when the flag evaluates to true.">
+                                                    Payload
+                                                </LemonLabel>
+                                                <div className="text-secondary text-xs mb-1">
+                                                    When the flag evaluates to <code className="text-xs">true</code>,
+                                                    this payload will be available via{' '}
+                                                    <code className="text-xs">getFeatureFlagPayload</code>.
+                                                </div>
+                                                <Group name={['filters', 'payloads']}>
+                                                    <LemonField name="true">
+                                                        <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                                    </LemonField>
+                                                </Group>
+                                            </>
+                                        ) : (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => setPayloadExpanded(true)}
+                                            >
+                                                Add payload
+                                            </LemonButton>
+                                        )}
                                     </div>
                                 )}
                             </div>
