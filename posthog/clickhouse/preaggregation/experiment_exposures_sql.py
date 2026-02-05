@@ -23,7 +23,7 @@ def SHARDED_EXPERIMENT_EXPOSURES_TABLE_ENGINE():
     # ReplacingMergeTree deduplicates rows with the same ORDER BY key.
     # If we INSERT the same (team_id, job_id, entity_id, breakdown_value) twice,
     # ClickHouse keeps only one row.
-    return ReplacingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED)
+    return ReplacingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="last_exposure_time")
 
 
 EXPERIMENT_EXPOSURES_TABLE_BASE_SQL = """
