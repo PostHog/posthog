@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconFeatures } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
@@ -326,7 +327,9 @@ export function PropertyValue({
                         >
                             {formatLabelContent(isFlagDependencyProperty ? _name : name)}
                             {isSuggested && currentSearchInput.current && (
-                                <span className="text-muted text-xs shrink-0">Suggested</span>
+                                <Tooltip title="Suggested value">
+                                    <IconFeatures className="text-muted shrink-0 w-4 h-4" />
+                                </Tooltip>
                             )}
                         </span>
                     ),
