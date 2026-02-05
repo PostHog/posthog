@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
@@ -37,6 +38,22 @@ function getSelectedSurveyId(config: EventTriggerConfig): string | null {
     return surveyIdProp?.value ?? null
 }
 
+function getCompletedResponsesOnly(config: EventTriggerConfig): boolean {
+    const completedProp = config.filters?.properties?.find((p: any) => p.key === '$survey_completed')
+    return completedProp?.value === true
+}
+
+function buildProperties(surveyId: string | null, completedResponsesOnly: boolean): any[] {
+    const properties: any[] = []
+    if (surveyId) {
+        properties.push({ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' })
+    }
+    if (completedResponsesOnly) {
+        properties.push({ key: '$survey_completed', value: true, operator: 'exact', type: 'event' })
+    }
+    return properties
+}
+
 function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
@@ -44,6 +61,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
         useValues(surveyTriggerLogic)
     const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
     const selectedSurveyId = getSelectedSurveyId(config)
+    const completedOnly = getCompletedResponsesOnly(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -185,14 +203,11 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                             return
                         }
                         setSearchTerm('')
-                        const properties = surveyId
-                            ? [{ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' }]
-                            : []
                         setWorkflowActionConfig(node.data.id, {
                             type: 'event',
                             filters: {
                                 events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties,
+                                properties: buildProperties(surveyId, completedOnly),
                                 filter_test_accounts: filterTestAccounts,
                             },
                         })
@@ -202,6 +217,36 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                 <p className="text-xs text-muted mt-1">
                     This workflow will be triggered when someone submits a response to this survey.
                 </p>
+            </LemonField.Pure>
+
+            <LemonField.Pure label="Trigger on">
+                <LemonRadio
+                    value={completedOnly ? 'completed' : 'any'}
+                    onChange={(value) => {
+                        const newCompletedOnly = value === 'completed'
+                        setWorkflowActionConfig(node.data.id, {
+                            type: 'event',
+                            filters: {
+                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                properties: buildProperties(selectedSurveyId, newCompletedOnly),
+                                filter_test_accounts: filterTestAccounts,
+                            },
+                        })
+                    }}
+                    options={[
+                        {
+                            value: 'completed',
+                            label: 'Completed responses only',
+                            description: 'Trigger only when the survey is fully completed',
+                        },
+                        {
+                            value: 'any',
+                            label: 'Any response (including partial)',
+                            description:
+                                "Trigger on every response, including partial submissions when a user answers some questions but doesn't complete the survey",
+                        },
+                    ]}
+                />
             </LemonField.Pure>
 
             {(() => {
