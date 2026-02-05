@@ -424,9 +424,12 @@ class FeatureFlagSerializer(
 
     def get_fields(self):
         fields = super().get_fields()
+        analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
         if team_id := self.context.get("team_id"):
-            analytics_dashboards_field = cast(ManyRelatedField, fields["analytics_dashboards"])
             analytics_dashboards_field.child_relation.queryset = Dashboard.objects.filter(team_id=team_id)
+        else:
+            # Fail safe: if no team context, allow no dashboards to prevent IDOR
+            analytics_dashboards_field.child_relation.queryset = Dashboard.objects.none()
         return fields
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -840,6 +843,7 @@ class FeatureFlagSerializer(
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
@@ -975,6 +979,7 @@ class FeatureFlagSerializer(
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
+                # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         # Propagate the new variants and aggregation group type index to the linked experiments

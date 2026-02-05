@@ -73,6 +73,11 @@ export function percentageDistribution(variantCount: number): number[] {
     return percentages
 }
 
+export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
+    const evenPercentages = percentageDistribution(variants.length)
+    return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
+}
+
 export function transformFiltersForWinningVariant(
     currentFlagFilters: FeatureFlagFilters,
     selectedVariant: string
