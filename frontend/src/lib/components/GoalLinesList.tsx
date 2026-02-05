@@ -96,6 +96,11 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                                                         ]}
                                                         size="xsmall"
                                                         data-attr="goal-line-position-selector"
+                                                        disabledReason={
+                                                            displayLabel
+                                                                ? undefined
+                                                                : 'Enable the label to change its position first.'
+                                                        }
                                                     />
                                                 </div>
                                             ),
