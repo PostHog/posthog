@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import {
@@ -85,8 +85,17 @@ export function PropertyValue({
     // This will require detecting isOperatorSemver(operator) and validating the input
     // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
+    // Track initial suggested values to keep them at the top of search results
+    // Store both the set for quick lookup and array to preserve original order
+    const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        set: Set<string>
+        orderedKeys: string[]
+    }>({ set: new Set(), orderedKeys: [] })
+    const currentSearchInput = useRef<string>('')
+
     const load = useCallback(
         (newInput: string | undefined): void => {
+            currentSearchInput.current = newInput || ''
             loadPropertyValues({
                 endpoint,
                 type: propertyDefinitionType,
@@ -113,7 +122,54 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    const displayOptions = propertyOptions?.values || []
+    // Capture initial suggested values when they first load (with no search input)
+    useEffect(() => {
+        if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
+            const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
+            setInitialSuggestedValues({
+                set: new Set(orderedKeys),
+                orderedKeys,
+            })
+        }
+    }, [propertyOptions?.status, propertyOptions?.values])
+
+    // Reset initial suggested values when property key changes
+    useEffect(() => {
+        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+    }, [propertyKey])
+
+    // Sort options to keep initially suggested values at the top of search results
+    const displayOptions = useMemo(() => {
+        const options = propertyOptions?.values || []
+        if (initialSuggestedValues.set.size === 0) {
+            return options
+        }
+
+        // Create a map for quick lookup of options by key
+        const optionsByKey = new Map<string, (typeof options)[0]>()
+        const others: typeof options = []
+
+        for (const option of options) {
+            const optionKey = toString(option.name)
+            if (initialSuggestedValues.set.has(optionKey)) {
+                optionsByKey.set(optionKey, option)
+            } else {
+                others.push(option)
+            }
+        }
+
+        // Build suggested array in original order
+        const suggested: typeof options = []
+        for (const key of initialSuggestedValues.orderedKeys) {
+            const option = optionsByKey.get(key)
+            if (option) {
+                suggested.push(option)
+            }
+        }
+
+        // Return suggested first (in original order), then others
+        return [...suggested, ...others]
+    }, [propertyOptions?.values, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -256,13 +312,22 @@ export function PropertyValue({
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
+                const isSuggested = initialSuggestedValues.set.has(name)
                 return {
                     key: name,
                     label: name,
                     value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                     labelComponent: (
-                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
+                        <span
+                            key={name}
+                            data-attr={'prop-val-' + index}
+                            className="ph-no-capture flex items-center gap-1.5"
+                            title={name}
+                        >
                             {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                            {isSuggested && currentSearchInput.current && (
+                                <span className="text-muted text-xs shrink-0">Suggested</span>
+                            )}
                         </span>
                     ),
                 }
