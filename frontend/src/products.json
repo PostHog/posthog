@@ -1,6 +1,13 @@
 {
     "products": [
         {
+            "path": "Site Apps",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": "hog_function",
+            "intents": ["site_apps"]
+        },
+        {
             "path": "Data pipelines",
             "category": "Tools",
             "iconType": "data_pipeline",
@@ -87,10 +94,38 @@
         },
         {
             "path": "LLM analytics",
-            "category": "Analytics",
+            "category": "AI Analytics",
             "iconType": null,
-            "type": null,
-            "intents": ["llm_analytics"]
+            "type": "llm_analytics",
+            "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
+        },
+        {
+            "path": "Clusters",
+            "category": "AI Analytics",
+            "iconType": null,
+            "type": "llm_clusters",
+            "intents": ["llm_clusters"]
+        },
+        {
+            "path": "Datasets",
+            "category": "AI Analytics",
+            "iconType": null,
+            "type": "llm_datasets",
+            "intents": ["llm_datasets"]
+        },
+        {
+            "path": "Evaluations",
+            "category": "AI Analytics",
+            "iconType": null,
+            "type": "llm_evaluations",
+            "intents": ["llm_evaluations"]
+        },
+        {
+            "path": "Prompts",
+            "category": "AI Analytics",
+            "iconType": null,
+            "type": "llm_prompts",
+            "intents": ["llm_prompts"]
         },
         { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
         {
@@ -168,13 +203,6 @@
     "metadata": [
         { "path": "Actions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
-            "path": "Data pipelines",
-            "category": "Tools",
-            "iconType": "data_pipeline",
-            "type": "hog_function",
-            "intents": []
-        },
-        {
             "path": "Transformations",
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
@@ -189,7 +217,7 @@
             "intents": []
         },
         {
-            "path": "Ingestion warnings",
+            "path": "Event ingestion warnings",
             "category": "Pipeline",
             "iconType": "ingestion_warning",
             "type": null,
@@ -204,6 +232,7 @@
             "type": "hog_function/source",
             "intents": []
         },
+        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Managed viewsets",
             "category": "Unreleased",
