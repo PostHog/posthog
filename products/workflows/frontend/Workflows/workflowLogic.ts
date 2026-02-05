@@ -348,12 +348,12 @@ export const workflowLogic = kea<workflowLogicType>([
                         if (action.type === 'trigger') {
                             // custom validation here that we can't easily express in the schema
                             if (action.config.type === 'event') {
-                                const events = action.config.filters.events ?? []
-                                const isSurveyTrigger = events.length === 1 && events[0]?.id === 'survey sent'
+                                const events = action.config.filters?.events ?? []
+                                const isSurveyTrigger = events.some((e: any) => e.id === 'survey sent')
 
                                 if (isSurveyTrigger) {
                                     // Survey trigger requires a survey selection (specific or "any")
-                                    const surveyIdProp = action.config.filters.properties?.find(
+                                    const surveyIdProp = action.config.filters?.properties?.find(
                                         (p: any) => p.key === '$survey_id'
                                     )
                                     if (!surveyIdProp) {
@@ -363,8 +363,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                         }
                                     }
                                 } else if (
-                                    !action.config.filters.events?.length &&
-                                    !action.config.filters.actions?.length
+                                    !action.config.filters?.events?.length &&
+                                    !action.config.filters?.actions?.length
                                 ) {
                                     result.valid = false
                                     result.errors = {
