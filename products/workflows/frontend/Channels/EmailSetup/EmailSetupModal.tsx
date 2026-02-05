@@ -25,7 +25,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const { verifyDomain, submitEmailSender } = useActions(logic)
     return (
         <>
-            <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
+            <LemonModal title="Configure email sender" width="auto" onClose={props.onClose}>
                 <Form logic={emailSetupModalLogic} props={props} formKey="emailSender">
                     <div className="space-y-4">
                         <FlaggedFeature flag="messaging-ses">

@@ -203,6 +203,7 @@ export function IntegrationChoice({
                 isOpen={newIntegrationModalKind === 'twilio'}
                 channelType="twilio"
                 integration={integrationKind || undefined}
+                onClose={closeNewIntegrationModal}
                 onComplete={closeNewIntegrationModal}
             />
             <DatabricksSetupModal

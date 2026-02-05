@@ -73,12 +73,14 @@ interface OnboardingInstallStepProps {
     sdkInstructionMap: SDKInstructionsMap
     listeningForName?: string
     teamPropertyToVerify?: string
+    header?: React.ReactNode
 }
 
 export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
     sdkInstructionMap,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
+    header,
 }) => {
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
@@ -112,6 +114,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                 </div>
             }
         >
+            {header}
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
                     <div className="flex flex-col-reverse md:flex-row justify-between gap-4">
