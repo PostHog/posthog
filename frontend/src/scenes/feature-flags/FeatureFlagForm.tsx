@@ -601,7 +601,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                                         <LemonLabel>Description</LemonLabel>
                                                         <LemonTextArea
-                                                            placeholder="Enter a description for the variant"
+                                                            placeholder="Enter an optional description for the variant"
                                                             value={variant.name || ''}
                                                             onChange={(value) => updateVariant(index, 'name', value)}
                                                             data-attr={`feature-flag-variant-description-${index}`}
