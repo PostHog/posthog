@@ -47,6 +47,8 @@ import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
 // Logs
 import logsQuery from './logs/query'
+// Max Tools
+import { executeSql, readDataSchema, readDataWarehouseSchema } from './maxTools'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -71,7 +73,11 @@ import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
 // Misc
-import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
+import {
+    type ToolFilterOptions,
+    getToolsForFeatures as getFilteredToolNames,
+    getToolDefinition,
+} from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 
 // Map of tool names to tool factory functions
@@ -160,10 +166,18 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Demo
     'demo-mcp-ui-apps': demoMcpUiApps,
+
+    // Max Tools
+    'execute-sql': executeSql,
+    'read-data-schema': readDataSchema,
+    'read-data-warehouse-schema': readDataWarehouseSchema,
 }
 
-export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {
-    const allowedToolNames = getFilteredToolNames(features)
+export const getToolsFromContext = async (
+    context: Context,
+    options?: ToolFilterOptions
+): Promise<Tool<ZodObjectAny>[]> => {
+    const allowedToolNames = getFilteredToolNames(options)
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
@@ -179,7 +193,7 @@ export const getToolsFromContext = async (context: Context, features?: string[])
     }
 
     const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name)
+        const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,
             title: definition.title,

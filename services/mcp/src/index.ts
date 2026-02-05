@@ -191,8 +191,10 @@ const handleRequest = async (
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
-    Object.assign(ctx.props, { features, region: regionParam })
-    log.extend({ features })
+    const version = Number(url.searchParams.get('v')) || 1
+
+    Object.assign(ctx.props, { features, region: regionParam, version })
+    log.extend({ features, version })
 
     if (url.pathname.startsWith('/mcp')) {
         return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)

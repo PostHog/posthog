@@ -460,3 +460,63 @@ export const EntitySearchSchema = z.object({
 export const DemoMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the demo data'),
 })
+
+// Max Tools
+export const MaxExecuteSQLSchema = z.object({
+    query: z.string().min(1).describe('The final SQL query to be executed.'),
+})
+
+export const MaxReadDataWarehouseSchemaSchema = z
+    .object({})
+    .describe('No input required. Returns core data warehouse schemas.')
+
+const ReadEventsQuerySchema = z.object({
+    kind: z.literal('events'),
+})
+
+const ReadEventPropertiesQuerySchema = z.object({
+    kind: z.literal('event_properties'),
+    event_name: z.string().describe('The name of the event that you want to retrieve properties for.'),
+})
+
+const ReadEntityPropertiesQuerySchema = z.object({
+    kind: z.literal('entity_properties'),
+    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+})
+
+const ReadActionPropertiesQuerySchema = z.object({
+    kind: z.literal('action_properties'),
+    action_id: z.number().int().describe('The ID of the action that you want to retrieve properties for.'),
+})
+
+const ReadEntitySamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('entity_property_values'),
+    entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+    property_name: z.string().describe('Verified property name of an entity.'),
+})
+
+const ReadEventSamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('event_property_values'),
+    event_name: z.string().describe('Verified event name'),
+    property_name: z.string().describe('Verified property name of an event.'),
+})
+
+const ReadActionSamplePropertyValuesQuerySchema = z.object({
+    kind: z.literal('action_property_values'),
+    action_id: z.number().int().describe('Verified action ID'),
+    property_name: z.string().describe('Verified property name of an action.'),
+})
+
+export const MaxReadDataSchemaSchema = z.object({
+    query: z
+        .discriminatedUnion('kind', [
+            ReadEventsQuerySchema,
+            ReadEventPropertiesQuerySchema,
+            ReadEntityPropertiesQuerySchema,
+            ReadActionPropertiesQuerySchema,
+            ReadEntitySamplePropertyValuesQuerySchema,
+            ReadEventSamplePropertyValuesQuerySchema,
+            ReadActionSamplePropertyValuesQuerySchema,
+        ])
+        .describe('The data schema query to execute.'),
+})
