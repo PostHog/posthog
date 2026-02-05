@@ -278,7 +278,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (messages: CommentType[], ticket: Ticket | null): ChatMessage[] =>
                 messages.map((message) => {
                     const authorType = message.item_context?.author_type || 'customer'
-                    let displayName = 'Customer'
+                    let displayName = 'Anonymous user'
                     if (message.created_by) {
                         displayName =
                             [message.created_by.first_name, message.created_by.last_name].filter(Boolean).join(' ') ||
