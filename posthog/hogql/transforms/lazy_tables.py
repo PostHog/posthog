@@ -31,6 +31,8 @@ class ConstraintOverride:
 
 
 class FieldChainReplacer(TraversingVisitor):
+    overrides: list[ConstraintOverride] = []
+
     def __init__(self, overrides: list[ConstraintOverride]) -> None:
         super().__init__()
         self.overrides = overrides
@@ -42,9 +44,11 @@ class FieldChainReplacer(TraversingVisitor):
 
 
 class FieldFinder(TraversingVisitor):
+    field_chains: list[list[str | int]] = []
+
     def __init__(self) -> None:
         super().__init__()
-        self.field_chains: list[list[str | int]] = []
+        self.field_chains = []
 
     def visit_field(self, node: ast.Field):
         self.field_chains.append(node.chain)
