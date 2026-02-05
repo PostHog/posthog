@@ -76,32 +76,32 @@ from posthog.ducklake.storage import configure_cross_account_connection
 logger = structlog.get_logger(__name__)
 
 # Columns to export from ClickHouse events table for duckling backfill.
-# Uses toDateTime64(col, 6) to strip timezone from DateTime64 columns.
+# Uses fromUnixTimestamp64Micro(toUnixTimestamp64Micro(col)) to strip timezone from timestamp columns.
 # DuckLake's ducklake_add_data_files expects plain TIMESTAMP types, not TIMESTAMP WITH TIME ZONE.
-# ClickHouse exports DateTime64 with timezone as TZ-aware Parquet timestamps, which fails registration.
+# Converting through Unix microseconds (Int64) forces timezone removal since integers have no TZ concept.
 EVENTS_COLUMNS = """
     toString(uuid) as uuid,
     event,
     properties,
-    toDateTime64(timestamp, 6) as timestamp,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(timestamp)) as timestamp,
     team_id,
     toInt64(team_id) as project_id,
     distinct_id,
     elements_chain,
-    toDateTime64(created_at, 6) as created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(created_at)) as created_at,
     toString(person_id) as person_id,
-    toDateTime64(person_created_at, 6) as person_created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(person_created_at)) as person_created_at,
     person_properties,
     group0_properties,
     group1_properties,
     group2_properties,
     group3_properties,
     group4_properties,
-    toDateTime64(group0_created_at, 6) as group0_created_at,
-    toDateTime64(group1_created_at, 6) as group1_created_at,
-    toDateTime64(group2_created_at, 6) as group2_created_at,
-    toDateTime64(group3_created_at, 6) as group3_created_at,
-    toDateTime64(group4_created_at, 6) as group4_created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group0_created_at)) as group0_created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group1_created_at)) as group1_created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group2_created_at)) as group2_created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group3_created_at)) as group3_created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(group4_created_at)) as group4_created_at,
     person_mode,
     historical_migration,
     now64(6) as _inserted_at
@@ -124,17 +124,19 @@ PERSONS_CONCURRENCY_TAG = {
 
 # Persons columns for export - joined with person_distinct_id2 to include distinct_ids
 # This creates one row per distinct_id, with the person's properties denormalized
-# Uses toDateTime64(col, 6) to strip timezone from DateTime64 columns (same reason as EVENTS_COLUMNS).
+# Uses fromUnixTimestamp64Micro(toUnixTimestamp64Micro(col)) to strip timezone from timestamp columns.
+# DuckLake's ducklake_add_data_files expects plain TIMESTAMP types, not TIMESTAMP WITH TIME ZONE.
+# Converting through Unix microseconds (Int64) forces timezone removal since integers have no TZ concept.
 PERSONS_COLUMNS = """
     pd.team_id AS team_id,
     pd.distinct_id AS distinct_id,
     toString(p.id) AS id,
     p.properties AS properties,
-    toDateTime64(p.created_at, 6) AS created_at,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(p.created_at)) AS created_at,
     p.is_identified AS is_identified,
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
-    toDateTime64(p._timestamp, 6) AS _timestamp,
+    fromUnixTimestamp64Micro(toUnixTimestamp64Micro(p._timestamp)) AS _timestamp,
     now64(6) AS _inserted_at
 """
 
