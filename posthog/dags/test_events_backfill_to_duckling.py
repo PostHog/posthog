@@ -7,7 +7,6 @@ import duckdb
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
-    DUCKDB_MEMORY_LIMIT,
     EVENTS_COLUMNS,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
