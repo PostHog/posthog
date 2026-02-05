@@ -633,6 +633,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setQueryInput(queryObject.query || '')
                 }
             }
+
+            // Focus the editor after creating a new tab
+            props.editor?.focus()
         },
         setSourceQuery: ({ sourceQuery }) => {
             if (!values.activeTab) {
@@ -1278,17 +1281,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         insight.query &&
                         !searchParams.open_query
                     ) {
-                        dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).mount()
+                        const mountedDataLogic = dataNodeLogic.findMounted({ key: values.dataLogicKey })
+                        const response = mountedDataLogic?.values.response
+                        const responseLoading = mountedDataLogic?.values.responseLoading ?? false
 
-                        const response = dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).values.response
-
-                        if (!response) {
+                        if (!responseLoading && !response) {
                             actions.runQuery()
                         }
                     } else {
