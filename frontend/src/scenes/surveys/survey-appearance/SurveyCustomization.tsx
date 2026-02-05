@@ -8,6 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { SurveyAppearanceModal } from 'scenes/surveys/survey-appearance/SurveyAppearanceModal'
 import {
+    SurveyButtonTextAppearance,
     SurveyColorsAppearance,
     SurveyContainerAppearance,
 } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
@@ -68,6 +69,16 @@ export function Customization({
                     customizeRatingButtons={hasRatingButtons}
                     customizePlaceholderText={hasPlaceholderText}
                 />
+                {survey.questions.length > 1 && (
+                    <>
+                        <LemonDivider />
+                        <SurveyButtonTextAppearance
+                            appearance={surveyAppearance}
+                            onAppearanceChange={onAppearanceChange}
+                            validationErrors={validationErrors}
+                        />
+                    </>
+                )}
                 <LemonDivider />
                 <div className="flex flex-col gap-1">
                     <LemonCheckbox

@@ -182,6 +182,7 @@ const surveyActionsMapping: Record<
             thankYouMessageDescription: 'thank you message description',
             thankYouMessageDescriptionContentType: 'thank you message content type',
             thankYouMessageCloseButtonText: 'thank you message close button text',
+            backButtonText: 'back button text',
             autoDisappear: 'auto-disappear option',
             position: 'survey position',
             tabPosition: 'survey button position',

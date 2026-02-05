@@ -304,3 +304,20 @@ export function SurveyColorsAppearance({
         </SurveyOptionsGroup>
     )
 }
+
+export function SurveyButtonTextAppearance({
+    appearance,
+    onAppearanceChange,
+}: CommonProps): JSX.Element {
+    return (
+        <SurveyOptionsGroup sectionTitle="Button text customization">
+            <SurveyAppearanceInput
+                value={appearance.backButtonText}
+                onChange={(backButtonText) => onAppearanceChange({ backButtonText })}
+                label="Back button text"
+                placeholder="Back"
+                info="Customize the text shown on the back button in multi-step surveys. Useful for localization."
+            />
+        </SurveyOptionsGroup>
+    )
+}

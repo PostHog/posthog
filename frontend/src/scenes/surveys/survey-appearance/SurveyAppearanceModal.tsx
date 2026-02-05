@@ -10,6 +10,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import {
+    SurveyButtonTextAppearance,
     SurveyColorsAppearance,
     SurveyContainerAppearance,
 } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
@@ -193,6 +194,16 @@ export function SurveyAppearanceModal({
                             customizeRatingButtons={hasRatingButtons}
                             customizePlaceholderText={hasPlaceholderText}
                         />
+                        {survey.questions.length > 1 && (
+                            <>
+                                <LemonDivider />
+                                <SurveyButtonTextAppearance
+                                    appearance={survey.appearance || defaultSurveyAppearance}
+                                    onAppearanceChange={onAppearanceChange}
+                                    validationErrors={validationErrors}
+                                />
+                            </>
+                        )}
                     </div>
                     <SurveyPreview
                         survey={survey}

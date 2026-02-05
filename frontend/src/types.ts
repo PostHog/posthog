@@ -3613,6 +3613,8 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
+    // Custom text for the back button on multi-step surveys. Defaults to "Back".
+    backButtonText?: string
     autoDisappear?: boolean
     position?: SurveyPosition
     tabPosition?: SurveyTabPosition
