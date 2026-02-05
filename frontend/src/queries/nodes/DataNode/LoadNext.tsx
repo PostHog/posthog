@@ -1,8 +1,10 @@
+import { IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema/schema-general'
@@ -36,9 +38,9 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                     numberOfRows === 1 ? 'entry' : 'entries'
                 }`
             }
-            return `Default limit of ${dataLimit} rows reached`
+            return `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
+            return `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
         }
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
@@ -88,10 +90,18 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
 
     return (
         <>
-            <span>
-                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
-                {isSingleEntry ? 'one row' : `${resultCount} rows`}
-            </span>
+            {showFirstPrefix ? (
+                <Tooltip title="You can override this by adding your own LIMIT clause to the query, e.g. LIMIT 10000">
+                    <span className="inline-flex items-center gap-1 text-warning-dark font-medium cursor-help">
+                        <IconWarning className="text-warning text-base" />
+                        Results limited to the first {resultCount} rows
+                    </span>
+                </Tooltip>
+            ) : (
+                <span>
+                    Showing {isSingleEntry ? 'one row' : `${resultCount} rows`}
+                </span>
+            )}
             {lastRefreshTimeUtc && (
                 <>
                     <span className="ml-2 mr-2">|</span>
