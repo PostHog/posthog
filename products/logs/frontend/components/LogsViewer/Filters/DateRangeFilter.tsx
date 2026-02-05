@@ -30,7 +30,7 @@ const dateMapping: DateMappingOption[] = [
         defaultInterval: 'minute',
     },
     {
-        key: 'Last 1 hours',
+        key: 'Last 1 hour',
         values: ['-1h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date.endOf('d')),
         defaultInterval: 'hour',

@@ -186,7 +186,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         feature_flag = None
         if feature_flag_id:
             try:
-                feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+                feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
@@ -231,7 +231,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         if feature_flag_id:
             # Modifying an existing feature flag
-            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id)
+            feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             feature_flag_key = feature_flag.key
 
             if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:

@@ -1,3 +1,5 @@
+import './LogsFilterBar.scss'
+
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -61,23 +63,28 @@ export const LogsFilterBar = (): JSX.Element => {
                         <FilterHistoryDropdown />
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                        <LemonButton
-                            size="small"
-                            icon={<IconMinusSquare />}
-                            type="secondary"
-                            onClick={() => zoomDateRange(2)}
-                        />
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlusSquare />}
-                            type="secondary"
-                            onClick={() => zoomDateRange(0.5)}
-                        />
+                        <div className="LogsDateButtonGroup">
+                            <LemonButton
+                                size="small"
+                                icon={<IconMinusSquare />}
+                                type="secondary"
+                                tooltip="Zoom out"
+                                onClick={() => zoomDateRange(2)}
+                            />
 
-                        {!newLogsDateRangePicker && <DateRangeFilter />}
-                        {newLogsDateRangePicker && (
-                            <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
-                        )}
+                            {!newLogsDateRangePicker && <DateRangeFilter />}
+                            {newLogsDateRangePicker && (
+                                <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
+                            )}
+
+                            <LemonButton
+                                size="small"
+                                icon={<IconPlusSquare />}
+                                type="secondary"
+                                tooltip="Zoom in"
+                                onClick={() => zoomDateRange(0.5)}
+                            />
+                        </div>
 
                         <LemonButton
                             size="small"
