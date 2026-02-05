@@ -23,8 +23,9 @@ import clsx from 'clsx'
 import React, { useEffect, useRef, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { Link } from '../Link'
@@ -336,7 +337,7 @@ function TooltipBaseUI({
 }
 
 export function Tooltip(props: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
-    const useNewTooltip = useFeatureFlag('UX_NEW_TOOLTIP')
+    const useNewTooltip = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.UX_NEW_TOOLTIP]
 
     if (useNewTooltip) {
         return <TooltipBaseUI {...props} />
