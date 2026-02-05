@@ -7,43 +7,96 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
-    readonly issue_id: string
-    readonly created_at: string
+export interface ErrorTrackingAssignmentRuleApi {
+    readonly id: string
+    filters: unknown
+    readonly assignee: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key: number
+    disabled_data?: unknown | null
 }
 
-export interface PaginatedErrorTrackingFingerprintListApi {
+export interface PaginatedErrorTrackingAssignmentRuleListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingFingerprintApi[]
+    results: ErrorTrackingAssignmentRuleApi[]
+}
+
+export interface PatchedErrorTrackingAssignmentRuleApi {
+    readonly id?: string
+    filters?: unknown
+    readonly assignee?: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+    disabled_data?: unknown | null
 }
 
 /**
- * * `archived` - Archived
- * `active` - Active
- * `resolved` - Resolved
- * `pending_release` - Pending release
- * `suppressed` - Suppressed
+ * * `web` - Web
  */
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
+export type LibraryEnumApi = (typeof LibraryEnumApi)[keyof typeof LibraryEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingIssueFullStatusEnumApi = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
+export const LibraryEnumApi = {
+    web: 'web',
 } as const
 
-export interface ErrorTrackingIssueAssignmentApi {
+/**
+ * * `all` - All
+ * `any` - Any
+ */
+export type MatchTypeEnumApi = (typeof MatchTypeEnumApi)[keyof typeof MatchTypeEnumApi]
+
+export const MatchTypeEnumApi = {
+    all: 'all',
+    any: 'any',
+} as const
+
+export interface ErrorTrackingAutoCaptureControlsApi {
     readonly id: string
-    readonly type: string
+    readonly library: LibraryEnumApi
+    match_type?: MatchTypeEnumApi
+    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
+    sample_rate?: string
+    linked_feature_flag?: unknown | null
+    /** @nullable */
+    event_triggers?: (string | null)[] | null
+    /** @nullable */
+    url_triggers?: (unknown | null)[] | null
+    /** @nullable */
+    url_blocklist?: (unknown | null)[] | null
+}
+
+export interface PaginatedErrorTrackingAutoCaptureControlsListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingAutoCaptureControlsApi[]
+}
+
+export interface PatchedErrorTrackingAutoCaptureControlsApi {
+    readonly id?: string
+    readonly library?: LibraryEnumApi
+    match_type?: MatchTypeEnumApi
+    /** @pattern ^-?\d{0,1}(?:\.\d{0,2})?$ */
+    sample_rate?: string
+    linked_feature_flag?: unknown | null
+    /** @nullable */
+    event_triggers?: (string | null)[] | null
+    /** @nullable */
+    url_triggers?: (unknown | null)[] | null
+    /** @nullable */
+    url_blocklist?: (unknown | null)[] | null
 }
 
 /**
@@ -75,7 +128,6 @@ export interface ErrorTrackingIssueAssignmentApi {
  */
 export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const KindCf2EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
@@ -119,6 +171,95 @@ export interface ErrorTrackingExternalReferenceApi {
     readonly external_url: string
 }
 
+export interface PaginatedErrorTrackingExternalReferenceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingExternalReferenceApi[]
+}
+
+export interface PatchedErrorTrackingExternalReferenceApi {
+    readonly id?: string
+    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
+    integration_id?: number
+    config?: unknown
+    issue?: string
+    readonly external_url?: string
+}
+
+export interface ErrorTrackingFingerprintApi {
+    fingerprint: string
+    readonly issue_id: string
+    readonly created_at: string
+}
+
+export interface PaginatedErrorTrackingFingerprintListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingFingerprintApi[]
+}
+
+export interface ErrorTrackingGroupingRuleApi {
+    readonly id: string
+    filters: unknown
+    readonly assignee: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key: number
+    disabled_data?: unknown | null
+}
+
+export interface PaginatedErrorTrackingGroupingRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingGroupingRuleApi[]
+}
+
+export interface PatchedErrorTrackingGroupingRuleApi {
+    readonly id?: string
+    filters?: unknown
+    readonly assignee?: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+    disabled_data?: unknown | null
+}
+
+/**
+ * * `archived` - Archived
+ * `active` - Active
+ * `resolved` - Resolved
+ * `pending_release` - Pending release
+ * `suppressed` - Suppressed
+ */
+export type ErrorTrackingIssueFullStatusEnumApi =
+    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
+
+export const ErrorTrackingIssueFullStatusEnumApi = {
+    archived: 'archived',
+    active: 'active',
+    resolved: 'resolved',
+    pending_release: 'pending_release',
+    suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssueAssignmentApi {
+    readonly id: string
+    readonly type: string
+}
+
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
     status?: ErrorTrackingIssueFullStatusEnumApi
@@ -159,7 +300,7 @@ export interface ErrorTrackingReleaseApi {
     hash_id: string
     readonly team_id: number
     readonly created_at: string
-    metadata?: unknown
+    metadata?: unknown | null
     version: string
     project: string
 }
@@ -178,7 +319,7 @@ export interface PatchedErrorTrackingReleaseApi {
     hash_id?: string
     readonly team_id?: number
     readonly created_at?: string
-    metadata?: unknown
+    metadata?: unknown | null
     version?: string
     project?: string
 }
@@ -189,7 +330,7 @@ export interface ErrorTrackingStackFrameApi {
     readonly created_at: string
     contents: unknown
     resolved: boolean
-    context?: unknown
+    context?: unknown | null
     symbol_set_ref?: string
     readonly release: ErrorTrackingReleaseApi
 }
@@ -201,6 +342,35 @@ export interface PaginatedErrorTrackingStackFrameListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingStackFrameApi[]
+}
+
+export interface ErrorTrackingSuppressionRuleApi {
+    readonly id: string
+    filters: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key: number
+}
+
+export interface PaginatedErrorTrackingSuppressionRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSuppressionRuleApi[]
+}
+
+export interface PatchedErrorTrackingSuppressionRuleApi {
+    readonly id?: string
+    filters?: unknown
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
 }
 
 export interface ErrorTrackingSymbolSetApi {
@@ -240,7 +410,7 @@ export interface PatchedErrorTrackingSymbolSetApi {
     readonly release?: string
 }
 
-export type EnvironmentsErrorTrackingFingerprintsListParams = {
+export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -251,7 +421,7 @@ export type EnvironmentsErrorTrackingFingerprintsListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingIssuesListParams = {
+export type ErrorTrackingAutocaptureControlsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -262,7 +432,7 @@ export type EnvironmentsErrorTrackingIssuesListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingReleasesListParams = {
+export type ErrorTrackingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -273,7 +443,7 @@ export type EnvironmentsErrorTrackingReleasesListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingStackFramesListParams = {
+export type ErrorTrackingFingerprintsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -284,7 +454,18 @@ export type EnvironmentsErrorTrackingStackFramesListParams = {
     offset?: number
 }
 
-export type EnvironmentsErrorTrackingSymbolSetsListParams = {
+export type ErrorTrackingGroupingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -306,7 +487,51 @@ export type ErrorTrackingReleasesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingStackFramesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSuppressionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingReleasesList2Params = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSymbolSetsList2Params = {
     /**
      * Number of results to return per page.
      */

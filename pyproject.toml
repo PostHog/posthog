@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake==0.25.2",
     "dj-database-url==0.5.0",
-    "django~=4.2.27",
+    "django~=4.2.28",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
@@ -68,10 +68,10 @@ dependencies = [
     "granian[uvloop,reload,pname]==2.5.5",
     "grimp==3.13",
     "gspread==6.2.1",
-    "hogql-parser==1.3.4",
+    "hogql-parser==1.3.10",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
-    "kafka-python==2.0.6",
+    "kafka-python==2.3.0",
     "kombu==5.3.7",
     "langchain~=0.3.27",
     "langchain-community~=0.3.31",
@@ -91,7 +91,7 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
-    "orjson==3.10.15",
+    "orjson==3.11.5",
     "pandas~=2.2.2",
     "paramiko==3.4.0",
     "phonenumberslite==8.13.6",
@@ -151,6 +151,7 @@ dependencies = [
     "types-cachetools==5.5.0.20240820",
     "tzlocal~=5.1",
     "umap-learn~=0.5.0",
+    "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "webdriver-manager==4.0.2",
     "whitenoise~=6.10.0",
     "xmlsec==1.3.17",
@@ -172,7 +173,7 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
-    "asgiref==3.8.1",
+    "asgiref==3.11.0",
     "claude-code-sdk~=0.0.14",
     "user-agents~=2.2.0",
     "django-admin-inline-paginator===0.4.0",
@@ -196,13 +197,13 @@ dependencies = [
     "webauthn>=2.1.0,<2.3.0",
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
+    "confluent-kafka>=2.13.0",
 ]
 
 [dependency-groups]
 dev = [
     "aioresponses==0.7.6",
     "autoevals==0.0.129",
-    "black~=23.9.1",
     "boto3-stubs[s3]~=1.38.30",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
@@ -224,7 +225,7 @@ dev = [
     "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.10.15",
+    "orjson==3.11.5",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
@@ -238,6 +239,7 @@ dev = [
     "pytest-icdiff~=0.9",
     "pytest-mock~=3.15.1",
     "pytest-split~=0.10.0",
+    "pytest-timeout~=2.4.0",
     "pytest-watch==4.2.0",
     "pytest-xdist~=3.8.0",
     "python-dateutil~=2.9.0",
@@ -263,6 +265,7 @@ dev = [
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
+    "pywatchman>=2.0.0",
     "watchdog==5.0.3",
 ]
 
@@ -272,10 +275,6 @@ required-version = ">=0.7.0"
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
 
-
-[tool.black]
-line-length = 120
-target-version = ['py312']
 
 [tool.isort]
 profile = "black"

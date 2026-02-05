@@ -4226,7 +4226,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -4450,7 +4449,6 @@
               FROM
                 (SELECT breakdown_series.count AS count,
                         breakdown_series.day_start AS day_start,
-                        breakdown_series.breakdown_value AS breakdown_value,
                         ranked_breakdown_totals.ordering AS ordering,
                         ranked_breakdown_totals.breakdown_rank AS breakdown_rank
                  FROM
@@ -4679,7 +4677,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -5137,7 +5134,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -5315,7 +5311,6 @@
               FROM
                 (SELECT breakdown_series.count AS count,
                         breakdown_series.day_start AS day_start,
-                        breakdown_series.breakdown_value AS breakdown_value,
                         ranked_breakdown_totals.ordering AS ordering,
                         ranked_breakdown_totals.breakdown_rank AS breakdown_rank
                  FROM
@@ -5498,7 +5493,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -5942,7 +5936,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -6152,7 +6145,6 @@
               FROM
                 (SELECT breakdown_series.count AS count,
                         breakdown_series.day_start AS day_start,
-                        breakdown_series.breakdown_value AS breakdown_value,
                         ranked_breakdown_totals.ordering AS ordering,
                         ranked_breakdown_totals.breakdown_rank AS breakdown_rank
                  FROM
@@ -6367,7 +6359,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -6856,7 +6847,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,
@@ -7079,7 +7069,6 @@
               FROM
                 (SELECT breakdown_series.count AS count,
                         breakdown_series.day_start AS day_start,
-                        breakdown_series.breakdown_value AS breakdown_value,
                         ranked_breakdown_totals.ordering AS ordering,
                         ranked_breakdown_totals.breakdown_rank AS breakdown_rank
                  FROM
@@ -7307,7 +7296,6 @@
                               if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
                        FROM
                          (SELECT count AS count,
-                                          day_start AS day_start,
                                           breakdown_value AS breakdown_value
                           FROM
                             (SELECT sum(total) AS count,

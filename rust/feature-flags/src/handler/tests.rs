@@ -129,8 +129,8 @@ fn test_geoip_enabled_local_ip() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
     let context = TestContext::new(None).await;
     let team = context
@@ -295,10 +295,11 @@ async fn test_evaluate_feature_flags_with_errors() {
             key: "error-flag".to_string(),
             enabled: false,
             variant: None,
+            failed: true,
             reason: FlagEvaluationReason {
                 code: "dependency_not_found_cohort".to_string(),
                 condition_index: None,
-                description: None,
+                description: Some("Cohort dependency not found".to_string()),
             },
             metadata: FlagDetailsMetadata {
                 id: 1,
@@ -599,8 +600,8 @@ fn test_decode_form_data_real_world_payload() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags_multiple_flags() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
     let context = TestContext::new(None).await;
@@ -708,8 +709,8 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
 #[tokio::test]
 async fn test_evaluate_feature_flags_details() {
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -803,6 +804,7 @@ async fn test_evaluate_feature_flags_details() {
             key: "flag_1".to_string(),
             enabled: true,
             variant: None,
+            failed: false,
             reason: FlagEvaluationReason {
                 code: "condition_match".to_string(),
                 condition_index: Some(0),
@@ -822,6 +824,7 @@ async fn test_evaluate_feature_flags_details() {
             key: "flag_2".to_string(),
             enabled: false,
             variant: None,
+            failed: false,
             reason: FlagEvaluationReason {
                 code: "out_of_rollout_bound".to_string(),
                 condition_index: Some(0),
@@ -1160,7 +1163,7 @@ fn test_decode_request_content_types() {
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
     let redis_client = setup_redis_client(None).await;
-    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
     let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
     let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
     let flag_service = FlagService::new(

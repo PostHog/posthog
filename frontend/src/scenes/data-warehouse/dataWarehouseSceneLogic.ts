@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import {
@@ -13,6 +14,7 @@ import {
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
+    DataWarehouseSavedQuery,
     DataWarehouseSourceRowCount,
 } from '~/types'
 
@@ -26,6 +28,7 @@ export enum DataWarehouseTab {
     OVERVIEW = 'overview',
     SOURCES = 'sources',
     VIEWS = 'views',
+    MODELING = 'modeling',
 }
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -33,13 +36,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables', 'views', 'databaseLoading'],
+            ['dataWarehouseTables', 'databaseLoading'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
             ['billingPeriodUTC', 'billing'],
             dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueryMapById'],
+            ['dataWarehouseSavedQueries'],
         ],
         actions: [
             databaseTableListLogic,
@@ -210,16 +213,16 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return databaseLoading || dataWarehouseSourcesLoading
             },
         ],
-        materializedViews: [
-            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
-            (views, dataWarehouseSavedQueryMapById) => {
-                return views.filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
-            },
-        ],
         dataWarehouseProduct: [
             (s) => [s.billing],
             (billing): BillingProductV2Type | null => {
                 return billing?.products?.find((product) => product.type === 'data_warehouse') || null
+            },
+        ],
+        materializedViews: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (queries: DataWarehouseSavedQuery[]) => {
+                return queries.filter((q) => q.is_materialized)
             },
         ],
     }),
@@ -312,4 +315,25 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions.loadJobStats({ days: 7 })
         actions.loadBilling()
     }),
+    urlToAction(({ actions, values }) => ({
+        [urls.dataWarehouse()]: (_, searchParams) => {
+            const tab = searchParams.tab as DataWarehouseTab | undefined
+            if (tab && Object.values(DataWarehouseTab).includes(tab) && tab !== values.activeTab) {
+                actions.setActiveTab(tab)
+            } else if (!tab && values.activeTab !== DataWarehouseTab.OVERVIEW) {
+                actions.setActiveTab(DataWarehouseTab.OVERVIEW)
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => {
+            const searchParams = { ...router.values.searchParams }
+            if (values.activeTab === DataWarehouseTab.OVERVIEW) {
+                delete searchParams.tab
+            } else {
+                searchParams.tab = values.activeTab
+            }
+            return [urls.dataWarehouse(), searchParams]
+        },
+    })),
 ])

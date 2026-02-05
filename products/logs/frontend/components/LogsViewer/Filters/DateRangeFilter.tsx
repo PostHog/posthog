@@ -7,6 +7,8 @@ import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+
 import { logsSceneLogic } from '../../../logsSceneLogic'
 
 const dateMapping: DateMappingOption[] = [
@@ -28,7 +30,7 @@ const dateMapping: DateMappingOption[] = [
         defaultInterval: 'minute',
     },
     {
-        key: 'Last 1 hours',
+        key: 'Last 1 hour',
         values: ['-1h'],
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(1, 'h'), date.endOf('d')),
         defaultInterval: 'hour',
@@ -56,6 +58,7 @@ const dateMapping: DateMappingOption[] = [
 export const DateRangeFilter = (): JSX.Element => {
     const { dateRange } = useValues(logsSceneLogic)
     const { setDateRange } = useActions(logsSceneLogic)
+    const { setFilter } = useActions(logsViewerConfigLogic)
 
     return (
         <DateFilter
@@ -65,6 +68,7 @@ export const DateRangeFilter = (): JSX.Element => {
             dateOptions={dateMapping}
             onChange={(changedDateFrom, changedDateTo) => {
                 setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+                setFilter('dateRange', { date_from: changedDateFrom, date_to: changedDateTo })
             }}
             allowTimePrecision
             allowFixedRangeWithTime

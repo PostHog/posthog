@@ -66,17 +66,19 @@ class ExperimentQueryRunner(QueryRunner):
         *args,
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
+        max_execution_time: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
+        self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
         try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
@@ -192,7 +194,7 @@ class ExperimentQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
             settings=HogQLGlobalSettings(
-                max_execution_time=MAX_EXECUTION_TIME,
+                max_execution_time=self.max_execution_time,
                 allow_experimental_analyzer=True,
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             ),
@@ -281,6 +283,22 @@ class ExperimentQueryRunner(QueryRunner):
     ) -> ExperimentBreakdownResult:
         """Compute statistics for a single breakdown combination."""
         breakdown_variants = [v for bv, v in variant_results if bv == breakdown_tuple]
+
+        # Ensure all expected variants are present in this breakdown group
+        # Some breakdown groups may not have data for all variants (e.g., no control users with specific browser)
+        variants_present = {v.key for v in breakdown_variants}
+        for expected_variant in self.variants:
+            if expected_variant not in variants_present:
+                # Add missing variant with zero stats to avoid "No control variant found" error
+                breakdown_variants.append(
+                    ExperimentStatsBase(
+                        key=expected_variant,
+                        number_of_samples=0,
+                        sum=0,
+                        sum_squares=0,
+                    )
+                )
+
         stats = self._calculate_statistics_for_variants(breakdown_variants)
 
         return ExperimentBreakdownResult(

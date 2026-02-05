@@ -1,4 +1,5 @@
 import { memo } from 'react'
+
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 interface PersonProfilesProps {
@@ -6,7 +7,7 @@ interface PersonProfilesProps {
     file?: string
 }
 
-export const PersonProfiles = memo(function PersonProfiles({ language = 'javascript', file }: PersonProfilesProps): JSX.Element {
+export const PersonProfiles = memo(({ language = 'javascript', file }: PersonProfilesProps): JSX.Element => {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
     const getCodeAndFile = () => {
@@ -18,7 +19,10 @@ export const PersonProfiles = memo(function PersonProfiles({ language = 'javascr
             case 'elixir':
                 return { code: '"$process_person_profile" => false', file: file || 'Elixir' }
             default:
-                return { code: '"$process_person_profile": false', file: file || language.charAt(0).toUpperCase() + language.slice(1) }
+                return {
+                    code: '"$process_person_profile": false',
+                    file: file || language.charAt(0).toUpperCase() + language.slice(1),
+                }
         }
     }
 

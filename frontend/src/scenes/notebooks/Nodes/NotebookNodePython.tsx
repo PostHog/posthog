@@ -229,7 +229,7 @@ const Component = ({
         pythonExecution?.traceback?.length,
         pythonExecution?.variables?.length,
         updateAttributes,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!expanded) {
         return null
@@ -325,7 +325,7 @@ const Settings = ({
     return (
         <CodeEditorResizeable
             language="python"
-            value={attributes.code}
+            value={typeof attributes.code === 'string' ? attributes.code : ''}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
             onPressCmdEnter={() => {
                 void runPythonNodeWithMode({ mode: 'auto' })

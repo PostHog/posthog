@@ -1,11 +1,29 @@
-"""Serializers for Conversations widget API."""
+"""Serializers for Conversations API."""
 
 from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
 
+from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
+
+
+class TicketAssignmentSerializer(serializers.ModelSerializer):
+    """Serializer for ticket assignment (user or role)."""
+
+    id = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketAssignment
+        fields = ["id", "type"]
+
+    def get_id(self, obj):
+        return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
+
+    def get_type(self, obj):
+        return "role" if obj.role_id else "user"
 
 
 class WidgetMessageSerializer(serializers.Serializer):
@@ -87,6 +105,7 @@ class WidgetMessagesQuerySerializer(serializers.Serializer):
 
     widget_session_id = serializers.UUIDField(required=True)
     after = serializers.DateTimeField(required=False, allow_null=True)
+    limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 
 class WidgetTicketsQuerySerializer(serializers.Serializer):

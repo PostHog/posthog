@@ -27,6 +27,9 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run Node.js checks
+        permissions:
+            contents: read
+            pull-requests: read
         outputs:
             nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
         steps:
@@ -175,6 +178,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install rust
@@ -184,6 +188,10 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               working-directory: rust
@@ -222,14 +230,18 @@ jobs:
 
             - name: Wait for Clickhouse, Redis, Kafka
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
+                  docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
                   bin/check_kafka_clickhouse_up
+
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              run: git fetch origin ${{ github.base_ref }} --depth=1
 
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
               run: |
-                  if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
                     echo "has_migrations=true" >> $GITHUB_OUTPUT
                   else
                     echo "has_migrations=false" >> $GITHUB_OUTPUT

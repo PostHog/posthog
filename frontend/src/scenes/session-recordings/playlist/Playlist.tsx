@@ -210,14 +210,16 @@ export function Playlist({
     // Show collapsed view
     if (isPlaylistCollapsed) {
         return (
-            <div className="flex items-center justify-center h-full w-full px-0">
+            <div
+                className="flex items-start justify-center h-full w-full pt-2 pr-1 cursor-pointer"
+                onClick={() => setPlaylistCollapsed(false)}
+                data-attr="expand-playlist"
+            >
                 <LemonButton
                     icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
-                    onClick={() => setPlaylistCollapsed(false)}
                     tooltip="Expand playlist"
                     size="xsmall"
                     noPadding
-                    data-attr="expand-playlist"
                 />
             </div>
         )
@@ -225,7 +227,7 @@ export function Playlist({
 
     return (
         <div className="flex flex-col min-w-60 h-full">
-            {!notebookNode && (
+            {!notebookNode && type !== 'collection' && (
                 <DraggableToNotebook className="mb-2" href={urls.replay(ReplayTabs.Home, filters)}>
                     <RecordingsUniversalFiltersEmbedButton
                         filters={filters}
@@ -285,7 +287,7 @@ export function Playlist({
                                     panels={sections.map((s) => {
                                         return {
                                             key: s.key,
-                                            header: s.title ?? '',
+                                            header: String(s.title),
                                             content: (
                                                 <SectionContent
                                                     section={s}

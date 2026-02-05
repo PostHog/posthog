@@ -65,7 +65,6 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     ScenePanel,
@@ -86,7 +85,6 @@ import {
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    AvailableFeature,
     DashboardPlacement,
     DashboardType,
     EarlyAccessFeatureStage,
@@ -103,6 +101,7 @@ import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagForm } from './FeatureFlagForm'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -121,7 +120,6 @@ export const scene: SceneExport<FeatureFlagLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
-    settingSectionId: 'environment-feature-flags',
 }
 
 export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
@@ -151,7 +149,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
@@ -188,6 +185,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const useFormUI = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
 
     useFileSystemLogView({
         type: 'feature_flag',
@@ -216,6 +214,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 <LemonSkeleton active className="h-4 w-3/5" />
             </div>
         )
+    }
+
+    // Use new form UI for creating new flags or editing existing flags
+    // For viewing existing flags (readonly), use the existing FeatureFlag UI with tabs
+    if (useFormUI && (isNewFeatureFlag || isEditingFlag)) {
+        return <FeatureFlagForm id={id} />
     }
 
     if (accessDeniedToFeatureFlag) {
@@ -533,11 +537,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             to use a flag in a runtime where it's not allowed (e.g., using a server-only
                                             flag in client-side code), it won't evaluate.{' '}
                                             <Link
-                                                to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-contexts-optional"
                                                 target="_blank"
                                                 targetBlankIcon
                                             >
-                                                Learn more about using evaluation contexts
+                                                Learn more about using evaluation runtimes
                                             </Link>
                                         </div>
                                         <LemonField name="evaluation_runtime">
@@ -598,64 +602,65 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </SceneSection>
                                 </>
                             )}
-                            {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                <>
-                                    <SceneDivider />
-                                    <SceneSection title="Tags & Evaluation Contexts">
-                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
-                                            <div className="text-secondary text-sm mb-2">
-                                                Use tags to organize and filter your feature flags. Mark specific tags
-                                                as <strong>evaluation contexts</strong> to control when flags can be
-                                                evaluated – flags will only evaluate when the SDK provides matching
-                                                environment tags.{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                                    target="_blank"
-                                                    targetBlankIcon
-                                                >
-                                                    Learn more about evaluation contexts
-                                                </Link>
-                                            </div>
-                                        )}
-                                        <LemonField name="tags">
-                                            {({ value: formTags, onChange: onChangeTags }) => (
-                                                <>
-                                                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                        <LemonField name="evaluation_tags">
-                                                            {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
-                                                                <FeatureFlagEvaluationTags
-                                                                    tags={formTags}
-                                                                    evaluationTags={formEvalTags || []}
-                                                                    onChange={(updatedTags, updatedEvaluationTags) => {
-                                                                        onChangeTags(updatedTags)
-                                                                        onChangeEvalTags(updatedEvaluationTags)
-                                                                    }}
-                                                                    tagsAvailable={tags.filter(
-                                                                        (tag: string) => !formTags?.includes(tag)
-                                                                    )}
-                                                                    className="mt-2"
-                                                                    flagId={featureFlag.id}
-                                                                    context="form"
-                                                                />
-                                                            )}
-                                                        </LemonField>
-                                                    ) : (
-                                                        <ObjectTags
+                            <SceneDivider />
+                            <SceneSection
+                                title={
+                                    featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
+                                        ? 'Tags & evaluation contexts'
+                                        : 'Tags'
+                                }
+                            >
+                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                                    <div className="text-secondary text-sm mb-2">
+                                        Use tags to organize and filter your feature flags. Mark specific tags as{' '}
+                                        <strong>evaluation contexts</strong> to control when flags can be evaluated –
+                                        flags will only evaluate when the SDK provides matching environment tags.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                            target="_blank"
+                                            targetBlankIcon
+                                        >
+                                            Learn more about evaluation contexts
+                                        </Link>
+                                    </div>
+                                )}
+                                <LemonField name="tags">
+                                    {({ value: formTags, onChange: onChangeTags }) => (
+                                        <>
+                                            {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                <LemonField name="evaluation_tags">
+                                                    {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                        <FeatureFlagEvaluationTags
                                                             tags={formTags}
-                                                            onChange={onChangeTags}
-                                                            saving={featureFlagLoading}
+                                                            evaluationTags={formEvalTags || []}
+                                                            onChange={(updatedTags, updatedEvaluationTags) => {
+                                                                onChangeTags(updatedTags)
+                                                                onChangeEvalTags(updatedEvaluationTags)
+                                                            }}
                                                             tagsAvailable={tags.filter(
                                                                 (tag: string) => !formTags?.includes(tag)
                                                             )}
                                                             className="mt-2"
+                                                            flagId={featureFlag.id}
+                                                            context="form"
                                                         />
                                                     )}
-                                                </>
+                                                </LemonField>
+                                            ) : (
+                                                <ObjectTags
+                                                    tags={formTags}
+                                                    onChange={onChangeTags}
+                                                    saving={featureFlagLoading}
+                                                    tagsAvailable={tags.filter(
+                                                        (tag: string) => !formTags?.includes(tag)
+                                                    )}
+                                                    className="mt-2"
+                                                />
                                             )}
-                                        </LemonField>
-                                    </SceneSection>
-                                </>
-                            )}
+                                        </>
+                                    )}
+                                </LemonField>
+                            </SceneSection>
                             <SceneDivider />
 
                             <FeatureFlagCodeExample featureFlag={featureFlag} />
@@ -720,43 +725,35 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     <>
                         <ScenePanel>
                             <ScenePanelInfoSection>
-                                {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                    <>
-                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                            <FeatureFlagEvaluationTags
-                                                tags={featureFlag.tags}
-                                                evaluationTags={featureFlag.evaluation_tags || []}
-                                                onSave={(updatedTags, updatedEvaluationTags) => {
-                                                    const updatedFlag = {
-                                                        ...featureFlag,
-                                                        tags: updatedTags,
-                                                        evaluation_tags: updatedEvaluationTags,
-                                                    }
-                                                    updateFlag(updatedFlag)
-                                                    saveFeatureFlag(updatedFlag)
-                                                }}
-                                                tagsAvailable={tags.filter(
-                                                    (tag: string) => !featureFlag.tags?.includes(tag)
-                                                )}
-                                                flagId={featureFlag.id}
-                                                context="sidebar"
-                                            />
-                                        ) : (
-                                            <SceneTags
-                                                onSave={(tags) => {
-                                                    const updatedFlag = { ...featureFlag, tags }
-                                                    updateFlag(updatedFlag)
-                                                    saveFeatureFlag(updatedFlag)
-                                                }}
-                                                canEdit
-                                                tags={featureFlag.tags}
-                                                tagsAvailable={tags.filter(
-                                                    (tag: string) => !featureFlag.tags?.includes(tag)
-                                                )}
-                                                dataAttrKey={RESOURCE_TYPE}
-                                            />
-                                        )}
-                                    </>
+                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                    <FeatureFlagEvaluationTags
+                                        tags={featureFlag.tags}
+                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                        onSave={(updatedTags, updatedEvaluationTags) => {
+                                            const updatedFlag = {
+                                                ...featureFlag,
+                                                tags: updatedTags,
+                                                evaluation_tags: updatedEvaluationTags,
+                                            }
+                                            updateFlag(updatedFlag)
+                                            saveFeatureFlag(updatedFlag)
+                                        }}
+                                        tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
+                                        flagId={featureFlag.id}
+                                        context="sidebar"
+                                    />
+                                ) : (
+                                    <SceneTags
+                                        onSave={(tags) => {
+                                            const updatedFlag = { ...featureFlag, tags }
+                                            updateFlag(updatedFlag)
+                                            saveFeatureFlag(updatedFlag)
+                                        }}
+                                        canEdit
+                                        tags={featureFlag.tags}
+                                        tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
+                                        dataAttrKey={RESOURCE_TYPE}
+                                    />
                                 )}
 
                                 <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -765,7 +762,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
+                                        router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
                                     }}
                                     menuItem
                                     data-attr={`${RESOURCE_TYPE}-duplicate`}
@@ -1046,7 +1043,6 @@ function FeatureFlagRollout({
         dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const {
         distributeVariantsEqually,
         addVariant,
@@ -1258,100 +1254,26 @@ function FeatureFlagRollout({
                     </div>
                     <SceneDivider />
                     {featureFlag.filters.multivariate && (
-                        <>
-                            <SceneSection title="Variant keys">
-                                <FeatureFlagVariantsForm
-                                    variants={variants}
-                                    payloads={featureFlag.filters?.payloads}
-                                    readOnly={true}
-                                    flagKey={featureFlag.key}
-                                    hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
-                                    onViewRecordings={(variantKey) => {
-                                        reportViewRecordingsClicked(variantKey)
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.FEATURE_FLAGS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    onGetFeedback={onGetFeedback}
-                                    surveys={featureFlag.surveys ?? []}
-                                    variantErrors={variantErrors}
-                                />
-                            </SceneSection>
-
-                            <SceneSection title="Evaluation contexts">
-                                <div className="text-secondary text-sm mb-2">
-                                    Evaluation contexts provide fine-grained control over where and when your feature
-                                    flags evaluate. Combine evaluation runtime and context tags to control where and
-                                    when your feature flags evaluate.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                        target="_blank"
-                                        targetBlankIcon
-                                    >
-                                        Learn more about using evaluation contexts
-                                    </Link>
-                                </div>
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                                    <div>
-                                        <span className="card-secondary">Evaluation runtime</span>
-                                        <div className="mt-2">
-                                            <div className="flex items-center gap-2">
-                                                {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
-                                                    <>
-                                                        <IconGlobe className="text-lg text-muted" />
-                                                        <span className="font-medium">Both client and server</span>
-                                                        <LemonTag type="primary" size="small">
-                                                            Single + multi-user
-                                                        </LemonTag>
-                                                    </>
-                                                ) : featureFlag.evaluation_runtime ===
-                                                  FeatureFlagEvaluationRuntime.CLIENT ? (
-                                                    <>
-                                                        <IconLaptop className="text-lg text-muted" />
-                                                        <span className="font-medium">Client-side only</span>
-                                                        <LemonTag type="completion" size="small">
-                                                            Single-user apps
-                                                        </LemonTag>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <IconServer className="text-lg text-muted" />
-                                                        <span className="font-medium">Server-side only</span>
-                                                        <LemonTag type="caution" size="small">
-                                                            Multi-user systems
-                                                        </LemonTag>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                                {hasAvailableFeature(AvailableFeature.TAGGING) &&
-                                    featureFlag.tags &&
-                                    featureFlag.tags.length > 0 && (
-                                        <>
-                                            <SceneDivider />
-                                            <div>
-                                                <span className="card-secondary">Tags</span>
-                                                <div className="mt-2">
-                                                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                        <FeatureFlagEvaluationTags
-                                                            tags={featureFlag.tags}
-                                                            evaluationTags={featureFlag.evaluation_tags || []}
-                                                            flagId={featureFlag.id}
-                                                            context="static"
-                                                        />
-                                                    ) : (
-                                                        <ObjectTags tags={featureFlag.tags} staticOnly />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-                            </SceneSection>
-                        </>
+                        <SceneSection title="Variant keys">
+                            <FeatureFlagVariantsForm
+                                variants={variants}
+                                payloads={featureFlag.filters?.payloads}
+                                readOnly={true}
+                                flagKey={featureFlag.key}
+                                hasEnrichedAnalytics={featureFlag.has_enriched_analytics}
+                                onViewRecordings={(variantKey) => {
+                                    reportViewRecordingsClicked(variantKey)
+                                    addProductIntentForCrossSell({
+                                        from: ProductKey.FEATURE_FLAGS,
+                                        to: ProductKey.SESSION_REPLAY,
+                                        intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                    })
+                                }}
+                                onGetFeedback={onGetFeedback}
+                                surveys={featureFlag.surveys ?? []}
+                                variantErrors={variantErrors}
+                            />
+                        </SceneSection>
                     )}
                 </>
             ) : (
@@ -1728,26 +1650,23 @@ function FeatureFlagRollout({
                             </div>
                         )}
                     </SceneSection>
-                    {readOnly &&
-                        hasAvailableFeature(AvailableFeature.TAGGING) &&
-                        featureFlag.tags &&
-                        featureFlag.tags.length > 0 && (
-                            <>
-                                <SceneDivider />
-                                <SceneSection title="Tags">
-                                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                        <FeatureFlagEvaluationTags
-                                            tags={featureFlag.tags}
-                                            evaluationTags={featureFlag.evaluation_tags || []}
-                                            flagId={featureFlag.id}
-                                            context="static"
-                                        />
-                                    ) : (
-                                        <ObjectTags tags={featureFlag.tags} staticOnly />
-                                    )}
-                                </SceneSection>
-                            </>
-                        )}
+                    {readOnly && featureFlag.tags && featureFlag.tags.length > 0 && (
+                        <>
+                            <SceneDivider />
+                            <SceneSection title="Tags">
+                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                    <FeatureFlagEvaluationTags
+                                        tags={featureFlag.tags}
+                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                        flagId={featureFlag.id}
+                                        context="static"
+                                    />
+                                ) : (
+                                    <ObjectTags tags={featureFlag.tags} staticOnly />
+                                )}
+                            </SceneSection>
+                        </>
+                    )}
                     {readOnly && !featureFlag.is_remote_configuration && (
                         <>
                             <SceneDivider />
