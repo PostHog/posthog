@@ -189,6 +189,7 @@ export const manifest: ProductManifest = {
             const stringifiedParams = queryParams.toString()
             return `/llm-analytics/sessions/${encodeURIComponent(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
+        // fix: trigger bot review
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
