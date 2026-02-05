@@ -144,39 +144,53 @@ jobs:
             matrix:
                 include:
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 1
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 2
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 3
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 4
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 5
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 6
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 7
                     - browser: chromium
-                      shard_count: 8
+                      shard_count: 12
                       shard: 8
-                    # WebKit is much faster, so we run with only 3 shards
+                    - browser: chromium
+                      shard_count: 12
+                      shard: 9
+                    - browser: chromium
+                      shard_count: 12
+                      shard: 10
+                    - browser: chromium
+                      shard_count: 12
+                      shard: 11
+                    - browser: chromium
+                      shard_count: 12
+                      shard: 12
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 1
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 2
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 3
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 4
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
