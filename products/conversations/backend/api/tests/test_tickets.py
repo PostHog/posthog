@@ -304,6 +304,19 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
+    def test_filter_date_from_all_returns_all_tickets(self, mock_on_commit):
+        """Test that date_from=all returns all tickets without date filtering."""
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?date_from=all")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW
