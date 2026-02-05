@@ -132,6 +132,54 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                 </>
             ),
         },
+        {
+            title: 'Multi-agent and tool usage',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        PostHog captures the full trace hierarchy for complex agent workflows including handoffs and
+                        tool calls.
+                    </Markdown>
+
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            from agents import Agent, Runner, function_tool
+
+                            @function_tool
+                            def get_weather(city: str) -> str:
+                                """Get the weather for a city."""
+                                return f"The weather in {city} is sunny, 72F"
+
+                            weather_agent = Agent(
+                                name="WeatherAgent",
+                                instructions="You help with weather queries.",
+                                tools=[get_weather]
+                            )
+
+                            triage_agent = Agent(
+                                name="TriageAgent",
+                                instructions="Route weather questions to the weather agent.",
+                                handoffs=[weather_agent]
+                            )
+
+                            result = Runner.run_sync(triage_agent, "What's the weather in San Francisco?")
+                        `}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            This captures:
+                            - Agent spans for \`TriageAgent\` and \`WeatherAgent\`
+                            - Handoff spans showing the routing between agents
+                            - Tool spans for \`get_weather\` function calls
+                            - Generation spans for all LLM calls
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
     ]
 }
 
