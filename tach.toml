@@ -108,11 +108,11 @@ depends_on = [
     "products.marketing_analytics",
     "products.notebooks",
     "products.revenue_analytics",
+    "products.signals",
     "products.slack_app",
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
-    "products.visual_review",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -303,6 +303,15 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.signals"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.tasks",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.slack_app"
 depends_on = [
     "ee",
@@ -365,14 +374,14 @@ layer = "non_isolated"
 # - ✅ Isolated testing with 'tach test' (only runs affected tests)
 # ============================================================================
 
-[[modules]]
-path = "products.visual_review"
-depends_on = ["posthog"]  # Only core - no ee, no other products
-layer = "products"
-# Public interfaces:
-# - api/: facade for business logic (other products)
-# - presentation.views: Django viewsets (for URL registration by core)
-interfaces = [
-    "products.visual_review.backend.api",
-    "products.visual_review.backend.presentation.views",
-]
+
+# Example isolated product (add with stacked PR):
+#
+# [[modules]]
+# path = "products.visual_review"
+# depends_on = ["posthog"]
+# layer = "products"
+# interfaces = [
+#     "products.visual_review.backend.api",
+#     "products.visual_review.backend.presentation.views",
+# ]

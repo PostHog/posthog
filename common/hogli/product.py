@@ -10,6 +10,7 @@ from hogli.core.cli import cli
 
 STRUCTURE_FILE = Path(__file__).parent / "product_structure.yaml"
 PRODUCTS_DIR = Path(__file__).parent.parent.parent / "products"
+TACH_TOML = Path(__file__).parent.parent.parent / "tach.toml"
 
 
 def load_structure() -> dict:
@@ -41,6 +42,29 @@ def _render_template(template: str, product_name: str) -> str:
     # Convert snake_case to PascalCase for class names
     pascal_name = "".join(word.capitalize() for word in product_name.split("_"))
     return template.format(product=product_name, Product=pascal_name)
+
+
+def _add_to_tach_toml(product_name: str, *, dry_run: bool) -> None:
+    """Add product module to tach.toml as an isolated product."""
+    if not TACH_TOML.exists():
+        return
+
+    content = TACH_TOML.read_text()
+    module_path = f"products.{product_name}"
+
+    if f'path = "{module_path}"' in content:
+        click.echo(f"\n  Already in tach.toml: {module_path}")
+        return
+
+    block = f'\n[[modules]]\npath = "{module_path}"\ndepends_on = ["posthog"]\nlayer = "products"\n'
+
+    if dry_run:
+        click.echo(f"\n  Would add to tach.toml: {module_path}")
+        return
+
+    content = content.rstrip() + "\n" + block
+    TACH_TOML.write_text(content)
+    click.echo(f"\n  Added to tach.toml: {module_path}")
 
 
 def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
@@ -123,6 +147,8 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
         click.echo(f"\n  Skipped {len(skipped)} existing files:")
         for path in skipped:
             click.echo(f"    {path}")
+
+    _add_to_tach_toml(name, dry_run=dry_run)
 
 
 def _check_file_exists(backend_dir: Path, path: str) -> bool:
