@@ -52,14 +52,17 @@ uv sync --python /tmp/python-install/python/bin/python3.12
 
 This creates a `.venv` directory with all dependencies installed using the correct Python version.
 
-#### Step 3: Run tests
+#### Step 3: Activate the venv and run tests
 
 ```bash
+# Activate the virtual environment
+source .venv/bin/activate
+
 # Run a specific test
-.venv/bin/pytest path/to/test.py::TestClass::test_method -v
+pytest path/to/test.py::TestClass::test_method -v
 
 # Run all tests in a directory
-.venv/bin/pytest posthog/hogql/test/ -v
+pytest posthog/hogql/test/ -v
 ```
 
 ### Finding the correct download URL
@@ -174,11 +177,14 @@ mkdir -p frontend/dist && touch frontend/dist/{index,layout,exporter}.html
 # Set environment variables (see .github/workflows/ci-backend.yml for full list)
 cp .env.example .env
 
+# Activate the virtual environment
+source .venv/bin/activate
+
 # Run a specific test
-.venv/bin/pytest posthog/api/test/test_utils.py -v
+pytest posthog/api/test/test_utils.py -v
 
 # Run tests without services (unit tests only)
-.venv/bin/pytest posthog/hogql/test/ -v
+pytest posthog/hogql/test/ -v
 ```
 
 ## Checking Docker availability
