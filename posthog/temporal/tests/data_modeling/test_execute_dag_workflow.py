@@ -139,6 +139,45 @@ class TestGetDagStructureActivity:
         assert len(dag.executable_nodes) == 0
         assert len(dag.edges) == 0
 
+    async def test_identifies_ephemeral_nodes(self, activity_environment, ateam, auser):
+        """Test that ephemeral (VIEW) nodes are correctly identified."""
+        dag_id = "test-ephemeral-dag"
+        mat_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="mat_view_ephemeral_test",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            created_by=auser,
+        )
+        ephemeral_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="ephemeral_view_test",
+            query={"query": "SELECT 2", "kind": "HogQLQuery"},
+            created_by=auser,
+        )
+        mat_node = await database_sync_to_async(Node.objects.create)(
+            team=ateam,
+            dag_id=dag_id,
+            type=NodeType.MAT_VIEW,
+            saved_query=mat_query,
+        )
+        ephemeral_node = await database_sync_to_async(Node.objects.create)(
+            team=ateam,
+            dag_id=dag_id,
+            type=NodeType.VIEW,
+            saved_query=ephemeral_query,
+        )
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=dag_id)
+        dag = await activity_environment.run(get_dag_structure_activity, inputs)
+        assert len(dag.executable_nodes) == 2
+        assert len(dag.ephemeral_nodes) == 1
+        assert str(ephemeral_node.id) in dag.ephemeral_nodes
+        assert str(mat_node.id) not in dag.ephemeral_nodes
+        # delete nodes first (they reference queries with PROTECT)
+        await database_sync_to_async(mat_node.delete)()
+        await database_sync_to_async(ephemeral_node.delete)()
+        await database_sync_to_async(mat_query.delete)()
+        await database_sync_to_async(ephemeral_query.delete)()
+
 
 class TestDagExecutionLevels:
     @pytest.mark.parametrize(
@@ -558,3 +597,49 @@ class TestExecuteDAGWorkflowWithMocks:
         assert result.skipped_nodes == 0
         assert len(result.node_results) == 3
         assert all(r.success for r in result.node_results)
+
+    async def test_ephemeral_nodes_are_skipped(self):
+        """Test that ephemeral nodes are recorded as successful no-ops without starting child workflows."""
+        dag_id = "test-dag"
+        mat_view_id = str(uuid.uuid4())
+        ephemeral_view_id = str(uuid.uuid4())
+        downstream_id = str(uuid.uuid4())
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
+            # mat_view -> ephemeral_view -> downstream
+            return DAG(
+                nodes=[mat_view_id, ephemeral_view_id, downstream_id],
+                executable_nodes=[mat_view_id, ephemeral_view_id, downstream_id],
+                ephemeral_nodes=[ephemeral_view_id],
+                edges=[(mat_view_id, ephemeral_view_id), (ephemeral_view_id, downstream_id)],
+            )
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
+                activities=[stub_get_dag_structure],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id),
+                    id=f"test-ephemeral-{uuid.uuid4()}",
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+        # ephemeral node should not have a child workflow started
+        assert ephemeral_view_id not in _mock_workflow_calls
+        # mat_view and downstream should have workflows started
+        assert mat_view_id in _mock_workflow_calls
+        assert downstream_id in _mock_workflow_calls
+        # summary: 3 successful, none skipped
+        assert result.successful_nodes == 3
+        assert result.failed_nodes == 0
+        assert result.skipped_nodes == 0
+        # find ephemeral result
+        ephemeral_result = next(r for r in result.node_results if r.node_id == ephemeral_view_id)
+        assert ephemeral_result.success is True
+        assert ephemeral_result.skipped is False

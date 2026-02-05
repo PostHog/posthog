@@ -577,6 +577,32 @@
         }
     },
     {
+        "model": "anthropic/claude-opus-4.6",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "amazon-bedrock": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.000005,
+                "completion_token": 0.000025,
+                "cache_read_token": 5e-7,
+                "cache_write_token": 0.00000625,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-sonnet-4",
         "cost": {
             "default": {
@@ -3511,10 +3537,6 @@
                 "prompt_token": 4.7e-7,
                 "completion_token": 0.000002,
                 "cache_read_token": 1.41e-7
-            },
-            "gmicloud-int4": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.0000012
             },
             "google-vertex": {
                 "prompt_token": 6e-7,

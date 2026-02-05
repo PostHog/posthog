@@ -349,6 +349,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsDatasets: {
         projectBased: true,
         name: 'LLM analytics datasets',
+        description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
@@ -361,6 +362,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsEvaluations: {
         projectBased: true,
         name: 'Evaluations',
+        description: 'Configure and monitor automated LLM output evaluations.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/evaluations',
@@ -382,6 +384,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsPrompts: {
         projectBased: true,
         name: 'Prompts',
+        description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/prompts',
     },
@@ -394,6 +397,7 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsClusters: {
         projectBased: true,
         name: 'Clusters',
+        description: 'Discover patterns and clusters in your LLM usage.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/clusters',
     },
