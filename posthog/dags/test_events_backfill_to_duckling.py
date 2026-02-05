@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -13,6 +13,7 @@ from posthog.dags.events_backfill_to_duckling import (
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
+    _connect_duckdb,
     _set_table_partitioning,
     _validate_identifier,
     get_months_in_range,
@@ -404,3 +405,77 @@ class TestIsFullExportPartition:
     )
     def test_detects_partition_format(self, key, expected):
         assert is_full_export_partition(key) == expected
+
+
+class TestConnectDuckdb:
+    def test_sets_memory_limit(self):
+        conn = _connect_duckdb()
+        try:
+            result = conn.execute("SELECT current_setting('memory_limit')").fetchone()
+            assert result is not None
+            # DuckDB reports memory in its own format; verify it's not the default (~80% of RAM)
+            # 4GB is reported as "3.7 GiB" by DuckDB
+            assert "GiB" in result[0] or "GB" in result[0]
+            # Parse the numeric value and verify it's approximately 4GB
+            numeric = float(result[0].split()[0])
+            assert 3.5 <= numeric <= 4.5
+        finally:
+            conn.close()
+
+    def test_sets_temp_directory(self):
+        conn = _connect_duckdb()
+        try:
+            result = conn.execute("SELECT current_setting('temp_directory')").fetchone()
+            assert result is not None
+            assert result[0] == "/tmp/duckdb_temp"
+        finally:
+            conn.close()
+
+
+class TestDeleteRangePredicate:
+    @parameterized.expand(
+        [
+            # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)
+            (
+                ["2024-01-15 00:00:00", "2024-01-15 12:30:00", "2024-01-15 23:59:59.999999"],
+                "2024-01-15",
+                3,
+                0,
+            ),
+            (
+                ["2024-01-14 23:59:59.999999", "2024-01-15 00:00:00", "2024-01-16 00:00:00"],
+                "2024-01-15",
+                1,
+                2,
+            ),
+            (
+                ["2024-02-29 00:00:00", "2024-02-29 23:59:59.999999", "2024-03-01 00:00:00"],
+                "2024-02-29",
+                2,
+                1,
+            ),
+        ]
+    )
+    def test_range_predicate_deletes_correct_rows(self, timestamps, target_date, expected_deleted, expected_remaining):
+        conn = duckdb.connect()
+        try:
+            conn.execute("CREATE TABLE events (team_id INTEGER, timestamp TIMESTAMPTZ)")
+            for ts in timestamps:
+                conn.execute("INSERT INTO events VALUES (1, ?)", [ts])
+
+            date_str = target_date
+            next_date_str = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+            result = conn.execute(
+                "DELETE FROM events WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3",
+                [1, date_str, next_date_str],
+            ).fetchone()
+
+            deleted = result[0] if result else 0
+            assert deleted == expected_deleted
+
+            row = conn.execute("SELECT count(*) FROM events").fetchone()
+            remaining = row[0] if row else 0
+            assert remaining == expected_remaining
+        finally:
+            conn.close()
