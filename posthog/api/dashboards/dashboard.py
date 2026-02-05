@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -506,9 +507,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["last_modified_by"] = last_modified_by
             validated_data["last_modified_at"] = now()
 
-            text, _ = Text.objects.update_or_create(id=text_json.get("id", None), defaults=validated_data)
+            text, _ = Text.objects.update_or_create(
+                id=text_json.get("id", None), team_id=instance.team_id, defaults=validated_data
+            )
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif (
@@ -516,8 +521,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
                 id=tile_data.get("id", None),
+                dashboard=instance,
                 defaults={**tile_data, "dashboard": instance},
             )
 
@@ -859,12 +866,18 @@ class DashboardsViewSet(
         from_dashboard = kwargs["pk"]
         to_dashboard = request.data["toDashboard"]
 
-        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, id=tile["id"])
+        tile = get_object_or_404(
+            DashboardTile,
+            dashboard_id=from_dashboard,
+            id=tile["id"],
+            dashboard__team__project_id=self.team.project_id,
+        )
+        get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
         tile.dashboard_id = to_dashboard
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            Dashboard.objects.get(id=from_dashboard),
+            get_object_or_404(Dashboard, id=from_dashboard, team__project_id=self.team.project_id),
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
