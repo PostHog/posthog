@@ -70,6 +70,14 @@ function getSelectedSurveyId(config: HogFlowAction['config']): string | null {
     return surveyIdProp?.value ?? null
 }
 
+function getCompletedResponsesOnly(config: HogFlowAction['config']): boolean {
+    if (!('type' in config) || config.type !== 'event') {
+        return false
+    }
+    const completedProp = config.filters?.properties?.find((p: any) => p.key === '$survey_completed')
+    return completedProp?.value === true
+}
+
 export function StepTriggerConfiguration({
     node,
 }: {
@@ -348,7 +356,20 @@ function StepTriggerConfigurationSurvey({
         useValues(surveyTriggerLogic)
     const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
     const selectedSurveyId = getSelectedSurveyId(config)
+    const completedOnly = getCompletedResponsesOnly(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
+
+    // Helper to build properties array based on current settings
+    const buildProperties = (surveyId: string | null, completedResponsesOnly: boolean): any[] => {
+        const properties: any[] = []
+        if (surveyId) {
+            properties.push({ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' })
+        }
+        if (completedResponsesOnly) {
+            properties.push({ key: '$survey_completed', value: true, operator: 'exact', type: 'event' })
+        }
+        return properties
+    }
 
     // Search state for filtering surveys
     const [searchTerm, setSearchTerm] = useState('')
@@ -499,23 +520,47 @@ function StepTriggerConfigurationSurvey({
                             return
                         }
                         setSearchTerm('') // Clear search on selection
-                        const properties = surveyId
-                            ? [{ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' }]
-                            : []
                         setWorkflowActionConfig(action.id, {
                             type: 'event',
                             filters: {
                                 events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                properties,
+                                properties: buildProperties(surveyId, completedOnly),
                                 filter_test_accounts: filterTestAccounts,
                             },
                         })
                     }}
                     placeholder="Select a survey"
                 />
-                <p className="text-xs text-muted mt-1">
-                    This workflow will be triggered when someone submits a response to this survey.
-                </p>
+            </LemonField.Pure>
+
+            <LemonField.Pure label="Trigger on">
+                <LemonRadio
+                    value={completedOnly ? 'completed' : 'any'}
+                    onChange={(value) => {
+                        const newCompletedOnly = value === 'completed'
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: {
+                                events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
+                                properties: buildProperties(selectedSurveyId, newCompletedOnly),
+                                filter_test_accounts: filterTestAccounts,
+                            },
+                        })
+                    }}
+                    options={[
+                        {
+                            value: 'completed',
+                            label: 'Completed responses only',
+                            description: 'Trigger only when the survey is fully completed',
+                        },
+                        {
+                            value: 'any',
+                            label: 'Any response (including partial)',
+                            description:
+                                "Trigger on every response, including partial submissions when a user answers some questions but doesn't complete the survey",
+                        },
+                    ]}
+                />
             </LemonField.Pure>
 
             {(() => {
