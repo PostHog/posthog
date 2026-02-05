@@ -72,7 +72,7 @@ describe('LemonCalendarSelect', () => {
     beforeEach(() => {
         window.HTMLElement.prototype.scrollIntoView = jest.fn()
 
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+        jest.useFakeTimers({ advanceTimers: true }).setSystemTime(new Date('2023-01-10 17:22:08'))
     })
 
     afterEach(() => {
