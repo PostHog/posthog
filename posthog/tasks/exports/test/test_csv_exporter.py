@@ -568,6 +568,45 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
+    @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_retries_without_limit_when_query_returns_error(
+        self, mocked_uuidt: Any, mock_process_query: MagicMock
+    ) -> None:
+        """Verify that when a query returns an error (e.g. doesn't support limit), we retry without limit."""
+        from posthog.tasks.exports.csv_exporter import QUERY_PAGE_SIZE
+
+        # First call (with limit) returns error, second call (without limit) returns data
+        mock_process_query.side_effect = [
+            {"error": "limit: Extra inputs are not permitted", "results": None},
+            {"results": [["value1"], ["value2"]], "columns": ["col"], "types": ["String"]},
+        ]
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "SomeQuery"}},
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            # Verify first call included limit, second call did not
+            self.assertEqual(mock_process_query.call_count, 2)
+
+            first_call_query = mock_process_query.call_args_list[0][1]["query_json"]
+            second_call_query = mock_process_query.call_args_list[1][1]["query_json"]
+
+            self.assertEqual(first_call_query.get("limit"), QUERY_PAGE_SIZE)
+            self.assertNotIn("limit", second_call_query)
+
+            # Verify export succeeded with the retry data
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(lines, ["col", "value1", "value2"])
+
     def test_funnel_time_to_convert(self) -> None:
         bins = [
             [1, 1],

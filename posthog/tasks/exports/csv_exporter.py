@@ -446,19 +446,20 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
     breakdown_filter = query.get("breakdownFilter") if query else None
     total = 0
 
-    # Pagination state - detected from response
+    # Pagination state
     cursor: str | None = None
     offset = 0
     use_cursor = False
-    supports_pagination: bool | None = None  # None = not yet detected
+    supports_limit: bool | None = None  # None = not yet detected
 
     while total < CSV_EXPORT_LIMIT:
         # Build paginated query
         paginated_query = query.copy()
 
-        # Only add pagination parameters after confirming the query supports pagination
-        if supports_pagination:
+        # Try to add pagination params if query supports limit (or not yet detected)
+        if supports_limit is not False:
             paginated_query["limit"] = QUERY_PAGE_SIZE
+            # Use cursor pagination if available (preferred), otherwise offset
             if cursor is not None:
                 paginated_query["after"] = cursor
             elif offset > 0:
@@ -485,6 +486,15 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
         else:
             response_dict = query_response
 
+        # If query returned an error and we tried with limit, retry without it
+        response_error = response_dict.get("error") if isinstance(response_dict, dict) else None
+        if response_error and supports_limit is None:
+            supports_limit = False
+            continue
+
+        if supports_limit is None:
+            supports_limit = True
+
         rows = list(_convert_response_to_csv_data(response_dict, breakdown_filter=breakdown_filter))
         rows = rows[: CSV_EXPORT_LIMIT - total]
         total += len(rows)
@@ -493,7 +503,11 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
         if total >= CSV_EXPORT_LIMIT or len(rows) == 0:
             break
 
-        # Detect pagination support from response
+        # Query doesn't support pagination - return single result
+        if supports_limit is False:
+            break
+
+        # Determine pagination method for next page
         next_cursor = response_dict.get("nextCursor") or response_dict.get("next_cursor")
         has_more = response_dict.get("hasMore", False)
 
@@ -501,13 +515,11 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
             # Priority 1: Cursor pagination
             cursor = next_cursor
             use_cursor = True
-            supports_pagination = True
         elif has_more and not use_cursor:
             # Priority 2: Offset pagination
             offset += QUERY_PAGE_SIZE
-            supports_pagination = True
         else:
-            # No pagination indicators - single query only
+            # No more pages
             break
 
 
