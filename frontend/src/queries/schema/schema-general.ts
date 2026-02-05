@@ -1525,6 +1525,11 @@ export type RetentionFilter = {
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
     /** @description Custom brackets for retention calculations */
     retentionCustomBrackets?: number[]
+    /** @description The aggregation type to use for retention
+     * @default count */
+    aggregationType?: 'count' | 'sum' | 'avg'
+    /** @description The property to aggregate when aggregationType is sum or avg */
+    aggregationProperty?: string
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']

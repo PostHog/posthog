@@ -46,6 +46,7 @@ class AgentMode(StrEnum):
     EXECUTION = "execution"
     SURVEY = "survey"
     RESEARCH = "research"
+    FLAGS = "flags"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -3252,6 +3253,12 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationType(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
 
 
 class TimeWindowMode(StrEnum):
@@ -13699,6 +13706,14 @@ class RetentionEntity(BaseModel):
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    aggregationProperty: str | None = Field(
+        default=None,
+        description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationType: AggregationType | None = Field(
+        default=AggregationType.COUNT,
+        description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
