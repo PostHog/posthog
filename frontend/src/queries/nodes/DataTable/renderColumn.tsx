@@ -15,6 +15,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geograph
 import { formatCurrency } from 'lib/utils/geography/currency'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
+import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
 
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -50,6 +51,7 @@ const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'session_start', 
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
     ...llmAnalyticsColumnRenderers,
+    ...sessionColumnRenderers,
 }
 
 export function getContextColumn(
