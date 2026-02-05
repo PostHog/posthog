@@ -32,33 +32,12 @@ use crate::utils::graph_utils::{
 use anyhow::Result;
 use common_metrics::{histogram, inc, timing_guard};
 use common_types::{PersonId, TeamId};
-use once_cell::sync::Lazy;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, instrument, warn};
 use uuid::Uuid;
-
-/// Default threshold for parallel evaluation when env var is not set or invalid.
-const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
-
-/// Threshold for parallel flag evaluation, read from PARALLEL_EVAL_THRESHOLD env var.
-/// Below this count, flags are evaluated sequentially (faster for small counts).
-/// Above this count, flags are evaluated in parallel using rayon.
-static PARALLEL_EVAL_THRESHOLD: Lazy<usize> = Lazy::new(|| {
-    let threshold = std::env::var("PARALLEL_EVAL_THRESHOLD")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_PARALLEL_EVAL_THRESHOLD);
-
-    info!(
-        threshold,
-        "Parallel flag evaluation threshold initialized (set PARALLEL_EVAL_THRESHOLD to override)"
-    );
-
-    threshold
-});
 
 /// Parameters for feature flag evaluation with various override options
 #[derive(Debug, Default)]
@@ -219,7 +198,12 @@ pub struct FeatureFlagMatcher {
     ///     "customer" → "101"
     ///     "team" → "112"
     groups: HashMap<String, Value>,
+    /// Flag count threshold for switching from sequential to parallel evaluation.
+    /// Configured via PARALLEL_EVAL_THRESHOLD env var in production.
+    parallel_eval_threshold: usize,
 }
+
+const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
 
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
@@ -242,7 +226,13 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
+            parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
         }
+    }
+
+    pub fn with_parallel_eval_threshold(mut self, threshold: usize) -> Self {
+        self.parallel_eval_threshold = threshold;
+        self
     }
 
     /// Evaluates all feature flags for the current matcher context.
@@ -900,7 +890,7 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
-        let parallel = flags_to_evaluate.len() >= *PARALLEL_EVAL_THRESHOLD;
+        let parallel = flags_to_evaluate.len() >= self.parallel_eval_threshold;
         let eval_type = if parallel { "parallel" } else { "sequential" };
 
         let labels = [("evaluation_type".to_string(), eval_type.to_string())];
