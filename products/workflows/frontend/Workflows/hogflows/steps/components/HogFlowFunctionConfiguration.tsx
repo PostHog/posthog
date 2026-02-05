@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -45,7 +45,8 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
-    const { allSurveys } = useValues(surveyTriggerLogic)
+    const { allSurveys, surveysLoading } = useValues(surveyTriggerLogic)
+    const { loadSurveys } = useActions(surveyTriggerLogic)
 
     const template = hogFunctionTemplatesById[templateId]
     useEffect(() => {
@@ -54,6 +55,20 @@ export function HogFlowFunctionConfiguration({
             setInputs(templateToConfiguration(template).inputs ?? {})
         }
     }, [templateId])
+
+    // Detect survey trigger early so we can ensure surveys are loaded
+    const triggerType = workflow?.trigger?.type
+    const isSurveyTriggerEarly =
+        triggerType === 'event' &&
+        workflow?.trigger &&
+        'filters' in workflow.trigger &&
+        (workflow.trigger.filters?.events ?? []).some((e: any) => e.id === 'survey sent')
+
+    useEffect(() => {
+        if (isSurveyTriggerEarly && allSurveys.length === 0 && !surveysLoading) {
+            loadSurveys()
+        }
+    }, [isSurveyTriggerEarly, allSurveys.length, surveysLoading, loadSurveys])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (
@@ -67,9 +82,7 @@ export function HogFlowFunctionConfiguration({
         return <div>Template not found!</div>
     }
 
-    const triggerType = workflow?.trigger?.type
-
-    // Detect if the trigger is a survey trigger
+    // Detect if the trigger is a survey trigger (reuse triggerType from above)
     const triggerEvents =
         triggerType === 'event' && workflow?.trigger && 'filters' in workflow.trigger
             ? (workflow.trigger.filters?.events ?? [])
