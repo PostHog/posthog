@@ -3,8 +3,8 @@ import './MarketingAnalyticsTableStyleOverride.scss'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconGear, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -87,14 +87,19 @@ export const MarketingAnalyticsTable = ({
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex gap-4 justify-between items-center">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search campaigns..."
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        className="w-64"
-                        data-attr="marketing-analytics-search"
-                    />
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search campaigns..."
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            className="w-64"
+                            data-attr="marketing-analytics-search"
+                        />
+                        <Tooltip title="Filters the currently loaded results" delayMs={0}>
+                            <IconInfo className="text-xl text-secondary" />
+                        </Tooltip>
+                    </div>
                     <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
                         Configure columns
                     </LemonButton>
