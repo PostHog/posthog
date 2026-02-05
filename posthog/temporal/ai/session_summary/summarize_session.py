@@ -438,6 +438,61 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         )
 
 
+def _validate_period(
+    period: ReplayInactivityPeriod, video_duration: float, index: int, inactivity_periods_count: int
+) -> tuple[float, float, float, float] | None:
+    # Filter to only active periods (skip gaps and idle time)
+    if not period.active:
+        return None
+    # If the period wasn't able to get the start recording timestamp - it's either too short or buggy to process, skipping
+    if period.recording_ts_from_s is None:
+        return None
+    # If the period has no ts_to_s - it's probably the last period, so set it to the video duration
+    if period.ts_to_s is None:
+        # Raise exception if it's not the last period
+        if index != inactivity_periods_count - 1:
+            msg = f"Inactivity period has no ts_to_s, while not being the last period ({index}/{inactivity_periods_count - 1}): {period.model_dump_json()}"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        period.recording_ts_to_s = video_duration
+        # Calculate the ts_to_s accordingly
+        period.ts_to_s = period.ts_from_s + (period.recording_ts_to_s - period.recording_ts_from_s)
+    # If the recording end period is still empty - there's a problem in calculations
+    if period.recording_ts_to_s is None:
+        msg = f"Inactivity period has no recording_ts_to_s: {period.model_dump_json()}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    # Validate the period data
+    session_period_start = period.ts_from_s
+    session_period_end = period.ts_to_s
+    recording_period_start = period.recording_ts_from_s
+    recording_period_end = period.recording_ts_to_s
+    if round(recording_period_end, 2) <= round(recording_period_start, 2):
+        msg = f"Invalid recording period time range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    if round(session_period_end, 2) <= round(session_period_start, 2):
+        msg = f"Invalid session period time range: ts_from_s={session_period_start}, ts_to_s={session_period_end}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
+    if round(recording_period_end, 2) > round(video_duration, 2):
+        # Could happen, log for visibility, but don't raise
+        logger.warning(
+            "Recording timestamp exceeds video duration: "
+            f"recording_ts_to_s={recording_period_end}, video_duration={video_duration}",
+            signals_type="session-summaries",
+        )
+    if round(recording_period_end - recording_period_start, 2) != round(session_period_end - session_period_start, 2):
+        # Could happen, log for visibility, but don't raise
+        logger.warning(
+            "Recording/session periods duration mismatch: "
+            f"recording_duration={recording_period_end - recording_period_start}, "
+            f"session_duration={session_period_end - session_period_start}",
+            signals_type="session-summaries",
+        )
+    return session_period_start, session_period_end, recording_period_start, recording_period_end
+
+
 def calculate_video_segment_specs(
     video_duration: float,
     chunk_duration: float,
@@ -453,57 +508,10 @@ def calculate_video_segment_specs(
     segment_index = 0
     # TODO: Add more logic to avoid splitting right after jumping to the new page
     for i, period in enumerate(inactivity_periods):
-        # Filter to only active periods (skip gaps and idle time)
-        if not period.active:
+        validation = _validate_period(period, video_duration, i, len(inactivity_periods))
+        if validation is None:
             continue
-        # If the period wasn't able to get the start recording timestamp - it's either too short or buggy to process, skipping
-        if period.recording_ts_from_s is None:
-            continue
-        # If the period has no ts_to_s - it's probably the last period, so set it to the video duration
-        if period.ts_to_s is None:
-            # Raise exception if it's not the last period
-            if i != len(inactivity_periods) - 1:
-                msg = f"Inactivity period has no ts_to_s, while not being the last period ({i}/{len(inactivity_periods) - 1}): {period.model_dump_json()}"
-                logger.error(msg, signals_type="session-summaries")
-                raise ValueError(msg)
-            period.recording_ts_to_s = video_duration
-            # Calculate the ts_to_s accordingly
-            period.ts_to_s = period.ts_from_s + (period.recording_ts_to_s - period.recording_ts_from_s)
-        # If the recording end period is still empty - there's a problem in calculations
-        if period.recording_ts_to_s is None:
-            msg = f"Inactivity period has no recording_ts_to_s: {period.model_dump_json()}"
-            logger.error(msg, signals_type="session-summaries")
-            raise ValueError(msg)
-        # Validate the period data
-        session_period_start = period.ts_from_s
-        session_period_end = period.ts_to_s
-        recording_period_start = period.recording_ts_from_s
-        recording_period_end = period.recording_ts_to_s
-        if round(recording_period_end, 2) <= round(recording_period_start, 2):
-            msg = f"Invalid recording period time range: recording_ts_from_s={recording_period_start}, recording_ts_to_s={recording_period_end}"
-            logger.error(msg, signals_type="session-summaries")
-            raise ValueError(msg)
-        if round(session_period_end, 2) <= round(session_period_start, 2):
-            msg = f"Invalid session period time range: ts_from_s={session_period_start}, ts_to_s={session_period_end}"
-            logger.error(msg, signals_type="session-summaries")
-            raise ValueError(msg)
-        if round(recording_period_end, 2) > round(video_duration, 2):
-            # Could happen, log for visibility, but don't raise
-            logger.warning(
-                "Recording timestamp exceeds video duration: "
-                f"recording_ts_to_s={recording_period_end}, video_duration={video_duration}",
-                signals_type="session-summaries",
-            )
-        if round(recording_period_end - recording_period_start, 2) != round(
-            session_period_end - session_period_start, 2
-        ):
-            # Could happen, log for visibility, but don't raise
-            logger.warning(
-                "Recording/session periods duration mismatch: "
-                f"recording_duration={recording_period_end - recording_period_start}, "
-                f"session_duration={session_period_end - session_period_start}",
-                signals_type="session-summaries",
-            )
+        session_period_start, session_period_end, recording_period_start, recording_period_end = validation
         # Start either after the rendering delay, or at the previous chunk end
         if recording_period_end - recording_period_start <= chunk_duration:
             # If the period smaller than the expected chunk duration - process as is
