@@ -19,7 +19,6 @@ import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import { RudderstackLogo } from './logos/RudderstackLogo'
 import { SentryLogo } from './logos/SentryLogo'
-import { VercelLogo } from './logos/VercelLogo'
 import { WordpressLogo } from './logos/WordpressLogo'
 import androidImage from './logos/android.svg'
 import angularImage from './logos/angular.svg'
@@ -215,7 +214,7 @@ export const ALL_SDKS: SDK[] = [
         name: 'Vercel AI SDK',
         key: SDKKey.VERCEL_AI,
         tags: [],
-        image: <VercelLogo />,
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/vercel-ai',
     },
     {
