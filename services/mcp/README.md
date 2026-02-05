@@ -295,6 +295,85 @@ pnpm run dev
 
 And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
 
+### Testing OAuth with external clients (v0, Cursor, etc.)
+
+When an external service connects to your local MCP server via OAuth, requests are routed through public tunnels to your local PostHog instance. Django's dev server doesn't support HTTP chunked transfer encoding ([Django #35838](https://code.djangoproject.com/ticket/35838)), which some OAuth clients use for the token exchange. You need nginx as a reverse proxy to de-chunk these requests.
+
+**Architecture:**
+
+```text
+External client → cloudflared tunnel → MCP server (:8787)
+                → ngrok tunnel → nginx (:8080) → Django (:8000)
+```
+
+**Setup:**
+
+1. **Ensure your PostHog `.env` has proxy settings** (needed so Django generates `https://` URLs):
+
+   ```bash
+   # In /path/to/posthog/.env
+   IS_BEHIND_PROXY=True
+   TRUST_ALL_PROXIES=True
+   ```
+
+2. **Start PostHog** as normal (`hogli start` or `python manage.py runserver 8000`)
+
+3. **Install and start nginx** as a reverse proxy to de-chunk requests:
+
+   ```bash
+   brew install nginx
+   ```
+
+   Create a config file (e.g. `/tmp/nginx-dechunk.conf`):
+
+   ```nginx
+   worker_processes 1;
+   error_log /tmp/nginx-dechunk-error.log;
+   pid /tmp/nginx-dechunk.pid;
+
+   events { worker_connections 64; }
+
+   http {
+       access_log /tmp/nginx-dechunk-access.log;
+       server {
+           listen 8080;
+           location / {
+               proxy_pass http://127.0.0.1:8000;
+               proxy_http_version 1.1;
+               proxy_set_header Host $http_host;
+               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+               proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+               proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
+           }
+       }
+   }
+   ```
+
+   ```bash
+   /opt/homebrew/opt/nginx/bin/nginx -c /tmp/nginx-dechunk.conf
+   ```
+
+4. **Start tunnels:**
+
+   ```bash
+   # Tunnel for MCP server
+   cloudflared tunnel --url http://localhost:8787
+
+   # Tunnel for PostHog (point at nginx, NOT Django directly)
+   ngrok http 8080
+   ```
+
+5. **Update `.dev.vars`** with the ngrok tunnel URL:
+
+   ```bash
+   POSTHOG_API_BASE_URL=https://your-ngrok-url.ngrok-free.dev
+   POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=https://your-ngrok-url.ngrok-free.dev
+   ```
+
+6. **Start the MCP server** (`pnpm run dev`) and connect your external client to the cloudflared URL (e.g. `https://xxx.trycloudflare.com/mcp`)
+
+**Why nginx?** Some OAuth clients (e.g. Arctic, used by v0.app) send `Transfer-Encoding: chunked` POST requests during the token exchange. Django's dev server can't parse chunked bodies, causing `unsupported_grant_type` errors. nginx automatically de-chunks requests and sets `Content-Length` before forwarding to Django.
+
 ### Developing with local resources
 
 To develop with warm loading for MCP resources (workflows, prompts, examples):
