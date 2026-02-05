@@ -1,7 +1,8 @@
 import gc
 import sys
 import time
-from typing import Any, Generic, Literal
+from collections.abc import AsyncIterator, Iterable
+from typing import Any, Generic, Literal, TypeVar
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -51,6 +52,38 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+T = TypeVar("T")
+
+
+async def async_iterate(iterable: Iterable[T]) -> AsyncIterator[T]:
+    """
+    Wrap a sync iterable to be used with `async for`.
+
+    Each call to `next()` is run in a thread pool via `database_sync_to_async`,
+    allowing lazy iterables that make Django/DB calls to work safely
+    in an async context.
+    """
+    iterator = iter(iterable)
+
+    def _next() -> tuple[bool, T | None]:
+        try:
+            return (True, next(iterator))
+        except StopIteration:
+            return (False, None)
+
+    def _close() -> None:
+        if hasattr(iterator, "close") and callable(iterator.close):
+            iterator.close()
+
+    try:
+        while True:
+            has_value, item = await database_sync_to_async(_next)()
+            if not has_value:
+                break
+            yield item  # type: ignore[misc]
+    finally:
+        await database_sync_to_async(_close)()
 
 
 class PipelineNonDLT(Generic[ResumableData]):
@@ -164,7 +197,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._table is None
 
-            for item in self._resource.items():
+            async for item in async_iterate(self._resource.items()):
                 py_table = None
 
                 self._batcher.batch(item)
