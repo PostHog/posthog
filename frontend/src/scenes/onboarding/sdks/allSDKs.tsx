@@ -215,6 +215,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai',
     },
     {
+        name: 'OpenAI Agents',
+        key: SDKKey.OPENAI_AGENTS,
+        tags: [SDKTag.LLM, SDKTag.FRAMEWORK],
+        image: <OpenAILogo />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/openai-agents',
+    },
+    {
         name: 'Anthropic',
         key: SDKKey.ANTHROPIC,
         tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],

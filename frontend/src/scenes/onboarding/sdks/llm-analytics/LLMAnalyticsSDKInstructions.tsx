@@ -27,6 +27,7 @@ import { MirascopeInstallation } from '@posthog/shared-onboarding/llm-analytics/
 import { MistralInstallation } from '@posthog/shared-onboarding/llm-analytics/mistral'
 import { OllamaInstallation } from '@posthog/shared-onboarding/llm-analytics/ollama'
 import { OpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/openai'
+import { OpenAIAgentsInstallation } from '@posthog/shared-onboarding/llm-analytics/openai-agents'
 import { OpenRouterInstallation } from '@posthog/shared-onboarding/llm-analytics/openrouter'
 import { PerplexityInstallation } from '@posthog/shared-onboarding/llm-analytics/perplexity'
 import { PortkeyInstallation } from '@posthog/shared-onboarding/llm-analytics/portkey'
@@ -193,6 +194,10 @@ const LLMXAIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: XAIInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMOpenAIAgentsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenAIAgentsInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
@@ -228,5 +233,6 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
     [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
     [SDKKey.XAI]: LLMXAIInstructionsWrapper,
+    [SDKKey.OPENAI_AGENTS]: LLMOpenAIAgentsInstructionsWrapper,
     [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
 }

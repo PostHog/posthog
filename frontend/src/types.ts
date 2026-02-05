@@ -5739,6 +5739,7 @@ export enum SDKKey {
     NUXT_JS = 'nuxtjs',
     OLLAMA = 'ollama',
     OPENAI = 'openai',
+    OPENAI_AGENTS = 'openai_agents',
     OPENROUTER = 'openrouter',
     PERPLEXITY = 'perplexity',
     PHP = 'php',

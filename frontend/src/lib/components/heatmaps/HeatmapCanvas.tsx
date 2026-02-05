@@ -123,7 +123,7 @@ export function HeatmapCanvas({
 
             updateHeatmapData()
         },
-        [updateHeatmapData, heatmapJSColorGradient] // oxlint-disable-line react-hooks/exhaustive-deps
+        [updateHeatmapData, heatmapJSColorGradient, heatmapConfig] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     useEffect(() => {
