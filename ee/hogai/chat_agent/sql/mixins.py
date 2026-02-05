@@ -115,7 +115,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         self._validate_hogql_query_sync(query)
 
 
-class HogQLGeneratorMixin(AssistantContextMixin, HogQLOutputParserMixin):
+class HogQLGeneratorMixin(HogQLOutputParserMixin, AssistantContextMixin):
     async def _construct_system_prompt(self) -> ChatPromptTemplate:
         schema_description, core_memory = await asyncio.gather(
             self._serialize_database_schema(),
