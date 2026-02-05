@@ -328,10 +328,9 @@ pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
         &database_pools.persons_writer,
     );
 
-    // Best-effort warmup: try pools in parallel, log failures, never block startup
-    // Always warm up non-persons pools
+    // Best-effort warmup: try all pools in parallel, log failures, never block startup
     let skip_query = database_pools.test_before_acquire;
-    let (reader_result, writer_result) = tokio::join!(
+    let (reader_result, writer_result, persons_reader_result, persons_writer_result) = tokio::join!(
         test_pool_connection(
             &database_pools.non_persons_reader,
             "non_persons_reader",
@@ -342,10 +341,6 @@ pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
             "non_persons_writer",
             skip_query
         ),
-    );
-
-    // Only warm up persons pools if they're distinct (not aliased)
-    let (persons_reader_result, persons_writer_result) = tokio::join!(
         async {
             if persons_reader_is_distinct {
                 test_pool_connection(&database_pools.persons_reader, "persons_reader", skip_query)
