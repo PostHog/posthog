@@ -102,7 +102,8 @@ class ClerkSourceConfig(config.Config):
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_region: Literal["US", "EU"] = config.value(default="US")
 
 
 @config.config
