@@ -108,10 +108,6 @@ EVENTS_COLUMNS = """
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
-# Maximum partitions to create per sensor evaluation to avoid OOM/timeout
-# The sensor runs daily, so this limits how fast full backfills progress
-MAX_PARTITIONS_PER_FULL_BACKFILL_EVALUATION = 100
-
 EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
 }
@@ -1328,7 +1324,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     3. Creates the events table if it doesn't exist (optional, enabled by default)
     4. Validates the duckling's schema compatibility (optional)
     5. For each date in the partition:
-       a. Cleans up orphaned files from prior failed runs (optional)
+       a. Deletes existing DuckLake data for this partition (idempotent re-processing)
        b. Exports events to the duckling's S3 bucket (ClickHouse EC2 role has bucket access)
        c. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
@@ -1798,6 +1794,7 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    existing_partitions = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     # Process catalogs starting from where we left off
     for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
@@ -1829,13 +1826,18 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
                 break
 
             partition_key = f"{team_id}_{month}"
+            current_month = month
+
+            # Skip partitions that already exist — advance cursor past them
+            if partition_key in existing_partitions:
+                continue
+
             new_partitions.append(partition_key)
             run_requests.append(
                 RunRequest(
                     partition_key=partition_key,
                 )
             )
-            current_month = month
 
         # Update cursor for next tick
         # Move to next month after the last one we processed
@@ -2025,7 +2027,6 @@ def duckling_persons_full_backfill_sensor(context: SensorEvaluationContext) -> S
             run_requests.append(
                 RunRequest(
                     partition_key=partition_key,
-                    run_key=f"{partition_key}_persons_full_backfill",
                 )
             )
             context.log.info(f"Creating full persons backfill partition for team_id={team_id}")
