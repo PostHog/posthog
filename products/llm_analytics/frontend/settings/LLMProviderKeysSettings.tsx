@@ -13,8 +13,11 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { IconKey } from 'lib/lemon-ui/icons'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 import {
@@ -563,16 +566,26 @@ export function LLMProviderKeysSettings(): JSX.Element {
                             Validate
                         </LemonButton>
                     )}
-                    <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
-                        Edit
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        onClick={() => setKeyToDelete(key)}
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton size="small" type="secondary" onClick={() => setEditingKey(key)}>
+                            Edit
+                        </LemonButton>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={() => setKeyToDelete(key)}
+                        />
+                    </AccessControlAction>
                 </div>
             ),
         },
@@ -595,9 +608,18 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                     Anthropic, and Google Gemini.
                                 </p>
                             </div>
-                            <LemonButton type="primary" icon={<IconPlus />} onClick={() => setNewKeyModalOpen(true)}>
-                                Add API key
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setNewKeyModalOpen(true)}
+                                >
+                                    Add API key
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
 
                         {evaluationConfig && !evaluationConfig.active_provider_key && (
@@ -613,13 +635,18 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                     <br />
                                     Supports OpenAI, Anthropic, and Google Gemini.
                                 </p>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => setNewKeyModalOpen(true)}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Add API key
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        onClick={() => setNewKeyModalOpen(true)}
+                                    >
+                                        Add API key
+                                    </LemonButton>
+                                </AccessControlAction>
                             </div>
                         ) : (
                             <LemonTable

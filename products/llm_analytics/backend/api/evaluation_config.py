@@ -10,6 +10,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.provider_keys import LLMProviderKey
@@ -43,7 +44,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
 
     @monitor(feature=None, endpoint="llma_evaluation_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
