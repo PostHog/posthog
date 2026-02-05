@@ -244,12 +244,15 @@ async def prepare_s3_files_for_querying_async(
             if await s3._exists(s3_path_for_querying):
                 files_to_delete.append(s3_path_for_querying)
 
-    # Copy files concurrently using asyncio.gather
+    # Copy files concurrently with limited concurrency to avoid overwhelming S3
     await _log(f"Copying {len(file_uris)} files to {s3_path_for_querying}")
 
+    semaphore = asyncio.Semaphore(50)
+
     async def copy_file(file: str) -> None:
-        file_name = file.replace(f"{s3_folder_for_schema}/", "")
-        await s3._copy(file, f"{s3_path_for_querying}/{file_name}")
+        async with semaphore:
+            file_name = file.replace(f"{s3_folder_for_schema}/", "")
+            await s3._copy(file, f"{s3_path_for_querying}/{file_name}")
 
     await asyncio.gather(*[copy_file(file) for file in file_uris])
 
@@ -258,11 +261,12 @@ async def prepare_s3_files_for_querying_async(
         await _log(f"Deleting {len(files_to_delete)} old query folders")
 
         async def delete_folder(file: str) -> None:
-            try:
-                await s3._rm(file, recursive=True)
-            except Exception as e:
-                await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                capture_exception(e)
+            async with semaphore:
+                try:
+                    await s3._rm(file, recursive=True)
+                except Exception as e:
+                    await _log(f"Error while deleting old query folder {file}: {e}", level="error")
+                    capture_exception(e)
 
         await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 
