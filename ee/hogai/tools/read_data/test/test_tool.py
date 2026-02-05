@@ -12,7 +12,8 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Dashboard, DashboardTile, Experiment, Insight
+from posthog.models.feature_flag import FeatureFlag
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
@@ -600,3 +601,226 @@ class TestReadDataTool(BaseTest):
 
         assert "Table `nonexistent_table` not found" in result
         assert "Available tables include:" in result
+
+    async def test_read_feature_flag_by_id(self):
+        """Test reading a feature flag by its numeric ID."""
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="test-flag-by-id",
+            name="Test Feature Flag",
+            filters={"groups": [{"rollout_percentage": 50}]},
+            active=True,
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "feature_flag", "id": flag.id})
+
+        assert "test-flag-by-id" in result
+        assert "Test Feature Flag" in result
+        assert "**Active:** True" in result
+        assert artifact is None
+
+    async def test_read_feature_flag_by_key(self):
+        """Test reading a feature flag by its key."""
+        await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="test-flag-by-key",
+            name="Another Test Flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            active=True,
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "feature_flag", "key": "test-flag-by-key"})
+
+        assert "test-flag-by-key" in result
+        assert "Another Test Flag" in result
+        assert "### Variants" in result
+        assert "control: 50%" in result
+        assert "test: 50%" in result
+        assert artifact is None
+
+    async def test_read_feature_flag_not_found(self):
+        """Test that not found feature flag raises MaxToolRetryableError."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "feature_flag", "key": "nonexistent-flag"})
+
+        assert "nonexistent-flag" in str(exc_info.value)
+
+    async def test_read_feature_flag_requires_id_or_key(self):
+        """Test that feature flag read requires either id or key."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "feature_flag"})
+
+        assert "id" in str(exc_info.value)
+        assert "key" in str(exc_info.value)
+
+    async def test_read_experiment_by_id(self):
+        """Test reading an experiment by its numeric ID."""
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="experiment-flag-1",
+            name="Experiment Flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+
+        experiment = await Experiment.objects.acreate(
+            team=self.team,
+            name="Test Experiment",
+            description="An A/B test experiment",
+            feature_flag=flag,
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+
+        assert "Test Experiment" in result
+        assert "An A/B test experiment" in result
+        assert "experiment-flag-1" in result
+        assert "### Feature Flag Variants" in result
+        assert "control: 50%" in result
+        assert "test: 50%" in result
+        assert artifact is None
+
+    async def test_read_experiment_by_feature_flag_key(self):
+        """Test reading an experiment by its feature flag key."""
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="experiment-flag-2",
+            name="Experiment Flag 2",
+            filters={},
+        )
+
+        await Experiment.objects.acreate(
+            team=self.team,
+            name="Another Experiment",
+            description="Second A/B test",
+            feature_flag=flag,
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "experiment", "feature_flag_key": "experiment-flag-2"})
+
+        assert "Another Experiment" in result
+        assert "Second A/B test" in result
+        assert "experiment-flag-2" in result
+        assert artifact is None
+
+    async def test_read_experiment_not_found(self):
+        """Test that not found experiment raises MaxToolRetryableError."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "experiment", "id": 99999})
+
+        assert "99999" in str(exc_info.value)
+
+    async def test_read_experiment_requires_id_or_feature_flag_key(self):
+        """Test that experiment read requires either id or feature_flag_key."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "experiment"})
+
+        assert "id" in str(exc_info.value)
+        assert "feature_flag_key" in str(exc_info.value)
