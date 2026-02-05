@@ -863,7 +863,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         organization.members.add(user)
         return user
 
-    def create_personal_api_key(self, scopes: list[str]) -> str:
+    def create_personal_api_key_with_scopes(self, scopes: list[str]) -> str:
         """Create a Personal API Key with specified scopes for the current user."""
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(

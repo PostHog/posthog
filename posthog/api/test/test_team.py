@@ -2157,7 +2157,7 @@ def team_api_test_factory():
 
         def test_read_only_api_key_cannot_update_team_config_fields(self):
             """API keys with only project:read scope should not be able to modify config fields."""
-            api_key = self.create_personal_api_key(["project:read"])
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
 
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2174,7 +2174,7 @@ def team_api_test_factory():
 
         def test_write_api_key_can_update_team_config_fields(self):
             """API keys with project:write scope should be able to modify config fields."""
-            api_key = self.create_personal_api_key(["project:write"])
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
 
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2191,7 +2191,7 @@ def team_api_test_factory():
 
         def test_read_only_api_key_cannot_update_team_non_config_fields(self):
             """API keys with only project:read scope should not be able to modify non-config fields like name."""
-            api_key = self.create_personal_api_key(["project:read"])
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
 
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2207,7 +2207,7 @@ def team_api_test_factory():
 
         def test_write_api_key_can_update_team_non_config_fields(self):
             """API keys with project:write scope should be able to modify non-config fields like name."""
-            api_key = self.create_personal_api_key(["project:write"])
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
 
             response = self.client.patch(
                 "/api/environments/@current/",
