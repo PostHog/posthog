@@ -1,16 +1,25 @@
 import asyncio
+from typing import cast
 
 from django.conf import settings
+from django.db.models import Count
 
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from products.signals.backend.api import emit_signal
+from products.signals.backend.models import SignalReport
+from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -49,23 +58,6 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
-from typing import cast
-
-from django.db.models import Count
-
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import viewsets
-from rest_framework.authentication import SessionAuthentication
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-
-from .models import SignalReport
-from .serializers import SignalReportArtefactSerializer, SignalReportSerializer
 
 
 @extend_schema(tags=["signal-reports"])
