@@ -32,8 +32,8 @@ test.describe('Insights list', () => {
         })
 
         await test.step('open the insight from the list', async () => {
-            await page.getByText(insightName).click()
-            await expect(page).toHaveURL(/\/insights\/\w+(\?.*)?$/)
+            await page.getByRole('link', { name: insightName }).click()
+            await expect(page).toHaveURL(/\/insights\/\w+/)
             await expect(insight.topBarName).toContainText(insightName)
         })
     })
