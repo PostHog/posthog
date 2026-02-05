@@ -22,10 +22,10 @@ from posthog.temporal.llm_analytics.trace_clustering.coordinator import TraceClu
 async def create_trace_clustering_coordinator_schedule(client: Client):
     """Create or update the schedule for the trace clustering coordinator.
 
-    The coordinator processes traces for teams in the ALLOWED_TEAM_IDS list
+    The coordinator processes traces for teams in the dynamically discovered team list
     and spawns child workflows to cluster traces for each team.
 
-    This schedule runs daily. Teams are defined in the ALLOWED_TEAM_IDS constant.
+    This schedule runs daily. Teams are discovered dynamically via the team discovery activity.
     """
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -66,10 +66,10 @@ async def create_generation_clustering_coordinator_schedule(client: Client):
     """Create or update the schedule for the generation clustering coordinator.
 
     The coordinator processes generations (individual LLM calls) for teams in the
-    ALLOWED_TEAM_IDS list and spawns child workflows to cluster generations for each team.
+    dynamically discovered team list and spawns child workflows to cluster generations for each team.
     Uses the same coordinator workflow as trace clustering but with analysis_level="generation".
 
-    This schedule runs daily. Teams are defined in the ALLOWED_TEAM_IDS constant.
+    This schedule runs daily. Teams are discovered dynamically via the team discovery activity.
     """
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
