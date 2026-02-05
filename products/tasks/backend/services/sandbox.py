@@ -10,6 +10,7 @@ This module exports:
 """
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
 from typing import Protocol
@@ -17,6 +18,14 @@ from typing import Protocol
 from django.conf import settings
 
 from pydantic import BaseModel
+
+
+@dataclass
+class AgentServerResult:
+    """Result from starting an agent server in a sandbox."""
+
+    url: str
+    token: str | None = None
 
 
 class SandboxStatus(str, Enum):
@@ -87,10 +96,8 @@ class SandboxProtocol(Protocol):
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
 
-    def start_agent_server(
-        self, repository: str, task_id: str, run_id: str, mode: str = "background"
-    ) -> str:
-        """Start the agent-server HTTP server and return the sandbox URL."""
+    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> AgentServerResult:
+        """Start the agent-server HTTP server and return the result with URL and optional token."""
         ...
 
     def create_snapshot(self) -> str: ...
@@ -149,6 +156,7 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
 Sandbox: SandboxClass = get_sandbox_class()
 
 __all__ = [
+    "AgentServerResult",
     "Sandbox",
     "SandboxConfig",
     "SandboxStatus",
