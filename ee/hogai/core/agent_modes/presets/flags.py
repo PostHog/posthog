@@ -2,10 +2,14 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
+from products.feature_flags.backend.max_tools import CreateFeatureFlagTool
+
 from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.todo_write import TodoWriteExample
+from ee.hogai.utils.feature_flags import has_experiment_summary_tool_feature_flag
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -73,10 +77,9 @@ class FlagsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
-        from products.feature_flags.backend.max_tools import CreateFeatureFlagTool
-
-        tools: list[type[MaxTool]] = [CreateFeatureFlagTool, CreateExperimentTool, ExperimentSummaryTool]
+        tools: list[type[MaxTool]] = [CreateFeatureFlagTool, CreateExperimentTool]
+        if has_experiment_summary_tool_feature_flag(self._team, self._user):
+            tools.append(ExperimentSummaryTool)
         return tools
 
 

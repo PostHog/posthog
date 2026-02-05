@@ -718,7 +718,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     let start = Instant::now();
     let result = worker_1
-        .checkpoint_partition_cancellable(&store, None, Some(&pre_cancelled_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&pre_cancelled_token), Some("test"))
         .await;
     let elapsed = start.elapsed();
 
@@ -849,7 +849,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     let active_token = CancellationToken::new();
     let result = worker_3
-        .checkpoint_partition_cancellable(&store, None, Some(&active_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&active_token), None)
         .await?;
 
     assert!(
@@ -961,7 +961,7 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
 
     let start = Instant::now();
     let result = worker
-        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("test"))
         .await;
     let elapsed = start.elapsed();
 
