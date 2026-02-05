@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from django.conf import settings
 
 import httpx
@@ -6,6 +8,7 @@ from dagster_aws.s3 import S3Resource
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
+from posthog.models.team import Team
 
 
 def get_last_cached_domains(context: dagster.AssetExecutionContext) -> set[str]:
@@ -18,6 +21,28 @@ def get_last_cached_domains(context: dagster.AssetExecutionContext) -> set[str]:
     if cached_domains_meta and isinstance(cached_domains_meta, dagster.JsonMetadataValue):
         return set(cached_domains_meta.value)
     return set()
+
+
+def get_authorized_domains(context: dagster.AssetExecutionContext) -> set[str]:
+    """Extract unique domains from all teams' authorized URL lists (app_urls)."""
+    domains: set[str] = set()
+    for app_urls in Team.objects.exclude(app_urls=[]).values_list("app_urls", flat=True).iterator():
+        for url in app_urls:
+            if not url:
+                continue
+            # Skip wildcard patterns — we can't fetch a favicon for *.example.com
+            if "*" in url:
+                continue
+            # Add a scheme if missing so urlparse can extract the hostname
+            if not url.startswith(("http://", "https://")):
+                url = f"https://{url}"
+            try:
+                parsed = urlparse(url)
+                if parsed.hostname:
+                    domains.add(parsed.hostname)
+            except Exception:
+                context.log.debug(f"Skipping unparseable authorized URL: {url}")
+    return domains
 
 
 class CacheFaviconsConfig(dagster.Config):
@@ -87,7 +112,18 @@ def cache_favicons(
 
     context.log.info("Querying top referrers.")
     results = sync_execute(top_referrer_query)
-    context.log.info(f"Found {len(results)} domains.")
+    referrer_domains = {domain for domain, _count in results}
+    context.log.info(f"Found {len(referrer_domains)} referrer domains.")
+
+    context.log.info("Querying authorized domains from team settings.")
+    authorized_domains = get_authorized_domains(context)
+    # Only count domains that aren't already in the referrer list
+    new_from_authorized = authorized_domains - referrer_domains
+    context.log.info(
+        f"Found {len(authorized_domains)} authorized domains ({len(new_from_authorized)} not already in referrer list)."
+    )
+
+    all_domains = [(domain, None) for domain in referrer_domains | authorized_domains]
 
     previously_cached = set() if config.force_refresh else get_last_cached_domains(context)
     if previously_cached:
@@ -101,7 +137,7 @@ def cache_favicons(
     skipped_count = 0
 
     with httpx.Client() as client:
-        for domain, _count in results:
+        for domain, _count in all_domains:
             if domain in previously_cached:
                 context.log.debug(f"Skipping download for '{domain}' - already cached.")
                 skipped_count += 1
@@ -136,7 +172,9 @@ def cache_favicons(
 
     return dagster.MaterializeResult(
         metadata={
-            "domains_queried": len(results),
+            "referrer_domains_queried": len(referrer_domains),
+            "authorized_domains_queried": len(authorized_domains),
+            "total_domains": len(all_domains),
             "favicons_cached": len(favicons),
             "domains_skipped": skipped_count,
             "top_domains": top_domains,

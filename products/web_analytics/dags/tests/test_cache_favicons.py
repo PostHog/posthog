@@ -1,6 +1,11 @@
+import pytest
 from unittest.mock import Mock, patch
 
-from products.web_analytics.dags.cache_favicons import get_last_cached_domains, upload_if_missing
+from products.web_analytics.dags.cache_favicons import (
+    get_authorized_domains,
+    get_last_cached_domains,
+    upload_if_missing,
+)
 
 
 class TestGetLastCachedDomains:
@@ -47,6 +52,48 @@ class TestGetLastCachedDomains:
         assert result == {"example.com", "test.org"}
 
 
+class TestGetAuthorizedDomains:
+    @pytest.mark.parametrize(
+        "app_urls_rows,expected",
+        [
+            ([], set()),
+            ([["https://example.com"]], {"example.com"}),
+            ([["https://example.com", "https://other.org"]], {"example.com", "other.org"}),
+            ([["https://example.com"], ["https://other.org"]], {"example.com", "other.org"}),
+            # Deduplicates across teams
+            ([["https://example.com"], ["https://example.com"]], {"example.com"}),
+            # Strips ports
+            ([["https://example.com:8080"]], {"example.com"}),
+            # Handles bare domains without scheme
+            ([["example.com"]], {"example.com"}),
+            # Skips wildcard patterns
+            ([["https://*.example.com"]], set()),
+            ([["https://*.example.com", "https://real.com"]], {"real.com"}),
+            # Skips empty/null entries
+            ([["", None, "https://valid.com"]], {"valid.com"}),
+        ],
+        ids=[
+            "no_teams",
+            "single_url",
+            "multiple_urls_one_team",
+            "one_url_per_team",
+            "deduplicates",
+            "strips_port",
+            "bare_domain",
+            "skips_wildcard",
+            "wildcard_with_real",
+            "skips_empty_and_none",
+        ],
+    )
+    def test_extracts_domains(self, app_urls_rows, expected):
+        context = Mock()
+        with patch("products.web_analytics.dags.cache_favicons.Team") as mock_team:
+            mock_team.objects.exclude.return_value.values_list.return_value.iterator.return_value = iter(app_urls_rows)
+            result = get_authorized_domains(context)
+
+        assert result == expected
+
+
 class TestUploadIfMissing:
     def test_skips_upload_when_object_exists(self):
         context = Mock()
@@ -83,10 +130,17 @@ class TestCacheFaviconsAsset:
     @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
     @patch("products.web_analytics.dags.cache_favicons.sync_execute")
     @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
+    @patch("products.web_analytics.dags.cache_favicons.get_authorized_domains")
     @patch("products.web_analytics.dags.cache_favicons.download_favicon")
     @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
     def test_skips_previously_cached_domains(
-        self, mock_upload, mock_download, mock_get_cached, mock_sync_execute, mock_httpx_client
+        self,
+        mock_upload,
+        mock_download,
+        mock_get_authorized,
+        mock_get_cached,
+        mock_sync_execute,
+        mock_httpx_client,
     ):
         import dagster
 
@@ -94,6 +148,7 @@ class TestCacheFaviconsAsset:
 
         mock_sync_execute.return_value = [("cached.com", 5000), ("new.com", 2000)]
         mock_get_cached.return_value = {"cached.com"}
+        mock_get_authorized.return_value = set()
         mock_download.return_value = ("new.com", b"data", "image/png", "http://url")
 
         context = dagster.build_asset_context()
@@ -113,16 +168,24 @@ class TestCacheFaviconsAsset:
     @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
     @patch("products.web_analytics.dags.cache_favicons.sync_execute")
     @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
+    @patch("products.web_analytics.dags.cache_favicons.get_authorized_domains")
     @patch("products.web_analytics.dags.cache_favicons.download_favicon")
     @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
     def test_force_refresh_downloads_all(
-        self, mock_upload, mock_download, mock_get_cached, mock_sync_execute, mock_httpx_client
+        self,
+        mock_upload,
+        mock_download,
+        mock_get_authorized,
+        mock_get_cached,
+        mock_sync_execute,
+        mock_httpx_client,
     ):
         import dagster
 
         from products.web_analytics.dags.cache_favicons import CacheFaviconsConfig, cache_favicons
 
         mock_sync_execute.return_value = [("cached.com", 5000), ("new.com", 2000)]
+        mock_get_authorized.return_value = set()
         mock_download.side_effect = [
             ("cached.com", b"data1", "image/png", "http://url1"),
             ("new.com", b"data2", "image/png", "http://url2"),
@@ -141,4 +204,48 @@ class TestCacheFaviconsAsset:
         assert mock_download.call_count == 2
         assert result.metadata is not None
         assert result.metadata["domains_skipped"] == 0
+        assert result.metadata["favicons_cached"] == 2
+
+    @patch("products.web_analytics.dags.cache_favicons.httpx.Client")
+    @patch("products.web_analytics.dags.cache_favicons.sync_execute")
+    @patch("products.web_analytics.dags.cache_favicons.get_last_cached_domains")
+    @patch("products.web_analytics.dags.cache_favicons.get_authorized_domains")
+    @patch("products.web_analytics.dags.cache_favicons.download_favicon")
+    @patch("products.web_analytics.dags.cache_favicons.upload_if_missing")
+    def test_includes_authorized_domains(
+        self,
+        mock_upload,
+        mock_download,
+        mock_get_authorized,
+        mock_get_cached,
+        mock_sync_execute,
+        mock_httpx_client,
+    ):
+        import dagster
+
+        from products.web_analytics.dags.cache_favicons import CacheFaviconsConfig, cache_favicons
+
+        mock_sync_execute.return_value = [("referrer.com", 5000)]
+        mock_get_cached.return_value = set()
+        mock_get_authorized.return_value = {"mysite.com", "referrer.com"}
+        mock_download.side_effect = [
+            ("referrer.com", b"data1", "image/png", "http://url1"),
+            ("mysite.com", b"data2", "image/png", "http://url2"),
+        ]
+
+        context = dagster.build_asset_context()
+        s3 = Mock()
+        s3.get_client.return_value = Mock()
+        config = CacheFaviconsConfig(force_refresh=False)
+
+        with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
+            mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
+            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]
+
+        # referrer.com appears in both lists but should only be downloaded once
+        assert mock_download.call_count == 2
+        assert result.metadata is not None
+        assert result.metadata["referrer_domains_queried"] == 1
+        assert result.metadata["authorized_domains_queried"] == 2
+        assert result.metadata["total_domains"] == 2
         assert result.metadata["favicons_cached"] == 2
