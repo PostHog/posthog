@@ -45,7 +45,7 @@ class TestCalculateVideoSegmentSpecsValidation:
                         active=True, ts_from_s=10, ts_to_s=50, recording_ts_from_s=50, recording_ts_to_s=10
                     ),
                 ],
-                "Invalid recording periodtime range",
+                "Invalid recording period time range",
             ),
             (
                 100,
