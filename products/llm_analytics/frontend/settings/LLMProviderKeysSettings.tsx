@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
-    LemonDialog,
     LemonInput,
     LemonModal,
     LemonSelect,
@@ -19,6 +18,8 @@ import { IconKey } from 'lib/lemon-ui/icons'
 
 import { TrialUsageMeterDisplay } from './TrialUsageMeter'
 import {
+    AlternativeKey,
+    DependentConfigsResponse,
     KeyValidationResult,
     LLMProvider,
     LLMProviderKey,
@@ -371,6 +372,118 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
     )
 }
 
+function DeleteKeyModal({
+    keyToDelete,
+    dependentConfigs,
+    dependentConfigsLoading,
+}: {
+    keyToDelete: LLMProviderKey
+    dependentConfigs: DependentConfigsResponse | null
+    dependentConfigsLoading: boolean
+}): JSX.Element {
+    const { providerKeysLoading } = useValues(llmProviderKeysLogic)
+    const { setKeyToDelete, confirmDelete } = useActions(llmProviderKeysLogic)
+    const [replacementKeyId, setReplacementKeyId] = useState<string | undefined>(undefined)
+
+    const hasEvaluations = (dependentConfigs?.evaluations.length ?? 0) > 0
+    const hasAlternatives = (dependentConfigs?.alternative_keys.length ?? 0) > 0
+
+    const firstAlternativeKeyId = dependentConfigs?.alternative_keys[0]?.id
+    useEffect(() => {
+        if (hasAlternatives && firstAlternativeKeyId) {
+            setReplacementKeyId(firstAlternativeKeyId)
+        }
+    }, [hasAlternatives, firstAlternativeKeyId])
+
+    const handleClose = (): void => {
+        setKeyToDelete(null)
+    }
+
+    const handleDelete = (): void => {
+        confirmDelete(hasEvaluations && hasAlternatives ? replacementKeyId : undefined)
+    }
+
+    const replacementOptions =
+        dependentConfigs?.alternative_keys.map((key: AlternativeKey) => ({
+            value: key.id,
+            label: key.name,
+        })) ?? []
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={handleClose}
+            title="Delete API key?"
+            width={480}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={handleClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        onClick={handleDelete}
+                        loading={providerKeysLoading}
+                        disabled={dependentConfigsLoading}
+                    >
+                        Delete key
+                    </LemonButton>
+                </>
+            }
+        >
+            {dependentConfigsLoading ? (
+                <LemonSkeleton className="h-20" />
+            ) : (
+                <div className="space-y-4">
+                    <p>
+                        Are you sure you want to delete "<strong>{keyToDelete.name}</strong>"? This cannot be undone.
+                    </p>
+
+                    {hasEvaluations && (
+                        <div className="bg-bg-light border rounded p-3">
+                            <p className="font-medium mb-2">
+                                {dependentConfigs!.evaluations.length} evaluation
+                                {dependentConfigs!.evaluations.length === 1 ? '' : 's'} using this key:
+                            </p>
+                            <ul className="list-disc pl-4 text-sm text-muted space-y-1">
+                                {dependentConfigs!.evaluations.map((evaluation) => (
+                                    <li key={evaluation.id}>{evaluation.name}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {hasEvaluations && hasAlternatives && (
+                        <div>
+                            <label className="text-sm font-medium">Replace with another key</label>
+                            <LemonSelect
+                                value={replacementKeyId}
+                                onChange={setReplacementKeyId}
+                                options={replacementOptions}
+                                className="mt-1"
+                                fullWidth
+                            />
+                            <p className="text-xs text-muted mt-1">
+                                The selected key will be used by evaluations that currently use this key.
+                            </p>
+                        </div>
+                    )}
+
+                    {hasEvaluations && !hasAlternatives && (
+                        <div className="bg-warning-highlight border border-warning rounded p-3">
+                            <p className="text-sm">
+                                <strong>No replacement keys available.</strong> These evaluations will be disabled after
+                                deletion.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+        </LemonModal>
+    )
+}
+
 export function LLMProviderKeysSettings(): JSX.Element {
     const {
         providerKeys,
@@ -379,24 +492,11 @@ export function LLMProviderKeysSettings(): JSX.Element {
         evaluationConfigLoading,
         editingKey,
         validatingKeyId,
+        keyToDelete,
+        dependentConfigs,
+        dependentConfigsLoading,
     } = useValues(llmProviderKeysLogic)
-    const { setNewKeyModalOpen, deleteProviderKey, validateProviderKey, setEditingKey } =
-        useActions(llmProviderKeysLogic)
-
-    const handleDelete = (key: LLMProviderKey): void => {
-        LemonDialog.open({
-            title: 'Delete API key?',
-            description: `Are you sure you want to delete "${key.name}"? This cannot be undone.`,
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: () => deleteProviderKey({ id: key.id }),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
+    const { setNewKeyModalOpen, validateProviderKey, setEditingKey, setKeyToDelete } = useActions(llmProviderKeysLogic)
 
     const columns: LemonTableColumns<LLMProviderKey> = [
         {
@@ -471,7 +571,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         type="secondary"
                         status="danger"
                         icon={<IconTrash />}
-                        onClick={() => handleDelete(key)}
+                        onClick={() => setKeyToDelete(key)}
                     />
                 </div>
             ),
@@ -534,6 +634,13 @@ export function LLMProviderKeysSettings(): JSX.Element {
             </div>
             <AddKeyModal />
             {editingKey && <EditKeyModal keyToEdit={editingKey} />}
+            {keyToDelete && (
+                <DeleteKeyModal
+                    keyToDelete={keyToDelete}
+                    dependentConfigs={dependentConfigs}
+                    dependentConfigsLoading={dependentConfigsLoading}
+                />
+            )}
         </>
     )
 }

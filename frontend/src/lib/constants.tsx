@@ -178,6 +178,7 @@ export const FEATURE_FLAGS = {
     // UX flags, used to control the UX of the app
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
+    UX_NEW_TOOLTIP: 'ux-new-tooltip', // used to enable the new tooltip component
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
@@ -269,7 +270,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
-    EXPERIMENTS_LEAN_CREATION_FORM: 'experiments-lean-creation-form', // owner: @mp-hog #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
     FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
@@ -312,6 +312,8 @@ export const FEATURE_FLAGS = {
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-signals
     MAX_SESSION_SUMMARIZATION_BUTTON: 'max-session-summarization-button', // owner: #team-signals
+    MAX_SESSION_SUMMARIZATION_VIDEO_AS_BASE: 'max-session-summarization-video-as-base', // owner: #team-signals
+    PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
     MEMBERS_PAGE_PLATFORM_ADDON_AD: 'members-page-platform-addon-ad', // owner: @reecejones #team-platform-features multivariate=control,test-audit-trail,test-paper-trail,test-space-scale,test-big-village
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @benjackwhite
@@ -345,6 +347,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_CONFIG: 'posthog-ai-conversation-feedback-config', // owner: #team-posthog-ai
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
+    POSTHOG_AI_FLAGS_MODE: 'posthog-ai-flags-mode', // owner: #team-posthog-ai
     POSTHOG_AI_UPSERT_DASHBOARD: 'phai-upsert-dashboards', // owner: #team-posthog-ai
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
