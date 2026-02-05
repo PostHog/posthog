@@ -146,6 +146,7 @@ class SESProvider:
                     "recordType": "MX",
                     "recordHostname": f"{mail_from_subdomain}.{domain}",
                     "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
+                    "priority": 10,
                     "status": "pending",
                 }
             )

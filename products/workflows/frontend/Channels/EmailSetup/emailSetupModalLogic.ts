@@ -21,6 +21,7 @@ export interface ApiDnsRecord {
     recordValue: string
     recordType: string
     recordHostname: string
+    priority?: number
 }
 
 export interface DnsRecord extends ApiDnsRecord {
