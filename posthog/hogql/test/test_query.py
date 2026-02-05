@@ -272,7 +272,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_first_to_persons(self):
-        """Test joining events to persons (events first in FROM clause)."""
         with freeze_time("2020-01-10"):
             _create_person(
                 properties={"email": "test@posthog.com"},
@@ -280,7 +279,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=["person1"],
                 is_identified=True,
             )
-            flush_persons_and_events()
             _create_event(
                 distinct_id="person1",
                 event="pageview",
@@ -297,19 +295,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            # Verify at least one result and check structure
             self.assertTrue(len(response.results) >= 1)
             self.assertEqual(response.results[0][0], "pageview")
             self.assertEqual(response.results[0][1], "test@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_lazy_on_both_sides(self):
-        """Test join where both sides of the constraint trigger lazy joins.
-
-        This is a self-join on events where both e1.person_id and e2.person_id
-        trigger lazy joins to person_distinct_id_overrides. Tests that the code
-        handles the case where both left and right sides of the constraint are lazy.
-        """
         with freeze_time("2020-01-10"):
             _create_person(
                 properties={"email": "test@posthog.com"},
@@ -317,7 +308,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=["person1"],
                 is_identified=True,
             )
-            flush_persons_and_events()
             _create_event(
                 distinct_id="person1",
                 event="pageview",
@@ -332,7 +322,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            # Self-join on events where both sides use person_id (both trigger lazy joins)
             response = execute_hogql_query(
                 "SELECT e1.event, e2.event "
                 "FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id "
@@ -341,18 +330,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            # Should find the pageview-click pair for the same person
             self.assertEqual(len(response.results), 1)
             self.assertEqual(response.results[0][0], "pageview")
             self.assertEqual(response.results[0][1], "click")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_persons_to_events(self):
-        """Test joining persons to events (persons first in FROM clause).
-
-        This was the original failing case - persons.id = events.person_id where
-        events.person_id triggers a lazy join but events is on the right side.
-        """
         with freeze_time("2020-01-10"):
             _create_person(
                 properties={"email": "test@posthog.com"},
@@ -360,7 +343,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=["person1"],
                 is_identified=True,
             )
-            flush_persons_and_events()
             _create_event(
                 distinct_id="person1",
                 event="pageview",
@@ -369,7 +351,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             flush_persons_and_events()
 
-            # Simpler version first - just join without aggregation
             response = execute_hogql_query(
                 "SELECT persons.id, events.event FROM persons JOIN events ON persons.id = events.person_id LIMIT 10",
                 self.team,
