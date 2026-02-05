@@ -14,7 +14,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 <>
                     <CalloutBox type="fyi" icon="IconInfo" title="About Portkey">
                         <Markdown>
-                            Portkey acts as an AI gateway that routes requests to 250+ LLM providers. The virtual key determines which provider and model to use.
+                            Portkey acts as an AI gateway that routes requests to 250+ LLM providers. The model string format (`@integration-slug/model`) determines which provider to use, where the slug is the name you chose when setting up the integration in Portkey.
                         </Markdown>
                     </CalloutBox>
 
@@ -45,11 +45,11 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
             ),
         },
         {
-            title: 'Install the OpenAI SDK',
+            title: 'Install the OpenAI and Portkey SDKs',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The PostHog SDK **does not** proxy your calls.</Markdown>
+                    <Markdown>Install the OpenAI and Portkey SDKs. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The PostHog SDK **does not** proxy your calls.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -57,14 +57,14 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai
+                                    pip install openai portkey-ai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai
+                                    npm install openai portkey-ai
                                 `,
                             },
                         ]}
@@ -78,10 +78,9 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        We call Portkey through the OpenAI client and generate a response. We'll use PostHog's OpenAI
-                        provider to capture all the details of the call. Initialize PostHog with your PostHog project API
-                        key and host from [your project settings](https://app.posthog.com/settings/project), then pass the
-                        PostHog client along with the Portkey config (the base URL, API key, and Portkey headers) to our OpenAI wrapper.
+                        Initialize PostHog with your project API key and host from [your project
+                        settings](https://app.posthog.com/settings/project), then pass it along with the Portkey gateway
+                        URL and your Portkey API key to our OpenAI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -92,6 +91,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 code: dedent`
                                     from posthog.ai.openai import OpenAI
                                     from posthog import Posthog
+                                    from portkey_ai import PORTKEY_GATEWAY_URL
 
                                     posthog = Posthog(
                                         "<ph_project_api_key>",
@@ -99,12 +99,8 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     )
 
                                     client = OpenAI(
-                                        base_url="https://api.portkey.ai/v1",
-                                        api_key="<openai_api_key>",
-                                        default_headers={
-                                            "x-portkey-api-key": "<portkey_api_key>",
-                                            "x-portkey-virtual-key": "<portkey_virtual_key>",
-                                        },
+                                        base_url=PORTKEY_GATEWAY_URL,
+                                        api_key="<portkey_api_key>",
                                         posthog_client=posthog
                                     )
                                 `,
@@ -115,6 +111,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 code: dedent`
                                     import { OpenAI } from '@posthog/ai'
                                     import { PostHog } from 'posthog-node'
+                                    import { PORTKEY_GATEWAY_URL } from 'portkey-ai'
 
                                     const phClient = new PostHog(
                                       '<ph_project_api_key>',
@@ -122,12 +119,8 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     );
 
                                     const openai = new OpenAI({
-                                      baseURL: 'https://api.portkey.ai/v1',
-                                      apiKey: '<openai_api_key>',
-                                      defaultHeaders: {
-                                        'x-portkey-api-key': '<portkey_api_key>',
-                                        'x-portkey-virtual-key': '<portkey_virtual_key>',
-                                      },
+                                      baseURL: PORTKEY_GATEWAY_URL,
+                                      apiKey: '<portkey_api_key>',
                                       posthog: phClient,
                                     });
 
@@ -173,7 +166,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'Python',
                                 code: dedent`
                                     response = client.chat.completions.create(
-                                        model="gpt-4o-mini",
+                                        model="@<integration-slug>/gpt-4o-mini",
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
@@ -192,7 +185,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'Node',
                                 code: dedent`
                                     const completion = await openai.chat.completions.create({
-                                        model: "gpt-4o-mini",
+                                        model: "@<integration-slug>/gpt-4o-mini",
                                         messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
                                         posthogDistinctId: "user_123", // optional
                                         posthogTraceId: "trace_123", // optional
@@ -211,9 +204,9 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                         <Markdown>
                             {dedent`
                             **Notes:**
-                            - We also support the old \`chat.completions\` API.
                             - This works with responses where \`stream=True\`.
                             - If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request.
+                            - The \`@<integration-slug>\` prefix is the name you chose when setting up the integration in your [Portkey dashboard](https://app.portkey.ai/).
 
                             See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                             `}
