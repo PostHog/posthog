@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import shlex
 import logging
@@ -35,6 +36,7 @@ NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+AGENT_SERVER_PORT = 47821
 
 
 @lru_cache(maxsize=2)
@@ -172,6 +174,7 @@ class ModalSandbox:
                 "cpu": float(config.cpu_cores),
                 "memory": int(config.memory_gb * 1024),
                 "verbose": True,
+                "encrypted_ports": [AGENT_SERVER_PORT],
             }
 
             if secrets:
@@ -432,14 +435,9 @@ class ModalSandbox:
 
         return result
 
-    def start_agent_server(
-        self, repository: str, task_id: str, run_id: str, mode: str = "background"
-    ) -> str:
+    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> str:
         """
-        Start the agent-server HTTP server in the sandbox.
-
-        For Modal sandboxes, this uses Modal's tunnel feature to expose the port.
-        Currently not implemented - Modal tunnels require additional setup.
+        Start the agent-server HTTP server in the sandbox using Modal tunnels.
 
         Args:
             repository: Repository in org/repo format
@@ -449,14 +447,57 @@ class ModalSandbox:
 
         Returns:
             The sandbox URL for connecting to the agent server
-
-        Raises:
-            NotImplementedError: Modal agent server support is not yet implemented
         """
-        raise NotImplementedError(
-            "Modal agent server support requires Modal tunnel configuration. "
-            "Use Docker sandbox for local development testing."
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        command = (
+            f"cd /scripts && "
+            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
+            f"--taskId {task_id} --runId {run_id} --mode {mode} "
+            f"> /tmp/agent-server.log 2>&1 &"
         )
+
+        logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
+        result = self.execute(command, timeout_seconds=30)
+
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to start agent-server",
+                {"sandbox_id": self.id, "stderr": result.stderr},
+                cause=RuntimeError(result.stderr),
+            )
+
+        tunnel = self._sandbox.tunnels()[AGENT_SERVER_PORT]
+        sandbox_url = tunnel.url
+
+        logger.info(f"Agent-server tunnel URL: {sandbox_url}")
+
+        if not self._wait_for_health_check():
+            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Agent-server failed to start",
+                {"sandbox_id": self.id, "log": log_result.stdout},
+                cause=RuntimeError("Health check failed after retries"),
+            )
+
+        logger.info(f"Agent-server started with tunnel at {sandbox_url}")
+        self._sandbox_url = sandbox_url
+        return sandbox_url
+
+    def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
+        """Poll health endpoint until server is ready."""
+        health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health"
+        for attempt in range(max_attempts):
+            result = self.execute(health_cmd, timeout_seconds=5)
+            if result.stdout.strip() == "200":
+                logger.info(f"Agent-server health check passed on attempt {attempt + 1}")
+                return True
+            time.sleep(delay_seconds)
+        return False
 
     def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
         create_pr_flag = "true" if create_pr else "false"

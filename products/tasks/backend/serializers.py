@@ -279,6 +279,6 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
         required=False,
-        default="interactive",
+        default="background",
         help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
     )
