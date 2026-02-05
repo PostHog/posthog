@@ -253,9 +253,8 @@ mod tests {
 
             // Spawn caller
             let mock_clone = mock.clone();
-            let handle = tokio::spawn(async move {
-                mock_clone.set_merging_target("target", 1000).await
-            });
+            let handle =
+                tokio::spawn(async move { mock_clone.set_merging_target("target", 1000).await });
 
             // Wait for call and check args
             let guard = call.await;

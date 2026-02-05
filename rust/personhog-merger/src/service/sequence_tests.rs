@@ -40,28 +40,34 @@ async fn test_single_source_merge_operations_happen_in_order() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
-        let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
-            SetMergingSourceResult::Ok {
-                distinct_id: source_distinct_id.to_string(),
-                person_uuid: source_person_uuid.to_string(),
-            },
-        ]);
+        let call_set_source =
+            distinct_ids_api
+                .set_merging_source
+                .expect(vec![SetMergingSourceResult::Ok {
+                    distinct_id: source_distinct_id.to_string(),
+                    person_uuid: source_person_uuid.to_string(),
+                }]);
 
-        let call_get_persons = properties_api.get_persons_for_merge.expect(
-            GetPersonsForMergeResult {
-                target_person: create_person(target_person_uuid),
-                source_persons: [(source_person_uuid.to_string(), create_person(source_person_uuid))]
+        let call_get_persons =
+            properties_api
+                .get_persons_for_merge
+                .expect(GetPersonsForMergeResult {
+                    target_person: create_person(target_person_uuid),
+                    source_persons: [(
+                        source_person_uuid.to_string(),
+                        create_person(source_person_uuid),
+                    )]
                     .into_iter()
                     .collect(),
-            },
-        );
+                });
 
         let call_merge_props = properties_api.merge_person_properties.expect(());
 
@@ -138,12 +144,13 @@ async fn test_multiple_sources_merge_operations() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
         let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
             SetMergingSourceResult::Ok {
@@ -156,17 +163,18 @@ async fn test_multiple_sources_merge_operations() {
             },
         ]);
 
-        let call_get_persons = properties_api.get_persons_for_merge.expect(
-            GetPersonsForMergeResult {
-                target_person: create_person(target_person_uuid),
-                source_persons: [
-                    ("source-uuid-1".to_string(), create_person("source-uuid-1")),
-                    ("source-uuid-2".to_string(), create_person("source-uuid-2")),
-                ]
-                .into_iter()
-                .collect(),
-            },
-        );
+        let call_get_persons =
+            properties_api
+                .get_persons_for_merge
+                .expect(GetPersonsForMergeResult {
+                    target_person: create_person(target_person_uuid),
+                    source_persons: [
+                        ("source-uuid-1".to_string(), create_person("source-uuid-1")),
+                        ("source-uuid-2".to_string(), create_person("source-uuid-2")),
+                    ]
+                    .into_iter()
+                    .collect(),
+                });
 
         let call_merge_props = properties_api.merge_person_properties.expect(());
 
@@ -257,28 +265,34 @@ async fn test_state_saved_after_each_step() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
-        let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
-            SetMergingSourceResult::Ok {
-                distinct_id: source_distinct_id.to_string(),
-                person_uuid: source_person_uuid.to_string(),
-            },
-        ]);
+        let call_set_source =
+            distinct_ids_api
+                .set_merging_source
+                .expect(vec![SetMergingSourceResult::Ok {
+                    distinct_id: source_distinct_id.to_string(),
+                    person_uuid: source_person_uuid.to_string(),
+                }]);
 
-        let call_get_persons = properties_api.get_persons_for_merge.expect(
-            GetPersonsForMergeResult {
-                target_person: create_person(target_person_uuid),
-                source_persons: [(source_person_uuid.to_string(), create_person(source_person_uuid))]
+        let call_get_persons =
+            properties_api
+                .get_persons_for_merge
+                .expect(GetPersonsForMergeResult {
+                    target_person: create_person(target_person_uuid),
+                    source_persons: [(
+                        source_person_uuid.to_string(),
+                        create_person(source_person_uuid),
+                    )]
                     .into_iter()
                     .collect(),
-            },
-        );
+                });
 
         let call_merge_props = properties_api.merge_person_properties.expect(());
         let call_set_merged_source = distinct_ids_api.set_merged.expect(DistinctIdInfo {
@@ -313,7 +327,10 @@ async fn test_state_saved_after_each_step() {
         call_set_target.complete().await;
         tokio::task::yield_now().await;
         let state = state_repo.get("merge-1").await.unwrap();
-        assert!(state.is_some(), "State should exist after set_merging_target");
+        assert!(
+            state.is_some(),
+            "State should exist after set_merging_target"
+        );
 
         call_set_source.complete().await;
         call_get_persons.complete().await;
@@ -322,7 +339,9 @@ async fn test_state_saved_after_each_step() {
         assert!(
             matches!(
                 state.step(),
-                MergeStep::SourcesMarked | MergeStep::PropertiesMerged | MergeStep::DistinctIdsMerged
+                MergeStep::SourcesMarked
+                    | MergeStep::PropertiesMerged
+                    | MergeStep::DistinctIdsMerged
             ),
             "Should be at SourcesMarked or later, got {:?}",
             state.step()
@@ -355,12 +374,13 @@ async fn test_deduplicates_source_person_uuids() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
         let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
             SetMergingSourceResult::Ok {
@@ -373,14 +393,18 @@ async fn test_deduplicates_source_person_uuids() {
             },
         ]);
 
-        let call_get_persons = properties_api.get_persons_for_merge.expect(
-            GetPersonsForMergeResult {
-                target_person: create_person(target_person_uuid),
-                source_persons: [(shared_person_uuid.to_string(), create_person(shared_person_uuid))]
+        let call_get_persons =
+            properties_api
+                .get_persons_for_merge
+                .expect(GetPersonsForMergeResult {
+                    target_person: create_person(target_person_uuid),
+                    source_persons: [(
+                        shared_person_uuid.to_string(),
+                        create_person(shared_person_uuid),
+                    )]
                     .into_iter()
                     .collect(),
-            },
-        );
+                });
 
         let call_merge_props = properties_api.merge_person_properties.expect(());
 
@@ -465,27 +489,30 @@ async fn test_handles_source_person_with_no_properties() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
-        let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
-            SetMergingSourceResult::Ok {
-                distinct_id: source_distinct_id.to_string(),
-                person_uuid: source_person_uuid.to_string(),
-            },
-        ]);
+        let call_set_source =
+            distinct_ids_api
+                .set_merging_source
+                .expect(vec![SetMergingSourceResult::Ok {
+                    distinct_id: source_distinct_id.to_string(),
+                    person_uuid: source_person_uuid.to_string(),
+                }]);
 
         // Source person not found in DB
-        let call_get_persons = properties_api.get_persons_for_merge.expect(
-            GetPersonsForMergeResult {
-                target_person: create_person(target_person_uuid),
-                source_persons: HashMap::new(),
-            },
-        );
+        let call_get_persons =
+            properties_api
+                .get_persons_for_merge
+                .expect(GetPersonsForMergeResult {
+                    target_person: create_person(target_person_uuid),
+                    source_persons: HashMap::new(),
+                });
 
         // merge_person_properties is skipped when no source persons found
         let call_set_merged_source = distinct_ids_api.set_merged.expect(DistinctIdInfo {
@@ -528,7 +555,9 @@ async fn test_handles_source_person_with_no_properties() {
 
         let result = merge_handle.await.unwrap().unwrap();
         assert_eq!(result.merged.len(), 1);
-        assert!(!properties_api.merge_person_properties.has_pending_expectations());
+        assert!(!properties_api
+            .merge_person_properties
+            .has_pending_expectations());
     })
     .await
     .expect("Test timed out");
@@ -545,12 +574,13 @@ async fn test_returns_conflicts_when_sources_already_merging() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
         let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
             SetMergingSourceResult::Ok {
@@ -570,14 +600,15 @@ async fn test_returns_conflicts_when_sources_already_merging() {
         ]);
 
         // Conflicting sources are excluded
-        let call_get_persons = properties_api.get_persons_for_merge.expect(
-            GetPersonsForMergeResult {
-                target_person: create_person(target_person_uuid),
-                source_persons: [("person-1".to_string(), create_person("person-1"))]
-                    .into_iter()
-                    .collect(),
-            },
-        );
+        let call_get_persons =
+            properties_api
+                .get_persons_for_merge
+                .expect(GetPersonsForMergeResult {
+                    target_person: create_person(target_person_uuid),
+                    source_persons: [("person-1".to_string(), create_person("person-1"))]
+                        .into_iter()
+                        .collect(),
+                });
 
         let call_merge_props = properties_api.merge_person_properties.expect(());
 
@@ -639,14 +670,18 @@ async fn test_returns_conflicts_when_sources_already_merging() {
         assert_eq!(result.merged.len(), 1);
         assert_eq!(result.merged[0].distinct_id, "source-1");
         assert_eq!(result.conflicts.len(), 2);
-        assert!(result.conflicts.contains(&MergeConflict::SourceAlreadyMergingElsewhere {
-            distinct_id: "source-2".to_string(),
-            person_uuid: "person-2".to_string(),
-        }));
-        assert!(result.conflicts.contains(&MergeConflict::SourceIsMergeTarget {
-            distinct_id: "source-3".to_string(),
-            person_uuid: "person-3".to_string(),
-        }));
+        assert!(result
+            .conflicts
+            .contains(&MergeConflict::SourceAlreadyMergingElsewhere {
+                distinct_id: "source-2".to_string(),
+                person_uuid: "person-2".to_string(),
+            }));
+        assert!(result
+            .conflicts
+            .contains(&MergeConflict::SourceIsMergeTarget {
+                distinct_id: "source-3".to_string(),
+                person_uuid: "person-3".to_string(),
+            }));
     })
     .await
     .expect("Test timed out");
@@ -663,12 +698,13 @@ async fn test_clears_target_when_all_sources_conflict() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Ok {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: target_person_uuid.to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Ok {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: target_person_uuid.to_string(),
+                });
 
         let call_set_source = distinct_ids_api.set_merging_source.expect(vec![
             SetMergingSourceResult::Conflict {
@@ -716,7 +752,9 @@ async fn test_clears_target_when_all_sources_conflict() {
 
         assert!(result.merged.is_empty());
         assert_eq!(result.conflicts.len(), 2);
-        assert!(!properties_api.get_persons_for_merge.has_pending_expectations());
+        assert!(!properties_api
+            .get_persons_for_merge
+            .has_pending_expectations());
     })
     .await
     .expect("Test timed out");
@@ -732,13 +770,14 @@ async fn test_stops_early_on_target_conflict() {
         let distinct_ids_api = Arc::new(MockPersonDistinctIdsApi::new());
         let properties_api = Arc::new(MockPersonPropertiesApi::new());
 
-        let call_set_target = distinct_ids_api.set_merging_target.expect(
-            SetMergingTargetResult::Conflict {
-                distinct_id: target_distinct_id.to_string(),
-                person_uuid: "target-uuid".to_string(),
-                merging_into_distinct_id: "other-target".to_string(),
-            },
-        );
+        let call_set_target =
+            distinct_ids_api
+                .set_merging_target
+                .expect(SetMergingTargetResult::Conflict {
+                    distinct_id: target_distinct_id.to_string(),
+                    person_uuid: "target-uuid".to_string(),
+                    merging_into_distinct_id: "other-target".to_string(),
+                });
 
         let state_repo = Arc::new(InMemoryMergeStateRepository::new());
         let merge_service = PersonMergeService::new(
@@ -770,7 +809,9 @@ async fn test_stops_early_on_target_conflict() {
             MergeConflict::TargetIsSourceInAnotherMerge { .. }
         ));
 
-        assert!(!distinct_ids_api.set_merging_source.has_pending_expectations());
+        assert!(!distinct_ids_api
+            .set_merging_source
+            .has_pending_expectations());
 
         let state = state_repo.get("merge-1").await.unwrap().unwrap();
         assert_eq!(state.step(), MergeStep::Started);

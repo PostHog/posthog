@@ -94,7 +94,10 @@ impl<Args> Future for ExpectedCall<Args> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        let channels = this.channels.as_mut().expect("ExpectedCall polled after completion");
+        let channels = this
+            .channels
+            .as_mut()
+            .expect("ExpectedCall polled after completion");
 
         match Pin::new(&mut channels.args_rx).poll(cx) {
             Poll::Ready(Ok(args)) => {
@@ -184,10 +187,16 @@ impl<Args, Ret> MockMethod<Args, Ret> {
         let (args_tx, args_rx) = oneshot::channel();
         let (release_tx, release_rx) = oneshot::channel();
 
-        self.expectations.lock().unwrap().push_back(QueuedExpectation {
-            return_value,
-            mock_side: MockSide { args_tx, release_rx },
-        });
+        self.expectations
+            .lock()
+            .unwrap()
+            .push_back(QueuedExpectation {
+                return_value,
+                mock_side: MockSide {
+                    args_tx,
+                    release_rx,
+                },
+            });
 
         ExpectedCall {
             channels: Some(ExpectationChannels {

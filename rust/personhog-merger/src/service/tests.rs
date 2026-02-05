@@ -614,7 +614,7 @@ async fn test_merges_multiple_sources_into_target() {
         "source-3".to_string(),
     ];
     let target_person_uuid = "target-person-uuid";
-    let source_person_uuids = vec!["source-person-1", "source-person-2", "source-person-3"];
+    let source_person_uuids = ["source-person-1", "source-person-2", "source-person-3"];
     let version = 2000;
 
     let properties_api = Arc::new(MockPersonPropertiesApi::new());
