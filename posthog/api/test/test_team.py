@@ -2189,9 +2189,21 @@ def team_api_test_factory():
             self.assertEqual(self.team.timezone, "Europe/Lisbon")
             self.assertEqual(self.team.session_recording_opt_in, True)
 
+        def _get_model_for_name_field(self):
+            """Returns the model whose 'name' field is updated by the current endpoint.
+
+            /api/environments/ updates Team.name, /api/projects/ updates Project.name.
+            This allows tests to work correctly when inherited by TestProjectAPI.
+            """
+            if isinstance(self.client, EnvironmentToProjectRewriteClient):
+                return self.project
+            return self.team
+
         def test_read_only_api_key_cannot_update_team_non_config_fields(self):
             """API keys with only project:read scope should not be able to modify non-config fields like name."""
             api_key = self.create_personal_api_key_with_scopes(["project:read"])
+            model = self._get_model_for_name_field()
+            original_name = model.name
 
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2202,12 +2214,13 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
             # Verify no changes were made
-            self.team.refresh_from_db()
-            self.assertNotEqual(self.team.name, "New Team Name")
+            model.refresh_from_db()
+            self.assertEqual(model.name, original_name)
 
         def test_write_api_key_can_update_team_non_config_fields(self):
             """API keys with project:write scope should be able to modify non-config fields like name."""
             api_key = self.create_personal_api_key_with_scopes(["project:write"])
+            model = self._get_model_for_name_field()
 
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2218,8 +2231,8 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             # Verify changes were made
-            self.team.refresh_from_db()
-            self.assertEqual(self.team.name, "New Team Name")
+            model.refresh_from_db()
+            self.assertEqual(model.name, "New Team Name")
 
         def test_session_auth_member_can_still_update_config_fields(self):
             """Session-based auth (browser users) with member role should still be able to update config fields.
