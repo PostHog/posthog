@@ -323,7 +323,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         addConditionSet: () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
-                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers || -1)
+                // Use ?? instead of || to properly handle totalUsers = 0
+                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers ?? -1)
                 actions.openCondition(newGroup.sort_key)
             }
         },
