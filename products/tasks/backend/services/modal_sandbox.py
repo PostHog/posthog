@@ -25,7 +25,7 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -435,9 +435,11 @@ class ModalSandbox:
 
         return result
 
-    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> str:
+    def start_agent_server(
+        self, repository: str, task_id: str, run_id: str, mode: str = "background"
+    ) -> AgentServerResult:
         """
-        Start the agent-server HTTP server in the sandbox using Modal tunnels.
+        Start the agent-server HTTP server in the sandbox using Modal tunnels and connect tokens.
 
         Args:
             repository: Repository in org/repo format
@@ -446,7 +448,7 @@ class ModalSandbox:
             mode: Execution mode ('background' or 'interactive')
 
         Returns:
-            The sandbox URL for connecting to the agent server
+            AgentServerResult with sandbox URL and connect token for authentication
         """
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -484,9 +486,11 @@ class ModalSandbox:
                 cause=RuntimeError("Health check failed after retries"),
             )
 
-        logger.info(f"Agent-server started with tunnel at {sandbox_url}")
+        connect_token = self._sandbox.create_connect_token(timeout=self.config.ttl_seconds)
+
+        logger.info(f"Agent-server started with tunnel at {sandbox_url} (with connect token)")
         self._sandbox_url = sandbox_url
-        return sandbox_url
+        return AgentServerResult(url=sandbox_url, token=connect_token)
 
     def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
         """Poll health endpoint until server is ready."""

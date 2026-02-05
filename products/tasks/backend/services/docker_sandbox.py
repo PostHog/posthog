@@ -29,7 +29,7 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -578,7 +578,7 @@ class DockerSandbox:
 
     def start_agent_server(
         self, repository: str, task_id: str, run_id: str, mode: str = "background"
-    ) -> str:
+    ) -> AgentServerResult:
         """
         Start the agent-server HTTP server in the sandbox.
 
@@ -589,7 +589,7 @@ class DockerSandbox:
             mode: Execution mode ('background' or 'interactive')
 
         Returns:
-            The sandbox URL for connecting to the agent server
+            AgentServerResult with sandbox URL (token is None for Docker)
         """
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -626,7 +626,7 @@ class DockerSandbox:
             )
 
         logger.info(f"Agent-server started on port {self._host_port}")
-        return self.sandbox_url  # type: ignore
+        return AgentServerResult(url=self.sandbox_url, token=None)  # type: ignore
 
     def _wait_for_health_check(self, max_attempts: int = 10, delay_seconds: float = 0.5) -> bool:
         """Poll health endpoint until server is ready."""

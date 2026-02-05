@@ -9,7 +9,7 @@ from products.tasks.backend.services.modal_sandbox import (
     ModalSandbox,
     _get_sandbox_image_reference,
 )
-from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 
 
@@ -131,6 +131,7 @@ class TestModalSandboxAgentServer:
         mock_tunnel = MagicMock()
         mock_tunnel.url = "https://test-tunnel.modal.run"
         mock_modal_sandbox.tunnels.return_value = {AGENT_SERVER_PORT: mock_tunnel}
+        mock_modal_sandbox.create_connect_token.return_value = "test-connect-token-abc123"
 
         config = SandboxConfig(name="test-sandbox")
         return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
@@ -143,15 +144,19 @@ class TestModalSandboxAgentServer:
             ]
         )
 
-        url = mock_sandbox.start_agent_server(
+        result = mock_sandbox.start_agent_server(
             repository="posthog/posthog",
             task_id="task-123",
             run_id="run-456",
             mode="background",
         )
 
-        assert url == "https://test-tunnel.modal.run"
+        assert isinstance(result, AgentServerResult)
+        assert result.url == "https://test-tunnel.modal.run"
+        assert result.token == "test-connect-token-abc123"
         assert mock_sandbox.sandbox_url == "https://test-tunnel.modal.run"
+
+        mock_sandbox._sandbox.create_connect_token.assert_called_once_with(timeout=mock_sandbox.config.ttl_seconds)
 
         start_call = mock_sandbox.execute.call_args_list[0]
         command = start_call[0][0]
