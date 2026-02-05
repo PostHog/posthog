@@ -483,13 +483,13 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
     recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
 
     is_one_click_unsubscribe = (
         request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
     )
     if is_one_click_unsubscribe:
         # If one-click unsubscribe, set all preferences to opted out
-        categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing")
         preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
 
         # Also set the "$all" preference
@@ -502,7 +502,6 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
     preferences = recipient.get_all_preferences() if recipient else {}
 
     categories_templating = [
