@@ -15,6 +15,7 @@ jobs:
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
+            pull-requests: read
         outputs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:

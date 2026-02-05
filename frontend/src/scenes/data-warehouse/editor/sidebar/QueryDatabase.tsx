@@ -166,7 +166,7 @@ export const QueryDatabase = (): JSX.Element => {
             onItemClick={(item) => {
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
-                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
+                    router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))
                 }
 
                 // Copy column name when clicking on a column
@@ -232,6 +232,49 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                const joinMenu =
+                    item.record?.field && item.record?.table
+                        ? (() => {
+                              const joinKey = `${item.record.table}.${item.record.field.name}`
+                              const join = joinsByFieldName[joinKey]
+
+                              if (
+                                  !join ||
+                                  !isJoined(item.record.field) ||
+                                  join.source_table_name !== item.record.table
+                              ) {
+                                  return null
+                              }
+
+                              return (
+                                  <DropdownMenuGroup>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              toggleEditJoinModal(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                          asChild
+                                          onClick={(e) => {
+                                              e.stopPropagation()
+                                              deleteJoin(join)
+                                          }}
+                                      >
+                                          <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
+                                      </DropdownMenuItem>
+                                  </DropdownMenuGroup>
+                              )
+                          })()
+                        : null
+
+                if (joinMenu) {
+                    return joinMenu
+                }
+
                 // Show menu for drafts
                 if (item.record?.type === 'draft') {
                     const draft = item.record.draft
@@ -269,7 +312,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
+                                    sceneLogic.actions.newTab(urls.sqlEditor({ query: `SELECT * FROM ${item.name}` }))
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -315,7 +358,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
+                                            sceneLogic.actions.newTab(urls.sqlEditor({ view_id: item.record?.view.id }))
                                         }}
                                     >
                                         <ButtonPrimitive
@@ -411,47 +454,6 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                if (item.record?.type === 'column') {
-                    if (
-                        isJoined(item.record.field) &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`] &&
-                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`].source_table_name ===
-                            item.record.table
-                    ) {
-                        return (
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            toggleEditJoinModal(
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            )
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (item.record?.columnName) {
-                                            const join =
-                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-
-                                            deleteJoin(join)
-                                        }
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                        )
-                    }
-                }
-
                 if (item.record?.type === 'unsaved-query') {
                     return (
                         <DropdownMenuGroup>
@@ -499,14 +501,11 @@ export const QueryDatabase = (): JSX.Element => {
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     sceneLogic.actions.newTab(
-                                        urls.sqlEditor(
-                                            item.record?.endpoint?.query.query,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.Endpoint,
-                                            item.record?.endpoint?.name
-                                        )
+                                        urls.sqlEditor({
+                                            query: item.record?.endpoint?.query.query,
+                                            outputTab: OutputTab.Endpoint,
+                                            endpointName: item.record?.endpoint?.name,
+                                        })
                                     )
                                 }}
                             >
@@ -549,9 +548,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                sceneLogic.actions.newTab(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
-                                )
+                                sceneLogic.actions.newTab(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))
                             }}
                             data-attr="sql-editor-add-endpoint"
                         >

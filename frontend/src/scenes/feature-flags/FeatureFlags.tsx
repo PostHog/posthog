@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconLock } from '@posthog/icons'
+import { IconLock, IconPlusSmall } from '@posthog/icons'
 import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -29,7 +29,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -53,6 +52,7 @@ import {
 
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
+import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -168,7 +168,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                         )}
 
                         <LemonButton
-                            to={urls.featureFlagDuplicate(featureFlag.id)}
+                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
                             data-attr="feature-flag-duplicate"
                             fullWidth
                         >
@@ -255,7 +255,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.FEATURE_FLAGS,
 }
 
 export function OverViewTab({
@@ -270,13 +270,16 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
+    const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
+        useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
-    const endCount = page * FLAGS_PER_PAGE < count ? page * FLAGS_PER_PAGE : count
+    const effectiveCount = pagination.entryCount ?? 0
+    const endCount = page * FLAGS_PER_PAGE < effectiveCount ? page * FLAGS_PER_PAGE : effectiveCount
+    const flagCountText = `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(effectiveCount, 'flag')}`
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -387,10 +390,10 @@ export function OverViewTab({
                             <Tooltip
                                 title={
                                     <>
-                                        <div className="text-sm">Flag at least 30 days old and fully rolled out</div>
+                                        <div className="text-sm">This flag is likely safe to remove</div>
                                         <div className="text-xs">
-                                            Make sure to remove any references to this flag in your code before deleting
-                                            it.
+                                            Not called in 30+ days or fully rolled out. Make sure to remove any
+                                            references in your code before deleting it.
                                         </div>
                                     </>
                                 }
@@ -470,17 +473,21 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div>
-                <span className="text-secondary">
-                    {featureFlagsLoading ? (
-                        <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
-                    ) : count ? (
-                        `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${pluralize(count, 'flag')}`
+                <span
+                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
+                    aria-busy={filtersChanged}
+                    aria-live="polite"
+                >
+                    {filtersChanged ? (
+                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+                    ) : effectiveCount > 0 ? (
+                        flagCountText
                     ) : null}
                 </span>
             </div>
 
             <LemonTable
-                dataSource={featureFlags.results}
+                dataSource={displayedFlags}
                 columns={columns}
                 rowKey="key"
                 defaultSorting={{
@@ -489,6 +496,7 @@ export function OverViewTab({
                 }}
                 noSortingCancellation
                 loading={featureFlagsLoading}
+                disableTableWhileLoading={false}
                 pagination={pagination}
                 nouns={nouns}
                 data-attr="feature-flag-table"
@@ -506,7 +514,8 @@ export function OverViewTab({
 
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
-    const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+    const { setActiveTab } = useActions(featureFlagsLogic)
+
     return (
         <SceneContent className="feature_flags">
             <SceneTitleSection
@@ -519,49 +528,33 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <MaxTool
-                            identifier="create_feature_flag"
-                            initialMaxPrompt="Create a feature flag for "
-                            suggestions={[
-                                'Create a flag to gradually roll out…',
-                                'Create a flag that starts at 10% rollout for…',
-                                'Create a multivariate flag for…',
-                                'Create a beta testing flag for…',
-                            ]}
-                            callback={(toolOutput: { flag_id?: string | number; error?: string }) => {
-                                if (toolOutput?.error || !toolOutput?.flag_id) {
-                                    lemonToast.error(
-                                        `Failed to create feature flag: ${toolOutput?.error || 'Unknown error'}`
-                                    )
-                                    return
-                                }
-
-                                // Refresh feature flags list to show new flag, then redirect to it
-                                loadFeatureFlags()
-                                router.actions.push(urls.featureFlag(toolOutput.flag_id))
-                            }}
-                            position="bottom-right"
-                            active={true}
-                            context={{}}
+                        <AppShortcut
+                            name="NewFeatureFlag"
+                            keybind={[keyBinds.new]}
+                            intent="New feature flag"
+                            interaction="click"
+                            scope={Scene.FeatureFlags}
                         >
-                            <AppShortcut
-                                name="NewFeatureFlag"
-                                keybind={[keyBinds.new]}
-                                intent="New feature flag"
-                                interaction="click"
-                                scope={Scene.FeatureFlags}
+                            <LemonButton
+                                type="primary"
+                                to={urls.featureFlag('new')}
+                                data-attr="new-feature-flag"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                sideAction={{
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        className: 'new-feature-flag-overlay',
+                                        actionable: true,
+                                        overlay: <OverlayForNewFeatureFlagMenu />,
+                                    },
+                                    'data-attr': 'new-feature-flag-dropdown',
+                                }}
+                                tooltip="New feature flag"
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.featureFlag('new')}
-                                    data-attr="new-feature-flag"
-                                    size="small"
-                                    tooltip="New feature flag"
-                                >
-                                    <span className="pr-4">New feature flag</span>
-                                </LemonButton>
-                            </AppShortcut>
-                        </MaxTool>
+                                New
+                            </LemonButton>
+                        </AppShortcut>
                     </AccessControlAction>
                 }
             />

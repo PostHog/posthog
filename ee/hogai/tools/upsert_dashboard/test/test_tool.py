@@ -865,6 +865,39 @@ class TestGetDashboardAndSortedTiles(BaseTest):
         self.assertEqual(sorted_tiles[1].insight_id, insight2.id)
         self.assertEqual(sorted_tiles[2].insight_id, insight3.id)
 
+    @parameterized.expand(
+        [
+            ("int", lambda id: id),
+            ("str", lambda id: str(id)),
+            ("float_str", lambda id: f"{id}.0"),
+        ]
+    )
+    async def test_get_dashboard_parses_various_id_formats(self, _name: str, format_id):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+        )
+
+        tool = self._create_tool()
+        result = await tool._get_dashboard(format_id(dashboard.id))
+
+        self.assertEqual(result.id, dashboard.id)
+
+    @parameterized.expand(
+        [
+            ("invalid_string", "not-a-number"),
+            ("empty_string", ""),
+        ]
+    )
+    async def test_get_dashboard_raises_error_for_invalid_id_format(self, _name: str, invalid_id: str):
+        tool = self._create_tool()
+
+        with self.assertRaises(MaxToolFatalError) as ctx:
+            await tool._get_dashboard(invalid_id)
+
+        self.assertIn(invalid_id, str(ctx.exception))
+
     async def test_raises_error_for_nonexistent_dashboard(self):
         tool = self._create_tool()
 

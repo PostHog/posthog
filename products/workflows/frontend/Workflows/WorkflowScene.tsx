@@ -8,10 +8,12 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { Workflow } from './Workflow'
@@ -29,18 +31,25 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
         id: id || 'new',
         tab: tab || 'workflow',
     }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
-    const { currentTab } = useValues(workflowSceneLogic)
+    const sceneLogic = workflowSceneLogic(props)
+    const { currentTab } = useValues(sceneLogic)
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
-    const { futureJobs } = useValues(batchWorkflowJobsLogic({ id: props.id }))
+    const batchJobsLogic = batchWorkflowJobsLogic({ id: props.id })
+    const { futureJobs } = useValues(batchJobsLogic)
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
+    const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow } = useValues(logic)
+
+    // Attach child logics to the scene logic so they persist across tab switches
+    useAttachedLogic(batchJobsLogic, sceneLogic)
+    useAttachedLogic(logic, sceneLogic)
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />

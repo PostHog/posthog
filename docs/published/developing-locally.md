@@ -138,6 +138,16 @@ This is it – you should be seeing the PostHog app at <a href="http://localhost
 
 You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
 
+### Customizing which services run
+
+By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, use `hogli dev:setup`:
+
+```bash
+hogli dev:setup
+```
+
+This interactive wizard lets you pick a preset (minimal, backend-focused, etc.) or select individual capabilities. Your choices are saved and used automatically by `hogli start`.
+
 ### Manual setup
 
 If you need to set up without Flox, see the [manual development setup](/handbook/engineering/manual-dev-setup) guide.
@@ -262,7 +272,7 @@ To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DE
 
 ### End-to-end
 
-For Cypress end-to-end tests, run `bin/e2e-test-runner`. This will spin up a test instance of PostHog and show you the Cypress interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
+For Playwright end-to-end tests, run `bin/e2e-test-runner`. This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.
 
 ## Django migrations
 
@@ -379,7 +389,11 @@ When creating the slack integration it will redirect you to `https://localhost..
 
 ## Extra: Use tracing with Jaeger
 
-Jaeger is enabled by default after running `./bin/start`.
+Jaeger is enabled by default after running `./bin/start`. To disable tracing (e.g. for faster startup or reduced resource usage), use:
+
+```bash
+./bin/start --no-tracing
+```
 
 Jaeger will be available at [http://localhost:16686](http://localhost:16686).
 
@@ -446,7 +460,7 @@ If you need to start fresh with a clean database (for example, if your local dat
 
 3. Wait for all migrations to complete. You can monitor the logs to ensure migrations have finished running.
 
-4. Once PostHog is running, click the **generate-demo-data** button in the UI, then type `r` to generate test data.
+4. Once PostHog is running, click the **generate-demo-data** service in the mprocs terminal UI (you may have to scroll), then type `r` to start the service and generate test data.
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
 

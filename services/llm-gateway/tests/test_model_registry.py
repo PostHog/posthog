@@ -26,6 +26,18 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "gpt-5.2": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "gpt-5-mini": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
     "o1": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
@@ -39,6 +51,24 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "mode": "chat",
     },
     "claude-3-5-haiku-20241022": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "claude-opus-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "claude-sonnet-4-5": {
+        "litellm_provider": "anthropic",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "claude-haiku-4-5": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
@@ -209,9 +239,14 @@ class TestIsModelAvailable:
         "model_id,product,expected",
         [
             ("gpt-4o", "llm_gateway", True),
-            ("gpt-4o", "array", True),
+            ("gpt-4o", "twig", False),
             ("o1", "llm_gateway", True),
-            ("o1", "array", True),
+            ("o1", "array", False),
+            ("gpt-5.2", "array", True),
+            ("gpt-5-mini", "twig", True),
+            ("claude-opus-4-5", "array", True),
+            ("claude-sonnet-4-5", "array", True),
+            ("claude-haiku-4-5", "array", True),
             ("unknown-model", "llm_gateway", False),
         ],
     )
