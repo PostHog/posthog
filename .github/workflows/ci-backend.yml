@@ -994,7 +994,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: resource-logs-${{ matrix.segment }}-${{ matrix.group }}
+                  name: resource-logs-${{ matrix.segment }}-${{ matrix.person-on-events && 'poe' || 'std' }}-${{ matrix.group }}
                   path: /tmp/resource-logs/
                   retention-days: 7
                   if-no-files-found: ignore
