@@ -7,7 +7,7 @@ import { experimentLogic } from '../experimentLogic'
 import { LegacyExperimentDate } from './LegacyExperimentDate'
 
 /**
- * @deprecated use the ExperimentDuration component instead
+ * @deprecated use the RunningTimeNew component instead
  */
 export function LegacyExperimentDates(): JSX.Element | null {
     const { experiment } = useValues(experimentLogic)
