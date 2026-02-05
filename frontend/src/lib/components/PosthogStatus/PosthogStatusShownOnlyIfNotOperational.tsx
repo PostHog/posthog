@@ -5,21 +5,14 @@ import { Link } from '@posthog/lemon-ui'
 import { healthMenuLogic } from '../HealthMenu/healthMenuLogic'
 
 export function PosthogStatusShownOnlyIfNotOperational(): JSX.Element | null {
-    const { postHogStatus, postHogStatusTooltip } = useValues(healthMenuLogic)
+    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus } = useValues(healthMenuLogic)
 
     if (postHogStatus === 'operational') {
         return null
     }
 
     const tooltipText = postHogStatusTooltip ?? 'PostHog status'
-    let color = 'var(--danger)'
-    if (postHogStatus === 'degraded_performance') {
-        color = 'var(--warning)'
-    } else if (postHogStatus === 'partial_outage') {
-        color = 'var(--warning)'
-    } else if (postHogStatus === 'major_outage') {
-        color = 'var(--danger)'
-    }
+    const color = postHogStatusBadgeStatus === 'danger' ? 'var(--danger)' : 'var(--warning)'
 
     return (
         <div
