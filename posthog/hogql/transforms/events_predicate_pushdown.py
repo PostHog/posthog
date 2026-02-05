@@ -29,7 +29,7 @@ class TableAliasPrefixRemover(CloningVisitor):
     """
 
     def __init__(self, alias_to_remove: str | None):
-        super().__init__()
+        super().__init__(clear_types=False)
         self.alias_to_remove = alias_to_remove
 
     def visit_field(self, node: ast.Field):
@@ -236,7 +236,7 @@ class TypeRewriter(CloningVisitor):
     """
 
     def __init__(self, table_type: ast.TableType, columns_in_scope: dict[str, ast.Type]):
-        super().__init__()
+        super().__init__(clear_types=False)
         self.table_type = table_type
         self.columns_in_scope = columns_in_scope
 
@@ -337,11 +337,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         # Get the table alias if present (e.g., 'e' from 'FROM events AS e')
         table_alias = node.select_from.alias
 
-        # Remove table alias prefix from field chains and clear types
+        # Remove table alias prefix from field chains
         # This converts chains like ['e', 'timestamp'] to ['timestamp'] so they can
         # be resolved correctly in the inner subquery context
         inner_where = TableAliasPrefixRemover(alias_to_remove=table_alias).visit(inner_where)
-        inner_where = clone_expr(inner_where, clear_types=True)
+        inner_where = clone_expr(inner_where)
 
         # Build the subquery with proper types manually (without calling resolve_types)
         # This avoids the issue where resolve_types tries to resolve HogQL abstract columns

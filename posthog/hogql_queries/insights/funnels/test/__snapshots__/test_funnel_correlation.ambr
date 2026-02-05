@@ -169,7 +169,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -177,7 +186,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -236,7 +245,16 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -244,7 +262,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -306,7 +324,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -324,7 +351,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -416,7 +443,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -434,7 +470,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -526,7 +562,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -544,7 +589,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -636,7 +681,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -654,7 +708,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -745,7 +799,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -753,7 +816,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -812,7 +875,16 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.distinct_id AS distinct_id,
+                     events.event AS event,
+                     events.person_id AS person_id,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -820,7 +892,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -882,7 +954,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -900,7 +981,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -992,7 +1073,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1010,7 +1100,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1102,7 +1192,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1120,7 +1219,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1212,7 +1311,16 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.distinct_id AS distinct_id,
+                        events.event AS event,
+                        events.person_id AS person_id,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT OUTER JOIN
                 (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1230,7 +1338,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1288,7 +1396,17 @@
             funnel_actors.steps AS steps,
             event.event AS event_name,
             arrayJoin(JSONExtractKeysAndValues(event.properties, 'String')) AS prop
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_1` AS `$group_1`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.properties AS properties,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), in(events.event, tuple('positively_related', 'negatively_related')))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -1329,7 +1447,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, tuple('positively_related', 'negatively_related'))))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, tuple('positively_related', 'negatively_related'))))
   GROUP BY name,
            prop
   HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
@@ -1401,7 +1519,17 @@
             funnel_actors.steps AS steps,
             event.event AS event_name,
             arrayJoin(JSONExtractKeysAndValues(event.properties, 'String')) AS prop
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_1` AS `$group_1`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.properties AS properties,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), in(events.event, tuple('positively_related', 'negatively_related')))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                (matched_events_array[1][1]).1 AS timestamp,
@@ -1442,7 +1570,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_1`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, tuple('positively_related', 'negatively_related'))))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), in(event.event, tuple('positively_related', 'negatively_related'))))
   GROUP BY name,
            prop
   HAVING ifNull(greater(plus(success_count, failure_count), 2), 0)
@@ -1509,7 +1637,16 @@
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
-  FROM events AS event
+  FROM
+    (SELECT events.`$group_0` AS `$group_0`,
+            events.`$session_id` AS `$session_id`,
+            events.`$window_id` AS `$window_id`,
+            events.event AS event,
+            events.team_id AS team_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.uuid AS uuid
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), notIn(events.event, []))) AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -1550,7 +1687,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -1617,7 +1754,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'positively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -1659,7 +1805,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -1686,7 +1832,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'positively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -1728,7 +1883,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -1755,7 +1910,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -1797,7 +1961,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -1824,7 +1988,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -1866,7 +2039,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -1891,7 +2064,16 @@
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
-  FROM events AS event
+  FROM
+    (SELECT events.`$group_0` AS `$group_0`,
+            events.`$session_id` AS `$session_id`,
+            events.`$window_id` AS `$window_id`,
+            events.event AS event,
+            events.team_id AS team_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.uuid AS uuid
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), notIn(events.event, []))) AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -1926,7 +2108,15 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$group_0` AS `$group_0`,
+                     events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.event AS event,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -1935,12 +2125,12 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -1981,7 +2171,15 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$group_0` AS `$group_0`,
+                     events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.event AS event,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -1990,7 +2188,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -2015,7 +2213,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2057,7 +2264,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2084,7 +2291,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2126,7 +2342,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2151,7 +2367,16 @@
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
-  FROM events AS event
+  FROM
+    (SELECT events.`$group_0` AS `$group_0`,
+            events.`$session_id` AS `$session_id`,
+            events.`$window_id` AS `$window_id`,
+            events.event AS event,
+            events.team_id AS team_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.uuid AS uuid
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), notIn(events.event, []))) AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -2192,7 +2417,7 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -2259,7 +2484,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'positively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2301,7 +2535,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2328,7 +2562,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'positively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2370,7 +2613,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'positively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2397,7 +2640,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2439,7 +2691,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2466,7 +2718,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2508,7 +2769,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2533,7 +2794,16 @@
   SELECT event.event AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
-  FROM events AS event
+  FROM
+    (SELECT events.`$group_0` AS `$group_0`,
+            events.`$session_id` AS `$session_id`,
+            events.`$window_id` AS `$window_id`,
+            events.event AS event,
+            events.team_id AS team_id,
+            toTimeZone(events.timestamp, 'UTC') AS timestamp,
+            events.uuid AS uuid
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), notIn(events.event, []))) AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -2568,7 +2838,15 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$group_0` AS `$group_0`,
+                     events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.event AS event,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -2577,12 +2855,12 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-  WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
+  WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), notIn(event.event, []))
   GROUP BY name
   LIMIT 100
   UNION ALL
@@ -2623,7 +2901,15 @@
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
-           FROM events AS e
+           FROM
+             (SELECT events.`$group_0` AS `$group_0`,
+                     events.`$session_id` AS `$session_id`,
+                     events.`$window_id` AS `$window_id`,
+                     events.event AS event,
+                     toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     events.uuid AS uuid
+              FROM events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -2632,7 +2918,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'finance'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -2657,7 +2943,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2699,7 +2994,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(equals(funnel_actors.steps, 2), 0))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2726,7 +3021,16 @@
     (SELECT funnel_actors.actor_id AS actor_id,
             any(funnel_actors.matching_events) AS matching_events,
             actor_id AS key
-     FROM events AS event
+     FROM
+       (SELECT events.`$group_0` AS `$group_0`,
+               events.`$session_id` AS `$session_id`,
+               events.`$window_id` AS `$window_id`,
+               events.event AS event,
+               events.team_id AS team_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(events.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(events.team_id, 99999), notIn(events.event, ['paid', 'user signed up']), equals(events.event, 'negatively_related'))) AS event
      JOIN
        (SELECT aggregation_target AS actor_id,
                matched_events_array[plus(step_reached, 1)] AS matching_events,
@@ -2768,7 +3072,7 @@
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors ON equals(funnel_actors.actor_id, event.`$group_0`)
-     WHERE and(equals(event.team_id, 99999), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
+     WHERE and(greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event.event, ['paid', 'user signed up']), equals(event.event, 'negatively_related'), ifNull(notEquals(funnel_actors.steps, 2), 1))
      GROUP BY actor_id
      ORDER BY actor_id ASC) AS source
   ORDER BY source.actor_id ASC
@@ -2951,7 +3255,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -2960,7 +3272,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3027,7 +3339,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3036,7 +3356,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3103,7 +3423,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3112,7 +3440,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3179,7 +3507,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3188,7 +3524,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3497,7 +3833,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3506,7 +3850,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3573,7 +3917,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3582,7 +3934,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3649,7 +4001,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3658,7 +4018,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -3725,7 +4085,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -3734,7 +4102,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4043,7 +4411,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4052,7 +4428,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4119,7 +4495,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4128,7 +4512,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4195,7 +4579,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4204,7 +4596,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4271,7 +4663,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4280,7 +4680,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4589,7 +4989,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4598,7 +5006,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4665,7 +5073,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4674,7 +5090,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4741,7 +5157,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4750,7 +5174,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -4817,7 +5241,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -4826,7 +5258,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -5135,7 +5567,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -5144,7 +5584,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -5211,7 +5651,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -5220,7 +5668,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'positive'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -5287,7 +5735,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -5296,7 +5752,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -5363,7 +5819,15 @@
                      e.`$window_id` AS `$window_id`,
                      if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
+              FROM
+                (SELECT events.`$group_0` AS `$group_0`,
+                        events.`$session_id` AS `$session_id`,
+                        events.`$window_id` AS `$window_id`,
+                        events.event AS event,
+                        toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events.uuid AS uuid
+                 FROM events
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC')), in(events.event, tuple('paid', 'user signed up')))) AS e
               LEFT JOIN
                 (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
@@ -5372,7 +5836,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__group_0.properties___industry, 'negative'), 0), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)

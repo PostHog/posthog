@@ -124,7 +124,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-06 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-13 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-11-28 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-05 23:59:59', 6, 'UTC'))))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -230,7 +230,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -336,7 +336,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -442,7 +442,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -538,7 +538,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -634,7 +634,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -730,7 +730,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -826,7 +826,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -922,7 +922,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -974,7 +974,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-01 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-03 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -1224,7 +1224,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-01 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-03 23:59:59', 6, 'UTC')))))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))))) AS events
      LEFT JOIN
        (SELECT nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -1288,7 +1288,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-01 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-03 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')))) AS events
      LEFT JOIN
        (SELECT nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -1352,7 +1352,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-01 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-03 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen'), equals(events.event, 'custom_event')))) AS events
      LEFT JOIN
        (SELECT nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -1652,7 +1652,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -1723,7 +1723,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -1794,7 +1794,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -2402,7 +2402,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-30 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-31 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -2472,7 +2472,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-30 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-31 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -2604,7 +2604,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-06-26 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-06-27 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-06-26 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -2717,7 +2717,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -3217,7 +3217,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-30 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-31 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
@@ -3382,7 +3382,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-30 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-31 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -3480,7 +3480,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-30 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-07-31 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -3603,7 +3603,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -3726,7 +3726,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -3849,7 +3849,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -4088,7 +4088,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -4185,7 +4185,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -4404,7 +4404,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -4528,7 +4528,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -4983,7 +4983,7 @@
                events.person_id AS person_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-06-26 00:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-06-27 23:59:59', 6, 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
+        WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-06-26 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')))), or(equals(events.event, '$pageview'), equals(events.event, '$screen')))) AS events
      LEFT JOIN
        (SELECT nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
                nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '') AS `$entry_referring_domain`,
@@ -5099,7 +5099,7 @@
                   events.event AS event,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-02 12:00:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-12-15 23:59:59', 6, 'UTC')))))) AS events
+           WHERE and(equals(events.team_id, 99999), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
