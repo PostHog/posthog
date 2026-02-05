@@ -1,10 +1,11 @@
 use crate::{
-    error::EventError,
+    error::{EventError, UnhandledError},
     issue_resolution::IssueStatus,
     stages::linking::LinkingStage,
     types::{
-        event::ExceptionEvent,
-        operator::{Operator, ValueOperator},
+        event::ExceptionProperties,
+        operator::{OperatorResult, ValueOperator},
+        pipeline::ExceptionEventHandledError,
     },
 };
 
@@ -12,22 +13,21 @@ use crate::{
 pub struct IssueSuppression;
 
 impl ValueOperator for IssueSuppression {
-    type Item = ExceptionEvent;
+    type Item = ExceptionProperties;
     type Context = LinkingStage;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
-    async fn execute_value(
-        &self,
-        mut input: Self::Item,
-        ctx: LinkingStage,
-    ) -> OperatorResult<Self> {
-        if let Some(issue) = input.issue {
+    async fn execute_value(&self, input: Self::Item, _: LinkingStage) -> OperatorResult<Self> {
+        if let Some(issue) = input.issue.as_ref() {
             if matches!(issue.status, IssueStatus::Suppressed) {
-                return Err(EventError::Suppressed(issue.id));
+                return Ok(Err(ExceptionEventHandledError::new(
+                    input.uuid,
+                    EventError::Suppressed(issue.id),
+                )));
             }
-        } else {
-            Ok(input)
         }
+
+        Ok(Ok(input))
     }
 }

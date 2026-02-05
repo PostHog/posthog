@@ -10,12 +10,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExceptionEvent {
-    pub uuid: Uuid,
-    pub timestamp: String,
-    pub team_id: i32,
-    pub event: String,
-
+pub struct ExceptionProperties {
     pub exception_list: ExceptionList,
 
     pub exception_sources: Option<Vec<String>>,
@@ -39,6 +34,16 @@ pub struct ExceptionEvent {
 
     #[serde(flatten)]
     pub props: HashMap<String, Value>,
+
+    // Metadata used for ingestion
+    #[serde(skip)]
+    pub uuid: Uuid,
+
+    #[serde(skip)]
+    pub timestamp: String,
+
+    #[serde(skip)]
+    pub team_id: i32,
 
     #[serde(skip)]
     pub issue: Option<Issue>,

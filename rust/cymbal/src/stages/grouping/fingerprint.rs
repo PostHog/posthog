@@ -5,7 +5,7 @@ use crate::{
     fingerprinting::{grouping_rules::evaluate_grouping_rules, Fingerprint, FingerprintRecordPart},
     stages::grouping::GroupingStage,
     types::{
-        event::ExceptionEvent,
+        event::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
         pipeline::ExceptionEventHandledError,
     },
@@ -16,13 +16,13 @@ pub struct FingerprintGenerator;
 
 impl ValueOperator for FingerprintGenerator {
     type Context = GroupingStage;
-    type Item = ExceptionEvent;
+    type Item = ExceptionProperties;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
 
     async fn execute_value(
         &self,
-        mut input: ExceptionEvent,
+        mut input: ExceptionProperties,
         ctx: GroupingStage,
     ) -> OperatorResult<Self> {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules)

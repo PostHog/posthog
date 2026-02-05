@@ -11,7 +11,7 @@ use crate::{
     recursively_sanitize_properties,
     types::{
         batch::Batch,
-        event::ExceptionEvent,
+        event::ExceptionProperties,
         pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
         stage::{Stage, StageResult},
     },
@@ -27,7 +27,7 @@ impl PreProcessingStage {
         Self { events_by_id }
     }
 
-    fn parse_event(&self, event: &ClickHouseEvent) -> Result<ExceptionEvent, EventError> {
+    fn parse_event(&self, event: &ClickHouseEvent) -> Result<ExceptionProperties, EventError> {
         // fix this there will be an issue with properties
         if event.event != "$exception" {
             return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
@@ -51,7 +51,8 @@ impl PreProcessingStage {
             recursively_sanitize_properties(event.uuid, v, 0)?;
         }
 
-        let evt: ExceptionEvent = match serde_json::from_value(properties) {
+        // WARN: Wont work here
+        let evt: ExceptionProperties = match serde_json::from_value(properties) {
             Ok(r) => r,
             Err(e) => {
                 return Err(EventError::InvalidProperties(event.uuid, e.to_string()));

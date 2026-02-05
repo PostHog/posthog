@@ -8,7 +8,7 @@ use crate::{
     error::{EventError, UnhandledError},
     types::{
         batch::Batch,
-        event::ExceptionEvent,
+        event::ExceptionProperties,
         pipeline::{ExceptionEventHandledError, ExceptionEventPipelineItem},
         stage::{Stage, StageResult},
     },
@@ -63,8 +63,9 @@ impl PostProcessingStage {
 
     async fn handle_value(
         &self,
-        event: ExceptionEvent,
+        event: ExceptionProperties,
     ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
+        // WARN: Wont work here
         let value = serde_json::to_value(event)?;
         let event: ClickHouseEvent = serde_json::from_value(value)?;
         Ok(Some(event))

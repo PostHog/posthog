@@ -11,7 +11,7 @@ use crate::{
     issue_resolution::{resolve_issue, Issue},
     stages::linking::LinkingStage,
     types::{
-        event::ExceptionEvent,
+        event::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
         pipeline::ExceptionEventHandledError,
         FingerprintedErrProps,
@@ -23,7 +23,7 @@ pub struct IssueLinker;
 
 impl IssueLinker {
     pub async fn fetch_or_create_issue(
-        input: ExceptionEvent,
+        input: ExceptionProperties,
         ctx: Arc<AppContext>,
     ) -> Result<Issue, UnhandledError> {
         // Extract name and description for the issue
@@ -63,7 +63,7 @@ impl IssueLinker {
 }
 
 impl ValueOperator for IssueLinker {
-    type Item = ExceptionEvent;
+    type Item = ExceptionProperties;
     type Context = LinkingStage;
     type HandledError = ExceptionEventHandledError;
     type UnhandledError = UnhandledError;
@@ -89,8 +89,8 @@ impl ValueOperator for IssueLinker {
     }
 }
 
-impl From<ExceptionEvent> for FingerprintedErrProps {
-    fn from(event: ExceptionEvent) -> Self {
+impl From<ExceptionProperties> for FingerprintedErrProps {
+    fn from(event: ExceptionProperties) -> Self {
         FingerprintedErrProps {
             proposed_issue_name: event.proposed_issue_name,
             proposed_issue_description: event.proposed_issue_description,

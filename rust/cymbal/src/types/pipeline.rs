@@ -18,7 +18,7 @@ use crate::{
         post_processing::PostProcessingStage, pre_processing::PreProcessingStage,
         resolution::ResolutionStage,
     },
-    types::{batch::Batch, event::ExceptionEvent},
+    types::{batch::Batch, event::ExceptionProperties},
 };
 
 pub trait Pipeline {
@@ -55,7 +55,7 @@ impl Display for ExceptionEventHandledError {
     }
 }
 
-pub type ExceptionEventPipelineItem = Result<ExceptionEvent, ExceptionEventHandledError>;
+pub type ExceptionEventPipelineItem = Result<ExceptionProperties, ExceptionEventHandledError>;
 
 impl Pipeline for ExceptionEventPipeline {
     type Input = ClickHouseEvent;

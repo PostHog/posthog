@@ -9,7 +9,7 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     issue_resolution::Issue,
-    stages::linking::issue::IssueLinker,
+    stages::linking::{issue::IssueLinker, suppression::IssueSuppression},
     types::{batch::Batch, operator::TeamId, pipeline::ExceptionEventPipelineItem, stage::Stage},
 };
 
@@ -26,9 +26,9 @@ impl Stage for LinkingStage {
 
     async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
         batch
-            .apply_operator(IssueLinker, self)
+            .apply_operator(IssueLinker, self.clone())
             .await?
-            .apply_operator(IssueSuppression, self)
+            .apply_operator(IssueSuppression, self.clone())
             .await
     }
 }
