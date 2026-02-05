@@ -258,6 +258,7 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -302,6 +303,8 @@ class Database(BaseModel):
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
+            if table_name in self._denied_tables:
+                raise QueryError(f"You don't have access to table `{table_name}`.") from e
             raise QueryError(f"Unknown table `{table_name}`.") from e
 
     def get_all_table_names(self) -> list[str]:
@@ -373,6 +376,7 @@ class Database(BaseModel):
 
         # Filter children based on access
         filtered: dict[str, TableNode] = {}
+        denied: set[str] = set()
         for table_name, table_node in system_node.children.items():
             resource = SYSTEM_TABLE_TO_RESOURCE.get(table_name)
             if resource is None:
@@ -381,9 +385,12 @@ class Database(BaseModel):
                 access_level = uac.access_level_for_resource(resource)
                 if access_level and access_level != NO_ACCESS_LEVEL:
                     filtered[table_name] = table_node
+                else:
+                    denied.add(f"system.{table_name}")
 
         # Replace children with filtered set
         system_node.children = filtered
+        self._denied_tables = denied
 
     def serialize(
         self,

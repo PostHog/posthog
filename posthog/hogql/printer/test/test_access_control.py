@@ -112,6 +112,58 @@ class TestAccessControlGuard(BaseTest):
         assert guard is None
 
 
+class TestDeniedTableErrorMessage(BaseTest):
+    """Test that denied tables show a helpful error message."""
+
+    def test_denied_table_shows_access_error(self):
+        """When a table is denied, error should say 'no access' not 'unknown'."""
+        from posthog.hogql.errors import QueryError
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        # Enable advanced permissions feature
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        # Explicitly deny dashboard access
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            access_level="none",
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        # Verify the table is in denied list
+        assert "system.dashboards" in database._denied_tables
+
+        # Try to get the table and verify error message
+        with self.assertRaises(QueryError) as cm:
+            database.get_table("system.dashboards")
+
+        assert "don't have access" in str(cm.exception)
+        assert "Unknown" not in str(cm.exception)
+
+    def test_unknown_table_still_shows_unknown_error(self):
+        """Tables that don't exist should still show 'unknown' error."""
+        from posthog.hogql.errors import QueryError
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        with self.assertRaises(QueryError) as cm:
+            database.get_table("system.nonexistent_table")
+
+        assert "Unknown table" in str(cm.exception)
+
+
 class TestAccessControlIntegration(BaseTest):
     """Integration tests for access control in HogQL queries."""
 
