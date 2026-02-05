@@ -1,5 +1,4 @@
 import asyncio
-from contextlib import asynccontextmanager
 from textwrap import dedent
 from typing import Any, Literal
 from uuid import uuid4
@@ -7,18 +6,17 @@ from uuid import uuid4
 import structlog
 import posthoganalytics
 from pydantic import BaseModel, Field
-from temporalio import activity
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.chat_agent import CHAT_AGENT_ACTIVITY_HEARTBEAT_INTERVAL
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import pluralize
 
 from ee.hogai.session_summaries.constants import (
@@ -39,33 +37,6 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 
 logger = structlog.get_logger(__name__)
-
-
-@asynccontextmanager
-async def _periodic_heartbeat():
-    """Send periodic Temporal activity heartbeats in the background.
-
-    Keeps the parent chat agent activity alive while we await long-running child Temporal workflows
-    (e.g. session video export).
-    """
-
-    async def _beat():
-        try:
-            while True:
-                await asyncio.sleep(CHAT_AGENT_ACTIVITY_HEARTBEAT_INTERVAL)
-                activity.heartbeat()
-        except asyncio.CancelledError:
-            pass
-
-    task = asyncio.create_task(_beat())
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
 
 
 class SummarizeSessionsToolArgs(BaseModel):
@@ -322,7 +293,7 @@ class SummarizeSessionsTool(MaxTool):
 
         # Run all tasks concurrently, with periodic heartbeats to keep the parent activity alive
         tasks = [_summarize(sid) for sid in session_ids]
-        async with _periodic_heartbeat():
+        async with Heartbeater():
             summaries = await asyncio.gather(*tasks)
         self._stream_progress(progress_message=f"Generating a summary, almost there")
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
@@ -347,7 +318,7 @@ class SummarizeSessionsTool(MaxTool):
         )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._determine_video_validation_enabled()
-        async with _periodic_heartbeat():
+        async with Heartbeater():
             async for update_type, data in execute_summarize_session_group(
                 session_ids=session_ids,
                 user=self._user,
