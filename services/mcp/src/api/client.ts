@@ -831,7 +831,7 @@ export class ApiClient {
                             key: f.key,
                             name: f.name ?? '',
                             active: f.active ?? false,
-                            updated_at: (f as any).updated_at ?? null,
+                            updated_at: f.updated_at ?? null,
                         })),
                     }
                 } catch (error) {
