@@ -174,7 +174,7 @@ export const manifest: ProductManifest = {
         ): string => {
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/llm-analytics/traces/${encodeURIComponent(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsErrors: (): string => '/llm-analytics/errors',
@@ -187,7 +187,7 @@ export const manifest: ProductManifest = {
         ): string => {
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/llm-analytics/sessions/${encodeURIComponent(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
