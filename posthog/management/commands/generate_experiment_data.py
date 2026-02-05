@@ -44,9 +44,7 @@ def initialize_self_capture(team_id: int | None = None):
             posthoganalytics.disabled = False
             posthoganalytics.api_key = team.api_token
             posthoganalytics.host = settings.SITE_URL
-            logging.info(
-                f"Self-capture initialized with team {team.name} (id={team.pk}, API key: {team.api_token[:10]}...)"
-            )
+            logging.info(f"Self-capture initialized with team {team.name} (id={team.pk})")
             return team
         else:
             logging.warning("No team found for self-capture initialization. Aborting")
