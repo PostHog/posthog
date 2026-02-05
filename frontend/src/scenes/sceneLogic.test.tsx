@@ -8,6 +8,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { sceneLogic } from './sceneLogic'
@@ -38,8 +39,42 @@ describe('sceneLogic', () => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
-        ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        useMocks({
+            get: {
+                '/api/user_home_settings/@me/': {
+                    tabs: [
+                        {
+                            id: 'tab-2',
+                            pathname: '/b',
+                            search: '',
+                            hash: '',
+                            title: 'Tab B',
+                            iconType: 'blank',
+                            pinned: true,
+                            active: false,
+                        },
+                    ],
+                    homepage: null,
+                },
+            },
+            patch: {
+                '/api/user_home_settings/@me/': {
+                    tabs: [
+                        {
+                            id: 'tab-2',
+                            pathname: '/b',
+                            search: '',
+                            hash: '',
+                            title: 'Tab B',
+                            iconType: 'blank',
+                            pinned: true,
+                            active: false,
+                        },
+                    ],
+                    homepage: null,
+                },
+            },
+        })
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())

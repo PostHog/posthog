@@ -120,8 +120,6 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/conversations/:conversation_id/queue/': { results: [] },
-        '/api/environments/@current/messaging_categories': { results: [] },
         '/api/user_home_settings/@me/': { tabs: [], homepage: null },
         '/api/organizations/@current/': (): MockSignature => [
             200,
@@ -231,7 +229,6 @@ export const defaultMocks: Mocks = {
         'api/projects/@current/resource_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/notebooks/:notebook_id/kernel/status/': { status: 'idle' },
         '/api/sdk_versions/': sdkVersions,
         '/api/team_sdk_versions/': teamSdkVersions,
         '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
