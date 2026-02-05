@@ -64,14 +64,19 @@ export function AndOrFilterSelect({
     )
 }
 
-type SelectOptionProps<T> = {
+type SelectOptionProps<T extends React.ReactNode> = {
     title: string
     description: string
     value: T
     selectedValue: T
 }
 
-export const SelectOption = <T,>({ title, description, value, selectedValue }: SelectOptionProps<T>): JSX.Element => (
+export const SelectOption = <T extends React.ReactNode>({
+    title,
+    description,
+    value,
+    selectedValue,
+}: SelectOptionProps<T>): JSX.Element => (
     <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${

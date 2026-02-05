@@ -151,6 +151,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "extra_settings",
                     "modifiers",
                     "drop_events_older_than",
+                    "proactive_tasks_enabled",
                 ],
             },
         ),

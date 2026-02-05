@@ -288,7 +288,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative last:mb-4">
-                        {!settingsInSidebar && (
+                        {!settingsInSidebar && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
