@@ -110,12 +110,10 @@ class GithubPaginator(BasePaginator):
             and self._incremental_cutoff
             and data
         ):
-            # Check if all items in this page are older than our cutoff
-            # If so, we've synced everything new and can stop
-            all_items_older = all(
-                self._is_older_than_cutoff(item.get(self._incremental_field)) for item in data if item
-            )
-            if all_items_older:
+            # Check if we've hit any item older than our cutoff
+            # With desc sort, once we hit an old record, we can stop
+            any_item_older = any(self._is_older_than_cutoff(item.get(self._incremental_field)) for item in data if item)
+            if any_item_older:
                 self._has_next_page = False
                 self._next_url = None
 
