@@ -1843,7 +1843,7 @@
     }
 
     .animate-logomark-jump {
-        --logomark-jump-height-base: 40px;
+        --logomark-jump-height-base: 12px;
         --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
         --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
