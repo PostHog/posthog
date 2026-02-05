@@ -116,13 +116,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             panels={[
                                 {
                                     key: 'outputs',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Output variable</span>
-                                            </>
-                                        ),
-                                    },
+                                    header: <span className="flex-1">Output variable</span>,
                                     content: (
                                         <div className="flex flex-col items-start gap-2">
                                             <LemonField.Pure label="Select a workflow variable to store the output of this step">
@@ -177,14 +171,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 },
                                 {
                                     key: 'filters',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Conditions</span>
-                                                <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
-                                            </>
-                                        ),
-                                    },
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Conditions</span>
+                                            <LemonBadge.Number count={numberOfActionFilters} showZero={false} />
+                                        </>
+                                    ),
                                     content: (
                                         <div>
                                             <p>
@@ -204,13 +196,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                 },
                                 {
                                     key: 'on_error',
-                                    header: {
-                                        children: (
-                                            <>
-                                                <span className="flex-1">Error handling</span>
-                                            </>
-                                        ),
-                                    },
+                                    header: <span className="flex-1">Error handling</span>,
                                     content: (
                                         <div>
                                             <p>

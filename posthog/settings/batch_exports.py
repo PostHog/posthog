@@ -92,3 +92,6 @@ BATCH_EXPORTS_ENABLE_BILLING_CHECK: bool = get_from_env(
 BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS", "")
 )
+# Temporary setting to rollout keyless S3 authentication for batch exports.
+# TODO: Remove after testing.
+BATCH_EXPORT_USE_KEYLESS_S3_AUTH: bool = get_from_env("BATCH_EXPORT_USE_KEYLESS_S3_AUTH", False, type_cast=str_to_bool)

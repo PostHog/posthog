@@ -116,6 +116,42 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def rotate_refresh_token(self, request) -> bool:
+        """
+        Don't rotate refresh tokens for DCR (MCP) clients.
+
+        MCP clients (v0, Claude Code, Cursor, etc.) don't reliably save the new
+        refresh token returned during rotation, causing sessions to break when
+        they reuse the original token after the grace period. This matches the
+        behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
+        all issue non-rotating refresh tokens.
+
+        Non-DCR OAuth clients still get rotation per the default setting.
+        """
+        if hasattr(request, "client") and request.client:
+            if getattr(request.client, "is_dcr_client", False):
+                return False
+        return oauth2_settings.ROTATE_REFRESH_TOKEN
+
+    def _get_token_expires_in(self, request) -> int:
+        """
+        Returns access token expiry in seconds.
+        DCR (MCP) clients get extended TTL since they don't reliably refresh.
+        """
+        if hasattr(request, "client") and request.client:
+            if getattr(request.client, "is_dcr_client", False):
+                return 60 * 60 * 24 * 7  # 7 days
+        return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
+
+    def save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Override to use custom token expiry for certain clients.
+        Sets token["expires_in"] before calling parent, which uses this value
+        when calculating the actual expiry datetime stored in the database.
+        """
+        token["expires_in"] = self._get_token_expires_in(request)
+        return super().save_bearer_token(token, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,

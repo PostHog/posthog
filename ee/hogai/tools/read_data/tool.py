@@ -24,6 +24,8 @@ from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+from ee.hogai.context.experiment import ExperimentContext
+from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
@@ -105,6 +107,22 @@ class ReadSurvey(BaseModel):
     survey_id: str = Field(description="The UUID of the survey.")
 
 
+class ReadFeatureFlag(BaseModel):
+    """Retrieves a feature flag by its numeric ID or key (slug)."""
+
+    kind: Literal["feature_flag"] = "feature_flag"
+    id: int | None = Field(default=None, description="The numeric ID of the feature flag.")
+    key: str | None = Field(default=None, description="The key (slug) of the feature flag.")
+
+
+class ReadExperiment(BaseModel):
+    """Retrieves an experiment by its numeric ID or by its feature flag's key."""
+
+    kind: Literal["experiment"] = "experiment"
+    id: int | None = Field(default=None, description="The numeric ID of the experiment.")
+    feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -114,6 +132,8 @@ ReadDataQuery = (
     | ReadErrorTrackingIssue
     | ReadArtifact
     | ReadSurvey
+    | ReadFeatureFlag
+    | ReadExperiment
 )
 
 
@@ -165,6 +185,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadErrorTrackingIssue,
             ReadArtifact,
             ReadSurvey,
+            ReadFeatureFlag,
+            ReadExperiment,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -220,6 +242,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_error_tracking_issue(schema.issue_id), None
             case ReadSurvey() as schema:
                 return await self._read_survey(schema.survey_id), None
+            case ReadFeatureFlag() as schema:
+                return await self._read_feature_flag(schema.id, schema.key), None
+            case ReadExperiment() as schema:
+                return await self._read_experiment(schema.id, schema.feature_flag_key), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -456,3 +482,35 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return "\n\n".join(lines)
 
         raise MaxToolFatalError(f"Unknown artifact type: {type(content).__name__}")
+
+    async def _read_feature_flag(self, flag_id: int | None, flag_key: str | None) -> str:
+        if flag_id is None and flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'key' to read a feature flag.")
+
+        context = FeatureFlagContext(
+            team=self._team,
+            flag_id=flag_id,
+            flag_key=flag_key,
+        )
+
+        flag = await context.aget_feature_flag()
+        if flag is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        return await context.format_feature_flag(flag)
+
+    async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
+        if experiment_id is None and feature_flag_key is None:
+            raise MaxToolRetryableError("You must provide either 'id' or 'feature_flag_key' to read an experiment.")
+
+        context = ExperimentContext(
+            team=self._team,
+            experiment_id=experiment_id,
+            feature_flag_key=feature_flag_key,
+        )
+
+        experiment = await context.aget_experiment()
+        if experiment is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        return await context.format_experiment(experiment)

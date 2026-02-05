@@ -566,6 +566,31 @@ class BillingManager:
 
         return res.json()
 
+    def deauthorize(self, organization: Organization, billing_provider: BillingProvider) -> dict[str, Any]:
+        """
+        Deauthorize billing for an organization when a marketplace provider uninstalls.
+
+        This cancels the Stripe subscription and resets the billing provider to default,
+        effectively ending the customer's paid access through the marketplace.
+
+        Args:
+            organization: The organization to deauthorize billing for
+            billing_provider: The marketplace provider being uninstalled (e.g., "vercel")
+
+        Returns:
+            Response from billing service with success status
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
+            headers=self.get_auth_headers(organization),
+            json={"billing_provider": billing_provider.value},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
