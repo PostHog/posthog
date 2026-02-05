@@ -20,6 +20,7 @@ import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { isEvenlyDistributed } from '../utils'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './components'
@@ -93,6 +94,11 @@ export function DistributionModal(): JSX.Element {
                             onClick={distributeVariantsEqually}
                             tooltip="Distribute split evenly"
                             icon={<IconBalance />}
+                            className={
+                                isEvenlyDistributed(featureFlag?.filters?.multivariate?.variants || [])
+                                    ? 'invisible'
+                                    : ''
+                            }
                         >
                             Distribute evenly
                         </LemonButton>
