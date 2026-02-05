@@ -115,7 +115,7 @@ export async function checkConditionMatch(event: RawKafkaEvent, condition: Evalu
         elements_chain: event.elements_chain || '',
         distinct_id: event.distinct_id,
         person: {
-            properties: {},
+            properties: parseJSON(event.person_properties || '{}'),
         },
         properties: parseJSON(event.properties || '{}'),
     }
