@@ -291,27 +291,25 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
+pub fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
-            .await
             .expect("Failed to create Postgres client"),
     )
 }
 
-pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
+pub fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.write_database_url, config.max_pg_connections)
-            .await
             .expect("Failed to create Postgres client"),
     )
 }
 
 /// Setup dual database clients for tests that need to work with both persons and non-persons databases.
 /// If persons DB routing is not enabled, returns the same client twice.
-pub async fn setup_dual_pg_readers(
+pub fn setup_dual_pg_readers(
     config: Option<&Config>,
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
@@ -323,12 +321,10 @@ pub async fn setup_dual_pg_readers(
                 &config.get_persons_read_database_url(),
                 config.max_pg_connections,
             )
-            .await
             .expect("Failed to create Postgres persons reader client"),
         );
         let non_persons_reader = Arc::new(
             get_pool(&config.read_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (persons_reader, non_persons_reader)
@@ -336,7 +332,6 @@ pub async fn setup_dual_pg_readers(
         // Same database for both
         let client = Arc::new(
             get_pool(&config.read_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (client.clone(), client)
@@ -345,7 +340,7 @@ pub async fn setup_dual_pg_readers(
 
 /// Setup dual database writers for tests that need to write to both persons and non-persons databases.
 /// If persons DB routing is not enabled, returns the same client twice.
-pub async fn setup_dual_pg_writers(
+pub fn setup_dual_pg_writers(
     config: Option<&Config>,
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
@@ -357,12 +352,10 @@ pub async fn setup_dual_pg_writers(
                 &config.get_persons_write_database_url(),
                 config.max_pg_connections,
             )
-            .await
             .expect("Failed to create Postgres persons writer client"),
         );
         let non_persons_writer = Arc::new(
             get_pool(&config.write_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (persons_writer, non_persons_writer)
@@ -370,7 +363,6 @@ pub async fn setup_dual_pg_writers(
         // Same database for both
         let client = Arc::new(
             get_pool(&config.write_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (client.clone(), client)
@@ -942,8 +934,8 @@ impl TestContext {
     pub async fn new(config: Option<&Config>) -> Self {
         let config = config.unwrap_or(&DEFAULT_TEST_CONFIG).clone();
 
-        let (persons_reader, non_persons_reader) = setup_dual_pg_readers(Some(&config)).await;
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config)).await;
+        let (persons_reader, non_persons_reader) = setup_dual_pg_readers(Some(&config));
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config));
 
         Self {
             persons_reader,

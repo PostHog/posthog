@@ -2,8 +2,9 @@
 
 from datetime import timedelta
 
-# What period to consider in clustering run
+# What period to consider in clustering run, and how often to run it on schedule
 DEFAULT_LOOKBACK_WINDOW = timedelta(days=7)
+PROACTIVE_TASKS_SCHEDULE_INTERVAL = timedelta(hours=1)
 
 # Minimum segments required for clustering
 # Below this threshold, segments are accumulated for the next run

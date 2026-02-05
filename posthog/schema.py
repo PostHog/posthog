@@ -1745,6 +1745,10 @@ class FileSystemIconType(StrEnum):
     HEALTH = "health"
     SDK_DOCTOR = "sdk_doctor"
     PIPELINE_STATUS = "pipeline_status"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_DATASETS = "llm_datasets"
+    LLM_PROMPTS = "llm_prompts"
+    LLM_CLUSTERS = "llm_clusters"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2842,6 +2846,10 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
+    LLM_DATASET_CREATED = "llm_dataset_created"
+    LLM_EVALUATION_CREATED = "llm_evaluation_created"
+    LLM_PROMPT_CREATED = "llm_prompt_created"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
     LOGS_SETTINGS_OPENED = "logs_settings_opened"
@@ -2928,6 +2936,10 @@ class ProductKey(StrEnum):
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
     LLM_ANALYTICS = "llm_analytics"
+    LLM_CLUSTERS = "llm_clusters"
+    LLM_DATASETS = "llm_datasets"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"

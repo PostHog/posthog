@@ -908,13 +908,17 @@ class HogQLPropertyChecker(TraversingVisitor):
             self.person_properties.append(node.chain[3])
 
 
-def extract_tables_and_properties(props: list[Property]) -> TCounter[PropertyIdentifier]:
+def extract_tables_and_properties(props: list[Property], team_id: Optional[int] = None) -> TCounter[PropertyIdentifier]:
     counters: list[tuple] = []
     for prop in props:
         if prop.type == "hogql":
             counters.extend(count_hogql_properties(prop.key))
         elif prop.type == "behavioral" and prop.event_type == "actions":
-            action = Action.objects.get(pk=prop.key)
+            if team_id is not None:
+                action = Action.objects.get(pk=prop.key, team_id=team_id)
+            else:
+                # nosemgrep: idor-lookup-without-team -- legacy fallback, all callers now pass team_id
+                action = Action.objects.get(pk=prop.key)
             action_counter = get_action_tables_and_properties(action)
             counters.extend(action_counter)
         else:

@@ -152,7 +152,8 @@ jobs:
         name: Playwright E2E tests
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-latest-8
+        # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+        runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         steps:
             - uses: actions/checkout@v6
@@ -359,26 +360,10 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Start resource monitoring
-              run: |
-                  # Capture system resources every 2 seconds during test execution
-                  mkdir -p /tmp/resource-logs
-                  (
-                    while true; do
-                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/vmstat.log
-                      vmstat 1 1 >> /tmp/resource-logs/vmstat.log 2>&1
-                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/memory.log
-                      free -h >> /tmp/resource-logs/memory.log 2>&1
-                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/top-processes.log
-                      ps aux --sort=-%mem | head -15 >> /tmp/resource-logs/top-processes.log 2>&1
-                      sleep 2
-                    done
-                  ) &
-                  echo $! > /tmp/resource-monitor.pid
-
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
@@ -396,8 +381,8 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
-              # Run 4 Playwright workers against 2 granian workers on 8-core runner
-              # Testing if smaller runner works with tuned parallelism
+              # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
@@ -481,21 +466,6 @@ jobs:
                   if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
-            - name: Stop resource monitoring
-              if: always()
-              run: |
-                  if [ -f /tmp/resource-monitor.pid ]; then
-                    kill $(cat /tmp/resource-monitor.pid) 2>/dev/null || true
-                  fi
-                  # Capture final resource state to log files
-                  echo "=== Final Resource State $(date -Iseconds) ===" >> /tmp/resource-logs/final-state.log
-                  echo "Memory:" >> /tmp/resource-logs/final-state.log
-                  free -h >> /tmp/resource-logs/final-state.log 2>&1
-                  echo "CPU cores:" >> /tmp/resource-logs/final-state.log
-                  nproc >> /tmp/resource-logs/final-state.log 2>&1
-                  echo "Load average:" >> /tmp/resource-logs/final-state.log
-                  cat /proc/loadavg >> /tmp/resource-logs/final-state.log 2>&1
-
             - name: Capture docker logs
               if: always()
               run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
@@ -513,7 +483,6 @@ jobs:
                       /tmp/celery.log
                       /tmp/server.log
                       /tmp/playwright-output-attempt-*.log
-                      /tmp/resource-logs/
                   retention-days: 30
                   if-no-files-found: ignore
 

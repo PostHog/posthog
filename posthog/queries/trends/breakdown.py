@@ -170,7 +170,7 @@ class TrendsBreakdown:
         action_query = ""
         action_params: dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = self.entity.get_action()
+            action = self.entity.get_action(self.team_id)
             action_query, action_params = format_action_filter(
                 team_id=self.team_id,
                 action=action,
