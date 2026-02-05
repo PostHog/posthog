@@ -500,7 +500,7 @@ jobs:
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
 
         strategy:
             fail-fast: false
@@ -700,8 +700,8 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
+                          if docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml down && \
+                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
