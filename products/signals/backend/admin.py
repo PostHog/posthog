@@ -1,6 +1,8 @@
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
 
-from .models import SignalReportArtefact
+from .models import SignalReport, SignalReportArtefact
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -18,7 +20,7 @@ class SignalReportArtefactInline(admin.TabularInline):
 class SignalReportAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "team_id",
+        "team_link",
         "status",
         "title",
         "signal_count",
@@ -28,10 +30,18 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
     list_display_links = ("id",)
     list_filter = ("status",)
-    search_fields = ("id", "team_id", "title", "summary")
+    search_fields = ("id", "team__name", "team__organization__name", "title", "summary")
     ordering = ("-created_at",)
     show_full_result_count = False
-    list_select_related = ("team",)
+    list_select_related = ("team", "team__organization")
+
+    @admin.display(description="Team")
+    def team_link(self, report: SignalReport):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[report.team.pk]),
+            report.team.name,
+        )
 
     readonly_fields = (
         "id",

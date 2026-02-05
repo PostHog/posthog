@@ -2,6 +2,7 @@ from urllib.parse import urljoin
 
 from django.conf import settings
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models import ExportedAsset
@@ -10,7 +11,7 @@ from posthog.models import ExportedAsset
 class ExportedAssetAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "team_id",
+        "team_link",
         "export_format",
         "created_at",
         "expires_after",
@@ -19,10 +20,18 @@ class ExportedAssetAdmin(admin.ModelAdmin):
     )
     list_display_links = ("id",)
     list_filter = ("export_format",)
-    search_fields = ("id", "team_id", "content_location")
+    search_fields = ("id", "team__name", "team__organization__name", "content_location")
     ordering = ("-id",)
     show_full_result_count = False
-    list_select_related = ("team",)
+    list_select_related = ("team", "team__organization")
+
+    @admin.display(description="Team")
+    def team_link(self, asset: ExportedAsset):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[asset.team.pk]),
+            asset.team.name,
+        )
 
     readonly_fields = (
         "id",
@@ -31,6 +40,7 @@ class ExportedAssetAdmin(admin.ModelAdmin):
         "insight",
         "created_by",
         "export_format",
+        "export_context",
         "created_at",
         "expires_after",
         "content_is_set",
