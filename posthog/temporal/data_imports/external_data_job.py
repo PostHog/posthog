@@ -5,7 +5,6 @@ import datetime as dt
 import dataclasses
 
 from django.conf import settings
-from django.db import close_old_connections
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars

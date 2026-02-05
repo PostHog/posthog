@@ -178,7 +178,7 @@ class DeltaTableHelper:
 
                     await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
 
-                    def _do_merge():
+                    def _do_merge(filtered_table: pa.Table, predicate: str):
                         return (
                             delta_table.merge(
                                 source=filtered_table,
@@ -192,12 +192,12 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    merge_stats = await asyncio.to_thread(_do_merge)
+                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate)
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
             else:
 
-                def _do_merge_unpartitioned():
+                def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
                         delta_table.merge(
                             source=data,
@@ -211,7 +211,7 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned)
+                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
             write_type == "full_refresh"
