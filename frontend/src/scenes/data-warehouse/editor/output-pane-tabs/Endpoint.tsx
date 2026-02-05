@@ -85,7 +85,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                     description: endpointDescription || undefined,
                     query: queryPayload,
                 },
-                true
+                { showViewButton: true }
             )
         } else {
             createEndpoint({

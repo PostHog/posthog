@@ -314,6 +314,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         Box::new(downloader),
         tmp_consumer_store_dir.path().to_path_buf(),
         import_config.checkpoint_import_attempt_depth,
+        import_config.checkpoint_partition_import_timeout,
     ));
 
     // Create router and rebalance handler with checkpoint import

@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
@@ -20,6 +21,7 @@ import { ClusterItemInfo, ClusteringLevel, TraceSummary } from './types'
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: LLMAnalyticsClusterScene,
     logic: clusterDetailLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
     paramsToProps: ({ params: { runId, clusterId } }) => ({
         runId: runId ? decodeURIComponent(runId) : '',
         clusterId: clusterId ? parseInt(clusterId, 10) : 0,
@@ -73,7 +75,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <Link to={urls.llmAnalyticsClusters()}>
-                        <LemonButton type="secondary" size="small">
+                        <LemonButton type="secondary" size="small" data-attr="clusters-back-button">
                             Back to clusters
                         </LemonButton>
                     </Link>
@@ -123,6 +125,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronLeft />}
                             disabled={currentPage === 1}
                             onClick={() => setPage(currentPage - 1)}
+                            data-attr="clusters-detail-prev-page"
                         />
                         <span className="text-sm">
                             Page {currentPage} of {totalPages}
@@ -133,6 +136,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronRight />}
                             disabled={currentPage === totalPages}
                             onClick={() => setPage(currentPage + 1)}
+                            data-attr="clusters-detail-next-page"
                         />
                     </div>
                 </div>
@@ -182,6 +186,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronLeft />}
                             disabled={currentPage === 1}
                             onClick={() => setPage(currentPage - 1)}
+                            data-attr="clusters-detail-prev-page"
                         />
                         <span className="text-sm">
                             Page {currentPage} of {totalPages}
@@ -192,6 +197,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                             icon={<IconChevronRight />}
                             disabled={currentPage === totalPages}
                             onClick={() => setPage(currentPage + 1)}
+                            data-attr="clusters-detail-next-page"
                         />
                     </div>
                 </div>
@@ -230,6 +236,7 @@ function TraceListItem({
                 <span className="font-medium flex-1 min-w-0 truncate">{summary?.title || 'Loading...'}</span>
                 <Link
                     to={urls.llmAnalyticsTrace(clusteringLevel === 'generation' ? traceInfo.trace_id : traceId, {
+                        tab: 'summary',
                         // For generation-level, highlight the specific generation
                         ...(clusteringLevel === 'generation' && traceInfo.generation_id
                             ? { event: traceInfo.generation_id }
@@ -238,6 +245,7 @@ function TraceListItem({
                         ...(traceInfo.timestamp ? { timestamp: traceInfo.timestamp } : {}),
                     })}
                     className="text-sm text-link hover:underline shrink-0"
+                    data-attr="clusters-view-trace-link"
                 >
                     {clusteringLevel === 'generation' ? 'View generation →' : 'View trace →'}
                 </Link>
@@ -253,6 +261,7 @@ function TraceListItem({
                                 type="secondary"
                                 icon={showFlow ? <IconChevronDown /> : <IconChevronRight />}
                                 onClick={() => setShowFlow(!showFlow)}
+                                data-attr="clusters-trace-flow-toggle"
                             >
                                 Flow
                             </LemonButton>
@@ -263,6 +272,7 @@ function TraceListItem({
                                 type="secondary"
                                 icon={showBullets ? <IconChevronDown /> : <IconChevronRight />}
                                 onClick={() => setShowBullets(!showBullets)}
+                                data-attr="clusters-trace-summary-toggle"
                             >
                                 Summary
                             </LemonButton>
@@ -273,6 +283,7 @@ function TraceListItem({
                                 type="secondary"
                                 icon={showNotes ? <IconChevronDown /> : <IconChevronRight />}
                                 onClick={() => setShowNotes(!showNotes)}
+                                data-attr="clusters-trace-notes-toggle"
                             >
                                 Notes
                             </LemonButton>

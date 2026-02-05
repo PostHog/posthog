@@ -633,6 +633,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setQueryInput(queryObject.query || '')
                 }
             }
+
+            // Focus the editor after creating a new tab
+            props.editor?.focus()
         },
         setSourceQuery: ({ sourceQuery }) => {
             if (!values.activeTab) {
@@ -1236,6 +1239,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
+                    // reset current tab
+                    if (values.activeTab) {
+                        actions.updateTab({ ...values.activeTab, insight: undefined })
+                    }
+                    actions._setSuggestionPayload(null)
+                    actions.setQueryInput(null)
+
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
                         // Add new blank tab

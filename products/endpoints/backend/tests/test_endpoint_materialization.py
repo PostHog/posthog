@@ -92,7 +92,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(version.saved_query)
         saved_query = version.saved_query
         assert saved_query is not None
-        self.assertEqual(saved_query.name, endpoint.name)
+        # Per-version naming: {endpoint_name}_v{version}
+        self.assertEqual(saved_query.name, f"{endpoint.name}_v{version.version}")
         self.assertEqual(saved_query.query, version.query)
         self.assertTrue(saved_query.is_materialized)
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)

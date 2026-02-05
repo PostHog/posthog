@@ -18,10 +18,11 @@ from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_err
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     chat_agent_plan_product_analytics_agent,
     product_analytics_agent,
+    subagent_product_analytics_agent,
 )
 from ee.hogai.core.agent_modes.presets.session_replay import chat_agent_plan_session_replay_agent, session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import chat_agent_plan_sql_agent, sql_agent
-from ee.hogai.core.agent_modes.presets.survey import survey_agent
+from ee.hogai.core.agent_modes.presets.survey import subagent_survey_agent, survey_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.utils.feature_flags import (
@@ -58,6 +59,12 @@ DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.EXECUTION: execution_agent,
 }
 
+SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
+    AgentMode.PRODUCT_ANALYTICS: subagent_product_analytics_agent,
+    AgentMode.SQL: sql_agent,
+    AgentMode.SESSION_REPLAY: session_replay_agent,
+}
+
 
 class ChatAgentModeManager(AgentModeManager):
     def __init__(
@@ -69,6 +76,8 @@ class ChatAgentModeManager(AgentModeManager):
         context_manager: AssistantContextManager,
         state: AssistantState,
     ):
+        self._is_subagent = context_manager.is_subagent
+
         super().__init__(
             team=team,
             user=user,
@@ -81,13 +90,19 @@ class ChatAgentModeManager(AgentModeManager):
         self._supermode: AgentMode | None
         if state.agent_mode == AgentMode.PLAN:
             self._supermode = AgentMode.PLAN
-            self._mode = AgentMode.PRODUCT_ANALYTICS
         else:
             self._supermode = cast(AgentMode | None, state.supermode)
-            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
+        self._mode = (
+            state.agent_mode
+            if state.agent_mode and state.agent_mode in self.mode_registry
+            else AgentMode.PRODUCT_ANALYTICS
+        )
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
+        if self._is_subagent:
+            return self._subagent_mode_registry
+
         if self._supermode == AgentMode.PLAN:
             registry = dict(DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY)
         else:
@@ -101,6 +116,15 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
         if has_survey_mode_feature_flag(self._team, self._user):
             registry[AgentMode.SURVEY] = survey_agent
+        return registry
+
+    @property
+    def _subagent_mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
+        registry = dict(SUBAGENT_CHAT_AGENT_MODE_REGISTRY)
+        if has_error_tracking_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
+        if has_survey_mode_feature_flag(self._team, self._user):
+            registry[AgentMode.SURVEY] = subagent_survey_agent
         return registry
 
     @property

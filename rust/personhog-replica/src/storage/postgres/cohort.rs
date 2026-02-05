@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 
-use super::{PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::CohortStorage;
 use crate::storage::types::CohortMembership;
@@ -13,6 +13,7 @@ impl CohortStorage for PostgresStorage {
         &self,
         person_id: i64,
         cohort_ids: &[i64],
+        consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<CohortMembership>> {
         if cohort_ids.is_empty() {
             return Ok(Vec::new());
@@ -23,6 +24,8 @@ impl CohortStorage for PostgresStorage {
             "check_cohort_membership".to_string(),
         )];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.pool_for_consistency(consistency);
 
         let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
 
@@ -35,7 +38,7 @@ impl CohortStorage for PostgresStorage {
         )
         .bind(person_id)
         .bind(&cohort_ids_i32)
-        .fetch_all(&self.pool)
+        .fetch_all(pool)
         .await?;
 
         let member_set: HashSet<i64> = member_ids.into_iter().map(|id| id as i64).collect();

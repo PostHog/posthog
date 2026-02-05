@@ -11,8 +11,14 @@ pub struct Config {
     #[envconfig(default = "postgres")]
     pub storage_backend: String,
 
+    /// Primary database URL (for writes and strong consistency reads)
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
-    pub database_url: String,
+    pub primary_database_url: String,
+
+    /// Replica database URL (for eventual consistency reads)
+    /// If not set, falls back to primary_database_url
+    #[envconfig(default = "")]
+    pub replica_database_url: String,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
@@ -51,6 +57,15 @@ impl Config {
             None
         } else {
             Some(self.statement_timeout_ms)
+        }
+    }
+
+    /// Returns the replica database URL, falling back to primary if not set
+    pub fn replica_database_url(&self) -> &str {
+        if self.replica_database_url.is_empty() {
+            &self.primary_database_url
+        } else {
+            &self.replica_database_url
         }
     }
 }

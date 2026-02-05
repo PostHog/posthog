@@ -353,7 +353,16 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution", "survey"],
+            "enum": [
+                "product_analytics",
+                "sql",
+                "session_replay",
+                "error_tracking",
+                "plan",
+                "execution",
+                "survey",
+                "research"
+            ],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -4326,9 +4335,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -11906,6 +11912,10 @@
                 "sync_frequency": {
                     "$ref": "#/definitions/DataWarehouseSyncInterval",
                     "description": "How frequently should the underlying materialized view be updated"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Target a specific version for updates (optional, defaults to current version)"
                 }
             },
             "type": "object"
@@ -15380,6 +15390,7 @@
                 "Vitally",
                 "BigQuery",
                 "Chargebee",
+                "Clerk",
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
@@ -15398,6 +15409,7 @@
                 "TikTokAds",
                 "BingAds",
                 "Shopify",
+                "Attio",
                 "SnapchatAds"
             ],
             "type": "string"
@@ -15653,7 +15665,14 @@
                 "folder_open",
                 "conversations",
                 "toolbar",
-                "settings"
+                "settings",
+                "health",
+                "sdk_doctor",
+                "pipeline_status",
+                "llm_evaluations",
+                "llm_datasets",
+                "llm_prompts",
+                "llm_clusters"
             ],
             "type": "string"
         },
@@ -16345,6 +16364,10 @@
                 "breakdownAttributionValue": {
                     "$ref": "#/definitions/integer"
                 },
+                "breakdownSorting": {
+                    "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
+                    "type": "string"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
@@ -16576,9 +16599,6 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
-                },
-                "isUdf": {
-                    "type": "boolean"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -17461,9 +17481,6 @@
                 },
                 "usePreaggregatedTableTransforms": {
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
-                    "type": "boolean"
-                },
-                "usePresortedEventsTable": {
                     "type": "boolean"
                 },
                 "useWebAnalyticsPreAggregatedTables": {
@@ -19260,6 +19277,9 @@
                     "enum": ["latest", "earliest"],
                     "type": "string"
                 },
+                "resourceFingerprint": {
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },
@@ -19920,7 +19940,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_overview_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20477,7 +20497,7 @@
                     "type": ["string", "null"]
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "name": {
                     "type": "string"
@@ -20756,7 +20776,7 @@
                     "$ref": "#/definitions/DashboardFilter"
                 },
                 "id": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "insights": {
                     "items": {
@@ -22378,6 +22398,12 @@
             "properties": {
                 "organization_name": {
                     "type": "string"
+                },
+                "skip_onboarding": {
+                    "type": "boolean"
+                },
+                "use_current_time": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -22458,8 +22484,13 @@
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
                 "llm_analytics_docs_viewed",
+                "llm_cluster_explored",
+                "llm_dataset_created",
+                "llm_evaluation_created",
+                "llm_prompt_created",
                 "logs_docs_viewed",
                 "logs_set_filters",
+                "logs_settings_opened",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
@@ -22569,6 +22600,10 @@
                 "links",
                 "live_debugger",
                 "llm_analytics",
+                "llm_clusters",
+                "llm_datasets",
+                "llm_evaluations",
+                "llm_prompts",
                 "logs",
                 "marketing_analytics",
                 "max",
@@ -26349,9 +26384,6 @@
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
-                        "isUdf": {
-                            "type": "boolean"
-                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -27847,6 +27879,28 @@
                 "lazy_async"
             ],
             "type": "string"
+        },
+        "ReplayInactivityPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "recording_ts_from_s": {
+                    "type": "number"
+                },
+                "recording_ts_to_s": {
+                    "type": "number"
+                },
+                "ts_from_s": {
+                    "type": "number"
+                },
+                "ts_to_s": {
+                    "type": "number"
+                }
+            },
+            "required": ["ts_from_s", "active"],
+            "type": "object"
         },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
