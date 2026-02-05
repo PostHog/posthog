@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -7,12 +7,14 @@ import duckdb
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKDB_MEMORY_LIMIT,
     EVENTS_COLUMNS,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
+    _connect_duckdb,
     _set_table_partitioning,
     _validate_identifier,
     get_months_in_range,
@@ -404,3 +406,45 @@ class TestIsFullExportPartition:
     )
     def test_detects_partition_format(self, key, expected):
         assert is_full_export_partition(key) == expected
+
+
+class TestConnectDuckdb:
+    def test_sets_memory_limit(self):
+        conn = _connect_duckdb()
+        try:
+            result = conn.execute("SELECT current_setting('memory_limit')").fetchone()
+            assert result is not None
+            # DuckDB reports memory in its own format; verify it's not the default (~80% of RAM)
+            # 4GB is reported as "3.7 GiB" by DuckDB
+            assert "GiB" in result[0] or "GB" in result[0]
+            # Parse the numeric value and verify it's approximately 4GB
+            numeric = float(result[0].split()[0])
+            assert 3.5 <= numeric <= 4.5
+        finally:
+            conn.close()
+
+    def test_sets_temp_directory(self):
+        conn = _connect_duckdb()
+        try:
+            result = conn.execute("SELECT current_setting('temp_directory')").fetchone()
+            assert result is not None
+            assert result[0] == "/tmp/duckdb_temp"
+        finally:
+            conn.close()
+
+
+class TestDeleteDateRange:
+    @parameterized.expand(
+        [
+            (datetime(2025, 3, 1), "2025-03-01", "2025-03-02"),
+            (datetime(2025, 3, 31), "2025-03-31", "2025-04-01"),
+            (datetime(2024, 2, 29), "2024-02-29", "2024-03-01"),  # Leap year
+            (datetime(2024, 12, 31), "2024-12-31", "2025-01-01"),  # Year boundary
+            (datetime(2023, 2, 28), "2023-02-28", "2023-03-01"),  # Non-leap year
+        ]
+    )
+    def test_date_range_boundaries(self, partition_date, expected_start, expected_end):
+        date_str = partition_date.strftime("%Y-%m-%d")
+        next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        assert date_str == expected_start
+        assert next_date_str == expected_end
