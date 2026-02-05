@@ -448,6 +448,55 @@ def _load_cohorts_with_dependencies(
     return seen_cohorts_cache
 
 
+def _load_flags_and_cohorts_for_team(team: Team) -> tuple[list[FeatureFlag], dict[int, CohortOrEmpty]]:
+    """
+    Load feature flags and their cohort dependencies for a team.
+
+    Handles:
+    - Excluding survey-linked flags
+    - Excluding remote configuration flags
+    - Extracting cohort IDs from flag filters
+    - Loading cohorts with nested dependencies
+
+    Returns:
+        tuple: (feature_flags, seen_cohorts_cache)
+    """
+    # Exclude survey-linked flags from local evaluation. See GitHub issue #43631.
+    survey_flag_ids = Survey.get_internal_flag_ids(
+        team_id=team.id,
+        using=DATABASE_FOR_LOCAL_EVALUATION,
+    )
+
+    # Exclude encrypted remote config flags since they can only be accessed via the
+    # dedicated /remote_config endpoint which handles decryption. Including them in
+    # local evaluation would return unusable encrypted ciphertext. Unencrypted remote
+    # config flags are included since they work with useFeatureFlagPayload.
+    feature_flags = list(
+        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+        .filter(
+            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
+            team_id=team.id,
+            deleted=False,
+        )
+        .exclude(id__in=survey_flag_ids)
+    )
+
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
+    try:
+        all_direct_cohort_ids: set[int] = set()
+        for flag in feature_flags:
+            all_direct_cohort_ids.update(_extract_cohort_ids_from_filters(flag.get_filters()))
+
+        if all_direct_cohort_ids:
+            seen_cohorts_cache = _load_cohorts_with_dependencies(
+                all_direct_cohort_ids, team.project_id, DATABASE_FOR_LOCAL_EVALUATION
+            )
+    except Exception:
+        logger.error("Error loading cohorts for flags", exc_info=True)
+
+    return feature_flags, seen_cohorts_cache
+
+
 def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) -> tuple[list[FeatureFlag], dict]:
     """
     Get all feature flags for a team with conditional cohort handling for local evaluation.
@@ -473,42 +522,8 @@ def _get_flags_for_local_evaluation(team: Team, include_cohorts: bool = True) ->
         - Returns empty cohorts dict
         - Client only needs to evaluate simplified property-based filters
     """
-
-    # Exclude survey-linked flags from local evaluation. See GitHub issue #43631.
-    survey_flag_ids = Survey.get_internal_flag_ids(
-        team_id=team.id,
-        using=DATABASE_FOR_LOCAL_EVALUATION,
-    )
-
-    # Exclude encrypted remote config flags since they can only be accessed via the
-    # dedicated /remote_config endpoint which handles decryption. Including them in
-    # local evaluation would return unusable encrypted ciphertext. Unencrypted remote
-    # config flags are included since they work with useFeatureFlagPayload.
-    feature_flags = list(
-        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team_id=team.id,
-            deleted=False,
-        )
-        .exclude(id__in=survey_flag_ids)
-    )
-
-    cohorts = {}
-    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-
-    # Extract all cohort IDs referenced by flags, then load only those cohorts
-    try:
-        all_direct_cohort_ids: set[int] = set()
-        for flag in feature_flags:
-            all_direct_cohort_ids.update(_extract_cohort_ids_from_filters(flag.get_filters()))
-
-        if all_direct_cohort_ids:
-            seen_cohorts_cache = _load_cohorts_with_dependencies(
-                all_direct_cohort_ids, team.project_id, DATABASE_FOR_LOCAL_EVALUATION
-            )
-    except Exception:
-        logger.error("Error loading cohorts for flags", exc_info=True)
+    feature_flags, seen_cohorts_cache = _load_flags_and_cohorts_for_team(team)
+    cohorts: dict[str, Any] = {}
 
     for feature_flag in feature_flags:
         try:
@@ -597,35 +612,7 @@ def _get_both_flags_responses_for_local_evaluation(team: Team) -> tuple[dict[str
     """
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-    # Exclude survey-linked flags from local evaluation
-    survey_flag_ids = Survey.get_internal_flag_ids(
-        team_id=team.id,
-        using=DATABASE_FOR_LOCAL_EVALUATION,
-    )
-
-    feature_flags = list(
-        FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(
-            ~Q(is_remote_configuration=True),
-            team_id=team.id,
-            deleted=False,
-        )
-        .exclude(id__in=survey_flag_ids)
-    )
-
-    # Load cohorts referenced by flags
-    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-    try:
-        all_direct_cohort_ids: set[int] = set()
-        for flag in feature_flags:
-            all_direct_cohort_ids.update(_extract_cohort_ids_from_filters(flag.get_filters()))
-
-        if all_direct_cohort_ids:
-            seen_cohorts_cache = _load_cohorts_with_dependencies(
-                all_direct_cohort_ids, team.project_id, DATABASE_FOR_LOCAL_EVALUATION
-            )
-    except Exception:
-        logger.error("Error loading cohorts for flags", exc_info=True)
+    feature_flags, seen_cohorts_cache = _load_flags_and_cohorts_for_team(team)
 
     # Get group type mapping once (shared between both responses)
     group_type_mapping = {
