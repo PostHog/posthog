@@ -9,7 +9,7 @@ use sqlx::PgPool;
 
 use crate::{
     config::Config,
-    error::{ProguardError, ResolveError, UnhandledError},
+    error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
     frames::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame},
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
@@ -18,6 +18,7 @@ use crate::{
     stages::resolution::symbol::SymbolResolver,
     symbol_store::{
         chunk_id::OrChunkId,
+        dart_minified_names::lookup_minified_type,
         proguard::{FetchedMapping, ProguardRef},
         saving::SymbolSetRecord,
         Catalog,
@@ -154,5 +155,26 @@ impl SymbolResolver for LocalSymbolResolver {
             .map(|s| s.to_string())
             .ok_or(ProguardError::MissingClass)?;
         Ok(result)
+    }
+
+    async fn resolve_dart_minified_name(
+        &self,
+        team_id: TeamId,
+        chunk_id: String,
+        minified_name: &str,
+    ) -> Result<String, ResolveError> {
+        // TODO - implement this properly once we have a real Dart minification resolver
+        let sourcemap = self
+            .catalog
+            .smp
+            .lookup(team_id, OrChunkId::ChunkId(chunk_id))
+            .await?;
+
+        let minified_names = sourcemap
+            .get_dart_minified_names()
+            .ok_or(ResolveError::from(JsResolveErr::InvalidSourceAndMap))?;
+
+        lookup_minified_type(minified_names, minified_name)
+            .ok_or(ResolveError::from(JsResolveErr::InvalidSourceAndMap))
     }
 }

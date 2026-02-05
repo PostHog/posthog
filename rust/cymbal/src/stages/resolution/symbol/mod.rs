@@ -27,12 +27,10 @@ pub trait SymbolResolver: Send + Sync + 'static {
 
     async fn resolve_dart_minified_name(
         &self,
-        _team_id: TeamId,
-        _symbolset_ref: OrChunkId<ProguardRef>,
-        minified_name: String,
-    ) -> Result<String, ResolveError> {
-        return Ok(minified_name);
-    }
+        team_id: TeamId,
+        symbolset_ref: String,
+        minified_name: &str,
+    ) -> Result<String, ResolveError>;
 
     async fn resolve_java_exception(
         &self,
@@ -90,13 +88,34 @@ pub trait SymbolResolver: Send + Sync + 'static {
 
     async fn resolve_dart_exception(
         &self,
-        _team_id: TeamId,
-        _exception: Exception,
+        team_id: TeamId,
+        exception: Exception,
     ) -> Result<Exception, UnhandledError> {
-        todo!();
-    }
+        let frames = exception.get_raw_frame();
+        let chunk_id = frames.iter().find_map(|frame| match frame {
+            RawFrame::JavaScriptWeb(js_frame) => js_frame.chunk_id.clone(),
+            RawFrame::JavaScriptNode(node_frame) => node_frame.chunk_id.clone(),
+            RawFrame::LegacyJS(js_frame) => js_frame.chunk_id.clone(),
+            _ => None,
+        });
 
-    fn flush(&self) {}
+        let Some(chunk_id) = chunk_id else {
+            return Ok(exception);
+        };
+
+        match self
+            .resolve_dart_minified_name(team_id, chunk_id, &exception.exception_type)
+            .await
+        {
+            Ok(new_type) => {
+                let mut new_exception = exception.clone();
+                new_exception.exception_type = new_type;
+                Ok(new_exception)
+            }
+            Err(ResolveError::ResolutionError(_)) => Ok(exception), // If we can't resolve, return the original exception
+            Err(ResolveError::UnhandledError(err)) => Err(err),
+        }
+    }
 }
 
 fn split_last_dot(s: &str) -> Result<(String, String), ResolveError> {

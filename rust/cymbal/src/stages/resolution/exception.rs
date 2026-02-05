@@ -27,7 +27,7 @@ impl ExceptionResolver {
     }
 
     pub fn is_dart_exception(exc: &Exception) -> bool {
-        // Implementation for checking if the exception is a Dart exception
+        // Checking if the exception is a Dart exception
         exc.exception_type.starts_with("minified:")
     }
 }
