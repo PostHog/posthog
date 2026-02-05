@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
-import { useState } from 'react'
 
 import { IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
 
@@ -24,10 +23,9 @@ const QUICK_CREATE_TYPES = [
 ]
 
 export function AddInsightToDashboardModalNew(): JSX.Element {
-    const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+    const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
+    const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
-    const [showMoreTypes, setShowMoreTypes] = useState(false)
 
     const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([type, meta]) =>
@@ -68,8 +66,8 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                                 </LemonButton>
                             ))}
                             <Popover
-                                visible={showMoreTypes}
-                                onClickOutside={() => setShowMoreTypes(false)}
+                                visible={showMoreInsightTypes}
+                                onClickOutside={() => toggleShowMoreInsightTypes()}
                                 overlay={
                                     <div className="p-2 space-y-1 min-w-48">
                                         {additionalTypes.map(([type, metadata]) => {
@@ -93,7 +91,7 @@ export function AddInsightToDashboardModalNew(): JSX.Element {
                                     </div>
                                 }
                             >
-                                <LemonButton type="secondary" onClick={() => setShowMoreTypes(!showMoreTypes)}>
+                                <LemonButton type="secondary" onClick={() => toggleShowMoreInsightTypes()}>
                                     More
                                 </LemonButton>
                             </Popover>
