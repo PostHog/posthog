@@ -19,6 +19,7 @@ import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
+import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
 import { StatsMethodModal } from './StatsMethodModal'
@@ -219,7 +220,10 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
                 {/* Column 2 */}
                 <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
-                    {/* Row 1: Running time */}
+                    {/* Row 1: Duration (date pickers) - only for launched experiments */}
+                    {!isExperimentDraft && <ExperimentDuration />}
+
+                    {/* Row 2: Running time calculator */}
                     {tabId && (
                         <RunningTimeNew
                             experiment={experiment}
