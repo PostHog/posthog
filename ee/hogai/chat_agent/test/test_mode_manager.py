@@ -164,16 +164,22 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
-            # (error_tracking_flag, expected_modes, unexpected_modes)
-            [False, ["product_analytics", "sql", "session_replay"], ["error_tracking"]],
-            [True, ["product_analytics", "sql", "session_replay", "error_tracking"], []],
+            # (error_tracking_flag, flags_flag, expected_modes, unexpected_modes)
+            [False, False, ["product_analytics", "sql", "session_replay"], ["error_tracking", "flags"]],
+            [True, False, ["product_analytics", "sql", "session_replay", "error_tracking"], ["flags"]],
+            [False, True, ["product_analytics", "sql", "session_replay", "flags"], ["error_tracking"]],
+            [True, True, ["product_analytics", "sql", "session_replay", "error_tracking", "flags"], []],
         ]
     )
-    def test_mode_registry_based_on_error_tracking_feature_flag(
-        self, error_tracking_flag, expected_modes, unexpected_modes
+    def test_mode_registry_based_on_feature_flags(
+        self, error_tracking_flag, flags_flag, expected_modes, unexpected_modes
     ):
-        with patch(
-            "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=error_tracking_flag
+        with (
+            patch(
+                "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag",
+                return_value=error_tracking_flag,
+            ),
+            patch("ee.hogai.chat_agent.mode_manager.has_flags_mode_feature_flag", return_value=flags_flag),
         ):
             node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
             context_manager = AssistantContextManager(
