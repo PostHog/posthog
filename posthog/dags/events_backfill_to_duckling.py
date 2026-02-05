@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
 
 # SQL for creating the persons table in DuckLake if it doesn't exist
 # Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
+# Note: person_version uses UBIGINT to match ClickHouse's UInt64 type.
 PERSONS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     team_id BIGINT,
@@ -200,7 +201,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
     created_at TIMESTAMPTZ,
     is_identified BOOLEAN,
     person_distinct_id_version BIGINT,
-    person_version BIGINT,
+    person_version UBIGINT,
     _timestamp TIMESTAMPTZ,
     _inserted_at TIMESTAMPTZ
 )
