@@ -25,6 +25,12 @@ pub struct ExceptionEventPipeline {
     app_context: Arc<AppContext>,
 }
 
+impl ExceptionEventPipeline {
+    pub fn new(app_context: Arc<AppContext>) -> Self {
+        Self { app_context }
+    }
+}
+
 pub type EventPipelineItem = Result<ClickHouseEvent, EventError>;
 
 #[derive(Error, Debug)]
