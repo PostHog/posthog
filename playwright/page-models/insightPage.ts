@@ -169,7 +169,9 @@ class TrendsInsight {
         const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
         await searchField.waitFor({ state: 'visible' })
         await searchField.fill(property)
-        await this.page.locator('.taxonomic-list-row').first().click()
+        const row = this.page.locator('.taxonomic-list-row').first()
+        await row.waitFor({ state: 'visible' })
+        await row.click()
     }
 
     async setFormula(formula: string): Promise<void> {
