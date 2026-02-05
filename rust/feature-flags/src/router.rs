@@ -128,9 +128,6 @@ pub fn router(
         )
     });
 
-    // Clone database_pools for readiness check before moving into State
-    let db_pools_for_readiness = database_pools.clone();
-
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
@@ -169,10 +166,7 @@ pub fn router(
     // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route(
-            "/_readiness",
-            get(move || readiness(db_pools_for_readiness.clone())),
-        )
+        .route("/_readiness", get(readiness))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
@@ -257,37 +251,25 @@ fn spawn_rate_limiter_cleanup_task(
     });
 }
 
-pub async fn readiness(
-    database_pools: Arc<DatabasePools>,
-) -> Result<&'static str, (StatusCode, String)> {
-    // Check all pools and collect errors
-    let pools = [
-        ("non_persons_reader", &database_pools.non_persons_reader),
-        ("non_persons_writer", &database_pools.non_persons_writer),
-        ("persons_reader", &database_pools.persons_reader),
-        ("persons_writer", &database_pools.persons_writer),
-    ];
+/// Path to the preStop marker file created during graceful shutdown.
+pub const PRESTOP_MARKER_PATH: &str = "/tmp/posthog_prestop";
 
-    for (name, pool) in pools {
-        let mut conn = pool.acquire().await.map_err(|e| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                format!("{name} pool unavailable: {e}"),
-            )
-        })?;
+/// Readiness check for Kubernetes.
+///
+/// Returns 200 OK when the pod can serve traffic, 503 when shutting down.
+/// Does NOT check database connectivity—during DB outages, keeping pods in rotation
+/// (returning fast errors) is better than removing them entirely (cascade failure).
+///
+/// The preStop hook creates the marker file to signal graceful shutdown.
+pub async fn readiness() -> Result<&'static str, (StatusCode, String)> {
+    readiness_with_marker(PRESTOP_MARKER_PATH)
+}
 
-        // If test_before_acquire is false, explicitly test the connection
-        if !database_pools.test_before_acquire {
-            sqlx::query("SELECT 1")
-                .execute(&mut *conn)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        format!("{name} connection test failed: {e}"),
-                    )
-                })?;
-        }
+fn readiness_with_marker(marker_path: &str) -> Result<&'static str, (StatusCode, String)> {
+    // Check if we're in graceful shutdown (preStop hook creates this file)
+    if std::path::Path::new(marker_path).exists() {
+        tracing::info!("Readiness check detected shutdown marker, returning 503");
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "shutting down".to_string()));
     }
 
     Ok("ready")
@@ -295,4 +277,38 @@ pub async fn readiness(
 
 pub async fn index() -> &'static str {
     "feature flags"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_readiness_returns_ok_when_not_shutting_down() {
+        let marker_path = "/tmp/posthog_prestop_test_ok";
+        // Ensure marker file doesn't exist
+        drop(fs::remove_file(marker_path));
+
+        let result = readiness_with_marker(marker_path);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "ready");
+    }
+
+    #[test]
+    fn test_readiness_returns_503_when_shutting_down() {
+        let marker_path = "/tmp/posthog_prestop_test_shutdown";
+        // Create marker file to simulate graceful shutdown
+        fs::write(marker_path, "").expect("Failed to create marker file");
+
+        let result = readiness_with_marker(marker_path);
+        assert!(result.is_err());
+
+        let (status, message) = result.unwrap_err();
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(message, "shutting down");
+
+        // Cleanup
+        drop(fs::remove_file(marker_path));
+    }
 }
