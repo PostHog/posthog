@@ -14,6 +14,7 @@ import {
     UsageMetricCard,
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -28,6 +29,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
         ? {
               query: {
                   kind: NodeKind.UsageMetricsQuery,
+                  tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                   person_id: personId,
               },
               key: `${personId}-${tabId}`,
@@ -36,6 +38,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
           ? {
                 query: {
                     kind: NodeKind.UsageMetricsQuery,
+                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                     group_key: groupKey,
                     group_type_index: groupTypeIndex,
                 },
