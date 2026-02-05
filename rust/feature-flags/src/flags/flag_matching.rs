@@ -925,6 +925,34 @@ impl FeatureFlagMatcher {
     ///
     /// This is faster than parallel evaluation for small-to-medium flag counts
     /// because it avoids thread synchronization overhead and maintains cache locality.
+    fn evaluate_single_flag(
+        &self,
+        flag: &FeatureFlag,
+        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> (String, Result<FeatureFlagMatch, FlagError>) {
+        if flags_with_missing_deps.contains(&flag.id) {
+            return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+        }
+
+        let property_overrides = precomputed_property_overrides
+            .get(&flag.key)
+            .unwrap_or(&None)
+            .clone();
+
+        (
+            flag.key.clone(),
+            self.get_match(
+                flag,
+                property_overrides,
+                hash_key_overrides.clone(),
+                request_hash_key_override.clone(),
+            ),
+        )
+    }
+
     fn evaluate_flags_sequential(
         &self,
         flags_to_evaluate: &[&FeatureFlag],
@@ -934,34 +962,19 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
         let labels = [("evaluation_type".to_string(), "sequential".to_string())];
-
-        // Record batch size and increment counter (lightweight operations)
         histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
         inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
-
-        // Time the actual evaluation
         let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
 
         flags_to_evaluate
             .iter()
             .map(|flag| {
-                if flags_with_missing_deps.contains(&flag.id) {
-                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
-                }
-
-                let property_overrides = precomputed_property_overrides
-                    .get(&flag.key)
-                    .unwrap_or(&None)
-                    .clone();
-
-                (
-                    flag.key.clone(),
-                    self.get_match(
-                        flag,
-                        property_overrides,
-                        hash_key_overrides.clone(),
-                        request_hash_key_override.clone(),
-                    ),
+                self.evaluate_single_flag(
+                    flag,
+                    precomputed_property_overrides,
+                    flags_with_missing_deps,
+                    hash_key_overrides,
+                    request_hash_key_override,
                 )
             })
             .collect()
@@ -982,34 +995,19 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
         let labels = [("evaluation_type".to_string(), "parallel".to_string())];
-
-        // Record batch size and increment counter (lightweight operations)
         histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
         inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
-
-        // Time the actual evaluation
         let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
 
         flags_to_evaluate
             .par_iter()
             .map(|flag| {
-                if flags_with_missing_deps.contains(&flag.id) {
-                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
-                }
-
-                let property_overrides = precomputed_property_overrides
-                    .get(&flag.key)
-                    .unwrap_or(&None)
-                    .clone();
-
-                (
-                    flag.key.clone(),
-                    self.get_match(
-                        flag,
-                        property_overrides,
-                        hash_key_overrides.clone(),
-                        request_hash_key_override.clone(),
-                    ),
+                self.evaluate_single_flag(
+                    flag,
+                    precomputed_property_overrides,
+                    flags_with_missing_deps,
+                    hash_key_overrides,
+                    request_hash_key_override,
                 )
             })
             .collect()
