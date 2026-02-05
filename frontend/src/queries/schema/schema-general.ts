@@ -2912,6 +2912,7 @@ export type FileSystemIconType =
     | 'llm_datasets'
     | 'llm_prompts'
     | 'llm_clusters'
+    | 'exports'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
