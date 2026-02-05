@@ -37,7 +37,7 @@ class TicketPagination(pagination.LimitOffsetPagination):
     max_limit = 1000
 
 
-class PersonSerializer(serializers.Serializer):
+class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
 
     id = serializers.UUIDField(source="uuid", read_only=True)
@@ -56,7 +56,7 @@ class PersonSerializer(serializers.Serializer):
 
 class TicketSerializer(serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
-    person = PersonSerializer(read_only=True, allow_null=True)
+    person = TicketPersonSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = Ticket
