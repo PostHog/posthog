@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 pub mod issue;
+pub mod suppression;
 
 use moka::future::{Cache, CacheBuilder};
 
@@ -24,7 +25,11 @@ impl Stage for LinkingStage {
     type Error = UnhandledError;
 
     async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
-        batch.apply_operator(IssueLinker, self).await
+        batch
+            .apply_operator(IssueLinker, self)
+            .await?
+            .apply_operator(IssueSuppression, self)
+            .await
     }
 }
 
