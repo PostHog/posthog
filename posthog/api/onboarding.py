@@ -64,7 +64,7 @@ PRODUCTS: dict[Product, ProductInfo | None] = {
         "best_for": "Teams building AI features, tracking token usage, evaluating model outputs.",
     },
     Product.WORKFLOWS: {
-        "description": "Buil no-code, drag-and-drop logic that automates processes or sends messages to users.",
+        "description": "Build no-code, drag-and-drop logic that automates processes or sends messages to users.",
         "best_for": "Teams building communication workflows and/or who need processes automation.",
     },
     Product.REVENUE_ANALYTICS: None,
