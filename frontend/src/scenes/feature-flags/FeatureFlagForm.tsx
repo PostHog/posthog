@@ -507,6 +507,28 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         ]}
                                         data-attr="feature-flag-type"
                                     />
+                                    <div className="text-secondary text-xs mt-1">
+                                        {featureFlag.is_remote_configuration ? (
+                                            <>
+                                                Returns a JSON payload directly, without feature flag evaluation logic.
+                                                Access it via <code className="text-xs">getFeatureFlagPayload</code>.
+                                            </>
+                                        ) : multivariateEnabled ? (
+                                            <>
+                                                Returns a variant key (string) based on rollout percentages. Each
+                                                variant can optionally include a JSON payload. Access the variant via{' '}
+                                                <code className="text-xs">getFeatureFlag</code> and its payload via{' '}
+                                                <code className="text-xs">getFeatureFlagPayload</code>.
+                                            </>
+                                        ) : (
+                                            <>
+                                                Returns <code className="text-xs">true</code> or{' '}
+                                                <code className="text-xs">false</code> based on targeting rules. You can
+                                                optionally attach a JSON payload when the flag is{' '}
+                                                <code className="text-xs">true</code>.
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Variants section - only for multivariate */}
@@ -593,6 +615,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             placeholder='{"key": "value"}'
                                                         />
 
+                                                        {variants.length > 1 && <LemonDivider />}
                                                         {variants.length > 1 && (
                                                             <LemonButton
                                                                 type="secondary"
