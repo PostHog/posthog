@@ -80,7 +80,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             render: function renderName(name: string, insight) {
                 const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex flex-col gap-1 min-w-0 max-w-sm">
                         <div className="flex min-w-0">
                             {isExperimentEnabled ? (
                                 <Tooltip title={displayName}>
@@ -102,7 +102,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                         {insight.description &&
                             (isExperimentEnabled ? (
                                 <Tooltip title={insight.description}>
-                                    <div className="text-xs text-tertiary truncate">{insight.description}</div>
+                                    <div className="text-xs text-tertiary line-clamp-3">{insight.description}</div>
                                 </Tooltip>
                             ) : (
                                 <div className="text-xs text-tertiary truncate">{insight.description}</div>
@@ -121,7 +121,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             },
         },
         ...(isExperimentEnabled
-            ? []
+            ? [createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>]
             : [
                   createdByColumn() as LemonTableColumn<
                       QueryBasedInsightModel,
