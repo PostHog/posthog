@@ -17,7 +17,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 
 from posthog.models import Dashboard, Team, User
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.types import ModelArtifactResult
@@ -28,7 +27,7 @@ from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
@@ -191,13 +190,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             context_manager=context_manager,
         )
 
-    async def _check_object_access(self, obj, required_level: AccessControlLevel, resource: str) -> None:
-        has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
-            obj, required_level
-        )
-        if not has_access:
-            raise MaxToolAccessDeniedError(resource, required_level, action="read")
-
     async def _arun_impl(self, query: dict) -> tuple[str, ToolMessagesArtifact | None]:
         validated_query = _InternalReadDataToolArgs(query=query).query
         match validated_query:
@@ -239,7 +231,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
 
         if isinstance(result, ModelArtifactResult):
-            await self._check_object_access(result.model, "viewer", "insight")
+            await self.check_object_access(result.model, "viewer", action="read")
 
         insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
@@ -356,7 +348,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        await self._check_object_access(dashboard, "viewer", "dashboard")
+        await self.check_object_access(dashboard, "viewer", action="read")
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
@@ -431,6 +423,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             team=self._team,
             survey_id=survey_id,
         )
+        survey = await context.aget_survey()
+        if survey is None:
+            raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
+        await self.check_object_access(survey, "viewer", resource="survey", action="read")
         return await context.execute_and_format()
 
     async def _read_artifact(self, artifact_id: str) -> str:

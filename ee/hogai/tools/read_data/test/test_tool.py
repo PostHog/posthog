@@ -13,7 +13,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Dashboard, DashboardTile, Insight, Survey
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
@@ -725,3 +725,62 @@ class TestReadDataTool(BaseTest):
             )
 
             assert "Allowed Dashboard" in result
+
+    async def test_read_survey_not_found(self):
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "survey", "survey_id": "00000000-0000-0000-0000-000000000000"})
+
+        assert "not found" in str(exc_info.value)
+
+    async def test_read_survey_denied_when_user_lacks_object_access(self):
+        survey = await Survey.objects.acreate(
+            team=self.team, name="Secret Survey", questions=[{"type": "open", "question": "Test?"}]
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "survey", "survey_id": str(survey.id)})
+
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_survey_allowed_when_user_has_object_access(self):
+        survey = await Survey.objects.acreate(
+            team=self.team, name="Allowed Survey", questions=[{"type": "open", "question": "Test?"}]
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "survey", "survey_id": str(survey.id)})
+
+            assert "Allowed Survey" in result
+            mock_uac.check_access_level_for_object.assert_called_once()
