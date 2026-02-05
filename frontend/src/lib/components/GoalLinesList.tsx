@@ -81,13 +81,15 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                                             label: () => (
                                                 <div className="flex gap-1 mx-2 mb-2">
                                                     <LemonLabel
-                                                        className="font-medium mr-1 cursor-pointer"
+                                                        className={`font-medium mr-1 ${displayLabel ? 'cursor-pointer' : 'cursor-not-allowed opacity-65'}`}
                                                         onClick={() =>
-                                                            updateGoalLine(
-                                                                goalLineIndex,
-                                                                'position',
-                                                                position === 'start' ? 'end' : 'start'
-                                                            )
+                                                            displayLabel
+                                                                ? updateGoalLine(
+                                                                      goalLineIndex,
+                                                                      'position',
+                                                                      position === 'start' ? 'end' : 'start'
+                                                                  )
+                                                                : undefined
                                                         }
                                                     >
                                                         Label position
