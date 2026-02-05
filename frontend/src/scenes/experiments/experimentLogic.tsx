@@ -345,6 +345,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentAiSummaryRequested',
                 'reportExperimentMetricsRefreshed',
                 'reportExperimentAutoRefreshToggled',
+                'reportExperimentMetricBreakdownAdded',
+                'reportExperimentMetricBreakdownRemoved',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -491,7 +493,7 @@ export const experimentLogic = kea<experimentLogicType>([
             newUuid,
         }),
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
-        removeMetricBreakdown: (uuid: string, index: number) => ({ uuid, index }),
+        removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
         setLegacyPrimaryMetricsResults: (
             results: (
@@ -1539,8 +1541,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        updateMetricBreakdown: async ({ uuid }) => {
+        updateMetricBreakdown: async ({ uuid, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
             actions.updateExperiment({
                 metrics: values.experiment.metrics,
@@ -1553,8 +1557,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadSecondaryMetricsResults(true)
             }
         },
-        removeMetricBreakdown: async ({ uuid }) => {
+        removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
             actions.updateExperiment({
                 metrics: values.experiment.metrics,

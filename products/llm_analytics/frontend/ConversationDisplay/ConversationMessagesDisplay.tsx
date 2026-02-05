@@ -240,7 +240,7 @@ export const ImageMessageDisplay = ({
         return <img src={content.image} alt="User sent image" />
     }
 
-    return <span>{content}</span>
+    return <span>{String(content ?? '')}</span>
 }
 
 function renderContentItem(item: MultiModalContentItem, searchQuery?: string): JSX.Element | null {

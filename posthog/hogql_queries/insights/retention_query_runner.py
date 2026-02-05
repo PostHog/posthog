@@ -3,6 +3,7 @@ from math import ceil
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    AggregationType,
     Breakdown,
     BreakdownType,
     CachedRetentionQueryResponse,
@@ -141,6 +142,25 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return self._has_cohort_property(properties.values)
 
         return False
+
+    @cached_property
+    def aggregation_target(self) -> ast.Expr | None:
+        """
+        Extract prop val
+        """
+        if (
+            self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
+            and self.query.retentionFilter.aggregationProperty
+        ):
+            property_field = ast.Field(chain=["events", "properties", self.query.retentionFilter.aggregationProperty])
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toFloat", args=[property_field]),
+                    ast.Constant(value=0.0),
+                ],
+            )
+        return None
 
     @cached_property
     def group_type_index(self) -> int | None:
@@ -625,11 +645,37 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             start_of_interval_sql=start_of_interval_sql,
             return_entity_expr=self.return_entity_expr,
         )
-        return_event_timestamps = self._get_return_event_timestamps_expr(
-            minimum_occurrences=minimum_occurrences,
-            start_of_interval_sql=start_of_interval_sql,
-            return_entity_expr=self.return_entity_expr,
-        )
+
+        if self.aggregation_target:
+            # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+)
+            start_event_data = parse_expr(
+                """
+                groupArrayIf(
+                    ({start_of_interval_sql}, {aggregation_target}),
+                    {start_entity_expr} and {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_sql": start_of_interval_sql,
+                    "aggregation_target": self.aggregation_target,
+                    "start_entity_expr": self.start_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter,
+                },
+            )
+            return_event_data = self._get_return_event_timestamps_expr(
+                minimum_occurrences=minimum_occurrences,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=self.return_entity_expr,
+            )
+            return_event_timestamps = parse_expr("arrayMap(x -> x.1, {val})", {"val": return_event_data})
+            return_event_values = (start_event_data, return_event_data)
+        else:
+            return_event_timestamps = self._get_return_event_timestamps_expr(
+                minimum_occurrences=minimum_occurrences,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=self.return_entity_expr,
+            )
+            return_event_values = None
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
             min_timestamp_inner_expr = self._get_first_time_anchor_expr()
@@ -668,7 +714,55 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             intervals_from_base_array_aggregator = "arrayMax"
 
         intervals_from_base_expr: ast.Expr
-        if self.is_custom_bracket_retention:
+        retention_value_expr: ast.Expr | None = None
+
+        if self.aggregation_target and return_event_values:
+            # return_event_values is a tuple of (start_event_data, return_event_data)
+            start_event_data, return_event_data = return_event_values
+
+            # Combine all events (start and return) with their intervals and values
+            # Create rows for each event
+            combined_data = parse_expr(
+                """
+                arrayConcat(
+                    arrayFilter(
+                        x -> x.1 >= 0,
+                        arrayMap(
+                            (ts, val) -> (
+                                toInt(if(ts = date_range[start_interval_index + 1], 0, -1)),
+                                val
+                            ),
+                            arrayMap(x -> x.1, {start_data}),
+                            arrayMap(x -> x.2, {start_data})
+                        )
+                    ),
+                    arrayFilter(
+                        x -> x.1 > 0,
+                        arrayMap(
+                            (ts, val) -> (
+                                toInt(indexOf(
+                                    arraySlice(date_range, start_interval_index + 2, {lookahead}),
+                                    ts
+                                )),
+                                val
+                            ),
+                            arrayMap(x -> x.1, {return_data}),
+                            arrayMap(x -> x.2, {return_data})
+                        )
+                    )
+                )
+                """,
+                {
+                    "lookahead": ast.Constant(value=self.query_date_range.lookahead),
+                    "start_data": start_event_data,
+                    "return_data": return_event_data,
+                },
+            )
+
+            intervals_from_base_expr = parse_expr("(arrayJoin({data})).1", {"data": combined_data})
+            retention_value_expr = parse_expr("(arrayJoin({data})).2", {"data": combined_data})
+
+        elif self.is_custom_bracket_retention:
             bucket_logic = self._get_custom_bracket_intervals_from_base_expr()
             intervals_from_base_expr = parse_expr(
                 f"""
@@ -697,40 +791,39 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 is_first_interval_after_start_event, intervals_from_base_array_aggregator
             )
 
-        inner_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
-                # start events between date_from and date_to (represented by start of interval)
-                # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
-                ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-                # get all intervals between date_from and date_to (represented by start of interval)
-                ast.Alias(
-                    alias="date_range",
-                    expr=parse_expr(
-                        """
+        select_fields: list[ast.Expr] = [
+            ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
+            # start events between date_from and date_to (represented by start of interval)
+            # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
+            ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
+            # get all intervals between date_from and date_to (represented by start of interval)
+            ast.Alias(
+                alias="date_range",
+                expr=parse_expr(
+                    """
                         arrayMap(
                             x -> {date_from_start_of_interval} + {to_interval_function},
                             range(0, {intervals_between})
                         )
                     """,
-                        {
-                            "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
-                            "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
-                            "to_interval_function": ast.Call(
-                                name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-                                args=[ast.Field(chain=["x"])],
-                            ),
-                        },
-                    ),
+                    {
+                        "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
+                        "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                        "to_interval_function": ast.Call(
+                            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                            args=[ast.Field(chain=["x"])],
+                        ),
+                    },
                 ),
-                *minimum_occurrences_aliases,
-                # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
-                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
-                # exploded (0 based) indices of matching intervals for start event
-                ast.Alias(
-                    alias="start_interval_index",
-                    expr=parse_expr(
-                        """
+            ),
+            *minimum_occurrences_aliases,
+            # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
+            ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
+            # exploded (0 based) indices of matching intervals for start event
+            ast.Alias(
+                alias="start_interval_index",
+                expr=parse_expr(
+                    """
                         arrayJoin(
                             arrayFilter(
                                 x -> x > -1,
@@ -747,14 +840,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             )
                         )
                     """,
-                        {"is_valid_start_interval": is_valid_start_interval},
-                    ),
+                    {"is_valid_start_interval": is_valid_start_interval},
                 ),
-                ast.Alias(
-                    alias="intervals_from_base",
-                    expr=intervals_from_base_expr,
-                ),
-            ],
+            ),
+            ast.Alias(
+                alias="intervals_from_base",
+                expr=intervals_from_base_expr,
+            ),
+        ]
+
+        if retention_value_expr:
+            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+
+        inner_query = ast.SelectQuery(
+            select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=event_filters),
             group_by=[ast.Field(chain=["actor_id"])],
@@ -886,6 +985,17 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 cumulative_actors_query = self._build_cumulative_actors_query(actor_query)
                 actor_query = self._explode_cumulative_actors(cumulative_actors_query)
 
+            count_expr: ast.Expr
+            if self.aggregation_target:
+                if self.query.retentionFilter.aggregationType == AggregationType.AVG:
+                    count_expr = parse_expr(
+                        "sum(actor_activity.retention_value) / COUNT(DISTINCT actor_activity.actor_id)"
+                    )
+                else:
+                    count_expr = parse_expr("sum(actor_activity.retention_value)")
+            else:
+                count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
+
             # Add breakdown if needed
             if self.breakdowns_in_query:
                 retention_query = parse_select(
@@ -894,7 +1004,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         actor_activity.start_interval_index AS start_event_matching_interval,
                         actor_activity.intervals_from_base AS intervals_from_base,
                         actor_activity.breakdown_value AS breakdown_value,
-                        COUNT(DISTINCT actor_activity.actor_id) AS count
+                        {count_expr} AS count
 
                     FROM {actor_query} AS actor_activity
 
@@ -910,7 +1020,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
                     LIMIT 100000
                     """,
-                    {"actor_query": actor_query},
+                    {"actor_query": actor_query, "count_expr": count_expr},
                     timings=self.timings,
                 )
             else:
@@ -918,7 +1028,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     """
                         SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
                                actor_activity.intervals_from_base      AS intervals_from_base,
-                               COUNT(DISTINCT actor_activity.actor_id) AS count
+                               {count_expr} AS count
 
                         FROM {actor_query} AS actor_activity
 
@@ -930,7 +1040,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
                         LIMIT 100000
                     """,
-                    {"actor_query": actor_query},
+                    {"actor_query": actor_query, "count_expr": count_expr},
                     timings=self.timings,
                 )
         return retention_query
@@ -1375,6 +1485,24 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def _get_return_event_timestamps_expr(
         self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
     ) -> Expr:
+        if self.aggregation_target:
+            # For aggregation, collect tuples of (timestamp, value) for return events only
+            return parse_expr(
+                """
+                groupArrayIf(
+                    ({start_of_interval_timestamp}, {aggregation_target}),
+                    {returning_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_timestamp": start_of_interval_sql,
+                    "aggregation_target": self.aggregation_target,
+                    "returning_entity_expr": return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter,
+                },
+            )
+
         if minimum_occurrences > 1:
             # return_event_counts_by_interval is only calculated when minimum_occurrences > 1.
             # See _get_minimum_occurrences_aliases method.

@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCheck, IconChevronDown, IconCursorClick, IconExternal, IconPlay, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { STEP_TYPE_ICONS, STEP_TYPE_LABELS } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -32,6 +33,7 @@ export function ProductToursSidebar(): JSX.Element | null {
         isTourFormSubmitting,
         isPreviewing,
         pendingEditInPostHog,
+        sessionRecordingConsent,
     } = useValues(productToursLogic)
     const {
         selectTour,
@@ -44,6 +46,7 @@ export function ProductToursSidebar(): JSX.Element | null {
         setEditorState,
         updateRects,
         setSidebarTransitioning,
+        setSessionRecordingConsent,
     } = useActions(productToursLogic)
 
     const steps = tourForm?.steps || []
@@ -106,6 +109,8 @@ export function ProductToursSidebar(): JSX.Element | null {
             return 'Some steps are missing element selection'
         }
     }
+
+    const showConsentModal = selectedTourId !== null && sessionRecordingConsent == null
 
     useEffect(() => {
         if (selectedTourId !== null) {
@@ -345,6 +350,41 @@ export function ProductToursSidebar(): JSX.Element | null {
                     }
                 `}
             </style>
+
+            <LemonModal
+                isOpen={showConsentModal}
+                onClose={() => setSessionRecordingConsent(false)}
+                title="Help us improve Product Tours"
+                forceAbovePopovers
+                overlayClassName="items-center"
+                maxWidth="42rem"
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={() => setSessionRecordingConsent(false)}>
+                            No thanks
+                        </LemonButton>
+                        <LemonButton type="primary" onClick={() => setSessionRecordingConsent(true)}>
+                            Allow recording
+                        </LemonButton>
+                    </>
+                }
+            >
+                <p>
+                    With your permission, we'd like to enable{' '}
+                    <Link to="https://posthog.com/session-replay" target="_blank" targetBlankIcon>
+                        Session Replay
+                    </Link>{' '}
+                    while you're working with Product Tours to help us build the best product for you.
+                </p>
+                <p>
+                    This means we'll record this browser tab, and nothing else - we won't have access to your screen,
+                    other tabs, or your camera.
+                </p>
+                <p>
+                    All inputs will be masked, and we'll respect any <pre className="inline-block">.ph-no-capture</pre>{' '}
+                    marks on your site.
+                </p>
+            </LemonModal>
         </>
     )
 }
