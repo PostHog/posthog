@@ -81,21 +81,13 @@ curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/release
 
 ## Docker Services
 
-Most tests require backend services running. If Docker is available:
+Most tests require backend services running. If Docker is available, start them with:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-Key services for tests:
-- **PostgreSQL** (port 5432): Django database
-- **ClickHouse** (port 8123, 9000): Analytics database
-- **Redis** (port 6379): Caching and Celery broker
-- **Kafka** (port 9092): Event streaming
-- **Zookeeper** (port 2181): Kafka coordination
-- **Object Storage/MinIO** (port 19000): S3-compatible storage
-
-Some test directories have specific service requirements documented in their own `cargo.yaml`, `package.json`, or similar configuration files.
+See `docker-compose.dev.yml` for the full list of services and ports. Some test directories have specific service requirements documented in their own configuration files.
 
 ### Hosts file setup
 
