@@ -1,5 +1,6 @@
 """Schedule for ingestion acceptance test workflow."""
 
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -23,7 +24,7 @@ async def create_ingestion_acceptance_test_schedule(client: Client) -> None:
         action=ScheduleActionStartWorkflow(
             WORKFLOW_NAME,
             IngestionAcceptanceTestInput(),
-            id=f'{WORKFLOW_NAME}-{{{{.ScheduledTime.Format "2006-01-02T15-04-05"}}}}',
+            id=str(uuid.uuid4()),
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,  # Don't retry - we want to know immediately if it fails
