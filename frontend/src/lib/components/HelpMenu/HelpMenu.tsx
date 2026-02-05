@@ -4,6 +4,7 @@ import {
     IconBook,
     IconConfetti,
     IconDatabase,
+    IconDownload,
     IconEllipsis,
     IconExpand45,
     IconFeatures,
@@ -156,6 +157,17 @@ export function HelpMenu(): JSX.Element {
                         >
                             <IconLive />
                             Changelog
+                        </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <Link
+                            tooltip="View your exports"
+                            tooltipPlacement="right"
+                            buttonProps={{ menuItem: true }}
+                            to={urls.exports()}
+                        >
+                            <IconDownload />
+                            Exports
                         </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
