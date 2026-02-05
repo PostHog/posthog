@@ -604,3 +604,38 @@ export function createMarketingTile(
         math_property: column.name,
     }
 }
+
+export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
+    if (!searchTerm.trim()) {
+        return true
+    }
+
+    const normalizedSearch = searchTerm.toLowerCase().trim()
+
+    if (!record || typeof record !== 'object') {
+        return false
+    }
+
+    const row = record as { result?: unknown[]; label?: string }
+
+    if (row.label) {
+        return true
+    }
+
+    if (!row.result || !Array.isArray(row.result)) {
+        return false
+    }
+
+    return row.result.some((item) => {
+        if (typeof item === 'string') {
+            return item.toLowerCase().includes(normalizedSearch)
+        }
+        if (typeof item === 'object' && item !== null) {
+            const itemValue = (item as Record<string, unknown>).value
+            if (typeof itemValue === 'string') {
+                return itemValue.toLowerCase().includes(normalizedSearch)
+            }
+        }
+        return false
+    })
+}
