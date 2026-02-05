@@ -107,8 +107,8 @@ export class BackgroundTaskCoordinator {
     /**
      * Waits for all current tasks' offsets to be stored, with timeout.
      *
-     * This is used during rebalance to ensure offsets are stored before
-     * committing and releasing partitions.
+     * Use this during rebalance to ensure offsets are committed before partition release.
+     * For shutdown without timeout, use {@link waitForAllTasksComplete} instead.
      *
      * @param timeoutMs - Maximum time to wait before giving up
      * @returns Result indicating success, timeout, or error
@@ -123,21 +123,19 @@ export class BackgroundTaskCoordinator {
         // Capture current tasks - new tasks added during wait are not our concern
         const tasksToWait = [...this.tasks]
 
-        // Create timeout promise
-        let timeoutId: NodeJS.Timeout
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => reject(new TimeoutError()), timeoutMs)
-        })
-
         // Wait for all offsets to be stored
         const offsetsStoredPromise = Promise.all(tasksToWait.map((t) => t.offsetsStoredPromise))
 
+        // Create timeout promise
+        let timeoutId: NodeJS.Timeout | undefined
         try {
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => reject(new TimeoutError()), timeoutMs)
+            })
+
             await Promise.race([offsetsStoredPromise, timeoutPromise])
-            clearTimeout(timeoutId!)
             return { status: 'success', durationMs: Date.now() - startTime }
         } catch (error) {
-            clearTimeout(timeoutId!)
             const durationMs = Date.now() - startTime
 
             if (error instanceof TimeoutError) {
@@ -145,12 +143,18 @@ export class BackgroundTaskCoordinator {
             }
 
             return { status: 'error', durationMs, error }
+        } finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId)
+            }
         }
     }
 
     /**
      * Waits for all task promises to complete (not just offset storage).
-     * Used during shutdown to ensure all work is done.
+     *
+     * Use this during shutdown to ensure all work finishes before disconnect.
+     * For rebalance with timeout, use {@link waitForAllOffsetsStored} instead.
      */
     async waitForAllTasksComplete(): Promise<void> {
         await Promise.all(this.tasks.map((t) => t.promise))

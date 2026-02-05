@@ -5,6 +5,28 @@ import { defaultConfig } from '~/config/config'
 import { delay } from '../utils/utils'
 import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from './consumer'
 
+// Mock prom-client metrics to enable verification
+// Mocks are created inside the factory to avoid hoisting issues, then exposed via __mocks
+jest.mock('prom-client', () => {
+    const inc = jest.fn()
+    const set = jest.fn()
+    const observe = jest.fn()
+    const startTimer = jest.fn(() => jest.fn())
+    const labels = jest.fn(() => ({ inc, set, observe, startTimer }))
+
+    // Create metric instances with both direct methods and labels()
+    const createMetric = () => ({ labels, inc, set, observe, startTimer })
+
+    return {
+        Counter: jest.fn().mockImplementation(() => createMetric()),
+        Gauge: jest.fn().mockImplementation(() => createMetric()),
+        Histogram: jest.fn().mockImplementation(() => createMetric()),
+        Summary: jest.fn().mockImplementation(() => createMetric()),
+        // Export for test access
+        __mocks: { inc, set, observe, labels, startTimer },
+    }
+})
+
 jest.mock('./admin', () => ({
     ensureTopicExists: jest.fn().mockResolvedValue(undefined),
 }))
@@ -327,6 +349,24 @@ describe('consumer', () => {
     })
 
     describe('rebalancing', () => {
+        // Access the mocks from the prom-client mock
+
+        const promClientMocks = require('prom-client').__mocks as {
+            inc: jest.Mock
+            set: jest.Mock
+            observe: jest.Mock
+            labels: jest.Mock
+            startTimer: jest.Mock
+        }
+
+        beforeEach(() => {
+            // Reset metric mocks before each rebalancing test
+            promClientMocks.inc.mockClear()
+            promClientMocks.set.mockClear()
+            promClientMocks.observe.mockClear()
+            promClientMocks.labels.mockClear()
+        })
+
         it('should set rebalancing state during partition revocation', () => {
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
 
@@ -399,6 +439,17 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
+
+            // Verify metrics were recorded
+            // rebalanceCounter (type: 'revoke')
+            expect(promClientMocks.labels).toHaveBeenCalledWith({ groupId: 'test-group', type: 'revoke' })
+            // rebalanceBackgroundTasksGauge
+            expect(promClientMocks.labels).toHaveBeenCalledWith({ groupId: 'test-group' })
+            expect(promClientMocks.set).toHaveBeenCalledWith(2) // Two background tasks
+            // rebalanceOffsetWaitResultCounter (result: 'success')
+            expect(promClientMocks.labels).toHaveBeenCalledWith({ groupId: 'test-group', result: 'success' })
+            // rebalanceOffsetCommitResultCounter (result: 'success')
+            expect(promClientMocks.inc).toHaveBeenCalled()
         })
 
         it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
@@ -474,6 +525,105 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.commitSync).toHaveBeenCalledWith(null)
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
+            ])
+        })
+
+        it('should handle commitSync failure and still proceed with revocation', async () => {
+            // Add a task that completes successfully
+            const task = triggerablePromise()
+            consumer['backgroundTaskCoordinator'].addTask(task.promise, jest.fn())
+
+            // Make commitSync throw an error
+            mockRdKafkaConsumer.commitSync.mockImplementationOnce(() => {
+                throw new Error('Commit failed')
+            })
+
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 1 },
+            ])
+
+            // Complete the task
+            task.resolve()
+            await delay(10)
+
+            // Should have attempted commit (which failed)
+            expect(mockRdKafkaConsumer.commitSync).toHaveBeenCalledWith(null)
+
+            // Should still proceed with revocation despite commit error
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 1 },
+            ])
+        })
+
+        it('should pause consumer loop during rebalance and resume after completion', async () => {
+            // Connect the consumer with an eachBatch handler
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Verify initial consume call happened
+            const initialConsumeCount = mockRdKafkaConsumer.consume.mock.calls.length
+            expect(initialConsumeCount).toBeGreaterThanOrEqual(1)
+
+            // Add a background task to make rebalance wait
+            const task = triggerablePromise()
+            consumer['backgroundTaskCoordinator'].addTask(task.promise, jest.fn())
+
+            // Trigger rebalance - this sets isRebalancing = true
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
+
+            // The consumer loop should be paused (not calling consume)
+            // Give it some time to potentially make another consume call if it wasn't paused
+            await delay(50)
+
+            // Consume should not have been called again while rebalancing
+            // (loop is in pause mode, waiting for isRebalancing to be false)
+            const consumeCountDuringRebalance = mockRdKafkaConsumer.consume.mock.calls.length
+            expect(consumeCountDuringRebalance).toBe(initialConsumeCount)
+
+            // Complete the task to allow rebalance to finish
+            task.resolve()
+            await delay(20)
+
+            // Trigger assignment to complete the rebalance
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+
+            // Verify rebalancing flag is cleared
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
+
+            // The consumer loop is now unblocked and can resume consuming
+            // (In the real implementation, the loop checks isRebalancing on each iteration
+            // and will call consume() again once it's false)
+        })
+
+        it('should handle multiple partitions being revoked', async () => {
+            const task = triggerablePromise()
+            const onOffsetsStored = jest.fn()
+            consumer['backgroundTaskCoordinator'].addTask(task.promise, onOffsetsStored)
+
+            // Revoke multiple partitions at once
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+                { topic: 'test-topic', partition: 1 },
+                { topic: 'test-topic', partition: 2 },
+            ])
+
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
+
+            // Complete the task
+            task.resolve()
+            await delay(10)
+
+            // All partitions should be unassigned together
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0 },
+                { topic: 'test-topic', partition: 1 },
+                { topic: 'test-topic', partition: 2 },
             ])
         })
     })

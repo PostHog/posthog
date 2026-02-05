@@ -173,6 +173,8 @@ export type KafkaConsumerConfig = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     waitForBackgroundTasksOnRebalance?: boolean
+    /** Maximum time (ms) to wait for offset storage during rebalance. Defaults to 20000. */
+    rebalanceTimeoutMs?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -206,11 +208,7 @@ export class KafkaConsumer {
     private lastConsumerLoopTime = 0
     private consumerState: string | undefined
     private lastStatsEmitTime = 0
-    private rebalanceCoordination: RebalanceCoordination = {
-        isRebalancing: false,
-        rebalanceTimeoutMs: 20000,
-        rebalanceStartTime: 0,
-    }
+    private rebalanceCoordination: RebalanceCoordination
     private consumerLogStatsLevel: LogLevel
 
     constructor(
@@ -227,6 +225,11 @@ export class KafkaConsumer {
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
         this.config.waitForBackgroundTasksOnRebalance = defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE
+        this.rebalanceCoordination = {
+            isRebalancing: false,
+            rebalanceTimeoutMs: this.config.rebalanceTimeoutMs ?? 20_000,
+            rebalanceStartTime: 0,
+        }
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
@@ -822,12 +825,15 @@ export class KafkaConsumer {
                     })
 
                     // Apply backpressure if we have too many concurrent tasks
-                    if (await this.backgroundTaskCoordinator.applyBackpressure(this.maxBackgroundTasks)) {
-                        const stopTimer = consumedBatchBackpressureDuration.startTimer({
-                            topic: this.config.topic,
-                            groupId: this.config.groupId,
-                        })
-                        stopTimer()
+                    const stopBackpressureTimer = consumedBatchBackpressureDuration.startTimer({
+                        topic: this.config.topic,
+                        groupId: this.config.groupId,
+                    })
+                    const hadBackpressure = await this.backgroundTaskCoordinator.applyBackpressure(
+                        this.maxBackgroundTasks
+                    )
+                    if (hadBackpressure) {
+                        stopBackpressureTimer()
                     }
                 }
 
