@@ -118,6 +118,7 @@ export function createPreprocessingPipeline<
                             .sequentially((b) =>
                                 createPostTeamPreprocessingSubpipeline(b, {
                                     eventIngestionRestrictionManager,
+                                    kafkaProducer,
                                 })
                             )
                             // We want to call cookieless with the whole batch at once.

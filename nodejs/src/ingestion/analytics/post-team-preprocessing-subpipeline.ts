@@ -1,5 +1,7 @@
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, IncomingEventWithTeam, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { createExpandOtelRawDataStep } from '../ai/otel-preprocessing'
 import {
     createApplyPersonProcessingRestrictionsStep,
     createValidateEventMetadataStep,
@@ -16,15 +18,17 @@ export interface PostTeamPreprocessingSubpipelineInput {
 
 export interface PostTeamPreprocessingSubpipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    kafkaProducer: KafkaProducerWrapper
 }
 
 export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PostTeamPreprocessingSubpipelineConfig
 ): PipelineBuilder<TInput, TInput, TContext> {
-    const { eventIngestionRestrictionManager } = config
+    const { eventIngestionRestrictionManager, kafkaProducer } = config
 
     return builder
+        .pipe(createExpandOtelRawDataStep(kafkaProducer))
         .pipe(createValidateEventMetadataStep())
         .pipe(createValidateEventPropertiesStep())
         .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
