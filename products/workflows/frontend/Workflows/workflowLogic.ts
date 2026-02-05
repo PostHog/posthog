@@ -476,11 +476,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            action.config = { ...config } as HogFlowAction['config']
+            const updatedConfig = { ...config } as HogFlowAction['config']
+            const newActions = values.workflow.actions.map((a) =>
+                a.id === actionId ? { ...a, config: updatedConfig } : a
+            )
 
-            const changes = { actions: [...values.workflow.actions] } as Partial<HogFlow>
+            const changes = { actions: newActions } as Partial<HogFlow>
             if (action.type === 'trigger') {
-                changes.trigger = action.config as TriggerAction['config']
+                changes.trigger = updatedConfig as TriggerAction['config']
             }
 
             actions.setWorkflowValues(changes)
