@@ -163,12 +163,18 @@ def parse_prop_clauses(
     if table_formatted != "":
         table_formatted += "."
 
-    team = Team.objects.only("project_id").get(pk=team_id)
+    _team = None
+
+    def get_team():
+        nonlocal _team
+        if _team is None:
+            _team = Team.objects.only("project_id").get(pk=team_id)
+        return _team
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
             try:
-                cohort = Cohort.objects.get(pk=prop.value, team__project_id=team.project_id)
+                cohort = Cohort.objects.get(pk=prop.value, team__project_id=get_team().project_id)
             except Cohort.DoesNotExist:
                 final.append(
                     f"{property_operator} 0 = 13"
@@ -322,7 +328,7 @@ def parse_prop_clauses(
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
-            cohort = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id)
+            cohort = Cohort.objects.get(pk=cohort_id, team__project_id=get_team().project_id)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(cohort, idx, prepend=prepend)
