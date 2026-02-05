@@ -65,6 +65,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
         "team_id": task_run.team_id,
         "user_id": user_id,
         "distinct_id": distinct_id,
+        "mode": task_run.mode,
         "exp": datetime.now(tz=UTC) + timedelta(hours=24),
         "aud": SANDBOX_CONNECTION_AUDIENCE,
     }

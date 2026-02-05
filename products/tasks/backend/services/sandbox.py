@@ -89,7 +89,9 @@ class SandboxProtocol(Protocol):
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult: ...
 
-    def start_agent_server(self, repository: str) -> str:
+    def start_agent_server(
+        self, repository: str, task_id: str, run_id: str, mode: str = "background"
+    ) -> str:
         """Start the agent-server HTTP server and return the sandbox URL."""
         ...
 

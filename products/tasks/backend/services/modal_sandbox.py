@@ -432,7 +432,9 @@ class ModalSandbox:
 
         return result
 
-    def start_agent_server(self, repository: str) -> str:
+    def start_agent_server(
+        self, repository: str, task_id: str, run_id: str, mode: str = "background"
+    ) -> str:
         """
         Start the agent-server HTTP server in the sandbox.
 
@@ -441,6 +443,9 @@ class ModalSandbox:
 
         Args:
             repository: Repository in org/repo format
+            task_id: Task ID
+            run_id: Task run ID
+            mode: Execution mode ('background' or 'interactive')
 
         Returns:
             The sandbox URL for connecting to the agent server

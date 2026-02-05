@@ -87,12 +87,12 @@ class DockerSandbox:
         return result
 
     @staticmethod
-    def _get_local_twig_packages() -> tuple[str, str] | None:
+    def _get_local_twig_packages() -> tuple[str, str, str] | None:
         """
         Get paths to local twig packages for development builds.
 
         Configure via LOCAL_TWIG_MONOREPO_ROOT pointing to the twig monorepo root.
-        Returns tuple of (agent_path, shared_path) or None if not configured.
+        Returns tuple of (agent_path, shared_path, git_path) or None if not configured.
         """
         monorepo_root = os.environ.get("LOCAL_TWIG_MONOREPO_ROOT")
         if not monorepo_root or not os.path.isdir(monorepo_root):
@@ -101,12 +101,15 @@ class DockerSandbox:
         monorepo_root = os.path.abspath(monorepo_root)
         agent_path = os.path.join(monorepo_root, "packages", "agent")
         shared_path = os.path.join(monorepo_root, "packages", "shared")
+        git_path = os.path.join(monorepo_root, "packages", "git")
 
         missing = []
         if not os.path.isdir(agent_path):
             missing.append(f"agent: {agent_path}")
         if not os.path.isdir(shared_path):
             missing.append(f"shared: {shared_path}")
+        if not os.path.isdir(git_path):
+            missing.append(f"git: {git_path}")
 
         if missing:
             raise SandboxProvisionError(
@@ -114,7 +117,7 @@ class DockerSandbox:
                 {"monorepo_root": monorepo_root, "missing": missing},
             )
 
-        return agent_path, shared_path
+        return agent_path, shared_path, git_path
 
     @staticmethod
     def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
@@ -139,7 +142,7 @@ class DockerSandbox:
         )
 
     @staticmethod
-    def _build_local_image(agent_path: str, shared_path: str) -> None:
+    def _build_local_image(agent_path: str, shared_path: str, git_path: str) -> None:
         """Build the local sandbox image with local twig packages."""
         logger.info("Building posthog-sandbox-base-local image with local twig packages...")
         dockerfile_path = os.path.join(
@@ -155,6 +158,11 @@ class DockerSandbox:
             shutil.copytree(
                 shared_path,
                 os.path.join(tmpdir, "local-shared"),
+                ignore=shutil.ignore_patterns("node_modules"),
+            )
+            shutil.copytree(
+                git_path,
+                os.path.join(tmpdir, "local-git"),
                 ignore=shutil.ignore_patterns("node_modules"),
             )
 
@@ -188,8 +196,8 @@ class DockerSandbox:
 
         local_packages = DockerSandbox._get_local_twig_packages()
         if local_packages:
-            agent_path, shared_path = local_packages
-            DockerSandbox._build_local_image(agent_path, shared_path)
+            agent_path, shared_path, git_path = local_packages
+            DockerSandbox._build_local_image(agent_path, shared_path, git_path)
             return "posthog-sandbox-base-local"
 
         return DEFAULT_IMAGE_NAME
@@ -568,12 +576,17 @@ class DockerSandbox:
 
         return result
 
-    def start_agent_server(self, repository: str) -> str:
+    def start_agent_server(
+        self, repository: str, task_id: str, run_id: str, mode: str = "background"
+    ) -> str:
         """
         Start the agent-server HTTP server in the sandbox.
 
         Args:
             repository: Repository in org/repo format
+            task_id: Task ID
+            run_id: Task run ID
+            mode: Execution mode ('background' or 'interactive')
 
         Returns:
             The sandbox URL for connecting to the agent server
@@ -590,6 +603,7 @@ class DockerSandbox:
         command = (
             f"cd /scripts && "
             f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
+            f"--taskId {task_id} --runId {run_id} --mode {mode} "
             f"> /tmp/agent-server.log 2>&1 &"
         )
 
