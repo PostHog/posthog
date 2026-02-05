@@ -11,6 +11,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb, PersonType } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import { getHogqlQueryStringForPersonId } from './person-utils'
@@ -71,7 +72,7 @@ export const personLogic = kea<personLogicType>([
                     }
                     const queryResponse = await hogqlQuery(
                         getHogqlQueryStringForPersonId(),
-                        { id: props.id },
+                        { id: props.id, tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS },
                         'blocking'
                     )
                     const row = queryResponse?.results?.[0]
@@ -108,7 +109,7 @@ export const personLogic = kea<personLogicType>([
                     AND timestamp >= now() - interval 30 day
                     `
                     try {
-                        const response = await api.queryHogQL(infoQuery, { scene: 'Person', productKey: 'persons' })
+                        const response = await api.queryHogQL(infoQuery, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS)
                         const row = response.results?.[0]
                         if (!row) {
                             return {
@@ -142,6 +143,7 @@ export const personLogic = kea<personLogicType>([
                     try {
                         const result = await api.query({
                             kind: NodeKind.HogQLQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             query: `
                     SELECT mrr, revenue
                     FROM persons_revenue_analytics

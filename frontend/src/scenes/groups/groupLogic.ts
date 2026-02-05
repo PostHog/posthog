@@ -22,6 +22,7 @@ import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { groupLogicType } from './groupLogicType'
@@ -106,7 +107,7 @@ export const groupLogic = kea<groupLogicType>([
                                 FROM groups_revenue_analytics
                                 WHERE group_key = {groupKey}
                             `,
-                            values: { groupKey: props.groupKey },
+                            values: { groupKey: props.groupKey, tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS },
                         }
 
                         const result = await api.query(query)

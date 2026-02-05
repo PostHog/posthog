@@ -80,7 +80,6 @@ function PowerUsersTable(): JSX.Element {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
                     kind: NodeKind.TrendsQuery,
-                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                     series: [dauSeries],
                     dateRange: {
                         date_from: '-30d',
@@ -95,6 +94,7 @@ function PowerUsersTable(): JSX.Element {
             },
             orderBy: ['event_count DESC'],
             limit: 10,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
         },
     }
 
