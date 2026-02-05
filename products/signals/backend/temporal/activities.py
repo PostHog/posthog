@@ -1,4 +1,5 @@
 import os
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -376,12 +377,8 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             SELECT
                 document_id,
                 content,
-                JSONExtractString(metadata, 'source_product') as source_product,
-                JSONExtractString(metadata, 'source_type') as source_type,
-                JSONExtractString(metadata, 'source_id') as source_id,
-                JSONExtractFloat(metadata, 'weight') as weight,
-                toString(timestamp) as timestamp,
-                JSONExtractRaw(metadata, 'extra') as extra_json
+                metadata,
+                toString(timestamp) as timestamp
             FROM (
                 SELECT
                     document_id,
@@ -410,20 +407,21 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
 
         signals = []
         for row in result.results or []:
-            document_id, content, source_product, source_type, source_id, weight, timestamp, extra_json = row
-            import json
-
-            extra = json.loads(extra_json) if extra_json and extra_json != "null" else {}
+            document_id, content, metadata_str, timestamp = row
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
+            except json.JSONDecodeError:
+                metadata = {}
             signals.append(
                 SignalData(
                     signal_id=document_id,
                     content=content,
-                    source_product=source_product,
-                    source_type=source_type,
-                    source_id=source_id,
-                    weight=weight or 0.0,
+                    source_product=metadata.get("source_product", ""),
+                    source_type=metadata.get("source_type", ""),
+                    source_id=metadata.get("source_id", ""),
+                    weight=metadata.get("weight", 0.0),
                     timestamp=timestamp,
-                    extra=extra,
+                    extra=metadata.get("extra", {}),
                 )
             )
 
