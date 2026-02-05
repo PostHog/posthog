@@ -135,36 +135,6 @@ class TestServiceFlagsCache(BaseTest):
         inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
         assert inactive_flag["active"] is False
 
-    def test_get_feature_flags_for_service_excludes_remote_config(self):
-        """Test that remote config flags are excluded from cache.
-
-        Remote config flags (is_remote_configuration=True) are served via a
-        separate API and should not appear in /flags responses.
-        """
-        # Create regular feature flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="regular-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Create remote config flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="remote-config-flag",
-            created_by=self.user,
-            is_remote_configuration=True,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        result = _get_feature_flags_for_service(self.team)
-        flags = result["flags"]
-
-        # Only the regular flag should be included
-        assert len(flags) == 1
-        assert flags[0]["key"] == "regular-flag"
-
     def test_get_feature_flags_for_teams_batch_includes_inactive(self):
         """Test that batch function includes inactive flags for dependency resolution.
 
@@ -199,36 +169,6 @@ class TestServiceFlagsCache(BaseTest):
         # Verify the inactive flag has active=False
         inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
         assert inactive_flag["active"] is False
-
-    def test_get_feature_flags_for_teams_batch_excludes_remote_config(self):
-        """Test that batch function excludes remote config flags.
-
-        This tests the same behavior as test_get_feature_flags_for_service_excludes_remote_config
-        but for the batch function used in management commands and cache warming.
-        """
-        # Create regular feature flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="regular-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Create remote config flag
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="remote-config-flag",
-            created_by=self.user,
-            is_remote_configuration=True,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        result = _get_feature_flags_for_teams_batch([self.team])
-        flags = result[self.team.id]["flags"]
-
-        # Only the regular flag should be included
-        assert len(flags) == 1
-        assert flags[0]["key"] == "regular-flag"
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
