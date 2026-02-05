@@ -51,43 +51,25 @@ self.date_range = get_experiment_date_range(self.experiment, self.team, self.ove
 Before building the exposures CTE, call `ensure_preaggregated()` with the exposures SELECT query:
 
 ```python
-from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation_executor import (
-    ensure_preaggregated,
+from posthog.hogql_queries.experiments.experiment_exposures_preaggregation import (
+    ensure_experiment_exposures_preaggregated,
 )
 
-preagg_result = ensure_preaggregated(
+preagg_result = ensure_experiment_exposures_preaggregated(
     team=self.team,
-    insert_query="""
-        SELECT
-            {entity_key} AS entity_id,
-            {variant_expr} AS variant,
-            min(timestamp) AS first_exposure_time,
-            max(timestamp) AS last_exposure_time,
-            argMin(uuid, timestamp) AS exposure_event_uuid,
-            argMin(`$session_id`, timestamp) AS exposure_session_id,
-            [] AS breakdown_value,
-            now() + INTERVAL 6 HOUR AS expires_at
-        FROM events
-        WHERE event = '$feature_flag_called'
-            AND properties.`$feature_flag` = {feature_flag_key}
-            AND properties.`$feature_flag_response` IN {variants}
-            AND timestamp >= {time_window_min}
-            AND timestamp < {time_window_max}
-        GROUP BY {entity_key}
-    """,
-    time_range_start=self.date_range.date_from,
-    time_range_end=self.date_range.date_to,
-    ttl_seconds=6 * 60 * 60,
-    placeholders={
-        "entity_key": ast.Constant(value="person_id"),
-        "variant_expr": ...,  # Built from _build_variant_expr_for_mean()
-        "feature_flag_key": ast.Constant(value=self.feature_flag.key),
-        "variants": ast.Constant(value=self.variants),
-    },
+    feature_flag_key=self.feature_flag.key,
+    variants=self.variants,
+    entity_math="persons",
+    multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN,
+    filter_test_accounts=False,
+    date_from=self.date_range.date_from,
+    date_to=self.date_range.date_to,
 )
 ```
 
-The `{time_window_min}` and `{time_window_max}` placeholders are required. They get filled in automatically by the preaggregation system for each time window.
+Under the hood, this builds a HogQL query with `{time_window_min}` and `{time_window_max}` placeholders that get filled in automatically by the preaggregation system for each time window.
+
+See `experiment_exposures_preaggregation.py` for the full query template and placeholder details.
 
 ---
 
@@ -97,15 +79,24 @@ The `{time_window_min}` and `{time_window_max}` placeholders are required. They 
 
 ```python
 # From lazy_preaggregation_executor.py
+# Before hashing, time placeholders are replaced with fixed sentinel values
+# so the hash is stable regardless of the time range being queried.
+hash_placeholders = {
+    **base_placeholders,
+    "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+    "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+}
+parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
+
 hash_input = {
-    "query": repr(query_ast),
+    "query": repr(parsed_for_hash),
     "timezone": team.timezone,
     "breakdown_fields": [...],
 }
 query_hash = sha256(hash_input)  # e.g., "a1b2c3d4e5f6..."
 ```
 
-Two queries with the same hash can share preaggregated data. Different feature flags, variants, or filters produce different hashes.
+Two queries with the same hash can share preaggregated data. Different feature flags, variants, or filters produce different hashes. Changing the time range does **not** change the hash — this is what allows reuse of previously computed daily windows.
 
 ---
 
@@ -164,11 +155,11 @@ SELECT
     argMin(uuid, timestamp) AS exposure_event_uuid,
     argMin($session_id, timestamp) AS exposure_session_id,
     [] AS breakdown_value,
-    now() + INTERVAL 6 HOUR AS expires_at
+    today() + INTERVAL 1 DAY AS expires_at
 FROM events
 WHERE event = '$feature_flag_called'
     AND properties.$feature_flag = 'my-experiment-flag'
-    AND properties.$feature_flag_response IN ['control', 'test']
+    AND properties.$feature_flag_response IN ('control', 'test')
     AND timestamp >= '2026-01-11 00:00:00'       -- time_window_min
     AND timestamp < '2026-01-15 00:00:00'        -- time_window_max
 GROUP BY person_id
@@ -217,12 +208,12 @@ WITH exposures AS (
     SELECT entity_id, variant, first_exposure_time, last_exposure_time, ...
     FROM experiment_exposures_preaggregated
     WHERE job_id IN ('job-uuid-for-jan-1-10', 'job-uuid-for-jan-11-15')
-        AND first_exposure_time >= '2026-01-01 09:57:00'  -- exact experiment start
-        AND first_exposure_time < '2026-01-15 14:30:00'   -- exact experiment end
+    -- job_id already scopes data to the right time range
+    -- additional time filters may be added depending on the final implementation
 )
 ```
 
-The `job_id IN (...)` filter ensures we only read our preaggregated data. The time filters ensure we respect the exact experiment start/end times, even though preaggregation uses daily windows.
+The `job_id IN (...)` filter ensures we only read our preaggregated data.
 
 ---
 
@@ -286,3 +277,5 @@ GROUP BY variant
 3. **TTL and expiration**: Jobs have an `expires_at` field. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 
 4. **Fallback**: If preaggregation fails or isn't ready, the query falls back to computing exposures from the events table directly.
+
+5. **Future: GROUP BY (entity_id, variant)**: Currently the query groups by entity_id only and resolves the variant during preaggregation (e.g., argMin for first-seen). This bakes the variant handling strategy into the stored data, so switching between "first seen" and "exclude multiple" requires recomputation. A better approach is to GROUP BY (entity_id, variant) so we store one row per user-variant pair, then resolve multiple variants at query time. This makes the preaggregated data reusable regardless of which variant handling the user picks.
