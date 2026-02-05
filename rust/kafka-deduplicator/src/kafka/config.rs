@@ -138,4 +138,39 @@ impl ConsumerConfigBuilder {
     pub fn build(self) -> ClientConfig {
         self.config
     }
+
+    /// Build a minimal config for one-shot fetch operations.
+    ///
+    /// Removes group.instance.id (static membership) since manual assignment via `assign()`
+    /// doesn't use consumer group coordination. Keeps a placeholder group.id since
+    /// rdkafka requires it. This is used by `HeadFetcher` for fetching head-of-log messages.
+    pub fn build_for_fetch(mut self) -> ClientConfig {
+        // Remove group.instance.id - static membership not needed for manual assign
+        self.config.remove("group.instance.id");
+        self.config
+    }
+}
+
+impl ConsumerConfigBuilder {
+    /// Create a minimal consumer config builder for one-shot fetch operations.
+    ///
+    /// Uses a placeholder group.id since rdkafka requires it even for manual assignment.
+    /// The group is never actually used for coordination since we use `assign()` instead
+    /// of `subscribe()`.
+    pub fn new_for_fetch(bootstrap_servers: &str) -> Self {
+        let mut config = ClientConfig::new();
+
+        config.set("bootstrap.servers", bootstrap_servers);
+
+        // rdkafka requires group.id even for manual assign() - use placeholder
+        config.set("group.id", "head-fetcher-no-group");
+
+        // Minimal defaults for fetch operations
+        config
+            .set("enable.auto.offset.store", "false")
+            .set("enable.auto.commit", "false")
+            .set("socket.timeout.ms", "10000");
+
+        Self { config }
+    }
 }

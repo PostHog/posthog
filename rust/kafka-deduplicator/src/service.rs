@@ -23,8 +23,8 @@ use crate::{
     checkpoint_manager::CheckpointManager,
     config::Config,
     kafka::{
-        batch_consumer::BatchConsumer, ConsumerConfigBuilder, OffsetTracker, PartitionRouter,
-        PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
+        batch_consumer::BatchConsumer, ConsumerConfigBuilder, HeadFetcher, OffsetTracker,
+        PartitionRouter, PartitionRouterConfig, PartitionWorkerConfig, RoutingProcessor,
     },
     processor_rebalance_handler::ProcessorRebalanceHandler,
     rebalance_tracker::RebalanceTracker,
@@ -363,6 +363,15 @@ impl KafkaDeduplicatorService {
             offset_tracker.clone(),
         ));
 
+        // Create head fetcher for fetching head-of-log from output topic after checkpoint imports
+        let head_fetcher = output_topic.as_ref().map(|_| {
+            let fetch_config = ConsumerConfigBuilder::new_for_fetch(&self.config.kafka_hosts)
+                .with_tls(self.config.kafka_tls)
+                .build_for_fetch();
+            let timeout = Duration::from_millis(self.config.head_fetch_timeout_ms);
+            Arc::new(HeadFetcher::new(fetch_config, timeout))
+        });
+
         // Create rebalance handler with the router for partition worker management
         let rebalance_handler = Arc::new(ProcessorRebalanceHandler::with_router(
             self.store_manager.clone(),
@@ -370,6 +379,8 @@ impl KafkaDeduplicatorService {
             router,
             offset_tracker.clone(),
             self.checkpoint_importer.clone(),
+            head_fetcher,
+            output_topic.clone(),
         ));
 
         // Create consumer config using the kafka module's builder

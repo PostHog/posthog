@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use common_types::CapturedEvent;
 use rdkafka::{Offset, TopicPartitionList};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -9,6 +10,7 @@ use tracing::{debug, error, info, warn};
 use crate::checkpoint::import::CheckpointImporter;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_context::{ConsumerCommand, ConsumerCommandSender};
+use crate::kafka::head_fetcher::{HeadFetcher, PartitionFetchResult};
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::partition_router::{shutdown_workers, PartitionRouter};
 use crate::kafka::rebalance_handler::RebalanceHandler;
@@ -36,6 +38,10 @@ where
     router: Option<Arc<PartitionRouter<T, P>>>,
     offset_tracker: Arc<OffsetTracker>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
+    /// Optional head fetcher for reading latest messages from output topic (deduplicated events)
+    head_fetcher: Option<Arc<HeadFetcher>>,
+    /// Output topic name - the deduplicated events topic (for head-of-log fetching)
+    output_topic: Option<String>,
 }
 
 impl<T, P> ProcessorRebalanceHandler<T, P>
@@ -48,6 +54,8 @@ where
         rebalance_tracker: Arc<RebalanceTracker>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
+        head_fetcher: Option<Arc<HeadFetcher>>,
+        output_topic: Option<String>,
     ) -> Self {
         Self {
             store_manager,
@@ -55,6 +63,8 @@ where
             router: None,
             offset_tracker,
             checkpoint_importer,
+            head_fetcher,
+            output_topic,
         }
     }
 
@@ -64,6 +74,8 @@ where
         router: Arc<PartitionRouter<T, P>>,
         offset_tracker: Arc<OffsetTracker>,
         checkpoint_importer: Option<Arc<CheckpointImporter>>,
+        head_fetcher: Option<Arc<HeadFetcher>>,
+        output_topic: Option<String>,
     ) -> Self {
         Self {
             store_manager,
@@ -71,6 +83,8 @@ where
             router: Some(router),
             offset_tracker,
             checkpoint_importer,
+            head_fetcher,
+            output_topic,
         }
     }
 
@@ -503,6 +517,88 @@ where
                             );
                         }
                     }
+
+                    // Fetch head-of-log from output topic for partitions with successful checkpoint imports
+                    if let (Some(ref head_fetcher), Some(ref output_topic)) =
+                        (&self.head_fetcher, &self.output_topic)
+                    {
+                        let partition_numbers: Vec<i32> = seek_offsets
+                            .iter()
+                            .filter(|(p, _)| owned.contains(p))
+                            .map(|(p, _)| p.partition_number())
+                            .collect();
+
+                        if !partition_numbers.is_empty() {
+                            // Run blocking Kafka poll in a spawn_blocking task
+                            let fetcher = head_fetcher.clone();
+                            let topic = output_topic.clone();
+                            let fetch_result = tokio::task::spawn_blocking(move || {
+                                fetcher.fetch_head_messages::<CapturedEvent>(
+                                    &topic,
+                                    &partition_numbers,
+                                )
+                            })
+                            .await;
+
+                            match fetch_result {
+                                Ok(Ok(results)) => {
+                                    for (partition, result) in results {
+                                        match result {
+                                            PartitionFetchResult::Success(kafka_msg) => {
+                                                if let Some(event) = kafka_msg.get_message() {
+                                                    info!(
+                                                        partition,
+                                                        event_name = %event.event,
+                                                        uuid = %event.uuid,
+                                                        "Head-of-log fetch succeeded for output topic partition"
+                                                    );
+                                                } else {
+                                                    info!(
+                                                        partition,
+                                                        "Head-of-log fetch succeeded but message was empty"
+                                                    );
+                                                }
+                                            }
+                                            PartitionFetchResult::Empty => {
+                                                info!(
+                                                    partition,
+                                                    "Head-of-log fetch: output topic partition is empty"
+                                                );
+                                            }
+                                            PartitionFetchResult::DeserializationError(e) => {
+                                                warn!(
+                                                    partition,
+                                                    error = %e,
+                                                    "Head-of-log fetch: failed to deserialize message"
+                                                );
+                                            }
+                                            PartitionFetchResult::Error(e) => {
+                                                // Log with error type for observability
+                                                warn!(
+                                                    partition,
+                                                    error_type = e.error_type(),
+                                                    is_timeout = e.is_timeout(),
+                                                    error = %e,
+                                                    "Head-of-log fetch failed for partition"
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    // Fatal error (consumer creation/assignment) - log and continue with resume
+                                    warn!(
+                                        error_type = e.error_type(),
+                                        error = %e,
+                                        "Failed to fetch head-of-log messages from output topic"
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Head fetch task panicked");
+                                }
+                            }
+                        }
+                    }
                 }
 
                 let mut resume_tpl = TopicPartitionList::new();
@@ -649,6 +745,8 @@ mod tests {
                 coordinator.clone(),
                 offset_tracker.clone(),
                 None,
+                None,
+                None,
             );
         assert!(handler.router.is_none());
 
@@ -664,6 +762,8 @@ mod tests {
             coordinator,
             router.clone(),
             offset_tracker,
+            None,
+            None,
             None,
         );
         assert!(handler_with_router.router.is_some());
@@ -691,6 +791,8 @@ mod tests {
             coordinator,
             router.clone(),
             offset_tracker,
+            None,
+            None,
             None,
         );
 
@@ -752,6 +854,8 @@ mod tests {
             coordinator,
             router.clone(),
             offset_tracker,
+            None,
+            None,
             None,
         );
 
@@ -857,6 +961,8 @@ mod tests {
             router.clone(),
             offset_tracker,
             None,
+            None,
+            None,
         );
 
         // Step 1: Initial assignment
@@ -952,6 +1058,8 @@ mod tests {
                 coordinator.clone(),
                 offset_tracker,
                 None,
+                None,
+                None,
             );
 
         // First assignment
@@ -996,6 +1104,8 @@ mod tests {
                 store_manager.clone(),
                 coordinator,
                 offset_tracker,
+                None,
+                None,
                 None,
             );
 
@@ -1056,6 +1166,8 @@ mod tests {
                 store_manager,
                 coordinator.clone(),
                 offset_tracker,
+                None,
+                None,
                 None,
             );
 
@@ -1139,6 +1251,8 @@ mod tests {
                 store_manager.clone(),
                 coordinator.clone(),
                 offset_tracker,
+                None,
+                None,
                 None,
             );
 
@@ -1238,6 +1352,8 @@ mod tests {
                 coordinator.clone(),
                 offset_tracker,
                 None,
+                None,
+                None,
             );
 
         // Create command channel
@@ -1287,6 +1403,8 @@ mod tests {
                 store_manager.clone(),
                 coordinator.clone(),
                 offset_tracker,
+                None,
+                None,
                 None,
             );
 
@@ -1366,6 +1484,8 @@ mod tests {
                 store_manager.clone(),
                 coordinator.clone(),
                 offset_tracker,
+                None,
+                None,
                 None,
             );
 
@@ -1473,6 +1593,8 @@ mod tests {
                 coordinator.clone(),
                 offset_tracker,
                 None,
+                None,
+                None,
             );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1552,6 +1674,8 @@ mod tests {
                 coordinator,
                 offset_tracker,
                 None, // No checkpoint importer
+                None,
+                None,
             );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
