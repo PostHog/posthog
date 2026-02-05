@@ -11,6 +11,7 @@
   - Single test: `pytest path/to/test.py::TestClass::test_method`
   - Frontend: `pnpm --filter=@posthog/frontend test`
   - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+  - Running tests requires: PostgreSQL, ClickHouse, Redis (use Docker or see setup below)
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
@@ -20,6 +21,45 @@
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
+
+## Test Environment Setup (without Flox)
+
+If Flox is not available, you can set up a minimal test environment:
+
+1. **Install Python 3.12.x via uv**:
+   ```bash
+   uv python install 3.12.11  # or latest 3.12.x available
+   ```
+
+2. **Sync dependencies**:
+   ```bash
+   uv sync --python 3.12.11
+   ```
+
+3. **Start required services** (PostgreSQL required, ClickHouse for most tests):
+   ```bash
+   # PostgreSQL
+   service postgresql start
+   sudo -u postgres psql -c "CREATE USER posthog WITH PASSWORD 'posthog' SUPERUSER;"
+   sudo -u postgres psql -c "CREATE DATABASE posthog OWNER posthog;"
+
+   # For full test suite, also need ClickHouse on port 8123 and Redis on port 6379
+   ```
+
+4. **Install sqlx-cli** (required for database migrations):
+   ```bash
+   cargo install sqlx-cli --no-default-features --features native-tls,postgres
+   ```
+
+5. **Run tests**:
+   ```bash
+   PATH="$HOME/.cargo/bin:$PATH" uv run pytest path/to/test.py -v
+   ```
+
+Note: Many integration tests require ClickHouse. If ClickHouse is not available, consider:
+- Using Docker: `docker compose -f docker-compose.dev.yml up`
+- Running only unit tests that don't require ClickHouse
+- Relying on CI to validate full test suite
 
 ## Commits and Pull Requests
 
