@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import Mock
 
 from parameterized import parameterized
@@ -16,6 +17,10 @@ from posthog.temporal.data_imports.sources.snapchat_ads.utils import (
     SnapchatErrorHandler,
     SnapchatStatsResource,
 )
+
+FROZEN_TIME = "2024-06-15T12:00:00"
+FROZEN_DATETIME = datetime(2024, 6, 15, 12, 0, 0)
+FROZEN_DATE = date(2024, 6, 15)
 
 
 class TestSnapchatErrorHandler:
@@ -40,13 +45,14 @@ class TestSnapchatErrorHandler:
         assert SnapchatErrorHandler.is_retryable(error) == expected
 
 
+@freeze_time(FROZEN_TIME)
 class TestSnapchatDateRangeManager:
     @parameterized.expand(
         [
             ("no_incremental", False, None, 365),
-            ("incremental_datetime", True, datetime.now() - timedelta(days=10), 10),
-            ("incremental_date", True, date.today() - timedelta(days=5), 5),
-            ("incremental_string", True, (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"), 7),
+            ("incremental_datetime", True, FROZEN_DATETIME - timedelta(days=10), 10),
+            ("incremental_date", True, FROZEN_DATE - timedelta(days=5), 5),
+            ("incremental_string", True, (FROZEN_DATETIME - timedelta(days=7)).strftime("%Y-%m-%d"), 7),
             ("invalid_string_fallback", True, "invalid", 365),
         ]
     )
@@ -56,7 +62,7 @@ class TestSnapchatDateRangeManager:
         start_dt = datetime.fromisoformat(start_date)
         end_dt = datetime.fromisoformat(end_date)
 
-        assert end_dt.date() == (datetime.now() + timedelta(days=1)).date()
+        assert end_dt.date() == (FROZEN_DATETIME + timedelta(days=1)).date()
         assert (end_dt - start_dt).days <= expected_max_days + 2
         assert start_date.endswith("T00:00:00")
 
@@ -70,8 +76,8 @@ class TestSnapchatDateRangeManager:
         ]
     )
     def test_generate_chunks(self, name, days_back, chunk_days, expected_chunks):
-        start = (datetime.now() - timedelta(days=days_back)).strftime(SNAPCHAT_DATE_FORMAT)
-        end = datetime.now().strftime(SNAPCHAT_DATE_FORMAT)
+        start = (FROZEN_DATETIME - timedelta(days=days_back)).strftime(SNAPCHAT_DATE_FORMAT)
+        end = FROZEN_DATETIME.strftime(SNAPCHAT_DATE_FORMAT)
 
         chunks = SnapchatDateRangeManager.generate_chunks(start, end, chunk_days)
 
