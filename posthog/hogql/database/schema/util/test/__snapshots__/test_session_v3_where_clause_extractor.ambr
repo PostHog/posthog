@@ -111,7 +111,7 @@
       FROM
           events
       WHERE
-          and(equals(events.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_2)s, 6, %(hogql_val_3)s)))), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), equals(events.event, %(hogql_val_7)s))) AS e
+          and(equals(events.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_2)s, %(hogql_val_3)s)))), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), assumeNotNull(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s))), equals(events.event, %(hogql_val_7)s))) AS e
       LEFT OUTER JOIN (SELECT
           tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
           person_distinct_id_overrides.distinct_id AS distinct_id

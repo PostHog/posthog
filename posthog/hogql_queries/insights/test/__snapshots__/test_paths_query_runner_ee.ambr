@@ -6330,7 +6330,7 @@
                            events.person_id AS person_id,
                            toTimeZone(events.timestamp, 'UTC') AS timestamp
                     FROM events
-                    WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2023-05-23 23:59:59', 6, 'UTC'))), not(startsWith(events.event, '$')))) AS events
+                    WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2012-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-05-23 23:59:59', 'UTC'))), not(startsWith(events.event, '$')))) AS events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6508,7 +6508,7 @@
                            events.person_id AS person_id,
                            toTimeZone(events.timestamp, 'UTC') AS timestamp
                     FROM events
-                    WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-03 23:59:59', 6, 'UTC'))), not(startsWith(events.event, '$')))) AS events
+                    WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2021-05-03 23:59:59', 'UTC'))), not(startsWith(events.event, '$')))) AS events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id

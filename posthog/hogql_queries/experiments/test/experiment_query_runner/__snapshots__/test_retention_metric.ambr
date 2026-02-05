@@ -38,7 +38,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -57,7 +57,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -123,7 +123,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -142,7 +142,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'first_action'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'first_action'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -208,7 +208,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -227,7 +227,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -293,7 +293,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -312,7 +312,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -378,7 +378,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'session_start'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'session_start'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -397,7 +397,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'key_action'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'key_action'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -463,7 +463,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -482,7 +482,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -548,7 +548,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'app_open'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'app_open'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -567,7 +567,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'feature_used'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'feature_used'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -633,7 +633,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -652,7 +652,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -718,7 +718,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -737,7 +737,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -803,7 +803,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -822,7 +822,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -888,7 +888,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -907,7 +907,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(1209600))), equals(events.event, 'return_visit'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(1209600))), equals(events.event, 'return_visit'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -973,7 +973,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(7200))), equals(events.event, 'signup'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(7200))), equals(events.event, 'signup'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -992,7 +992,7 @@
                   events.person_id AS person_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp
            FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(266400))), equals(events.event, 'return_visit'))) AS events
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(266400))), equals(events.event, 'return_visit'))) AS events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
