@@ -69,7 +69,7 @@ def DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE_SQL():
         table_name=DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
         engine=Distributed(
             data_table=SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
-            sharding_key="sipHash64(job_id)",
+            sharding_key="cityHash64(entity_id)",
         ),
     )
 
