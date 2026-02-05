@@ -74,6 +74,7 @@ def prepare_ast_for_printing(
                 context.team_id,
                 modifiers=context.modifiers,
                 team=context.team,
+                user=context.user,
                 timings=context.timings,
             )
 

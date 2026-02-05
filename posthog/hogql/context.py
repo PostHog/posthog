@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.transforms.property_types import PropertySwapper
 
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 @dataclass
@@ -63,9 +63,18 @@ class HogQLContext:
 
     property_swapper: Optional["PropertySwapper"] = None
 
+    # Access control context (optional, for system table queries)
+    user: Optional["User"] = None
+    user_id: Optional[int] = None
+    is_org_admin: bool = False
+    organization_membership_id: Optional[str] = None
+    role_ids: list[str] = field(default_factory=list)
+
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
+        if self.user and not self.user_id:
+            self.user_id = self.user.id
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
