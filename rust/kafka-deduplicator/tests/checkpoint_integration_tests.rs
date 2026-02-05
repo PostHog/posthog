@@ -228,10 +228,29 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
 
     // Verify each file from metadata was imported
-    let imported_files: Vec<_> = std::fs::read_dir(&import_result)?
+    let all_imported_files: Vec<_> = std::fs::read_dir(&import_result)?
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
+
+    // Separate marker file from checkpoint files
+    let marker_files: Vec<_> = all_imported_files
+        .iter()
+        .filter(|f| f.starts_with(".imported_"))
+        .collect();
+    let imported_files: Vec<_> = all_imported_files
+        .iter()
+        .filter(|f| !f.starts_with(".imported_"))
+        .cloned()
+        .collect();
+
+    // Verify marker file exists (created by import to identify imported stores)
+    assert_eq!(
+        marker_files.len(),
+        1,
+        "Should have exactly one .imported_* marker file, found: {marker_files:?}"
+    );
+    info!(marker_file = ?marker_files[0], "Verified import marker file exists");
 
     info!(
         imported = imported_files.len(),
@@ -272,10 +291,11 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
     );
 
     // Verify store directory structure: <store_base>/<topic>_<partition>/<timestamp_millis>
-    let expected_store_path = downloaded_metadata.get_store_path(tmp_import_dir.path());
+    // Note: import_result uses Utc::now() for the timestamp, so we just verify the path exists
+    // rather than calculating the expected path (which would require the exact import timestamp)
     assert!(
-        expected_store_path.exists(),
-        "Store directory structure should exist: {expected_store_path:?}"
+        import_result.exists(),
+        "Store directory structure should exist: {import_result:?}"
     );
 
     // Drop the original store to release RocksDB locks
@@ -487,11 +507,24 @@ async fn test_fallback_after_failed_attempt() -> Result<()> {
     let import_path = result.unwrap();
 
     // Verify the imported checkpoint is from the OLDER (successful) checkpoint
-    // by checking the path matches the older checkpoint's expected store path
-    let expected_path = older_metadata.get_store_path(tmp_import_dir.path());
+    // by checking the marker file contains the older checkpoint's metadata
+    let marker_files: Vec<_> = std::fs::read_dir(&import_path)
+        .expect("Should be able to read import path")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".imported_"))
+        .collect();
+    assert_eq!(marker_files.len(), 1, "Should have exactly one marker file");
+
+    let marker_content = std::fs::read_to_string(marker_files[0].path())
+        .expect("Should be able to read marker file");
+    let marker_metadata: serde_json::Value =
+        serde_json::from_str(&marker_content).expect("Marker should contain valid JSON");
+
+    // The marker should contain the OLDER checkpoint's ID, not the newer (failed) one
     assert_eq!(
-        import_path, expected_path,
-        "Imported path should be from older checkpoint"
+        marker_metadata["id"].as_str().unwrap(),
+        older_metadata.id,
+        "Imported checkpoint should be from older checkpoint (fallback)"
     );
 
     info!(
@@ -685,7 +718,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     let start = Instant::now();
     let result = worker_1
-        .checkpoint_partition_cancellable(&store, None, Some(&pre_cancelled_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&pre_cancelled_token), Some("test"))
         .await;
     let elapsed = start.elapsed();
 
@@ -816,7 +849,7 @@ async fn test_export_cancellation_via_minio() -> Result<()> {
 
     let active_token = CancellationToken::new();
     let result = worker_3
-        .checkpoint_partition_cancellable(&store, None, Some(&active_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&active_token), None)
         .await?;
 
     assert!(
@@ -928,7 +961,7 @@ async fn test_export_mid_upload_cancellation() -> Result<()> {
 
     let start = Instant::now();
     let result = worker
-        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token))
+        .checkpoint_partition_cancellable(&store, None, Some(&cancel_token), Some("test"))
         .await;
     let elapsed = start.elapsed();
 

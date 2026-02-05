@@ -44,8 +44,8 @@ export function WebhookIntegration(): JSX.Element {
             <>
                 <p>
                     The Webhook integration has been replaced with our new{' '}
-                    <Link to={urls.dataPipelines('destinations')}>Pipeline Destinations</Link> allowing you to create
-                    multiple, highly customizable webhook triggers based off of Actions or Events.
+                    <Link to={urls.destinations()}>Pipeline Destinations</Link> allowing you to create multiple, highly
+                    customizable webhook triggers based off of Actions or Events.
                 </p>
             </>
         )

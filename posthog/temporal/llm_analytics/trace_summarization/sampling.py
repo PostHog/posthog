@@ -62,7 +62,6 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
-                    AND properties.$ai_trace_id IS NOT NULL
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
                 HAVING last_generation_id IS NOT NULL
@@ -117,7 +116,6 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                     AND timestamp >= toDateTime({start_ts}, 'UTC')
                     AND timestamp < toDateTime({end_ts}, 'UTC')
-                    AND properties.$ai_trace_id IS NOT NULL
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
                 ORDER BY first_timestamp DESC

@@ -245,12 +245,12 @@ export function SmartEdge({
         <>
             <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
             <EdgeLabelRenderer>
-                {data?.label && (
+                {data?.label ? (
                     <EdgeLabel
                         transform={`translate(-50%, -50%) translate(${labelPoint.x}px,${labelPoint.y}px)`}
                         label={(data?.label as string) || ''}
                     />
-                )}
+                ) : null}
             </EdgeLabelRenderer>
         </>
     )
