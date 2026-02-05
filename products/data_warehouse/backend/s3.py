@@ -16,6 +16,10 @@ def get_s3_client():
             key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            # skip_instance_cache ensures a fresh S3FileSystem instance is created each time,
+            # avoiding "Event loop is closed" errors when the event loop changes between async
+            # operations (e.g., between test modules with module-scoped event loops).
+            skip_instance_cache=True,
         )
 
     return s3fs.S3FileSystem()
