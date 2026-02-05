@@ -56,7 +56,7 @@ def SHARDED_EXPERIMENT_EXPOSURES_TABLE_SQL():
 PARTITION BY toYYYYMMDD(expires_at)
 ORDER BY (team_id, job_id, entity_id, breakdown_value)
 TTL expires_at
-SETTINGS index_granularity=8192
+SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
 """
     ).format(
         table_name=SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
