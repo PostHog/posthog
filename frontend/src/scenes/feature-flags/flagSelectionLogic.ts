@@ -85,19 +85,26 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         isAllSelected: [
             (s) => [s.selectedFlagIds, s.displayedFlags],
             (selectedIds: number[], flags: FeatureFlagType[]) => {
-                if (flags.length === 0) {
+                const editableIds = flags
+                    .filter((f) => f.can_edit)
+                    .map((f) => f.id)
+                    .filter((id: number | null): id is number => id !== null)
+                if (editableIds.length === 0) {
                     return false
                 }
-                const flagIds = flags.map((f) => f.id).filter((id: number | null): id is number => id !== null)
-                return flagIds.every((id) => selectedIds.includes(id))
+                return editableIds.every((id) => selectedIds.includes(id))
             },
         ],
         isSomeSelected: [
             (s) => [s.selectedFlagIds, s.displayedFlags],
             (selectedIds: number[], flags: FeatureFlagType[]) => {
-                const flagIds = flags.map((f) => f.id).filter((id: number | null): id is number => id !== null)
+                const editableIds = flags
+                    .filter((f) => f.can_edit)
+                    .map((f) => f.id)
+                    .filter((id: number | null): id is number => id !== null)
                 return (
-                    flagIds.some((id) => selectedIds.includes(id)) && !flagIds.every((id) => selectedIds.includes(id))
+                    editableIds.some((id) => selectedIds.includes(id)) &&
+                    !editableIds.every((id) => selectedIds.includes(id))
                 )
             },
         ],
@@ -140,6 +147,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         },
         selectAll: () => {
             const flagIds = values.displayedFlags
+                .filter((f: FeatureFlagType) => f.can_edit)
                 .map((f: FeatureFlagType) => f.id)
                 .filter((id: number | null): id is number => id !== null)
             actions.setSelectedFlagIds(flagIds)

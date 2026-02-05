@@ -311,6 +311,10 @@ export function OverViewTab({
                     <LemonCheckbox
                         checked={selectedFlagIds.includes(flagId)}
                         onChange={() => toggleFlagSelection(flagId, index)}
+                        disabled={!featureFlag.can_edit}
+                        disabledReason={
+                            !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
+                        }
                     />
                 )
             },

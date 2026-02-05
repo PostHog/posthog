@@ -1850,7 +1850,7 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def bulk_delete(self, request: request.Request, **kwargs):
         """
         Bulk delete feature flags by IDs.
@@ -1904,13 +1904,12 @@ class FeatureFlagViewSet(
         for invalid_id in invalid_ids:
             errors.append({"id": invalid_id, "reason": "Invalid flag ID format"})
 
-        # Add errors for non-existent flags
+        # Process each flag in request order
         for flag_id in validated_ids:
-            if flag_id not in flags_by_id:
+            flag = flags_by_id.get(flag_id)
+            if flag is None:
                 errors.append({"id": flag_id, "reason": "Flag not found"})
-
-        # Process each flag
-        for flag_id, flag in flags_by_id.items():
+                continue
             # Check for linked early access features
             if flag.features.count() > 0:
                 errors.append(
