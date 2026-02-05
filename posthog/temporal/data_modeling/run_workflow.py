@@ -338,9 +338,10 @@ async def handle_model_ready(
 
     try:
         if model.selected is True:
+            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
-            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
             await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(
