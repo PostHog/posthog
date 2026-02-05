@@ -12,7 +12,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
@@ -23,6 +23,7 @@ export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
+        tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
         select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
     },
     full: true,
