@@ -1,4 +1,4 @@
-import { DndContext, closestCenter } from '@dnd-kit/core'
+import { DndContext, type DragEndEvent, closestCenter } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
@@ -108,7 +108,7 @@ export function CyclotronJobInputs({
         <>
             <DndContext
                 collisionDetection={closestCenter}
-                onDragEnd={({ active, over }) => {
+                onDragEnd={({ active, over }: DragEndEvent) => {
                     if (over && active.id !== over.id) {
                         const oldIndex = inputSchemaIds.indexOf(active.id as string)
                         const newIndex = inputSchemaIds.indexOf(over.id as string)
@@ -153,11 +153,16 @@ function JsonConfigField(props: {
     const templatingKind = props.input.templating ?? 'hog'
     const [isExpanded, setIsExpanded] = useState(true)
 
+    const contextOptions = useMemo(
+        () => globalsToContextOptions(props.sampleGlobalsWithInputs, templatingKind),
+        [props.sampleGlobalsWithInputs, templatingKind]
+    )
+
     // Set up validation logic for this JSON field
     const logic = cyclotronJobInputLogic({
         fieldKey: key,
         initialValue: props.input.value,
-        onChange: (value) => props.onChange?.({ ...props.input, value }),
+        onChange: (value: string) => props.onChange?.({ ...props.input, value }),
     })
 
     const { error, jsonValue } = useValues(logic)
@@ -202,6 +207,7 @@ function JsonConfigField(props: {
                                     onOptionSelect={(option) => {
                                         void copyToClipboard(`{${option.example}}`, 'template code')
                                     }}
+                                    contextOptions={contextOptions}
                                 />
                             </span>
                         ) : null}
