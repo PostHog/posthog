@@ -2,10 +2,7 @@ name: Inkeep Agent
 
 on:
     pull_request:
-        types: [opened, synchronize]
-
-    issue_comment:
-        types: [created]
+        types: [closed]
 
 permissions:
     contents: read
@@ -14,14 +11,12 @@ permissions:
 
 jobs:
     trigger-agent:
-        # Agent will trigger if a PR is created or a comment including `@inkeep` is left on a PR.
-        if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep'))
+        if: github.event.pull_request.merged == true
         runs-on: ubuntu-latest
         steps:
             - name: Trigger Inkeep Agent
-              uses: inkeep/inkeep-agents-action@5cff55f6466991b866886e2bc18587d7b8aceecf # v0
+              uses: inkeep/inkeep-agents-action@v0
               with:
                   trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
-
                   # Filters out PRs that dont match the given regex. Update regex as desired or remove entirely
                   pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'

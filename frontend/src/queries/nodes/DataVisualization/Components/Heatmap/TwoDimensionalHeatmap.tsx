@@ -236,7 +236,9 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
                                             )}
                                             style={{ backgroundColor: cellColor }}
                                         >
-                                            {formattedValue ?? ''}
+                                            {typeof formattedValue === 'object'
+                                                ? JSON.stringify(formattedValue)
+                                                : (formattedValue ?? '')}
                                         </td>
                                     )
                                 })}

@@ -94,6 +94,7 @@ import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { MembersPlatformAddonAd } from './organization/MembersPlatformAddonAd'
 import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
@@ -869,6 +870,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-members',
         title: 'Members',
         settings: [
+            {
+                id: 'banner',
+                title: null,
+                component: <MembersPlatformAddonAd />,
+            },
             {
                 id: 'invites',
                 title: 'Pending invites',

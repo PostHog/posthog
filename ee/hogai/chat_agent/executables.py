@@ -7,7 +7,7 @@ from ee.hogai.core.plan_mode import PlanModeExecutable, PlanModeToolsExecutable
 from ee.hogai.utils.types.base import CLEAR_SUPERMODE, AssistantState, PartialAssistantState
 
 SWITCH_TO_EXECUTION_MODE_PROMPT = """
-Planning complete. Executing the plan now.
+Planning complete. Switched to execution mode, which defaults to product analytics mode, with access to all tools, like dashboard creation.
 
 You MUST continue executing the plan until it is complete. Do not respond with text only - proceed with tool calls until you have completed the tasks.
 """
