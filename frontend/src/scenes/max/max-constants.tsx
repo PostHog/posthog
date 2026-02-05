@@ -1025,7 +1025,7 @@ export const SPECIAL_MODES: Record<string, ModeDefinition> = {
         icon: <IconNotebook />,
         beta: true,
     },
-    deep_research: {
+    research: {
         name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
