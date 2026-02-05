@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 from parameterized import parameterized
 
-from products.llm_analytics.backend.llm.providers.openrouter import OpenRouterAdapter
+from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter
+from products.llm_analytics.backend.llm.providers.openrouter import OPENROUTER_HEADERS, OpenRouterAdapter
 
 
 class TestOpenRouterValidateKey:
@@ -84,3 +85,28 @@ class TestOpenRouterDefaultKey:
 
         with pytest.raises(ValueError, match="BYOKEY-only"):
             adapter._get_default_api_key()
+
+
+class TestOpenRouterHeaders:
+    def test_openai_adapter_returns_empty_headers(self):
+        adapter = OpenAIAdapter()
+        assert adapter._get_default_headers() == {}
+
+    def test_openrouter_adapter_returns_attribution_headers(self):
+        adapter = OpenRouterAdapter()
+
+        headers = adapter._get_default_headers()
+
+        assert headers == {"HTTP-Referer": "https://posthog.com", "X-Title": "PostHog"}
+
+    def test_list_models_passes_headers_to_client(self):
+        mock_client = MagicMock()
+        mock_client.models.list.return_value = []
+
+        with patch(
+            "products.llm_analytics.backend.llm.providers.openrouter.openai.OpenAI", return_value=mock_client
+        ) as mock_constructor:
+            OpenRouterAdapter.list_models("sk-or-test-key")
+
+        mock_constructor.assert_called_once()
+        assert mock_constructor.call_args.kwargs["default_headers"] == OPENROUTER_HEADERS

@@ -22,11 +22,20 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+# For App Attribution
+OPENROUTER_HEADERS = {
+    "HTTP-Referer": "https://posthog.com",
+    "X-Title": "PostHog",
+}
+
 
 class OpenRouterAdapter(OpenAIAdapter):
     """OpenRouter provider that reuses OpenAI's completion/streaming logic."""
 
     name = "openrouter"
+
+    def _get_default_headers(self) -> dict[str, str]:
+        return OPENROUTER_HEADERS
 
     def complete(
         self,
@@ -81,7 +90,12 @@ class OpenRouterAdapter(OpenAIAdapter):
             return []
 
         try:
-            client = openai.OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL, timeout=OpenAIConfig.TIMEOUT)
+            client = openai.OpenAI(
+                api_key=api_key,
+                base_url=OPENROUTER_BASE_URL,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=OPENROUTER_HEADERS,
+            )
             return sorted(m.id for m in client.models.list())
         except Exception as e:
             logger.exception(f"Error listing OpenRouter models: {e}")
