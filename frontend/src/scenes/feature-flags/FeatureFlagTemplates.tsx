@@ -196,7 +196,10 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
         <>
             <div className="mb-4">
                 <LemonCollapse
-                    activeKey={templateExpanded ? 'templates' : undefined}
+                    // Use a non-matching key instead of null/undefined to force closed state,
+                    // because LemonCollapse uses `activeKey ?? localActiveKey` which falls back
+                    // to internal state when activeKey is nullish
+                    activeKey={templateExpanded ? 'templates' : '__closed__'}
                     onChange={(key) => setTemplateExpanded(key === 'templates')}
                     panels={[
                         {
