@@ -2,8 +2,10 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -17,11 +19,12 @@ import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogi
 import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
 
 export const INSIGHTS_PER_PAGE = 30
+const INSIGHTS_PER_PAGE_EXPERIMENT = 15
 
 export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     path(['scenes', 'saved-insights', 'addSavedInsightsModalLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -50,10 +53,11 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
                 const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo } = values.filters
 
+                const perPage = values.insightsPerPage
                 const params: Record<string, any> = {
                     order,
-                    limit: INSIGHTS_PER_PAGE,
-                    offset: Math.max(0, (page - 1) * INSIGHTS_PER_PAGE),
+                    limit: perPage,
+                    offset: Math.max(0, (page - 1) * perPage),
                     saved: true,
                     basic: true,
                 }
@@ -121,6 +125,13 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         filters: [
             (s) => [s.rawModalFilters],
             (rawModalFilters): SavedInsightFilters => cleanFilters(rawModalFilters || {}),
+        ],
+        insightsPerPage: [
+            (s) => [s.featureFlags],
+            (featureFlags): number =>
+                featureFlags[FEATURE_FLAGS.ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT] === 'test'
+                    ? INSIGHTS_PER_PAGE_EXPERIMENT
+                    : INSIGHTS_PER_PAGE,
         ],
         count: [(s) => [s.insights], (insights) => insights.count],
         sorting: [

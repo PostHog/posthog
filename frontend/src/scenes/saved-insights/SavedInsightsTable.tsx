@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
-import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
+import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 interface SavedInsightsTableProps {
@@ -33,15 +33,16 @@ interface SavedInsightsTableProps {
 
 export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsTableProps): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
-    const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
+    const { modalPage, insights, count, insightsLoading, filters, sorting, insightsPerPage } =
+        useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const { dashboardUpdatesInProgress, isInsightInDashboard } = useValues(insightDashboardModalLogic)
     const { toggleInsightOnDashboard, syncOptimisticStateWithDashboard } = useActions(insightDashboardModalLogic)
     const { dashboard } = useValues(dashboardLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
-    const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
+    const startCount = (modalPage - 1) * insightsPerPage + 1
+    const endCount = Math.min(modalPage * insightsPerPage, count)
 
     useEffect(() => {
         if (isExperimentEnabled && dashboard?.tiles) {
@@ -77,11 +78,10 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            ...(isExperimentEnabled ? { width: 300 } : {}),
             render: function renderName(name: string, insight) {
                 const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <div className={`flex flex-col gap-1 min-w-0 ${isExperimentEnabled ? 'max-w-[280px]' : ''}`}>
+                    <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex min-w-0">
                             {isExperimentEnabled ? (
                                 <Tooltip title={displayName}>
@@ -116,16 +116,28 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
             title: 'Tags',
             dataIndex: 'tags' as keyof QueryBasedInsightModel,
             key: 'tags',
+            ...(isExperimentEnabled ? { width: 0 } : {}),
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={tags} staticOnly />
             },
         },
-        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
-        createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        ...(isExperimentEnabled
+            ? []
+            : [
+                  createdByColumn() as LemonTableColumn<
+                      QueryBasedInsightModel,
+                      keyof QueryBasedInsightModel | undefined
+                  >,
+                  createdAtColumn() as LemonTableColumn<
+                      QueryBasedInsightModel,
+                      keyof QueryBasedInsightModel | undefined
+                  >,
+              ]),
         {
             title: 'Last modified',
             sorter: true,
             dataIndex: 'last_modified_at',
+            ...(isExperimentEnabled ? { width: 0 } : {}),
             render: function renderLastModified(last_modified_at: string) {
                 return (
                     <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
@@ -197,7 +209,7 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
                     pagination={{
                         controlled: true,
                         currentPage: modalPage,
-                        pageSize: INSIGHTS_PER_PAGE,
+                        pageSize: insightsPerPage,
                         entryCount: count,
                         onForward: () => setModalPage(modalPage + 1),
                         onBackward: () => setModalPage(modalPage - 1),
@@ -211,14 +223,14 @@ export function SavedInsightsTable({ renderActionColumn, title }: SavedInsightsT
                         })
                     }
                     rowKey="id"
-                    loadingSkeletonRows={INSIGHTS_PER_PAGE}
+                    loadingSkeletonRows={insightsPerPage}
                     nouns={['insight', 'insights']}
                     rowClassName={
                         isExperimentEnabled
                             ? (insight) =>
                                   isInsightInDashboard(insight, dashboard?.tiles)
                                       ? 'bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
-                                      : 'cursor-pointer hover:bg-primary-highlight border-l-2 border-l-transparent hover:border-l-primary'
+                                      : 'cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
                             : undefined
                     }
                     onRow={

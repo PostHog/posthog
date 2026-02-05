@@ -7,7 +7,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
     const isExperimentEnabled = useFeatureFlag('ADD_INSIGHT_TO_DASHBOARD_MODAL_EXPERIMENT')
 
     if (isExperimentEnabled) {
-        return <SavedInsightsTable title="Or add an existing insight" />
+        return <SavedInsightsTable title="Add an existing insight" />
     }
 
     return <SavedInsightsTable renderActionColumn={(insight) => <DashboardActionButton insight={insight} />} />
