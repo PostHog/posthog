@@ -300,7 +300,9 @@ class TestLazyTypeDetector(BaseTest):
         from posthog.hogql.resolver import resolve_types
 
         parsed = parse_select(query)
-        return resolve_types(parsed, self.context, dialect="clickhouse")
+        resolved = resolve_types(parsed, self.context, dialect="clickhouse")
+        assert isinstance(resolved, ast.SelectQuery)
+        return resolved
 
     def test_detects_lazy_join_from_session_field(self):
         """Query accessing session.$session_duration has LazyJoinType before lazy resolution."""
@@ -361,13 +363,16 @@ class TestEventsFieldCollector(BaseTest):
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
 
-    def _resolve_query(self, query: str) -> tuple[ast.SelectQuery, ast.Type]:
+    def _resolve_query(self, query: str) -> tuple[ast.SelectQuery, ast.TableType | ast.TableAliasType]:
         """Parse, resolve types, and return query with events table type."""
         from posthog.hogql.resolver import resolve_types
 
         parsed = parse_select(query)
         resolved = resolve_types(parsed, self.context, dialect="clickhouse")
+        assert isinstance(resolved, ast.SelectQuery)
+        assert resolved.select_from is not None
         events_table_type = resolved.select_from.type
+        assert isinstance(events_table_type, (ast.TableType, ast.TableAliasType))
         return resolved, events_table_type
 
     def test_collects_direct_database_columns(self):
