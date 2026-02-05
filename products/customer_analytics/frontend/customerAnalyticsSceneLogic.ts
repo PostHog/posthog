@@ -27,6 +27,7 @@ import {
     StepOrderValue,
 } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from './constants'
 import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
@@ -347,6 +348,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 series: [dauSeries, wauSeries, mauSeries],
                                 interval: 'day',
                                 dateRange: {
@@ -379,6 +381,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 series: [wauSeries],
                                 interval: 'day',
                                 dateRange: {
@@ -413,6 +416,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.TrendsQuery,
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 series: [mauSeries],
                                 interval: 'day',
                                 dateRange: {
@@ -455,6 +459,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [
                                 {
                                     kind: NodeKind.EventsNode,
@@ -494,6 +499,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [
                                 {
                                     kind: NodeKind.EventsNode,
@@ -535,6 +541,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [
                                 {
                                     kind: NodeKind.EventsNode,
@@ -602,6 +609,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -637,6 +645,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [paymentSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -668,6 +677,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode, subscriptionSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -701,6 +711,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode],
                             interval: 'week',
                             dateRange: {
@@ -732,6 +743,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             series: [signupSeries as AnyEntityNode],
                             interval: 'day',
                             dateRange: {
@@ -765,6 +777,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.FunnelsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
                             series: [signupPageviewSeries as AnyEntityNode, signupSeries as AnyEntityNode],
                             interval: 'week',
@@ -798,6 +811,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.LifecycleQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
                             series: [dauSeries as AnyEntityNode],
                             interval: 'week',
@@ -821,6 +835,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.FunnelsQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
                             series: [signupSeries as AnyEntityNode, paymentSeries as AnyEntityNode],
                             dateRange: {
