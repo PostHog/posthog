@@ -11934,22 +11934,18 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter",
-                    "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
+                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
-                },
-                "query_override": {
-                    "description": "Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\",\"name\": \"$pageview\",\"event\": \"$pageview\",\"math\": \"total\"}]}   If query_override = {\"series\": [{\"kind\": \"EventsNode\",\"name\": \"$identify\",\"event\": \"$identify\",\"math\": \"total\"}]}   The query executed will return the count of $identify events, instead of $pageview's",
-                    "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/EndpointRefreshMode",
                     "default": "cache"
                 },
                 "variables": {
-                    "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
+                    "description": "Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.\n\nFor HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{\"event_name\": \"$pageview\"}`\n\nFor non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`\n\nFor materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{\"$browser\": \"Chrome\"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.\n\nUnknown variable names will return a 400 error.",
                     "type": "object"
                 },
                 "version": {
