@@ -711,6 +711,7 @@ export function SavedInsights(): JSX.Element {
                     <>
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
+                            data-attr={`insight-list-item-${insight.short_id}`}
                             title={
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
