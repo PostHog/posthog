@@ -464,7 +464,7 @@ export const maxLogic = kea<maxLogicType>([
             }
         }
 
-        // If there is a prefill question from side panel state (from opening Max within the app), use it
+        // If there is a prefill question from side panel state (from opening PostHog AI within the app), use it
         if (
             !values.question &&
             sidePanelStateLogic.isMounted() &&
@@ -556,6 +556,14 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
             return current
         }
         if (current.tagName === 'MAIN') {
+            return current
+        }
+        // New side panel layout (UX_REMOVE_SIDEPANEL flag)
+        if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
+            return current
+        }
+        // Full screen Max with UX_REMOVE_SIDEPANEL flag (AiFirstMaxInstance)
+        if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
             return current
         }
         current = current.parentElement
