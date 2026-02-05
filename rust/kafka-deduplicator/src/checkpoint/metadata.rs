@@ -113,13 +113,22 @@ impl CheckpointMetadata {
 
     /// Produce a path under the supplied base directory for the local RocksDB stores that
     /// will host the imported checkpoint files. Example:
-    /// <local_store_base_path>/<topic_name>_<partition_number>/<checkpoint_unix_epoch_millis>
-    pub fn get_store_path(&self, local_store_base_path: &Path) -> PathBuf {
+    /// <local_store_base_path>/<topic_name>_<partition_number>/<timestamp_unix_epoch_millis>
+    ///
+    /// The caller provides the timestamp to use for the local store directory. Production code
+    /// should pass `Utc::now()` so imported checkpoints get the current timestamp (ensuring they
+    /// are "newest" and won't be superseded by accidentally created empty stores). Tests can
+    /// pass controlled timestamps for validation.
+    pub fn get_store_path(
+        &self,
+        local_store_base_path: &Path,
+        timestamp: DateTime<Utc>,
+    ) -> PathBuf {
         format_store_path(
             local_store_base_path,
             &self.topic,
             self.partition,
-            self.attempt_timestamp,
+            timestamp,
         )
     }
 
@@ -459,7 +468,8 @@ mod tests {
         );
 
         let base_path = Path::new("/data/stores");
-        let store_path = metadata.get_store_path(base_path);
+        // Pass explicit timestamp - production code uses Utc::now(), tests can control the timestamp
+        let store_path = metadata.get_store_path(base_path, attempt_timestamp);
 
         // Store path should be <base>/<topic>_<partition>/<timestamp_millis>
         let expected = base_path
@@ -469,7 +479,7 @@ mod tests {
 
         // Works with different base paths
         let tmp_base = Path::new("/tmp/deduplication-store");
-        let tmp_store_path = metadata.get_store_path(tmp_base);
+        let tmp_store_path = metadata.get_store_path(tmp_base, attempt_timestamp);
         let tmp_expected = tmp_base
             .join(format!("{topic}_{partition}"))
             .join(timestamp_millis.to_string());
@@ -493,7 +503,8 @@ mod tests {
         );
 
         let base_path = Path::new("/data/stores");
-        let store_path = metadata.get_store_path(base_path);
+        // Pass explicit timestamp - production code uses Utc::now(), tests can control the timestamp
+        let store_path = metadata.get_store_path(base_path, attempt_timestamp);
 
         // Slashes in topic should be replaced with underscores for filesystem safety
         let expected = base_path

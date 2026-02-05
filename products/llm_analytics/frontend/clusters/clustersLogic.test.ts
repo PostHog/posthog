@@ -4,7 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, ClusteringRun } from './types'
+import { Cluster, ClusterMetrics, ClusteringRun } from './types'
 
 describe('clustersLogic', () => {
     let logic: ReturnType<typeof clustersLogic.build>
@@ -140,6 +140,84 @@ describe('clustersLogic', () => {
                     logic.actions.toggleScatterPlotExpanded()
                 }).toMatchValues({
                     isScatterPlotExpanded: true,
+                })
+            })
+        })
+
+        describe('clusterMetrics', () => {
+            it('defaults to empty object', () => {
+                expect(logic.values.clusterMetrics).toEqual({})
+            })
+
+            it('sets cluster metrics', async () => {
+                const metrics: Record<number, ClusterMetrics> = {
+                    0: {
+                        avgCost: 0.05,
+                        avgLatency: 1.5,
+                        avgTokens: 500,
+                        totalCost: 0.5,
+                        errorRate: 0.1,
+                        errorCount: 1,
+                        itemCount: 10,
+                    },
+                    1: {
+                        avgCost: 0.02,
+                        avgLatency: 0.8,
+                        avgTokens: 200,
+                        totalCost: 0.2,
+                        errorRate: 0,
+                        errorCount: 0,
+                        itemCount: 10,
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.setClusterMetrics(metrics)
+                }).toMatchValues({
+                    clusterMetrics: metrics,
+                })
+            })
+
+            it('clears metrics when clustering level changes', async () => {
+                const metrics: Record<number, ClusterMetrics> = {
+                    0: {
+                        avgCost: 0.05,
+                        avgLatency: 1.5,
+                        avgTokens: 500,
+                        totalCost: 0.5,
+                        errorRate: 0.1,
+                        errorCount: 1,
+                        itemCount: 10,
+                    },
+                }
+
+                logic.actions.setClusterMetrics(metrics)
+                expect(logic.values.clusterMetrics).toEqual(metrics)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setClusteringLevel('generation')
+                }).toMatchValues({
+                    clusterMetrics: {},
+                })
+            })
+        })
+
+        describe('clusterMetricsLoading', () => {
+            it('defaults to false', () => {
+                expect(logic.values.clusterMetricsLoading).toBe(false)
+            })
+
+            it('sets loading state', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setClusterMetricsLoading(true)
+                }).toMatchValues({
+                    clusterMetricsLoading: true,
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setClusterMetricsLoading(false)
+                }).toMatchValues({
+                    clusterMetricsLoading: false,
                 })
             })
         })

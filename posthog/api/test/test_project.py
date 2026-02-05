@@ -348,3 +348,69 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertEqual(len(results), 0)
+
+    def test_read_only_api_key_cannot_update_project_config_fields(self):
+        """API keys with only project:read scope should not be able to modify config fields via /api/projects/."""
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"timezone": "Europe/Lisbon"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("project:write", response.json().get("detail", ""))
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+
+    def test_write_api_key_can_update_project_config_fields(self):
+        """API keys with project:write scope should be able to modify config fields via /api/projects/."""
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_read_only_api_key_cannot_update_project_non_config_fields(self):
+        """API keys with only project:read scope should not be able to modify non-config fields like name."""
+        api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "New Project Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify no changes were made
+        self.project.refresh_from_db()
+        self.assertNotEqual(self.project.name, "New Project Name")
+
+    def test_write_api_key_can_update_project_non_config_fields(self):
+        """API keys with project:write scope should be able to modify non-config fields like name."""
+        api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"name": "New Project Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "New Project Name")
