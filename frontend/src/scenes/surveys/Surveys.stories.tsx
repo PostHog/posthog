@@ -431,4 +431,3 @@ export const SurveyNotFound: Story = {
         pageUrl: urls.survey('1234566789'),
     },
 }
-
