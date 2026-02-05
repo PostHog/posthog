@@ -93,24 +93,32 @@ impl CheckpointWorker {
         store: &DeduplicationStore,
         previous_metadata: Option<&CheckpointMetadata>,
     ) -> Result<Option<CheckpointInfo>> {
-        self.checkpoint_partition_cancellable(store, previous_metadata, None)
+        self.checkpoint_partition_cancellable(store, previous_metadata, None, None)
             .await
     }
 
     /// Perform a complete checkpoint operation with cancellation support.
     /// If cancel_token is provided and cancelled during export, returns an error early.
+    ///
+    /// The optional `cancel_cause` is used for metrics when cancelled (e.g., "rebalance" or "shutdown").
     pub async fn checkpoint_partition_cancellable(
         &self,
         store: &DeduplicationStore,
         previous_metadata: Option<&CheckpointMetadata>,
         cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
     ) -> Result<Option<CheckpointInfo>> {
         // Create the local checkpoint
         let rocks_metadata = self.create_checkpoint(store).await?;
 
         // Export checkpoint with cancellation support
         let result = self
-            .export_checkpoint_cancellable(&rocks_metadata, previous_metadata, cancel_token)
+            .export_checkpoint_cancellable(
+                &rocks_metadata,
+                previous_metadata,
+                cancel_token,
+                cancel_cause,
+            )
             .await;
 
         // Clean up temp checkpoint directory (skip in test mode to allow verification)
@@ -257,6 +265,7 @@ impl CheckpointWorker {
         rocks_metadata: &LocalCheckpointInfo,
         previous_metadata: Option<&CheckpointMetadata>,
         cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
     ) -> Result<Option<CheckpointInfo>> {
         let local_attempt_path_tag = self.get_local_attempt_path().to_string_lossy().to_string();
         let attempt_type = if previous_metadata.is_some() {
@@ -313,7 +322,7 @@ impl CheckpointWorker {
 
                 // Export checkpoint using the plan with cancellation support
                 match exporter
-                    .export_checkpoint_with_plan_cancellable(&plan, cancel_token)
+                    .export_checkpoint_with_plan_cancellable(&plan, cancel_token, cancel_cause)
                     .await
                 {
                     Ok(()) => {

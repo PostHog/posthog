@@ -20,17 +20,22 @@ impl CheckpointExporter {
 
     /// Export checkpoint using a plan with incremental deduplication - legacy non-cancellable
     pub async fn export_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<()> {
-        self.export_checkpoint_with_plan_cancellable(plan, None)
+        self.export_checkpoint_with_plan_cancellable(plan, None, None)
             .await
     }
 
     /// Export checkpoint with cancellation support.
     /// If cancel_token is provided and cancelled during upload, returns an error early.
     /// Cancellation is NOT treated as an error for metrics/logging purposes.
+    ///
+    /// The optional `cancel_cause` is used for metrics when the upload is cancelled.
+    /// Use "rebalance" when cancelled due to a Kafka rebalance (to free S3 bandwidth for imports).
+    /// Use "shutdown" when cancelled due to service shutdown.
     pub async fn export_checkpoint_with_plan_cancellable(
         &self,
         plan: &CheckpointPlan,
         cancel_token: Option<&CancellationToken>,
+        cancel_cause: Option<&str>,
     ) -> Result<()> {
         if !self.is_available().await {
             metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "unavailable").increment(1);
@@ -77,13 +82,20 @@ impl CheckpointExporter {
                 let is_cancelled = e.to_string().contains("cancelled");
 
                 if is_cancelled {
-                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "result" => "cancelled")
+                    // Map cause to static strings for metrics (metrics library requires 'static)
+                    let cause: &'static str = match cancel_cause {
+                        Some("rebalance") => "rebalance",
+                        Some("shutdown") => "shutdown",
+                        _ => "unknown",
+                    };
+                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "result" => "cancelled", "cause" => cause)
                         .record(upload_duration.as_secs_f64());
-                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "cancelled")
+                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "cancelled", "cause" => cause)
                         .increment(1);
                     warn!(
                         remote_path = plan.info.get_metadata_key(),
                         elapsed_seconds = upload_duration.as_secs_f64(),
+                        cause = cause,
                         "Export cancelled"
                     );
                 } else {
@@ -184,7 +196,7 @@ mod tests {
         let plan = create_test_plan();
 
         let result = exporter
-            .export_checkpoint_with_plan_cancellable(&plan, None)
+            .export_checkpoint_with_plan_cancellable(&plan, None, None)
             .await;
 
         assert!(result.is_ok());
@@ -197,7 +209,7 @@ mod tests {
         let plan = create_test_plan();
 
         let result = exporter
-            .export_checkpoint_with_plan_cancellable(&plan, None)
+            .export_checkpoint_with_plan_cancellable(&plan, None, Some("rebalance"))
             .await;
 
         assert!(result.is_err());
@@ -216,7 +228,7 @@ mod tests {
         let plan = create_test_plan();
 
         let result = exporter
-            .export_checkpoint_with_plan_cancellable(&plan, None)
+            .export_checkpoint_with_plan_cancellable(&plan, None, None)
             .await;
 
         assert!(result.is_err());
