@@ -849,11 +849,16 @@ export class KafkaConsumer {
                             captureException(new Error('Background task not found in array during cleanup'))
                         }
 
-                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
+                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets.
+                        // We wait for offsetsStoredPromise (not just promise) to ensure offsets are stored in order.
+                        // If we only waited for the task promise, a later batch could store its offset before
+                        // an earlier batch stores its offset, leading to out-of-order commits.
                         // Important: capture the promises BEFORE removing the task, as the array changes after splice
                         if (index >= 0) {
                             // Task found - capture promises to wait for, then remove the task
-                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                            const promisesToWait = this.backgroundTask
+                                .slice(0, index)
+                                .map((t) => t.offsetsStoredPromise)
                             this.backgroundTask.splice(index, 1)
                             await Promise.all(promisesToWait)
                         }
