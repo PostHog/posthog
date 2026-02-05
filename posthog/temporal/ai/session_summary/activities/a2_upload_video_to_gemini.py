@@ -55,11 +55,11 @@ async def upload_video_to_gemini_activity(
             video_bytes = bytes(asset.content)
         elif asset.content_location:
             video_bytes = await sync_to_async(object_storage.read_bytes, thread_sensitive=False)(asset.content_location)
+        else:
+            raise ValueError(f"Content location is unset for asset {asset_id} for session {inputs.session_id}")
 
         if not video_bytes:
-            msg = f"No video content found for asset {asset_id} for session {inputs.session_id}"
-            logger.error(msg, session_id=inputs.session_id, asset_id=asset_id, signals_type="session-summaries")
-            raise ValueError(msg)
+            raise ValueError(f"No video content found for asset {asset_id} for session {inputs.session_id}")
 
         # Wrap sync MediaInfo call in thread pool to avoid blocking the event loop
         duration = await sync_to_async(get_video_duration_s, thread_sensitive=False)(video_bytes)
