@@ -32,7 +32,7 @@
         "@modelcontextprotocol/sdk": "^1.25.3",
         "@toon-format/toon": "^2.1.0",
         "agents": "^0.0.113",
-        "ai": "^5.0.18",
+        "ai": "^5.0.61",
         "fflate": "^0.7.4",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.10.4",
