@@ -725,6 +725,7 @@ export function SavedInsights(): JSX.Element {
                                             size="xsmall"
                                             onClick={(e) => {
                                                 e.preventDefault()
+                                                e.stopPropagation()
                                                 updateFavoritedInsight(insight, !insight.favorited)
                                             }}
                                             icon={

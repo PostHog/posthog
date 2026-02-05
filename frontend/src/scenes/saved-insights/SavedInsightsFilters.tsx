@@ -87,7 +87,7 @@ export function SavedInsightsFilters({
                                 >
                                     <LemonInput
                                         type="search"
-                                        placeholder="Search"
+                                        placeholder="Search members"
                                         autoFocus
                                         value={memberSearch}
                                         onChange={setMemberSearch}
