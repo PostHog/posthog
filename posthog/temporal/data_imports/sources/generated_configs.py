@@ -112,8 +112,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    personal_access_token: str
     repository: str
+    github_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
