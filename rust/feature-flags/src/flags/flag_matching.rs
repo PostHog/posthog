@@ -900,31 +900,31 @@ impl FeatureFlagMatcher {
         hash_key_overrides: &Option<HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
-        let threshold = *PARALLEL_EVAL_THRESHOLD;
+        let parallel = flags_to_evaluate.len() >= *PARALLEL_EVAL_THRESHOLD;
+        let eval_type = if parallel { "parallel" } else { "sequential" };
 
-        if flags_to_evaluate.len() < threshold {
-            self.evaluate_flags_sequential(
-                flags_to_evaluate,
+        let labels = [("evaluation_type".to_string(), eval_type.to_string())];
+        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
+        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
+        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
+
+        let eval = |flag: &&FeatureFlag| {
+            self.evaluate_single_flag(
+                flag,
                 precomputed_property_overrides,
                 flags_with_missing_deps,
                 hash_key_overrides,
                 request_hash_key_override,
             )
+        };
+
+        if parallel {
+            flags_to_evaluate.par_iter().map(eval).collect()
         } else {
-            self.evaluate_flags_parallel(
-                flags_to_evaluate,
-                precomputed_property_overrides,
-                flags_with_missing_deps,
-                hash_key_overrides,
-                request_hash_key_override,
-            )
+            flags_to_evaluate.iter().map(eval).collect()
         }
     }
 
-    /// Sequential flag evaluation - used for typical workloads.
-    ///
-    /// This is faster than parallel evaluation for small-to-medium flag counts
-    /// because it avoids thread synchronization overhead and maintains cache locality.
     fn evaluate_single_flag(
         &self,
         flag: &FeatureFlag,
@@ -951,66 +951,6 @@ impl FeatureFlagMatcher {
                 request_hash_key_override.clone(),
             ),
         )
-    }
-
-    fn evaluate_flags_sequential(
-        &self,
-        flags_to_evaluate: &[&FeatureFlag],
-        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
-        flags_with_missing_deps: &HashSet<i32>,
-        hash_key_overrides: &Option<HashMap<String, String>>,
-        request_hash_key_override: &Option<String>,
-    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
-        let labels = [("evaluation_type".to_string(), "sequential".to_string())];
-        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
-        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
-        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
-
-        flags_to_evaluate
-            .iter()
-            .map(|flag| {
-                self.evaluate_single_flag(
-                    flag,
-                    precomputed_property_overrides,
-                    flags_with_missing_deps,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                )
-            })
-            .collect()
-    }
-
-    /// Parallel flag evaluation for large flag counts.
-    ///
-    /// Uses rayon's `par_iter()` directly for work-stealing parallelism. This briefly
-    /// blocks the tokio worker but avoids the clone overhead of `spawn_blocking` and
-    /// the thread accumulation issues of `block_in_place`. Acceptable for the rare
-    /// case of >= 100 flags.
-    fn evaluate_flags_parallel(
-        &self,
-        flags_to_evaluate: &[&FeatureFlag],
-        precomputed_property_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
-        flags_with_missing_deps: &HashSet<i32>,
-        hash_key_overrides: &Option<HashMap<String, String>>,
-        request_hash_key_override: &Option<String>,
-    ) -> Vec<(String, Result<FeatureFlagMatch, FlagError>)> {
-        let labels = [("evaluation_type".to_string(), "parallel".to_string())];
-        histogram(FLAG_BATCH_SIZE, &labels, flags_to_evaluate.len() as f64);
-        inc(FLAG_BATCH_EVALUATION_COUNTER, &labels, 1);
-        let _timer = timing_guard(FLAG_BATCH_EVALUATION_TIME, &labels);
-
-        flags_to_evaluate
-            .par_iter()
-            .map(|flag| {
-                self.evaluate_single_flag(
-                    flag,
-                    precomputed_property_overrides,
-                    flags_with_missing_deps,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                )
-            })
-            .collect()
     }
 
     /// Determines if a feature flag matches for the current context.
