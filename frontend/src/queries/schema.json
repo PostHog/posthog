@@ -10,7 +10,10 @@
                 "$ai_metric",
                 "$ai_feedback",
                 "$ai_evaluation",
-                "$ai_trace_summary"
+                "$ai_trace_summary",
+                "$ai_generation_summary",
+                "$ai_trace_clusters",
+                "$ai_generation_clusters"
             ],
             "type": "string"
         },
@@ -361,7 +364,8 @@
                 "plan",
                 "execution",
                 "survey",
-                "research"
+                "research",
+                "flags"
             ],
             "type": "string"
         },
@@ -28028,6 +28032,16 @@
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
+                "aggregationProperty": {
+                    "description": "The property to aggregate when aggregationType is sum or avg",
+                    "type": "string"
+                },
+                "aggregationType": {
+                    "default": "count",
+                    "description": "The aggregation type to use for retention",
+                    "enum": ["count", "sum", "avg"],
+                    "type": "string"
+                },
                 "cumulative": {
                     "type": "boolean"
                 },
