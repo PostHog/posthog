@@ -1,6 +1,6 @@
 from posthog.test.base import NonAtomicBaseTest
 
-from ee.hogai.tools.mcp.read_data_warehouse_schema import (
+from ee.hogai.tools.read_data_warehouse_schema.mcp_tool import (
     ReadDataWarehouseSchemaMCPTool,
     ReadDataWarehouseSchemaMCPToolArgs,
 )
