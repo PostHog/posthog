@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -82,7 +83,7 @@ class DeltaTableHelper:
             if field.name not in delta_table_schema.names
         ]
         if new_fields:
-            delta_table.alter.add_columns(new_fields)
+            await asyncio.to_thread(delta_table.alter.add_columns, new_fields)
 
         return delta_table
 
@@ -91,15 +92,20 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
+        is_delta = await asyncio.to_thread(
+            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+        )
+        if is_delta:
             try:
-                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
+                return await asyncio.to_thread(
+                    deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
+                )
             except Exception as e:
                 # Temp fix for bugged tables
                 capture_exception(e)
                 if "parse decimal overflow" in "".join(e.args):
                     s3 = get_s3_client()
-                    s3.delete(delta_uri, recursive=True)
+                    await s3._rm(delta_uri, recursive=True)
                 else:
                     raise
 
@@ -133,20 +139,20 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = await self._evolve_delta_schema(data.schema)
 
-        self._logger.debug(
+        await self._logger.adebug(
             f"write_to_deltalake: _is_first_sync = {self._is_first_sync}. should_overwrite_table = {should_overwrite_table}"
         )
 
         use_partitioning = False
         if PARTITION_KEY in data.column_names:
             use_partitioning = True
-            self._logger.debug(f"Using partitioning on {PARTITION_KEY}")
+            await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
 
         if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
-            self._logger.debug(f"write_to_deltalake: merging...")
+            await self._logger.adebug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
@@ -161,7 +167,7 @@ class DeltaTableHelper:
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
                 unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
 
-                self._logger.debug(f"Running {len(unique_partitions)} optimised merges")
+                await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
 
                 for partition in unique_partitions:
                     partition_predicate_ops = predicate_ops.copy()
@@ -170,36 +176,43 @@ class DeltaTableHelper:
 
                     filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
 
-                    self._logger.debug(f"Merging partition={partition} with predicate={predicate}")
+                    await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
 
-                    merge_stats = (
+                    def _do_merge():
+                        return (
+                            delta_table.merge(
+                                source=filtered_table,
+                                source_alias="source",
+                                target_alias="target",
+                                predicate=predicate,
+                                streamed_exec=True,
+                            )
+                            .when_matched_update_all()
+                            .when_not_matched_insert_all()
+                            .execute()
+                        )
+
+                    merge_stats = await asyncio.to_thread(_do_merge)
+
+                    await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+            else:
+
+                def _do_merge_unpartitioned():
+                    return (
                         delta_table.merge(
-                            source=filtered_table,
+                            source=data,
                             source_alias="source",
                             target_alias="target",
-                            predicate=predicate,
-                            streamed_exec=True,
+                            predicate=" AND ".join(predicate_ops),
+                            streamed_exec=False,
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
                         .execute()
                     )
 
-                    self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
-            else:
-                merge_stats = (
-                    delta_table.merge(
-                        source=data,
-                        source_alias="source",
-                        target_alias="target",
-                        predicate=" AND ".join(predicate_ops),
-                        streamed_exec=False,
-                    )
-                    .when_matched_update_all()
-                    .when_not_matched_insert_all()
-                    .execute()
-                )
-                self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned)
+                await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
             write_type == "full_refresh"
             or (write_type == "incremental" and delta_table is None)
@@ -211,19 +224,22 @@ class DeltaTableHelper:
                 mode = "overwrite"
                 schema_mode = "overwrite"
 
-            self._logger.debug(f"write_to_deltalake: mode = {mode}")
+            await self._logger.adebug(f"write_to_deltalake: mode = {mode}")
 
             if delta_table is None:
                 storage_options = self._get_credentials()
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=await self._get_delta_table_uri(),
+                delta_uri = await self._get_delta_table_uri()
+                delta_table = await asyncio.to_thread(
+                    deltalake.DeltaTable.create,
+                    table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                 )
 
             try:
-                deltalake.write_deltalake(
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
                     table_or_uri=delta_table,
                     data=data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
@@ -232,10 +248,11 @@ class DeltaTableHelper:
                     engine="rust",
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
-                self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
+                await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
-                deltalake.write_deltalake(
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
                     table_or_uri=delta_table,
                     data=data,
                     partition_by=None,
@@ -246,16 +263,19 @@ class DeltaTableHelper:
         elif write_type == "append":
             if delta_table is None:
                 storage_options = self._get_credentials()
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=await self._get_delta_table_uri(),
+                delta_uri = await self._get_delta_table_uri()
+                delta_table = await asyncio.to_thread(
+                    deltalake.DeltaTable.create,
+                    table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                 )
 
-            self._logger.debug(f"write_to_deltalake: write_type = append")
+            await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
-            deltalake.write_deltalake(
+            await asyncio.to_thread(
+                deltalake.write_deltalake,
                 table_or_uri=delta_table,
                 data=data,
                 partition_by=PARTITION_KEY if use_partitioning else None,
@@ -274,12 +294,14 @@ class DeltaTableHelper:
         if table is None:
             raise Exception("Deltatable not found")
 
-        self._logger.debug("Compacting table...")
-        compact_stats = table.optimize.compact()
-        self._logger.debug(json.dumps(compact_stats))
+        await self._logger.adebug("Compacting table...")
+        compact_stats = await asyncio.to_thread(table.optimize.compact)
+        await self._logger.adebug(json.dumps(compact_stats))
 
-        self._logger.debug("Vacuuming table...")
-        vacuum_stats = table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
-        self._logger.debug(json.dumps(vacuum_stats))
+        await self._logger.adebug("Vacuuming table...")
+        vacuum_stats = await asyncio.to_thread(
+            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        )
+        await self._logger.adebug(json.dumps(vacuum_stats))
 
-        self._logger.debug("Compacting and vacuuming complete")
+        await self._logger.adebug("Compacting and vacuuming complete")

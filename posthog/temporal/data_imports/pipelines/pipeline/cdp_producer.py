@@ -160,24 +160,23 @@ class CDPProducer:
 
             try:
                 # File I/O operations run in thread pool
-                def _process_file():
-                    nonlocal row_index
+                def _process_file() -> int:
+                    local_row_index = 0
                     with fs.open_input_file(file_path) as f:
                         pf = pq.ParquetFile(f)
 
-                        for index, batch in enumerate(pf.iter_batches(batch_size=10_000)):
-                            self.logger.debug(f"Producing batch {index} from file {file_path} to Kafka")
-
+                        for batch in pf.iter_batches(batch_size=10_000):
                             for row in batch.to_pylist():
                                 row_as_props = {"team_id": self.team_id, "properties": row}
                                 kafka_producer.produce(
                                     topic="", data=row_as_props, value_serializer=self._serialize_json
                                 )
-                                row_index = row_index + 1
+                                local_row_index += 1
 
                     kafka_producer.flush()
+                    return local_row_index
 
-                await asyncio.to_thread(_process_file)
+                row_index = await asyncio.to_thread(_process_file)
                 await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
             except Exception as e:
                 capture_exception(e)

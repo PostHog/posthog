@@ -343,8 +343,9 @@ class PipelineNonDLT(Generic[ResumableData]):
                 return
 
         await self._logger.adebug(f"Adding {len(new_file_uris)} S3 files to query folder")
+        folder_path = await database_sync_to_async(self._job.folder_path)()
         queryable_folder = await prepare_s3_files_for_querying_async(
-            folder_path=self._job.folder_path(),
+            folder_path=folder_path,
             table_name=self._resource_name,
             file_uris=new_file_uris,
             # delete existing files if it's the first chunk, otherwise we'll just append to the existing files

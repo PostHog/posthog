@@ -93,8 +93,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    close_old_connections()
-
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"

@@ -6,7 +6,7 @@ import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -871,7 +871,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
 
 # from `conditional-cache`, but changed to be made async
-def conditional_lru_cache_async(maxsize: int = 128, typed: bool = False, condition: callable = lambda x: True):
+def conditional_lru_cache_async(
+    maxsize: int = 128, typed: bool = False, condition: Callable[[Any], bool] = lambda x: True
+):
     cache = CircularDict(maxlen=maxsize)
 
     def decorator(func):
