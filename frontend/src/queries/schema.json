@@ -15670,7 +15670,8 @@
                 "llm_evaluations",
                 "llm_datasets",
                 "llm_prompts",
-                "llm_clusters"
+                "llm_clusters",
+                "exports"
             ],
             "type": "string"
         },

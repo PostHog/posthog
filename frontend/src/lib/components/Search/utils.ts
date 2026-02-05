@@ -28,6 +28,8 @@ export const getCategoryDisplayName = (category: string): string => {
         property_definition: 'Property definitions',
         session_recording_playlist: 'Session recording filter',
         hog_flow: 'Workflows',
+        health: 'Health',
+        misc: 'Misc',
     }
 
     return displayNames[category] || category
