@@ -53,7 +53,7 @@ def SHARDED_EXPERIMENT_EXPOSURES_TABLE_SQL():
     return (
         EXPERIMENT_EXPOSURES_TABLE_BASE_SQL
         + """
-PARTITION BY toYYYYMM(first_exposure_time)
+PARTITION BY toYYYYMMDD(expires_at)
 ORDER BY (team_id, job_id, entity_id, breakdown_value)
 TTL expires_at
 SETTINGS index_granularity=8192
