@@ -1,6 +1,6 @@
 import './JSONEditorInput.scss'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -34,6 +34,13 @@ export function JSONEditorInput({ onChange, placeholder, value = '', readOnly = 
     )
 
     const [multiline, setMultiline] = useState(() => looksMultiline(valString))
+    const userToggled = useRef(false)
+
+    useEffect(() => {
+        if (!userToggled.current) {
+            setMultiline(looksMultiline(valString))
+        }
+    }, [valString])
 
     const onFocus = (): void => setFocused(true)
     const onBlur = (): void => setFocused(false)
@@ -56,6 +63,7 @@ export function JSONEditorInput({ onChange, placeholder, value = '', readOnly = 
                 // Not valid JSON, just leave as-is
             }
         }
+        userToggled.current = true
         setMultiline(!multiline)
     }
 
