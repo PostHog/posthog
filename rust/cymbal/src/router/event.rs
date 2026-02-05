@@ -21,8 +21,8 @@ impl IntoResponse for UnhandledError {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
-                "error": self.to_string(),
-                "results": []
+                "error": "An unexpected error occurred while processing the events",
+                "details": self.to_string(),
             })),
         )
             .into_response()
