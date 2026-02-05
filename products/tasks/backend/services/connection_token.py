@@ -17,6 +17,11 @@ if TYPE_CHECKING:
 SANDBOX_CONNECTION_AUDIENCE = "posthog:sandbox_connection"
 
 
+def _normalize_pem_key(key: str) -> str:
+    """Convert escaped newlines to actual newlines in PEM keys from env vars."""
+    return key.replace("\\n", "\n")
+
+
 @lru_cache(maxsize=1)
 def get_sandbox_jwt_public_key() -> str:
     """
@@ -26,6 +31,7 @@ def get_sandbox_jwt_public_key() -> str:
     if not private_key_pem:
         raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required")
 
+    private_key_pem = _normalize_pem_key(private_key_pem)
     private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
     public_key = private_key.public_key()
     return public_key.public_bytes(
@@ -52,6 +58,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
     if not private_key:
         raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required for sandbox connection tokens")
 
+    private_key = _normalize_pem_key(private_key)
     payload = {
         "run_id": str(task_run.id),
         "task_id": str(task_run.task_id),

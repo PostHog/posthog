@@ -1,5 +1,10 @@
 import os
+<<<<<<< ours
 import json
+||||||| ancestor
+=======
+import time
+>>>>>>> theirs
 import uuid
 import shlex
 import base64
@@ -589,36 +594,35 @@ class DockerSandbox:
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
-        logger.info(f"Command: {command}")
-
         result = self.execute(command, timeout_seconds=30)
 
         if result.exit_code != 0:
-            logger.error(f"Failed to start agent-server: {result.stderr}")
             raise SandboxExecutionError(
                 "Failed to start agent-server",
                 {"sandbox_id": self.id, "stderr": result.stderr},
                 cause=RuntimeError(result.stderr),
             )
 
-        import time
-
-        time.sleep(2)
-
-        health_result = self.execute(
-            f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health", timeout_seconds=10
-        )
-        if health_result.stdout.strip() != "200":
+        if not self._wait_for_health_check():
             log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
-            logger.error(f"Agent-server health check failed. Log output:\n{log_result.stdout}")
             raise SandboxExecutionError(
                 "Agent-server failed to start",
-                {"sandbox_id": self.id, "health_status": health_result.stdout, "log": log_result.stdout},
-                cause=RuntimeError("Health check failed"),
+                {"sandbox_id": self.id, "log": log_result.stdout},
+                cause=RuntimeError("Health check failed after retries"),
             )
 
-        logger.info(f"Agent-server started successfully on port {self._host_port}")
+        logger.info(f"Agent-server started on port {self._host_port}")
         return self.sandbox_url  # type: ignore
+
+    def _wait_for_health_check(self, max_attempts: int = 10, delay_seconds: float = 0.5) -> bool:
+        """Poll health endpoint until server is ready."""
+        health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health"
+        for _ in range(max_attempts):
+            result = self.execute(health_cmd, timeout_seconds=5)
+            if result.stdout.strip() == "200":
+                return True
+            time.sleep(delay_seconds)
+        return False
 
     def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
         create_pr_flag = "true" if create_pr else "false"
