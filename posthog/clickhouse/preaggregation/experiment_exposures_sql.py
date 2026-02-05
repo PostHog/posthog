@@ -23,7 +23,7 @@ def SHARDED_EXPERIMENT_EXPOSURES_TABLE_ENGINE():
     # ReplacingMergeTree deduplicates rows with the same ORDER BY key.
     # If we INSERT the same (team_id, job_id, entity_id, breakdown_value) twice,
     # ClickHouse keeps only one row.
-    return ReplacingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="last_exposure_time")
+    return ReplacingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="computed_at")
 
 
 EXPERIMENT_EXPOSURES_TABLE_BASE_SQL = """
@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Breakdown dimensions (empty array if no breakdown)
     breakdown_value Array(String),
+
+    -- When this row was computed (used as ReplacingMergeTree version)
+    computed_at DateTime64(6, 'UTC') DEFAULT now(),
 
     -- TTL: rows are automatically deleted after expires_at
     expires_at Date DEFAULT today() + INTERVAL 7 DAY
