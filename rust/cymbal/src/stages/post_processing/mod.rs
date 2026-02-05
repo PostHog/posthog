@@ -54,7 +54,12 @@ impl PostProcessingStage {
         match error {
             EventError::Suppressed(_) => Ok(None),
             err => {
-                let mut event = self.events_by_id.lock().await.get(&uuid).unwrap().clone();
+                let mut event = self
+                    .events_by_id
+                    .lock()
+                    .await
+                    .remove(&uuid)
+                    .ok_or(UnhandledError::Other("Missing event".into()))?;
                 self.add_error_to_event(&mut event, err)?;
                 Ok(Some(event))
             }
@@ -63,12 +68,16 @@ impl PostProcessingStage {
 
     async fn handle_value(
         &self,
-        event: ExceptionProperties,
+        props: ExceptionProperties,
     ) -> Result<Option<ClickHouseEvent>, UnhandledError> {
-        // WARN: Wont work here
-        let value = serde_json::to_value(event)?;
-        let event: ClickHouseEvent = serde_json::from_value(value)?;
-        Ok(Some(event))
+        let mut evt = self
+            .events_by_id
+            .lock()
+            .await
+            .remove(&props.uuid)
+            .ok_or(UnhandledError::Other("Missing event".into()))?;
+        evt.properties = Some(serde_json::to_string(&props)?);
+        Ok(Some(evt))
     }
 }
 
