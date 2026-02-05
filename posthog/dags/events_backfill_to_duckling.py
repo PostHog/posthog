@@ -31,6 +31,7 @@ Partition Strategy:
 """
 
 import json
+import time
 import calendar
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -991,6 +992,11 @@ def _execute_export_with_retry(
         raise
 
 
+def _is_transaction_conflict(exc: BaseException) -> bool:
+    """Check if exception is a DuckLake transaction conflict (retryable)."""
+    return isinstance(exc, duckdb.TransactionException) and "Transaction conflict" in str(exc)
+
+
 def export_events_to_duckling_s3(
     context: AssetExecutionContext,
     client: Client,
@@ -1077,6 +1083,9 @@ def register_file_with_duckling(
     Uses cross-account role assumption via IRSA. The Dagster worker's IAM role
     has permission to assume the duckling's cross-account S3 role.
 
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to register files with the same table.
+
     Args:
         context: Dagster asset execution context.
         catalog: The DuckLakeCatalog for this duckling.
@@ -1096,38 +1105,50 @@ def register_file_with_duckling(
 
     destination = catalog.to_cross_account_destination()
     alias = "ducklake"
+    catalog_config = get_team_config(catalog.team_id)
 
-    conn = duckdb.connect()
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = duckdb.connect()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
 
-    try:
-        # Configure cross-account S3 access using IRSA
-        # Dagster's IAM role can assume the duckling's cross-account role
-        configure_cross_account_connection(
-            conn,
-            destinations=[destination],
-        )
+            context.log.info(f"Registering file with DuckLake: {s3_path}")
+            conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
 
-        # Get the catalog config including password for RDS connection
-        catalog_config = get_team_config(catalog.team_id)
+            context.log.info(f"Successfully registered: {s3_path}")
+            logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
+            return True
 
-        # Attach the duckling's catalog
-        attach_catalog(conn, catalog_config, alias=alias)
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)  # Exponential backoff: 4, 8, 16, ... capped at 60s
+                context.log.warning(
+                    f"DuckLake transaction conflict on attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_registration_transaction_conflict",
+                    s3_path=s3_path,
+                    team_id=catalog.team_id,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
 
-        # Register the file
-        context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
+            context.log.exception(f"Failed to register file {s3_path}")
+            logger.exception("duckling_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
+            raise
 
-        context.log.info(f"Successfully registered: {s3_path}")
-        logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
-        return True
+        finally:
+            conn.close()
 
-    except Exception:
-        context.log.exception(f"Failed to register file {s3_path}")
-        logger.exception("duckling_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
-        raise
-
-    finally:
-        conn.close()
+    # Should not reach here, but just in case
+    if last_exception:
+        raise last_exception
+    return False
 
 
 def export_persons_to_duckling_s3(
@@ -1289,7 +1310,11 @@ def register_persons_file_with_duckling(
     s3_path: str,
     config: DucklingBackfillConfig,
 ) -> bool:
-    """Register an exported persons Parquet file with the duckling's DuckLake catalog."""
+    """Register an exported persons Parquet file with the duckling's DuckLake catalog.
+
+    Includes retry logic for DuckLake transaction conflicts, which can occur when
+    multiple concurrent jobs attempt to register files with the same table.
+    """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
         return False
@@ -1300,32 +1325,51 @@ def register_persons_file_with_duckling(
 
     destination = catalog.to_cross_account_destination()
     alias = "ducklake"
+    catalog_config = get_team_config(catalog.team_id)
 
-    conn = duckdb.connect()
+    last_exception: Exception | None = None
+    for attempt in range(MAX_RETRY_ATTEMPTS):
+        conn = duckdb.connect()
+        try:
+            configure_cross_account_connection(conn, destinations=[destination])
+            attach_catalog(conn, catalog_config, alias=alias)
 
-    try:
-        configure_cross_account_connection(
-            conn,
-            destinations=[destination],
-        )
+            context.log.info(f"Registering persons file with DuckLake: {s3_path}")
+            conn.execute(
+                f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')"
+            )
 
-        catalog_config = get_team_config(catalog.team_id)
-        attach_catalog(conn, catalog_config, alias=alias)
+            context.log.info(f"Successfully registered persons: {s3_path}")
+            logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
+            return True
 
-        context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')")
+        except Exception as e:
+            last_exception = e
+            if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
+                wait_time = min(4 * (2**attempt), 60)
+                context.log.warning(
+                    f"DuckLake transaction conflict on attempt {attempt + 1}, retrying in {wait_time}s..."
+                )
+                logger.warning(
+                    "duckling_persons_registration_transaction_conflict",
+                    s3_path=s3_path,
+                    team_id=catalog.team_id,
+                    attempt=attempt + 1,
+                    wait_time=wait_time,
+                )
+                time.sleep(wait_time)
+                continue
 
-        context.log.info(f"Successfully registered persons: {s3_path}")
-        logger.info("duckling_persons_file_registered", s3_path=s3_path, team_id=catalog.team_id)
-        return True
+            context.log.exception(f"Failed to register persons file {s3_path}")
+            logger.exception("duckling_persons_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
+            raise
 
-    except Exception:
-        context.log.exception(f"Failed to register persons file {s3_path}")
-        logger.exception("duckling_persons_file_registration_failed", s3_path=s3_path, team_id=catalog.team_id)
-        raise
+        finally:
+            conn.close()
 
-    finally:
-        conn.close()
+    if last_exception:
+        raise last_exception
+    return False
 
 
 @asset(
