@@ -37,6 +37,7 @@ import {
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
 import { ProductTab, faviconUrl } from './common'
+import { webAnalyticsDateMapping } from './constants'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -57,7 +58,13 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 left={
                     <>
                         <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                        <DateFilter
+                            dateOptions={webAnalyticsDateMapping}
+                            allowTimePrecision
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDates}
+                        />
                         <WebAnalyticsCompareFilter />
                     </>
                 }
@@ -100,7 +107,13 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     left={
                         <>
                             <ReloadAll iconOnly />
-                            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                            <DateFilter
+                                dateOptions={webAnalyticsDateMapping}
+                                allowTimePrecision
+                                dateFrom={dateFrom}
+                                dateTo={dateTo}
+                                onChange={setDates}
+                            />
 
                             <WebAnalyticsDomainSelector />
                             <WebAnalyticsDeviceToggle />
