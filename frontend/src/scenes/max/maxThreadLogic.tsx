@@ -1673,15 +1673,26 @@ function enhanceThreadToolCalls(
         }
     }
 
-    // Create a set of tool call IDs that have pending approvals
+    // Create sets of tool call IDs based on approval status
     // An approval is truly pending if:
     // 1. It's in pendingApprovalsData with decision_status === 'pending', AND
     // 2. It's NOT in resolvedApprovalStatuses (which takes precedence)
     const toolCallsWithPendingApproval = new Set<string>()
+    // Track tool calls that have been rejected (declined by user)
+    const toolCallsWithRejectedApproval = new Set<string>()
     for (const approval of Object.values(pendingApprovalsData)) {
-        const isResolved = resolvedApprovalStatuses[approval.proposal_id]?.status !== undefined
-        if (approval.original_tool_call_id && approval.decision_status === 'pending' && !isResolved) {
-            toolCallsWithPendingApproval.add(approval.original_tool_call_id)
+        const frontendResolved = resolvedApprovalStatuses[approval.proposal_id]
+        if (approval.original_tool_call_id) {
+            // Frontend resolved status takes precedence over backend status
+            if (frontendResolved?.status) {
+                if (frontendResolved.status === 'rejected' || frontendResolved.status === 'auto_rejected') {
+                    toolCallsWithRejectedApproval.add(approval.original_tool_call_id)
+                }
+            } else if (approval.decision_status === 'pending') {
+                toolCallsWithPendingApproval.add(approval.original_tool_call_id)
+            } else if (approval.decision_status === 'rejected') {
+                toolCallsWithRejectedApproval.add(approval.original_tool_call_id)
+            }
         }
     }
 
@@ -1730,8 +1741,11 @@ function enhanceThreadToolCalls(
                 const isInteractiveTool = toolCall.name === 'create_form'
                 // Tool calls with pending approvals should show as "in progress" (awaiting approval)
                 const hasPendingApproval = toolCallsWithPendingApproval.has(toolCall.id)
+                // Tool calls with rejected approvals should show as "failed" (user declined)
+                const hasRejectedApproval = toolCallsWithRejectedApproval.has(toolCall.id)
                 const isFailed =
-                    !isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading)
+                    hasRejectedApproval ||
+                    (!isCompleted && !isInteractiveTool && !hasPendingApproval && (!isFinalGroup || !isLoading))
                 return {
                     ...toolCall,
                     status: isFailed
