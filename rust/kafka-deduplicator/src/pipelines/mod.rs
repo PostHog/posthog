@@ -62,6 +62,7 @@ pub mod clickhouse_events;
 pub mod ingestion_events;
 pub mod processor;
 pub mod results;
+pub mod timestamp_deduplicator;
 pub mod traits;
 
 pub use processor::{
@@ -70,4 +71,7 @@ pub use processor::{
     DuplicateReason, StoreResult,
 };
 pub use results::{DedupFieldName, EnrichedEvent, EventSimilarity, PropertyDifference};
+pub use timestamp_deduplicator::{
+    DeduplicatableEvent, PublisherConfig, TimestampDeduplicator, TimestampDeduplicatorConfig,
+};
 pub use traits::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};

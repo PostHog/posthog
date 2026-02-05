@@ -20,5 +20,18 @@ mod parser;
 mod processor;
 mod similarity;
 
+use common_types::ClickHouseEvent;
+
+pub use metadata::ClickHouseEventMetadata;
 pub use parser::ClickHouseEventParser;
 pub use processor::{ClickHouseEventsBatchProcessor, ClickHouseEventsConfig};
+
+use crate::pipelines::timestamp_deduplicator::DeduplicatableEvent;
+
+impl DeduplicatableEvent for ClickHouseEvent {
+    type Metadata = ClickHouseEventMetadata;
+
+    fn has_same_uuid(&self, metadata: &Self::Metadata) -> bool {
+        metadata.is_same_uuid(self)
+    }
+}

@@ -23,6 +23,8 @@ mod parser;
 mod processor;
 mod similarity;
 
+use common_types::RawEvent;
+
 pub use dedup_result::{DeduplicationResult, DeduplicationResultReason, DeduplicationType};
 pub use duplicate_event::DuplicateEvent;
 pub use metadata::{SerializableRawEvent, TimestampMetadata};
@@ -30,3 +32,16 @@ pub use parser::IngestionEventParser;
 pub use processor::{
     DeduplicationConfig, DuplicateEventProducerWrapper, IngestionEventsBatchProcessor,
 };
+
+use crate::pipelines::timestamp_deduplicator::DeduplicatableEvent;
+
+impl DeduplicatableEvent for RawEvent {
+    type Metadata = TimestampMetadata;
+
+    fn has_same_uuid(&self, metadata: &Self::Metadata) -> bool {
+        match self.uuid {
+            Some(uuid) => metadata.seen_uuids.contains(&uuid.to_string()),
+            None => false, // No UUID means we can't confirm it's the same
+        }
+    }
+}
