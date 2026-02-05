@@ -8,6 +8,7 @@ from temporalio import common
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.ingestion_acceptance_test.types import IngestionAcceptanceTestInput
 
 SCHEDULE_ID = "ingestion-acceptance-test-schedule"
 WORKFLOW_NAME = "ingestion-acceptance-test"
@@ -21,7 +22,7 @@ async def create_ingestion_acceptance_test_schedule(client: Client) -> None:
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             WORKFLOW_NAME,
-            None,  # No inputs required
+            IngestionAcceptanceTestInput(),
             id=f'{WORKFLOW_NAME}-{{{{.ScheduledTime.Format "2006-01-02T15-04-05"}}}}',
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
