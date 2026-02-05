@@ -5,7 +5,12 @@ import posthoganalytics
 
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentExecutable, ChatAgentToolsExecutable
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
 from ee.hogai.utils.feature_flags import has_upsert_dashboard_feature_flag
@@ -85,12 +90,20 @@ product_analytics_agent = AgentModeDefinition(
 )
 
 
-class SubagentProductAnalyticsAgentToolkit(AgentToolkit):
-    """Product analytics toolkit for subagents — excludes UpsertDashboardTool (dangerous operation)."""
+class ReadOnlyProductAnalyticsAgentToolkit(AgentToolkit):
+    """Product analytics toolkit for readonly operations — excludes UpsertDashboardTool (dangerous operation)."""
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
         return [CreateInsightTool]
 
 
-subagent_product_analytics_agent = replace(product_analytics_agent, toolkit_class=SubagentProductAnalyticsAgentToolkit)
+subagent_product_analytics_agent = replace(product_analytics_agent, toolkit_class=ReadOnlyProductAnalyticsAgentToolkit)
+
+chat_agent_plan_product_analytics_agent = AgentModeDefinition(
+    mode=AgentMode.PRODUCT_ANALYTICS,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,  # Only CreateInsightTool
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
+)

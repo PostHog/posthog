@@ -56,6 +56,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         width={width}
                                         originalValue={props.originalValue}
                                         {...props.codeEditorProps}
+                                        autoFocus={true}
                                         options={{
                                             minimap: {
                                                 enabled: false,
