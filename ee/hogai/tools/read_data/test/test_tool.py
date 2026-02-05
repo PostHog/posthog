@@ -1008,3 +1008,95 @@ class TestReadDataTool(BaseTest):
 
             assert "Allowed Survey" in result
             mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_feature_flag_denied_when_user_lacks_object_access(self):
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team, key="secret-flag", name="Secret Flag", created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "feature_flag", "id": flag.id})
+
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_feature_flag_allowed_when_user_has_object_access(self):
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team, key="allowed-flag", name="Allowed Flag", created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "feature_flag", "id": flag.id})
+
+            assert "Allowed Flag" in result
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_experiment_denied_when_user_lacks_object_access(self):
+        flag = await FeatureFlag.objects.acreate(team=self.team, key="exp-flag", name="Exp Flag", created_by=self.user)
+        experiment = await Experiment.objects.acreate(
+            team=self.team, name="Secret Experiment", feature_flag=flag, created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+
+            mock_uac.check_access_level_for_object.assert_called_once()
+
+    async def test_read_experiment_allowed_when_user_has_object_access(self):
+        flag = await FeatureFlag.objects.acreate(
+            team=self.team, key="allowed-exp-flag", name="Allowed Exp Flag", created_by=self.user
+        )
+        experiment = await Experiment.objects.acreate(
+            team=self.team, name="Allowed Experiment", feature_flag=flag, created_by=self.user
+        )
+
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = True
+
+            result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+
+            assert "Allowed Experiment" in result
+            mock_uac.check_access_level_for_object.assert_called_once()

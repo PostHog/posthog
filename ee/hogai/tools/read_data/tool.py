@@ -497,6 +497,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if flag is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
+        await self.check_object_access(flag, "viewer", resource="feature flag", action="read")
         return await context.format_feature_flag(flag)
 
     async def _read_experiment(self, experiment_id: int | None, feature_flag_key: str | None) -> str:
@@ -513,4 +514,5 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if experiment is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
         return await context.format_experiment(experiment)
