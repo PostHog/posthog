@@ -575,20 +575,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.evaluation],
             (evaluation): Breadcrumb[] => [
                 {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
-                {
                     name: 'Evaluations',
                     path: urls.llmAnalyticsEvaluations(),
                     key: 'LLMAnalyticsEvaluations',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_evaluations',
                 },
                 {
                     name: evaluation?.name || 'New Evaluation',
                     key: 'LLMAnalyticsEvaluationEdit',
+                    iconType: 'llm_evaluations',
                 },
             ],
         ],

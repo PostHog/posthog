@@ -12,6 +12,26 @@ import { getCustomIcon } from './customIconRegistry'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
 
+// Hardcoded category order - categories not in this list will be sorted alphabetically after these
+export const CATEGORY_ORDER = ['Analytics', 'AI Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
+
+export function getCategoryOrder(category: string | undefined): number {
+    if (!category) {
+        return CATEGORY_ORDER.length
+    }
+    const index = CATEGORY_ORDER.indexOf(category)
+    return index === -1 ? CATEGORY_ORDER.length : index
+}
+
+// Define the order of categories in the data management panel
+const DATA_MANAGEMENT_PANEL_ORDER: Record<string, number> = {
+    Pipeline: 1,
+    Schema: 2,
+    Tools: 3,
+    Metadata: 4,
+    Unreleased: 5,
+}
+
 export interface ConvertProps {
     imports: (FileSystemImport | FileSystemEntry)[]
     folderStates: Record<string, FolderState>
@@ -267,8 +287,23 @@ export function convertFileSystemEntryToTreeDataItem({
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
-            // If they have a category, sort by that
+            // If they have a category, sort by hardcoded category order
             if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
+                // Use custom category order for the data management panel
+                if (root === 'data://') {
+                    const orderA = DATA_MANAGEMENT_PANEL_ORDER[a.record.category] ?? 999
+                    const orderB = DATA_MANAGEMENT_PANEL_ORDER[b.record.category] ?? 999
+                    return orderA - orderB
+                }
+
+                // Attempt to sort based on the category order
+                const orderA = getCategoryOrder(a.record.category)
+                const orderB = getCategoryOrder(b.record.category)
+                if (orderA !== orderB) {
+                    return orderA - orderB
+                }
+
+                // Else, use alphabetical sorting
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 
