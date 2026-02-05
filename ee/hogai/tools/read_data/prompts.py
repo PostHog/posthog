@@ -89,6 +89,11 @@ READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
 {{/data_warehouse_tables}}
 {{#data_warehouse_views}}
 
+{{#system_tables}}
+# PostHog Postgres tables
+{{{system_tables}}}
+{{/system_tables}}
+
 # Data warehouse views
 {{{data_warehouse_views}}}
 {{/data_warehouse_views}}
