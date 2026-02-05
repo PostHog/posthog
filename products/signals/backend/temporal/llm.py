@@ -1,9 +1,10 @@
 import os
 import json
-from typing import Literal
+from typing import Literal, cast
 
 import tiktoken
 import structlog
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, Field
 
 from products.signals.backend.temporal.types import ExistingReportMatch, MatchResult, NewReportMatch, SignalCandidate
@@ -83,10 +84,13 @@ async def generate_search_queries(
     user_prompt = _build_query_generation_prompt(description, source_product, source_type)
     client = get_async_openai_client()
 
-    messages: list[dict] = [
-        {"role": "system", "content": QUERY_GENERATION_SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+    messages = cast(
+        list[ChatCompletionMessageParam],
+        [
+            {"role": "system", "content": QUERY_GENERATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
 
     for attempt in range(MAX_RETRIES):
         last_response_content: str | None = None
@@ -251,10 +255,13 @@ async def match_signal_with_llm(
     user_prompt = _build_matching_prompt(description, source_product, source_type, queries, query_results)
     client = get_async_openai_client()
 
-    messages: list[dict] = [
-        {"role": "system", "content": MATCHING_SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+    messages = cast(
+        list[ChatCompletionMessageParam],
+        [
+            {"role": "system", "content": MATCHING_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
 
     for attempt in range(MAX_RETRIES):
         last_response_content: str | None = None
@@ -366,10 +373,13 @@ async def summarize_signals(signals: list) -> tuple[str, str]:
     user_prompt = _build_summarize_prompt(signals)
     client = get_async_openai_client()
 
-    messages: list[dict] = [
-        {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+    messages = cast(
+        list[ChatCompletionMessageParam],
+        [
+            {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
 
     for attempt in range(MAX_RETRIES):
         last_response_content: str | None = None
