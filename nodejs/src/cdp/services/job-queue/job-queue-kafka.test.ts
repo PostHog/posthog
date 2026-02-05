@@ -1,4 +1,37 @@
+import { Message } from 'node-rdkafka'
+
 import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+
+// Mock node-rdkafka so we can control the seek test consumer
+const mockConsume = jest.fn()
+const mockAssign = jest.fn()
+const mockConnect = jest.fn()
+const mockDisconnect = jest.fn()
+const mockSetDefaultConsumeTimeout = jest.fn()
+const mockIsConnected = jest.fn().mockReturnValue(true)
+
+jest.mock('node-rdkafka', () => {
+    const actual = jest.requireActual('node-rdkafka')
+    return {
+        ...actual,
+        KafkaConsumer: jest.fn().mockImplementation(() => ({
+            consume: mockConsume,
+            assign: mockAssign,
+            connect: mockConnect,
+            disconnect: mockDisconnect,
+            setDefaultConsumeTimeout: mockSetDefaultConsumeTimeout,
+            isConnected: mockIsConnected,
+        })),
+    }
+})
+
+jest.mock('../../../kafka/producer', () => ({
+    KafkaProducerWrapper: { create: jest.fn() },
+}))
+
+jest.mock('../../../kafka/consumer', () => ({
+    KafkaConsumer: jest.fn(),
+}))
 
 describe('CyclotronJobQueue - kafka', () => {
     describe('migrateKafkaCyclotronInvocation', () => {
@@ -91,6 +124,91 @@ describe('CyclotronJobQueue - kafka', () => {
                   "teamId": 1,
                 }
             `)
+        })
+    })
+
+    describe('testSeekLatency', () => {
+        let queue: any
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            mockConnect.mockImplementation((_opts: any, cb: any) => cb(null, {}))
+
+            const { CyclotronJobQueueKafka } = require('./job-queue-kafka')
+            queue = new CyclotronJobQueueKafka(
+                {
+                    CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
+                    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 1.0,
+                    CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false,
+                },
+                'hog',
+                jest.fn().mockResolvedValue({ backgroundTask: Promise.resolve() })
+            )
+        })
+
+        const makeMessage = (partition: number, offset: number): Message => ({
+            topic: 'cdp_cyclotron_hog',
+            partition,
+            offset,
+            value: Buffer.from(JSON.stringify({ id: 'test', teamId: 1, functionId: 'f1', queue: 'hog' })),
+            size: 100,
+            timestamp: Date.now(),
+        })
+
+        it('should assign to a random older offset and consume one message', async () => {
+            const mockMessage = {
+                value: Buffer.from('test'),
+                offset: 500_000,
+                partition: 3,
+                topic: 'cdp_cyclotron_hog',
+            }
+            mockConsume.mockImplementation((_count: number, cb: any) => cb(null, [mockMessage]))
+
+            await queue['testSeekLatency'](makeMessage(3, 1_000_000))
+
+            expect(mockAssign).toHaveBeenCalledTimes(1)
+            const assignment = mockAssign.mock.calls[0][0][0]
+            expect(assignment.topic).toBe('cdp_cyclotron_hog')
+            expect(assignment.partition).toBe(3)
+            expect(assignment.offset).toBeGreaterThanOrEqual(0)
+            expect(assignment.offset).toBeLessThan(1_000_000)
+
+            expect(mockConsume).toHaveBeenCalledWith(1, expect.any(Function))
+        })
+
+        it('should skip messages with offset 0', async () => {
+            await queue['testSeekLatency'](makeMessage(0, 0))
+
+            expect(mockAssign).not.toHaveBeenCalled()
+            expect(mockConsume).not.toHaveBeenCalled()
+        })
+
+        it('should cap seek-back at 50M offsets', async () => {
+            const mockMessage = {
+                value: Buffer.from('test'),
+                offset: 40_000_000,
+                partition: 0,
+                topic: 'cdp_cyclotron_hog',
+            }
+            mockConsume.mockImplementation((_count: number, cb: any) => cb(null, [mockMessage]))
+
+            await queue['testSeekLatency'](makeMessage(0, 100_000_000))
+
+            const assignment = mockAssign.mock.calls[0][0][0]
+            expect(assignment.offset).toBeGreaterThanOrEqual(100_000_000 - 50_000_000)
+            expect(assignment.offset).toBeLessThan(100_000_000)
+        })
+
+        it('should handle consume errors gracefully', async () => {
+            mockConsume.mockImplementation((_count: number, cb: any) => cb(new Error('broker unavailable'), []))
+
+            await expect(queue['testSeekLatency'](makeMessage(0, 1000))).resolves.not.toThrow()
+        })
+
+        it('should handle empty consume result', async () => {
+            mockConsume.mockImplementation((_count: number, cb: any) => cb(null, []))
+
+            await expect(queue['testSeekLatency'](makeMessage(0, 1000))).resolves.not.toThrow()
         })
     })
 })
