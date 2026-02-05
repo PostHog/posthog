@@ -128,7 +128,10 @@ impl RebalanceTracker {
             // Clone the token and release the lock before calling cancel() to avoid
             // potential deadlock if cancel() triggers callbacks that need this lock
             let token = {
-                let guard = self.export_suppression_token.read().unwrap();
+                let guard = self
+                    .export_suppression_token
+                    .read()
+                    .unwrap_or_else(|poison| poison.into_inner());
                 guard.clone()
             };
             token.cancel();
@@ -158,7 +161,10 @@ impl RebalanceTracker {
             warn!("finish_rebalancing called when counter was already 0");
         } else if new_count == 0 {
             // Create fresh token when ALL rebalances complete (1 -> 0 transition)
-            let mut token = self.export_suppression_token.write().unwrap();
+            let mut token = self
+                .export_suppression_token
+                .write()
+                .unwrap_or_else(|poison| poison.into_inner());
             *token = CancellationToken::new();
             info!("Export suppression: created fresh token (all rebalances complete)");
             info!("All rebalances completed, counter returned to 0");
@@ -187,7 +193,10 @@ impl RebalanceTracker {
     /// Returns a child of the current export suppression token. If a rebalance
     /// is in progress, the returned token will already be cancelled.
     pub fn get_export_token(&self) -> CancellationToken {
-        self.export_suppression_token.read().unwrap().child_token()
+        self.export_suppression_token
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .child_token()
     }
 
     /// Get a guard that will decrement the counter when dropped.
