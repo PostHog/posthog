@@ -6,6 +6,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -295,11 +296,53 @@ def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
     return DevenvConfig.model_validate(posthog_data)
 
 
-def get_generated_mprocs_path() -> Path:
-    """Get the default path for generated mprocs config."""
-    # Walk up from cwd to find repo root
+def get_main_repo_from_worktree() -> Path | None:
+    """If in a worktree, return the main repo root. Otherwise None."""
     current = Path.cwd().resolve()
     for parent in [current, *current.parents]:
+        git_path = parent / ".git"
+        if git_path.is_file():
+            # Worktree: .git file contains "gitdir: /path/to/main/.git/worktrees/<name>"
+            try:
+                content = git_path.read_text().strip()
+            except OSError:
+                return None
+            if content.startswith("gitdir: ") and "worktrees" in content:
+                gitdir = Path(content.removeprefix("gitdir: ").strip())
+                # Resolve relative paths against .git file's directory
+                if not gitdir.is_absolute():
+                    gitdir = (git_path.parent / gitdir).resolve()
+                return gitdir.parent.parent.parent
+        elif git_path.is_dir():
+            break  # Regular repo, not a worktree
+    return None
+
+
+def get_generated_mprocs_path() -> Path:
+    """Get the default path for generated mprocs config.
+
+    Checks local path first, then main repo if in a worktree.
+    """
+    override_path = os.getenv("HOGLI_MPROCS_PATH")
+    if override_path:
+        return Path(override_path)
+
+    current = Path.cwd().resolve()
+    local_path = current / ".posthog" / ".generated" / "mprocs.yaml"
+    for parent in [current, *current.parents]:
         if (parent / ".git").exists():
-            return parent / ".posthog" / ".generated" / "mprocs.yaml"
-    return current / ".posthog" / ".generated" / "mprocs.yaml"
+            local_path = parent / ".posthog" / ".generated" / "mprocs.yaml"
+            break
+
+    # If local config exists (or is symlink), use it
+    if local_path.exists():
+        return local_path
+
+    # Check main repo if in a worktree
+    main_repo = get_main_repo_from_worktree()
+    if main_repo:
+        main_path = main_repo / ".posthog" / ".generated" / "mprocs.yaml"
+        if main_path.exists():
+            return main_path
+
+    return local_path

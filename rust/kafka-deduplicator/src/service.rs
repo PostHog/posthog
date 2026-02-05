@@ -12,8 +12,8 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::deduplication_batch_processor::{
-    BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
+use crate::pipelines::ingestion_events::{
+    DeduplicationConfig, DuplicateEventProducerWrapper, IngestionEventsBatchProcessor,
 };
 use crate::{
     checkpoint::{
@@ -220,10 +220,24 @@ impl KafkaDeduplicatorService {
             return Err(anyhow::anyhow!("Service already initialized"));
         }
 
+        // Normalize empty strings to None for optional topic configs
+        let output_topic = self
+            .config
+            .output_topic
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned();
+        let duplicate_events_topic = self
+            .config
+            .duplicate_events_topic
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned();
+
         // Create deduplication config (store config already in store_manager)
         let dedup_config = DeduplicationConfig {
-            output_topic: self.config.output_topic.clone(),
-            duplicate_events_topic: self.config.duplicate_events_topic.clone(),
+            output_topic: output_topic.clone(),
+            duplicate_events_topic: duplicate_events_topic.clone(),
             producer_config: self.config.build_producer_config(),
             store_config: DeduplicationStoreConfig {
                 path: self.config.store_path_buf(),
@@ -248,7 +262,7 @@ impl KafkaDeduplicatorService {
         };
 
         // Create main producer for output topic if configured
-        let main_producer = match &self.config.output_topic {
+        let main_producer = match &output_topic {
             Some(topic) => {
                 info!("Creating Kafka producer for output topic: {}", topic);
 
@@ -267,11 +281,14 @@ impl KafkaDeduplicatorService {
 
                 Some(Arc::new(producer))
             }
-            None => None,
+            None => {
+                info!("Output topic not configured, skipping main producer creation");
+                None
+            }
         };
 
         // Create duplicate events producer if configured
-        let duplicate_producer = match &self.config.duplicate_events_topic {
+        let duplicate_producer = match &duplicate_events_topic {
             Some(topic) => {
                 info!(
                     "Creating Kafka producer for duplicate events topic: {}",
@@ -302,12 +319,17 @@ impl KafkaDeduplicatorService {
                     Arc::new(producer),
                 )?)
             }
-            None => None,
+            None => {
+                info!(
+                    "Duplicate events topic not configured, skipping duplicate producer creation"
+                );
+                None
+            }
         };
 
         // Create a processor with the store manager and both producers
         let processor = Arc::new(
-            BatchDeduplicationProcessor::new(
+            IngestionEventsBatchProcessor::new(
                 dedup_config,
                 self.store_manager.clone(),
                 main_producer,
@@ -374,6 +396,8 @@ impl KafkaDeduplicatorService {
                 )
                 // Consumer group membership settings
                 .with_max_poll_interval_ms(self.config.kafka_max_poll_interval_ms)
+                .with_session_timeout_ms(self.config.kafka_session_timeout_ms)
+                .with_heartbeat_interval_ms(self.config.kafka_heartbeat_interval_ms)
                 .build();
 
         // Create shutdown channel
@@ -440,7 +464,7 @@ impl KafkaDeduplicatorService {
 
         info!(
             "Initialized consumer for topic '{}', publishing to '{:?}'",
-            self.config.kafka_consumer_topic, self.config.output_topic
+            self.config.kafka_consumer_topic, output_topic
         );
 
         // Register health check for the service

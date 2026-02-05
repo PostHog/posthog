@@ -389,3 +389,72 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
         self.assertIn(f"{flag_b.key} (ID: {flag_b.id})", error_detail)
         # Should NOT mention the active flag
         self.assertNotIn(f"{flag_c.key} (ID: {flag_c.id})", error_detail)
+
+    def test_cannot_create_dependency_on_disabled_flag(self):
+        """Test that creating a dependency on a disabled flag is prevented."""
+        # Create a disabled flag
+        disabled_flag = self.create_flag("disabled_flag", active=False)
+
+        # Try to create a new flag that depends on the disabled flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "New Flag",
+                "key": "new_flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": str(disabled_flag.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn(f"Cannot create dependency on disabled flag '{disabled_flag.key}'", error_detail)
+        self.assertIn(f"ID: {disabled_flag.id}", error_detail)
+
+    def test_cannot_update_flag_to_add_dependency_on_disabled_flag(self):
+        """Test that updating a flag to add a dependency on a disabled flag is prevented."""
+        # Create an active flag and a disabled flag
+        active_flag = self.create_flag("active_flag")
+        disabled_flag = self.create_flag("disabled_flag", active=False)
+
+        # Try to update the active flag to depend on the disabled flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{active_flag.id}/",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": str(disabled_flag.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_detail = response.json()["detail"]
+        self.assertIn(f"Cannot create dependency on disabled flag '{disabled_flag.key}'", error_detail)
+        self.assertIn(f"ID: {disabled_flag.id}", error_detail)

@@ -352,7 +352,7 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
             {
                 type: TriggerType.SAMPLING,
                 enabled: hasSampling,
-                sampleRate: numericSampleRate,
+                sampleRate: sampleRate ? parseFloat(sampleRate) : null,
             },
             {
                 type: TriggerType.MIN_DURATION,

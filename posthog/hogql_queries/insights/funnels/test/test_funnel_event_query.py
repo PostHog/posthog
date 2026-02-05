@@ -128,7 +128,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select = format_query(funnel_event_query)
         expected = dedent("""
             SELECT e.created_at AS timestamp,
-                   toUUID(e.user_id) AS aggregation_target,
+                   user_id AS aggregation_target,
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments AS e
@@ -153,7 +153,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select = format_query(funnel_event_query)
         expected = dedent("""
             SELECT toDateTime(e.created_at_str) AS timestamp,
-                   toUUID(e.user_id) AS aggregation_target,
+                   user_id AS aggregation_target,
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments_string_timestamp AS e
@@ -234,7 +234,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
         expected_2 = dedent("""
             SELECT e.created_at AS timestamp,
-                   toUUID(e.user_id) AS aggregation_target,
+                   user_id AS aggregation_target,
                    0 AS step_0,
                    if(and(1, equals(some_prop, 'some_value')), 1, 0) AS step_1,
                    0 AS step_2,
@@ -247,7 +247,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)  # type: ignore
         expected_3 = dedent("""
             SELECT e.ts AS timestamp,
-                   toUUID(e.some_user_id) AS aggregation_target,
+                   some_user_id AS aggregation_target,
                    0 AS step_0,
                    0 AS step_1,
                    if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,

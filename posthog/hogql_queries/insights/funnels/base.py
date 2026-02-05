@@ -195,7 +195,7 @@ class FunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self.context.team)
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),

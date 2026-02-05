@@ -116,6 +116,26 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _get_token_expires_in(self, request) -> int:
+        """
+        Returns access token expiry in seconds.
+        Claude Code doesn't implement refresh tokens properly, so we extend to 7 days.
+        See: https://github.com/anthropics/claude-code/issues/5706
+        """
+        if hasattr(request, "client") and request.client:
+            if request.client.name and "claude code" in request.client.name.lower():
+                return 60 * 60 * 24 * 7  # 7 days
+        return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
+
+    def save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Override to use custom token expiry for certain clients.
+        Sets token["expires_in"] before calling parent, which uses this value
+        when calculating the actual expiry datetime stored in the database.
+        """
+        token["expires_in"] = self._get_token_expires_in(request)
+        return super().save_bearer_token(token, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,
@@ -269,6 +289,21 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # First-party apps skip consent screen entirely
+        if application.is_first_party:
+            try:
+                # Auto-approve with all user's accessible teams
+                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                credentials["scoped_teams"] = list(teams)
+                credentials["scoped_organizations"] = []
+
+                uri, headers, body, status_code = self.create_authorization_response(
+                    request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
+                )
+                return self.redirect(uri, application)
+            except OAuthToolkitError as error:
+                return self.error_response(error, application, state=request.query_params.get("state"))
+
         # Check for auto-approval
         if request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto":
             try:
@@ -281,7 +316,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
                         )
-                        return Response({"redirect_uri": uri})
+                        return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
