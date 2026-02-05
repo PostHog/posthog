@@ -14,8 +14,9 @@ use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
     stages::{
-        grouping::GroupingStage, linking::LinkingStage, post_processing::PostProcessingStage,
-        pre_processing::PreProcessingStage, resolution::ResolutionStage,
+        alerting::AlertingStage, grouping::GroupingStage, linking::LinkingStage,
+        post_processing::PostProcessingStage, pre_processing::PreProcessingStage,
+        resolution::ResolutionStage,
     },
     types::{batch::Batch, event::ExceptionEvent},
 };
@@ -79,6 +80,9 @@ impl Pipeline for ExceptionEventPipeline {
             .await?
             // Link events to issues
             .apply_stage(LinkingStage::from(&app_context))
+            .await?
+            // Send internal events for alerting
+            .apply_stage(AlertingStage::from(&app_context))
             .await?
             // Handle errors, conversion to CH events
             .apply_stage(PostProcessingStage::new(events_by_id.clone()))
