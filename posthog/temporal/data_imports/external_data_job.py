@@ -15,6 +15,7 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
@@ -88,26 +89,26 @@ class UpdateExternalDataJobStatusInputs:
 
 
 @activity.defn
-def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
+async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
     close_old_connections()
 
-    rows_tracked = get_rows(inputs.team_id, inputs.schema_id)
+    rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
         logger.debug(msg)
         capture_exception(Exception(msg))
 
-    finish_row_tracking(inputs.team_id, inputs.schema_id)
+    await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
     if inputs.job_id is None:
-        job: ExternalDataJob | None = (
-            ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
+        job: ExternalDataJob | None = await database_sync_to_async(
+            lambda: ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
             .order_by("-created_at")
             .first()
-        )
+        )()
         if job is None:
             logger.info("No job to update status on")
             return
@@ -123,7 +124,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
+        source: ExternalDataSource = await database_sync_to_async(ExternalDataSource.objects.get)(pk=inputs.source_id)
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
@@ -146,7 +147,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
                     "error": inputs.internal_error,
                 },
             )
-            update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+            await database_sync_to_async(update_should_sync)(
+                schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
+            )
 
             friendly_errors = [
                 friendly_error
@@ -158,7 +161,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    job = update_external_job_status(
+    job = await database_sync_to_async(update_external_job_status)(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
@@ -166,7 +169,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
     )
 
     job.finished_at = dt.datetime.now(dt.UTC)
-    job.save()
+    await database_sync_to_async(job.save)()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",

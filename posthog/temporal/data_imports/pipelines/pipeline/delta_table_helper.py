@@ -8,14 +8,14 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 import deltalake.exceptions
-from conditional_cache import lru_cache
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_lru_cache_async, normalize_column_name
 
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
@@ -64,12 +64,13 @@ class DeltaTableHelper:
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
-    def _get_delta_table_uri(self) -> str:
+    async def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
-        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
+        folder_path = await database_sync_to_async(self._job.folder_path)()
+        return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
 
-    def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
-        delta_table = self.get_delta_table()
+    async def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
+        delta_table = await self.get_delta_table()
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
@@ -85,9 +86,9 @@ class DeltaTableHelper:
 
         return delta_table
 
-    @lru_cache(maxsize=1, condition=lambda result: result is not None)
-    def get_delta_table(self) -> deltalake.DeltaTable | None:
-        delta_uri = self._get_delta_table_uri()
+    @conditional_lru_cache_async(maxsize=1, condition=lambda result: result is not None)
+    async def get_delta_table(self) -> deltalake.DeltaTable | None:
+        delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
         if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
@@ -106,31 +107,31 @@ class DeltaTableHelper:
 
         return None
 
-    def reset_table(self):
-        delta_uri = self._get_delta_table_uri()
+    async def reset_table(self):
+        delta_uri = await self._get_delta_table_uri()
 
         s3 = get_s3_client()
         try:
-            s3.delete(delta_uri, recursive=True)
+            await s3._rm(delta_uri, recursive=True)
         except FileNotFoundError:
             pass
 
         self.get_delta_table.cache_clear()
 
-        self._logger.debug("reset_table: _is_first_sync=True")
+        await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
 
-    def write_to_deltalake(
+    async def write_to_deltalake(
         self,
         data: pa.Table,
         write_type: Literal["incremental", "full_refresh", "append"],
         should_overwrite_table: bool,
         primary_keys: Sequence[Any] | None,
     ) -> deltalake.DeltaTable:
-        delta_table = self.get_delta_table()
+        delta_table = await self.get_delta_table()
 
         if delta_table:
-            delta_table = self._evolve_delta_schema(data.schema)
+            delta_table = await self._evolve_delta_schema(data.schema)
 
         self._logger.debug(
             f"write_to_deltalake: _is_first_sync = {self._is_first_sync}. should_overwrite_table = {should_overwrite_table}"
@@ -215,7 +216,7 @@ class DeltaTableHelper:
             if delta_table is None:
                 storage_options = self._get_credentials()
                 delta_table = deltalake.DeltaTable.create(
-                    table_uri=self._get_delta_table_uri(),
+                    table_uri=await self._get_delta_table_uri(),
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
@@ -246,7 +247,7 @@ class DeltaTableHelper:
             if delta_table is None:
                 storage_options = self._get_credentials()
                 delta_table = deltalake.DeltaTable.create(
-                    table_uri=self._get_delta_table_uri(),
+                    table_uri=await self._get_delta_table_uri(),
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
@@ -263,13 +264,13 @@ class DeltaTableHelper:
                 engine="rust",
             )
 
-        delta_table = self.get_delta_table()
+        delta_table = await self.get_delta_table()
         assert delta_table is not None
 
         return delta_table
 
-    def compact_table(self) -> None:
-        table = self.get_delta_table()
+    async def compact_table(self) -> None:
+        table = await self.get_delta_table()
         if table is None:
             raise Exception("Deltatable not found")
 

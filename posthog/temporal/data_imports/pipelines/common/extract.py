@@ -1,4 +1,5 @@
-from contextlib import contextmanager
+import asyncio
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, NoReturn
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.util import NonRetryableException
 
@@ -20,8 +22,9 @@ if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataSource
 
 
-@contextmanager
-def get_redis_client():
+@asynccontextmanager
+async def get_redis_client():
+    """Async version that wraps sync Redis operations in thread pool."""
     redis_client = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
@@ -29,8 +32,10 @@ def get_redis_client():
                 "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
             )
 
-        redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis_client.ping()
+        redis_client = await asyncio.to_thread(
+            get_client, f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/"
+        )
+        await asyncio.to_thread(redis_client.ping)
     except Exception as e:
         capture_exception(e)
 
@@ -44,7 +49,7 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
     return f"posthog:data_warehouse:non_retryable_errors:{team_id}:{source_id}:{run_id}"
 
 
-def trim_source_job_inputs(source: "ExternalDataSource") -> None:
+async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
     if not source.job_inputs:
         return
 
@@ -56,7 +61,7 @@ def trim_source_job_inputs(source: "ExternalDataSource") -> None:
                 did_update_inputs = True
 
     if did_update_inputs:
-        source.save()
+        await database_sync_to_async(source.save)()
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
@@ -144,36 +149,36 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
-def handle_non_retryable_error(
+async def handle_non_retryable_error(
     job_inputs: "PipelineInputs",
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
-    with get_redis_client() as redis_client:
+    async with get_redis_client() as redis_client:
         if redis_client is None:
-            logger.debug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
+            await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
         )
-        attempts = redis_client.incr(retry_key)
+        attempts = await asyncio.to_thread(redis_client.incr, retry_key)
 
         if attempts <= 3:
-            redis_client.expire(retry_key, 86400)  # Expire after 24 hours
-            logger.debug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
+            await asyncio.to_thread(redis_client.expire, retry_key, 86400)  # Expire after 24 hours
+            await logger.adebug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
             raise error
 
-    logger.debug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
+    await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
     raise NonRetryableException() from error
 
 
-def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
-    if cdp_producer.should_produce_table:
-        cdp_producer.clear_s3_chunks()
+async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
+    if await cdp_producer.should_produce_table():
+        await cdp_producer.clear_s3_chunks()
 
 
-def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
-    if cdp_producer.should_produce_table:
-        cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
+async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
+    if await cdp_producer.should_produce_table():
+        await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
