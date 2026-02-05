@@ -1,4 +1,5 @@
 import math
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional, TypedDict
@@ -12,8 +13,8 @@ import temporalio.workflow
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.constants import get_child_workflow_id
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationWorkflowInputs,
@@ -79,50 +80,6 @@ async def get_realtime_cohort_calculation_count_activity(
     return RealtimeCohortCalculationCountResult(count=count)
 
 
-@dataclasses.dataclass
-class RunningChildWorkflowsCheckResult:
-    """Result from checking for running child workflows."""
-
-    has_running_children: bool
-    running_count: int
-
-
-@temporalio.activity.defn
-async def check_running_child_workflows_activity() -> RunningChildWorkflowsCheckResult:
-    """Check if any child workflows from previous runs are still running."""
-    client = await async_connect()
-
-    # Only check workflows started in the last 24 hours
-    # Realtime cohort calculations shouldn't run longer than this
-    since = dt.datetime.utcnow() - dt.timedelta(hours=24)
-    since_str = since.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-    # Query for workflows that match our child workflow ID pattern and are running
-    query = (
-        'WorkflowId LIKE "realtime-cohort-calculation-schedule%" '
-        'AND WorkflowId LIKE "%-child-%" '
-        'AND ExecutionStatus="Running" '
-        f'AND StartTime > "{since_str}"'
-    )
-
-    running_count = 0
-    async for _workflow in client.list_workflows(query=query):
-        running_count += 1
-        # We only need to know if there are any running, so break early
-        if running_count >= 100:
-            break
-
-    has_running_children = running_count > 0
-
-    if has_running_children:
-        LOGGER.info(f"Found {running_count}{'+' if running_count >= 100 else ''} running child workflows")
-
-    return RunningChildWorkflowsCheckResult(
-        has_running_children=has_running_children,
-        running_count=running_count,
-    )
-
-
 @temporalio.workflow.defn(name="realtime-cohort-calculation-coordinator")
 class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
     """Coordinator workflow that spawns multiple child workflows for true parallelism."""
@@ -137,19 +94,6 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(f"Starting realtime cohort calculation coordinator with parallelism={inputs.parallelism}")
-
-        # Step 0: Check if any child workflows from previous runs are still running
-        check_result = await temporalio.workflow.execute_activity(
-            check_running_child_workflows_activity,
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-        )
-
-        if check_result.has_running_children:
-            workflow_logger.warning(
-                f"Skipping coordinator run: {check_result.running_count} child workflows are still running"
-            )
-            return
 
         # Step 1: Get total count of cohorts
         count_result = await temporalio.workflow.execute_activity(
@@ -183,7 +127,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
 
             workflow_configs.append(
                 WorkflowConfig(
-                    id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
+                    id=get_child_workflow_id(temporalio.workflow.info().workflow_id, i),
                     inputs=RealtimeCohortCalculationWorkflowInputs(
                         limit=limit,
                         offset=offset,
@@ -199,7 +143,8 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         total_workflows = len(workflow_configs)
         workflow_logger.info(f"Prepared {total_workflows} workflow configurations")
 
-        # Step 4: Launch workflows in batches
+        # Step 4: Launch workflows in batches and collect handles
+        child_workflow_handles = []
         workflows_scheduled = 0
         for batch_start in range(0, total_workflows, inputs.workflows_per_batch):
             batch_end = min(batch_start + inputs.workflows_per_batch, total_workflows)
@@ -211,15 +156,16 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 f"Starting batch {batch_number}/{total_batches}: scheduling {len(batch_configs)} workflows"
             )
 
-            # Start all workflows in current batch
+            # Start all workflows in current batch and collect handles
             for config in batch_configs:
-                await temporalio.workflow.start_child_workflow(
+                child_handle = await temporalio.workflow.start_child_workflow(
                     RealtimeCohortCalculationWorkflow.run,
                     config["inputs"],
                     id=config["id"],
                     task_queue=settings.MESSAGING_TASK_QUEUE,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 )
+                child_workflow_handles.append(child_handle)
                 workflows_scheduled += 1
 
                 workflow_logger.info(
@@ -237,5 +183,25 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 workflow_logger.info(f"Waiting {inputs.batch_delay_minutes} minutes before starting next batch...")
                 await temporalio.workflow.sleep(delay_seconds)
 
-        workflow_logger.info(f"Coordinator completed: scheduled {workflows_scheduled} child workflows")
+        workflow_logger.info(f"All {workflows_scheduled} child workflows scheduled, waiting for completion...")
+
+        # Step 5: Wait for all child workflows to complete
+        completed_count = 0
+        failed_count = 0
+
+        workflow_logger.info(f"Waiting for {len(child_workflow_handles)} child workflows to complete...")
+        for handle in asyncio.as_completed(child_workflow_handles):
+            try:
+                await handle  # Get the result (raises if failed)
+                completed_count += 1
+                workflow_logger.info(
+                    f"Child workflow completed successfully ({completed_count + failed_count}/{workflows_scheduled})"
+                )
+            except Exception as e:
+                failed_count += 1
+                workflow_logger.exception(
+                    f"Child workflow failed ({completed_count + failed_count}/{workflows_scheduled}): {e}"
+                )
+
+        workflow_logger.info(f"Coordinator completed: {completed_count} succeeded, {failed_count} failed")
         return
