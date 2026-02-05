@@ -2596,3 +2596,100 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+    def _create_personal_api_key(self, scopes: list[str]) -> str:
+        """Helper to create a Personal API Key with specified scopes."""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        return key_value
+
+    def test_read_only_api_key_cannot_update_team_config_fields(self):
+        """API keys with only project:read scope should not be able to modify config fields."""
+        api_key = self._create_personal_api_key(["project:read"])
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("project:write", response.json().get("detail", ""))
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+
+    def test_write_api_key_can_update_team_config_fields(self):
+        """API keys with project:write scope should be able to modify config fields."""
+        api_key = self._create_personal_api_key(["project:write"])
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_read_only_api_key_cannot_update_team_non_config_fields(self):
+        """API keys with only project:read scope should not be able to modify non-config fields like name."""
+        api_key = self._create_personal_api_key(["project:read"])
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"name": "New Team Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertNotEqual(self.team.name, "New Team Name")
+
+    def test_write_api_key_can_update_team_non_config_fields(self):
+        """API keys with project:write scope should be able to modify non-config fields like name."""
+        api_key = self._create_personal_api_key(["project:write"])
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"name": "New Team Name"},
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.name, "New Team Name")
+
+    def test_session_auth_member_can_still_update_config_fields(self):
+        """Session-based auth (browser users) with member role should still be able to update config fields.
+
+        This test ensures we didn't break existing UI behavior while fixing the API key issue.
+        """
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)

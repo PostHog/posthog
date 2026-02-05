@@ -534,11 +534,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # API keys must always have project:write to modify any fields, preserving
+        # the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
-                return ["project:read"]
+            is_api_key_auth = isinstance(
+                request.successful_authenticator, (PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication)
+            )
+            if not is_api_key_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
 
         # Fall back to the default behavior
         return None
