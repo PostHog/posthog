@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     breakdown_value Array(String),
 
     -- TTL: rows are automatically deleted after expires_at
-    expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+    expires_at Date DEFAULT today() + INTERVAL 7 DAY
 ) ENGINE = {engine}
 """
 
