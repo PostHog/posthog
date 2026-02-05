@@ -21,6 +21,7 @@ schedules = [
     web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
     web_preaggregated.web_pre_aggregate_historical_schedule,
     web_preaggregated.web_pre_aggregate_current_day_schedule,
+    web_preaggregated_team_selection.web_analytics_team_candidates_schedule,
     cache_warming.web_analytics_cache_warming_schedule,
 ]
 
@@ -33,6 +34,7 @@ defs = dagster.Definitions(
     assets=[
         web_preaggregated_team_selection.web_analytics_team_selection,
         web_preaggregated_team_selection.web_analytics_team_selection_v2,
+        web_preaggregated_team_selection.web_analytics_high_volume_team_candidates,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
         web_preaggregated_daily.web_stats_daily_export,
@@ -52,6 +54,7 @@ defs = dagster.Definitions(
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated.web_pre_aggregate_job,
+        web_preaggregated_team_selection.web_analytics_team_candidates_job,
         cache_warming.web_analytics_cache_warming_job,
     ],
     schedules=schedules,

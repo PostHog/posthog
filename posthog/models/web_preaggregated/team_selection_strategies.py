@@ -7,6 +7,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
+    DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD,
+    get_teams_by_weekly_pageviews_sql,
     get_top_teams_by_median_pageviews_sql,
 )
 
@@ -91,6 +93,30 @@ class ProjectSettingsStrategy(TeamSelectionStrategy):
             return set()
 
 
+class WeeklyHighVolumeStrategy(TeamSelectionStrategy):
+    """Select teams with consistent high pageview volume (default >500k avg/week) over the last 4 complete weeks."""
+
+    def get_name(self) -> str:
+        return "weekly_high_volume"
+
+    def get_teams(self, context: dagster.OpExecutionContext) -> set[int]:
+        try:
+            threshold = int(
+                os.getenv("WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD", str(DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD))
+            )
+            sql = get_teams_by_weekly_pageviews_sql(threshold)
+            result = sync_execute(sql)
+            team_ids = {row[0] for row in result}
+            context.log.info(f"Found {len(team_ids)} teams with >{threshold:,} avg weekly pageviews over last 4 weeks")
+            return team_ids
+        except ValueError as e:
+            context.log.warning(f"Invalid configuration for weekly pageviews query: {e}")
+            return set()
+        except Exception as e:
+            context.log.warning(f"Failed to fetch high volume teams by weekly pageviews: {e}")
+            return set()
+
+
 class StrategyRegistry:
     """
     This class is the source for all available strategies we can use to enable the pre-aggregated tables for teams.
@@ -107,6 +133,7 @@ class StrategyRegistry:
             EnvironmentVariableStrategy(),
             HighPageviewsStrategy(),
             ProjectSettingsStrategy(),
+            WeeklyHighVolumeStrategy(),
         ]:
             self.register(strategy)
 
