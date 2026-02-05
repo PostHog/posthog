@@ -116,9 +116,9 @@ export class LogsRateLimiterService {
     private getTimestampFromMessage(message: LogsIngestionMessage): number {
         const createdAtHeader = this.getHeaderValue(message.message.headers, 'created_at')
         if (createdAtHeader) {
-            const timestamp = parseInt(createdAtHeader, 10)
+            const timestamp = Date.parse(createdAtHeader) // Parse RFC3339/ISO8601 string
             if (!isNaN(timestamp)) {
-                return Math.round(timestamp / 1000) // Convert to seconds if needed
+                return Math.round(timestamp / 1000) // Convert ms to seconds
             }
         }
         // Fallback to current time
