@@ -9,6 +9,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
 import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -16,6 +17,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
 import { EventData, useAIData } from './hooks/useAIData'
+import { usePersonData } from './hooks/usePersonData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages } from './utils'
@@ -163,6 +165,20 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
+function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const { person, isLoading } = usePersonData(distinctId)
+
+    if (isLoading) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    const personData: PersonData | null = person
+        ? { distinct_id: person.distinct_id, properties: person.properties }
+        : { distinct_id: distinctId }
+
+    return <PersonColumnCell person={personData} />
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
@@ -302,7 +318,15 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     person: {
         title: 'Person',
         render: ({ value, record, query }) => {
-            // Handle object format (TracesQuery results - LLMTracePerson)
+            // Handle TracesQuery results with lazy loading: person is null, distinctId is available
+            if (!value && record && typeof record === 'object' && !Array.isArray(record)) {
+                const traceRecord = record as LLMTrace
+                if (traceRecord.distinctId) {
+                    return <LazyPersonColumnCell distinctId={traceRecord.distinctId} />
+                }
+            }
+
+            // Handle object format (TracesQuery results - LLMTracePerson, for backwards compat)
             if (value && typeof value === 'object' && !Array.isArray(value) && 'distinct_id' in value) {
                 return <PersonColumnCell person={value as PersonData} />
             }
