@@ -202,14 +202,17 @@ def validated_request(
                     serializer_class = type(response_serializer)
                     serialized = serializer_class(data=data, context=context)
                     serializer_class_name = serializer_class.__name__
-                # Handles classes like MySerializer
-                else:
+                # Handles callable classes like MySerializer
+                elif callable(response_serializer):
                     serialized = response_serializer(data=data, context=context)
                     serializer_class_name = (
                         response_serializer.__name__
                         if hasattr(response_serializer, "__name__")
-                        else str(type(response_serializer).__name__)
+                        else type(response_serializer).__name__
                     )
+                # Schema-only declarations (dict/OpenApiTypes/etc.) – skip runtime validation
+                else:
+                    return result
 
                 if not serialized.is_valid(raise_exception=strict_response_validation):
                     logger.warning(

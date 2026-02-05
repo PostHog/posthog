@@ -995,6 +995,33 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         assert "name" in str(exc_info.value)
 
+    def test_response_schema_non_callable(self):
+        """
+        Non-callable schema-only responses should skip runtime validation.
+        You should prefer callable classes like MySerializer(), though!
+        """
+
+        @validated_request(
+            responses={
+                200: OpenApiResponse(response={"type": "object", "properties": {"foo": {"type": "string"}}}),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            # This would be invalid against the above schema if we tried to validate it
+            return Response({"unexpected": "value"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == {"unexpected": "value"}
+
     def test_response_serializer_class(self):
         """Response serializer can be provided as class (e.g., MySerializer)"""
 
