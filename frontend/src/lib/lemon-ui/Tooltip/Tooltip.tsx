@@ -23,7 +23,9 @@ import clsx from 'clsx'
 import React, { useEffect, useRef, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { Link } from '../Link'
@@ -240,7 +242,7 @@ function TooltipLegacy({
     )
 }
 
-export function TooltipBaseUI({
+function TooltipBaseUI({
     children,
     title,
     className = '',
@@ -335,5 +337,13 @@ export function TooltipBaseUI({
 }
 
 export function Tooltip(props: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
+    const mountedFeatureFlagLogic = featureFlagLogic.findMounted()
+    const { featureFlags } = mountedFeatureFlagLogic?.values || {}
+    const useNewTooltip = !!featureFlags?.[FEATURE_FLAGS.UX_NEW_TOOLTIP]
+
+    if (useNewTooltip) {
+        return <TooltipBaseUI {...props} />
+    }
+
     return <TooltipLegacy {...props} />
 }
