@@ -121,18 +121,18 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <div className="col-span-4">Variant key</div>
                         <div className="col-span-6">Description</div>
                         <div className="col-span-3 flex justify-between items-center gap-1">
-                            <span>Rollout</span>
+                            <span>Split</span>
                             {!disabled && (
                                 <>
                                     <LemonButton
                                         onClick={() => setIsCustomSplit(!isCustomSplit)}
-                                        tooltip="Customize rollout"
+                                        tooltip="Customize split"
                                     >
                                         <IconPencil />
                                     </LemonButton>
                                     <LemonButton
                                         onClick={() => distributeVariantsEqually()}
-                                        tooltip="Normalize variant rollout percentages"
+                                        tooltip="Distribute split evenly"
                                     >
                                         <IconBalance />
                                     </LemonButton>
@@ -224,9 +224,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </div>
                     ))}
                     {variants.length > 0 && !areVariantRolloutsValid && (
-                        <p className="text-danger">
-                            Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
-                        </p>
+                        <p className="text-danger">Variant splits must sum to 100 (currently {variantRolloutSum}).</p>
                     )}
                     {variants.length > 0 && !areVariantKeysValid && (
                         <p className="text-danger">All variants must have a key.</p>

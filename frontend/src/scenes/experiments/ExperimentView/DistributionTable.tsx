@@ -91,10 +91,10 @@ export function DistributionModal(): JSX.Element {
                         <LemonButton
                             size="small"
                             onClick={distributeVariantsEqually}
-                            tooltip="Redistribute variant rollout percentages equally"
+                            tooltip="Distribute split evenly"
                             icon={<IconBalance />}
                         >
-                            Distribute equally
+                            Distribute evenly
                         </LemonButton>
                     </div>
 
@@ -107,7 +107,7 @@ export function DistributionModal(): JSX.Element {
                                 render: (value) => <span className="font-semibold">{value}</span>,
                             },
                             {
-                                title: 'Rollout Percentage',
+                                title: 'Split',
                                 dataIndex: 'rollout_percentage',
                                 render: (_, record, index) => (
                                     <LemonInput
@@ -172,7 +172,7 @@ export function DistributionTable(): JSX.Element {
         {
             className: className,
             key: 'rollout_percentage',
-            title: 'Rollout',
+            title: 'Split',
             render: function Key(_, item): JSX.Element {
                 return <div>{`${item.rollout_percentage}%`}</div>
             },
