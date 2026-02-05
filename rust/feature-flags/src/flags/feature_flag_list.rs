@@ -102,7 +102,6 @@ impl FeatureFlagList {
               LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
             WHERE t.id = $1
               AND f.deleted = false
-              AND (f.is_remote_configuration IS NULL OR f.is_remote_configuration = false)
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
@@ -347,54 +346,6 @@ mod tests {
         for flag in &flags_from_pg {
             assert_eq!(flag.team_id, team.id);
         }
-    }
-
-    #[tokio::test]
-    async fn test_remote_config_flags_excluded_from_pg() {
-        let context = TestContext::new(None).await;
-        let team = context
-            .insert_new_team(None)
-            .await
-            .expect("Failed to insert team");
-
-        // Insert a regular feature flag using the helper (is_remote_configuration defaults to NULL)
-        let regular_flag = context
-            .insert_flag(team.id, None)
-            .await
-            .expect("Failed to insert regular flag");
-
-        // Insert a remote config flag via raw SQL since FeatureFlagRow doesn't have
-        // is_remote_configuration field
-        let remote_config_flag_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
-        let mut conn = context
-            .non_persons_writer
-            .get_connection()
-            .await
-            .expect("Failed to get connection");
-        sqlx::query(
-            r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
-             is_remote_configuration, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, true, '2024-06-17')"#,
-        )
-        .bind(remote_config_flag_id)
-        .bind(team.id)
-        .bind("Remote Config Flag")
-        .bind("remote_config_flag")
-        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
-        .execute(&mut *conn)
-        .await
-        .expect("Failed to insert remote config flag");
-
-        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
-            .await
-            .expect("Failed to fetch flags from pg");
-
-        // Only the regular flag should be returned, remote config flag should be excluded
-        assert_eq!(flags_from_pg.len(), 1);
-        let flag = flags_from_pg.first().expect("Should have one flag");
-        assert_eq!(flag.key, regular_flag.key);
-        assert_eq!(flag.id, regular_flag.id);
     }
 
     #[tokio::test]
