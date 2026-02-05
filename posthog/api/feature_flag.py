@@ -120,6 +120,34 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     )
 
 
+def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
+    """Compute rollout state for a flag to include in bulk delete response.
+
+    Returns a dict with:
+      - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
+      - active_variant: variant key if a multivariate flag is fully rolled out to one variant
+    """
+    multivariate = flag.filters.get("multivariate", None)
+
+    if multivariate:
+        is_fully_rolled_out, variant_key = checker.is_multivariate_flag_fully_rolled_out(flag)
+        if is_fully_rolled_out:
+            return {"rollout_state": "fully_rolled_out", "active_variant": variant_key}
+    elif checker.is_boolean_flag_fully_rolled_out(flag):
+        return {"rollout_state": "fully_rolled_out", "active_variant": None}
+
+    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0 or flag was never called
+    groups = flag.filters.get("groups", [])
+    if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
+        return {"rollout_state": "not_rolled_out", "active_variant": None}
+
+    # Flag was never called and is not fully rolled out — treat as not rolled out
+    if flag.last_called_at is None and not flag.active:
+        return {"rollout_state": "not_rolled_out", "active_variant": None}
+
+    return {"rollout_state": "partial", "active_variant": None}
+
+
 def extract_etag_from_header(header_value: str | None) -> str | None:
     """
     Extract ETag value from an If-None-Match header.
@@ -1949,6 +1977,10 @@ class FeatureFlagViewSet(
                 )
                 continue
 
+            # Capture rollout state before deletion for cleanup prompt context
+            checker = FeatureFlagStatusChecker(feature_flag=flag)
+            rollout_info = _get_flag_rollout_info(flag, checker)
+
             # All checks passed - soft delete the flag
             old_key = flag.key
 
@@ -1975,7 +2007,7 @@ class FeatureFlagViewSet(
                 ),
             )
 
-            deleted.append({"id": flag_id, "key": old_key})
+            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
 
         return Response(
             {

@@ -6,23 +6,109 @@ import { LemonButton, LemonCollapse, LemonModal, lemonToast } from '@posthog/lem
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { BulkDeleteResult, flagSelectionLogic } from './flagSelectionLogic'
+import { DeletedFlagInfo, flagSelectionLogic } from './flagSelectionLogic'
 
-function generateCleanupPrompt(deletedFlags: BulkDeleteResult['deleted']): string {
+function generateCleanupPrompt(deletedFlags: DeletedFlagInfo[]): string {
     if (deletedFlags.length === 0) {
         return ''
     }
 
-    const flagList = deletedFlags.map((f) => `- ${f.key}`).join('\n')
+    const fullyRolledOut = deletedFlags.filter((f) => f.rollout_state === 'fully_rolled_out')
+    const notRolledOut = deletedFlags.filter((f) => f.rollout_state === 'not_rolled_out')
+    const partial = deletedFlags.filter((f) => f.rollout_state === 'partial')
 
-    return `Find and remove all references to these feature flags in the codebase:
-${flagList}
+    const sections: string[] = []
 
-For each flag:
-1. Find all usages (isFeatureEnabled, useFeatureFlag, posthog.isFeatureEnabled, etc.)
-2. Replace with the appropriate default value
-3. Remove the flag check entirely if possible
-4. Clean up any dead code branches`
+    sections.push('Find and remove all references to these deleted feature flags in the codebase.')
+    sections.push(
+        'For each flag, search for all usages: isFeatureEnabled, useFeatureFlag, getFeatureFlag, posthog.isFeatureEnabled, posthog.getFeatureFlag, etc.'
+    )
+
+    if (fullyRolledOut.length > 0) {
+        const booleanFlags = fullyRolledOut.filter((f) => !f.active_variant)
+        const variantFlags = fullyRolledOut.filter((f) => f.active_variant)
+
+        sections.push('\n## Flags that were rolled out to 100%')
+        sections.push('These flags were fully rolled out. Remove the flag check but KEEP the enabled code path.')
+
+        if (booleanFlags.length > 0) {
+            const flagList = booleanFlags.map((f) => `- ${f.key}`).join('\n')
+            sections.push(`\nBoolean flags (remove the if-check, keep the body):\n${flagList}`)
+            sections.push(`Example:
+\`\`\`diff
+- if (isFeatureEnabled('${booleanFlags[0].key}')) {
+      doStuff();
+- }
+\`\`\`
+
+If there is an else branch, remove it entirely:
+\`\`\`diff
+- if (isFeatureEnabled('${booleanFlags[0].key}')) {
+      doStuff();
+- } else {
+-     doOtherStuff();
+- }
+\`\`\``)
+        }
+
+        if (variantFlags.length > 0) {
+            const flagList = variantFlags.map((f) => `- ${f.key} (keep variant: "${f.active_variant}")`).join('\n')
+            sections.push(`\nMultivariate flags (keep the winning variant's code, remove the flag check):\n${flagList}`)
+            sections.push(`Example:
+\`\`\`diff
+- if (getFeatureFlag('${variantFlags[0].key}') === '${variantFlags[0].active_variant}') {
+      doStuff();
+- }
+\`\`\`
+
+For switch statements, keep only the winning variant's code:
+\`\`\`diff
+- switch (getFeatureFlag('${variantFlags[0].key}')) {
+-     case '${variantFlags[0].active_variant}':
+          doStuff();
+-         break;
+-     case 'other-variant':
+-         doOtherStuff();
+-         break;
+- }
+\`\`\``)
+        }
+    }
+
+    if (notRolledOut.length > 0) {
+        const flagList = notRolledOut.map((f) => `- ${f.key}`).join('\n')
+        sections.push('\n## Flags that were rolled out to 0% or never called')
+        sections.push('These flags were never active. Remove the entire flag check AND the enabled code path.')
+        sections.push(flagList)
+        sections.push(`Example:
+\`\`\`diff
+- if (isFeatureEnabled('${notRolledOut[0].key}')) {
+-     doStuff();
+- }
+\`\`\`
+
+If there is an else branch, keep only the else body:
+\`\`\`diff
+- if (isFeatureEnabled('${notRolledOut[0].key}')) {
+-     doStuff();
+- } else {
+      doOtherStuff();
+- }
+\`\`\``)
+    }
+
+    if (partial.length > 0) {
+        const flagList = partial.map((f) => `- ${f.key}`).join('\n')
+        sections.push('\n## Flags with partial rollout')
+        sections.push(
+            "These flags had a partial rollout. Check the flag's intent to determine which code path to keep, then remove the flag check."
+        )
+        sections.push(flagList)
+    }
+
+    sections.push('\nAfter cleanup, remove any dead code branches and unused imports.')
+
+    return sections.join('\n')
 }
 
 export function BulkDeleteResultsModal(): JSX.Element | null {
@@ -64,13 +150,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                                 Deleted {deleted.length} flag{deleted.length !== 1 ? 's' : ''}
                             </span>
                         </div>
-                        <ul className="list-none pl-6 space-y-1">
-                            {deleted.map((flag: { id: number; key: string }) => (
-                                <li key={flag.id} className="text-sm text-muted">
-                                    {flag.key}
-                                </li>
-                            ))}
-                        </ul>
+                        <FlagResultsList flags={deleted} />
                     </div>
                 )}
 
@@ -129,5 +209,28 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                 )}
             </div>
         </LemonModal>
+    )
+}
+
+function FlagResultsList({ flags }: { flags: DeletedFlagInfo[] }): JSX.Element {
+    const stateLabels: Record<string, string> = {
+        fully_rolled_out: 'was 100% rolled out',
+        not_rolled_out: 'was at 0% / never called',
+        partial: 'had partial rollout',
+    }
+
+    return (
+        <ul className="list-none pl-6 space-y-1">
+            {flags.map((flag) => (
+                <li key={flag.id} className="text-sm text-muted">
+                    <span>{flag.key}</span>
+                    <span className="text-muted-alt">
+                        {' '}
+                        — {stateLabels[flag.rollout_state] ?? 'unknown state'}
+                        {flag.active_variant ? ` (variant: "${flag.active_variant}")` : ''}
+                    </span>
+                </li>
+            ))}
+        </ul>
     )
 }

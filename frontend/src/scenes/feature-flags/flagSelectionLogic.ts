@@ -11,8 +11,17 @@ import type { flagSelectionLogicType } from './flagSelectionLogicType'
 
 let shiftKeyHandler: ((event: KeyboardEvent) => void) | null = null
 
+export type FlagRolloutState = 'fully_rolled_out' | 'not_rolled_out' | 'partial'
+
+export interface DeletedFlagInfo {
+    id: number
+    key: string
+    rollout_state: FlagRolloutState
+    active_variant: string | null
+}
+
 export interface BulkDeleteResult {
-    deleted: Array<{ id: number; key: string }>
+    deleted: DeletedFlagInfo[]
     errors: Array<{ id: number; key?: string; reason: string }>
 }
 

@@ -9142,6 +9142,12 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 2
         assert len(data["errors"]) == 0
 
+        # Verify rollout state is included in response
+        for deleted_flag in data["deleted"]:
+            assert "rollout_state" in deleted_flag
+            assert "active_variant" in deleted_flag
+            assert deleted_flag["rollout_state"] == "partial"
+
         # Verify flags are soft deleted
         flag1.refresh_from_db()
         flag2.refresh_from_db()
@@ -9319,3 +9325,60 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         other_flag.refresh_from_db()
         assert other_flag.deleted is False
+
+    def test_bulk_delete_includes_rollout_state(self):
+        # 100% boolean flag
+        fully_rolled_out = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="fully_rolled_out",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        # 0% flag
+        zero_rollout = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="zero_rollout",
+            filters={"groups": [{"rollout_percentage": 0, "properties": []}]},
+        )
+        # Partial rollout flag
+        partial = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="partial_rollout",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        # Multivariate fully rolled out to one variant
+        multivariate = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="multivariate_full",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": {"variants": [{"key": "winner", "rollout_percentage": 100}]},
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [fully_rolled_out.id, zero_rollout.id, partial.id, multivariate.id]},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 4
+
+        by_key = {d["key"]: d for d in data["deleted"]}
+
+        assert by_key["fully_rolled_out"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["fully_rolled_out"]["active_variant"] is None
+
+        assert by_key["zero_rollout"]["rollout_state"] == "not_rolled_out"
+        assert by_key["zero_rollout"]["active_variant"] is None
+
+        assert by_key["partial_rollout"]["rollout_state"] == "partial"
+        assert by_key["partial_rollout"]["active_variant"] is None
+
+        assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["multivariate_full"]["active_variant"] == "winner"
