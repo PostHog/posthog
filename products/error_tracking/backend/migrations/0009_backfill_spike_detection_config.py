@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("error_tracking", "0007_spike_detection_config"),
+        ("error_tracking", "0008_spike_detection_config"),
     ]
 
     operations = [

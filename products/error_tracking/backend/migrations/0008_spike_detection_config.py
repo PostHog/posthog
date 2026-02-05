@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("error_tracking", "0006_frame_idx_removal"),
+        ("error_tracking", "0007_auto_capture_controls"),
     ]
 
     operations = [
