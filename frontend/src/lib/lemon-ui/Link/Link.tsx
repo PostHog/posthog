@@ -15,6 +15,7 @@ import {
     ContextMenuItem,
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
+import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -80,6 +81,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
 
+    extraContextMenuItems?: React.ReactNode
     /** Skip the context menu */
     skipContext?: boolean
 }
@@ -140,6 +142,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             role,
             tabIndex,
             skipContext,
+            extraContextMenuItems,
             ...props
         },
         ref
@@ -276,6 +279,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     <ContextMenuContent className="max-w-[300px]">
                         <ContextMenuGroup>
                             <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                            {extraContextMenuItems && (
+                                <>
+                                    <MenuSeparator />
+                                    {extraContextMenuItems}
+                                </>
+                            )}
                         </ContextMenuGroup>
                     </ContextMenuContent>
                 </ContextMenu>

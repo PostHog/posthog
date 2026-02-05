@@ -2226,6 +2226,11 @@ export interface FunnelsFilterApi {
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     /** @nullable */
     breakdownAttributionValue?: number | null
+    /**
+     * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
+     * @nullable
+     */
+    breakdownSorting?: string | null
     /** @nullable */
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
     /** @nullable */
@@ -2279,8 +2284,6 @@ export interface FunnelsQueryResponseApi {
      * @nullable
      */
     hogql?: string | null
-    /** @nullable */
-    isUdf?: boolean | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */

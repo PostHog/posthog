@@ -155,6 +155,15 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["conversations"]["color"] == "#1d4aff"
         assert self.remote_config.config["conversations"]["token"] == "test_public_token_123"
         assert self.remote_config.config["conversations"]["domains"] == []
+        assert self.remote_config.config["conversations"]["widgetPosition"] == "bottom_right"
+        assert self.remote_config.config["conversations"]["requireEmail"] is False
+        assert self.remote_config.config["conversations"]["collectName"] is False
+        assert self.remote_config.config["conversations"]["identificationFormTitle"] == "Before we start..."
+        assert (
+            self.remote_config.config["conversations"]["identificationFormDescription"]
+            == "Please provide your details so we can help you better."
+        )
+        assert self.remote_config.config["conversations"]["placeholderText"] == "Type your message..."
 
     def test_conversations_enabled_with_custom_config(self):
         self.team.conversations_enabled = True
@@ -164,6 +173,12 @@ class TestRemoteConfig(_RemoteConfigBase):
             "widget_color": "#ff5733",
             "widget_public_token": "custom_token",
             "widget_domains": ["example.com", "test.com"],
+            "widget_position": "top_left",
+            "widget_require_email": True,
+            "widget_collect_name": True,
+            "widget_identification_form_title": "Let's get started",
+            "widget_identification_form_description": "Tell us about yourself",
+            "widget_placeholder_text": "Ask away...",
         }
         self.team.save()
         self.sync_remote_config()
@@ -172,6 +187,12 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert self.remote_config.config["conversations"]["color"] == "#ff5733"
         assert self.remote_config.config["conversations"]["token"] == "custom_token"
         assert self.remote_config.config["conversations"]["domains"] == ["example.com", "test.com"]
+        assert self.remote_config.config["conversations"]["widgetPosition"] == "top_left"
+        assert self.remote_config.config["conversations"]["requireEmail"] is True
+        assert self.remote_config.config["conversations"]["collectName"] is True
+        assert self.remote_config.config["conversations"]["identificationFormTitle"] == "Let's get started"
+        assert self.remote_config.config["conversations"]["identificationFormDescription"] == "Tell us about yourself"
+        assert self.remote_config.config["conversations"]["placeholderText"] == "Ask away..."
 
     def test_conversations_disabled_returns_false(self):
         self.team.conversations_enabled = False
