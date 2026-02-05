@@ -85,6 +85,7 @@ FROM heatmaps
 WHERE {predicates}
 ORDER BY timestamp DESC
 LIMIT {limit}
+OFFSET {offset}
 """
 
 
@@ -189,6 +190,7 @@ class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
     # JSON string of coordinate points: [{"x": 0.5, "y": 100}, ...]
     points = serializers.CharField(required=True)
     limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
+    offset = serializers.IntegerField(required=False, default=0, min_value=0)
 
     def validate_points(self, value: str) -> list[dict]:
         try:
@@ -356,6 +358,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         validated_data = request_serializer.validated_data
         limit = validated_data.pop("limit")
+        offset = validated_data.pop("offset")
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
 
@@ -402,10 +405,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         total_count = count_result.results[0][0] if count_result.results else 0
 
-        # Then get events with limit
+        # Then get events with limit and offset
         stmt = parse_select(
             EVENTS_QUERY,
-            {"predicates": ast.And(exprs=exprs), "limit": Constant(value=limit)},
+            {"predicates": ast.And(exprs=exprs), "limit": Constant(value=limit), "offset": Constant(value=offset)},
         )
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
 
@@ -423,7 +426,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ]
 
         response_serializer = HeatmapEventsResponseSerializer(
-            data={"results": data, "total_count": total_count, "has_more": total_count > limit}
+            data={"results": data, "total_count": total_count, "has_more": total_count > offset + limit}
         )
         response_serializer.is_valid(raise_exception=True)
 

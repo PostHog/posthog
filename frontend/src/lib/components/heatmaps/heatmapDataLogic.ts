@@ -62,6 +62,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setSelectedArea: (area: HeatmapArea | null) => ({ area }),
         clearSelectedArea: true,
         setShowEventsPanel: (show: boolean) => ({ show }),
+        loadMoreAreaEvents: true,
+        loadMoreAreaEventsSuccess: (payload: HeatmapEventsResponse) => ({ payload }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -142,6 +144,21 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             {
                 setShowEventsPanel: (_, { show }) => show,
                 clearSelectedArea: () => false,
+            },
+        ],
+        areaEventsLoadingMore: [
+            false as boolean,
+            {
+                loadMoreAreaEvents: () => true,
+                loadMoreAreaEventsSuccess: () => false,
+            },
+        ],
+        // Additional reducers for areaEvents (loader is defined below)
+        areaEvents: [
+            null as HeatmapEventsResponse | null,
+            {
+                loadMoreAreaEventsSuccess: (_, { payload }) => payload,
+                clearSelectedArea: () => null,
             },
         ],
     }),
@@ -245,7 +262,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     return await response.json()
                 },
-                clearSelectedArea: () => null,
             },
         ],
     })),
@@ -388,7 +404,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, props }) => ({
         setCommonFilters: () => {
             actions.loadHeatmap()
         },
@@ -413,6 +429,51 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 actions.loadAreaEvents({})
                 actions.setShowEventsPanel(true)
             }
+        },
+        loadMoreAreaEvents: async () => {
+            const area = values.selectedArea
+            const currentEvents = values.areaEvents
+            if (!area || !values.href || !currentEvents?.results) {
+                return
+            }
+
+            const { date_from, date_to, filter_test_accounts } = values.commonFilters
+            const { type } = values.heatmapFilters
+            const nextOffset = currentEvents.results.length
+
+            const apiURL = `/api/heatmap/events/${encodeParams(
+                {
+                    type,
+                    date_from,
+                    date_to,
+                    url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
+                    url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
+                    viewport_width_min: values.viewportRange.min,
+                    viewport_width_max: values.viewportRange.max,
+                    filter_test_accounts,
+                    points: JSON.stringify(area.points),
+                    offset: nextOffset,
+                },
+                '?'
+            )}`
+
+            const response = await (props.context === 'toolbar'
+                ? toolbarFetch(apiURL, 'GET')
+                : props.exportToken
+                  ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
+                  : fetch(apiURL))
+
+            if (response.status !== 200) {
+                return
+            }
+
+            const newData: HeatmapEventsResponse = await response.json()
+
+            actions.loadMoreAreaEventsSuccess({
+                results: [...currentEvents.results, ...(newData.results || [])],
+                total_count: newData.total_count,
+                has_more: newData.has_more,
+            })
         },
     })),
     subscriptions(({ actions }) => ({

@@ -7,11 +7,16 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicProps): JSX.Element | null {
-    const { showEventsPanel, areaEvents, areaEventsLoading } = useValues(heatmapDataLogic({ context, exportToken }))
-    const { setShowEventsPanel, clearSelectedArea } = useActions(heatmapDataLogic({ context, exportToken }))
+    const { showEventsPanel, areaEvents, areaEventsLoading, areaEventsLoadingMore } = useValues(
+        heatmapDataLogic({ context, exportToken })
+    )
+    const { setShowEventsPanel, clearSelectedArea, loadMoreAreaEvents } = useActions(
+        heatmapDataLogic({ context, exportToken })
+    )
 
     if (!showEventsPanel) {
         return null
@@ -26,20 +31,19 @@ export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicPro
         {
             title: 'Time',
             dataIndex: 'timestamp',
+            sorter: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
             render: (_, event) => humanFriendlyDetailedTime(event.timestamp),
         },
         {
             title: 'Type',
             dataIndex: 'type',
+            sorter: (a, b) => a.type.localeCompare(b.type),
         },
         {
             title: 'User',
             dataIndex: 'distinct_id',
-            render: (_, event) => (
-                <span className="font-mono text-xs truncate max-w-[150px] block" title={event.distinct_id}>
-                    {event.distinct_id}
-                </span>
-            ),
+            sorter: (a, b) => a.distinct_id.localeCompare(b.distinct_id),
+            render: (_, event) => <PersonDisplay person={{ distinct_id: event.distinct_id }} noPopover />,
         },
         {
             title: '',
@@ -65,7 +69,7 @@ export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicPro
                     <div className="px-4 py-2 border-b text-sm text-muted">
                         <div>
                             {areaEvents.total_count} event{areaEvents.total_count !== 1 ? 's' : ''} found
-                            {areaEvents.has_more && ' (showing first 50)'}
+                            {areaEvents.has_more && ` (showing ${areaEvents.results.length})`}
                         </div>
                         <div className="text-xs mt-1">
                             Note: These are raw events at this exact coordinate. The heatmap display uses interpolation,
@@ -79,6 +83,17 @@ export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicPro
                         rowKey={(record) => `${record.timestamp}-${record.distinct_id}`}
                         className="max-h-[400px] overflow-auto"
                     />
+                    {areaEvents.has_more && (
+                        <div className="flex justify-center p-4 border-t">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => loadMoreAreaEvents()}
+                                loading={areaEventsLoadingMore}
+                            >
+                                Load more events
+                            </LemonButton>
+                        </div>
+                    )}
                 </>
             ) : (
                 <div className="p-8 text-center text-muted">No events found in this area</div>
