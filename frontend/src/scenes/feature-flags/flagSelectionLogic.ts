@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -8,8 +8,6 @@ import { FeatureFlagType } from '~/types'
 
 import { featureFlagsLogic } from './featureFlagsLogic'
 import type { flagSelectionLogicType } from './flagSelectionLogicType'
-
-let shiftKeyHandler: ((event: KeyboardEvent) => void) | null = null
 
 export type FlagRolloutState = 'fully_rolled_out' | 'not_rolled_out' | 'partial'
 
@@ -173,19 +171,17 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        shiftKeyHandler = (event: KeyboardEvent): void => {
-            actions.setShiftKeyHeld(event.shiftKey)
-        }
-        window.addEventListener('keydown', shiftKeyHandler)
-        window.addEventListener('keyup', shiftKeyHandler)
-    }),
-
-    beforeUnmount(() => {
-        if (shiftKeyHandler) {
-            window.removeEventListener('keydown', shiftKeyHandler)
-            window.removeEventListener('keyup', shiftKeyHandler)
-            shiftKeyHandler = null
-        }
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
+            const onKeyChange = (event: KeyboardEvent): void => {
+                actions.setShiftKeyHeld(event.shiftKey)
+            }
+            window.addEventListener('keydown', onKeyChange)
+            window.addEventListener('keyup', onKeyChange)
+            return () => {
+                window.removeEventListener('keydown', onKeyChange)
+                window.removeEventListener('keyup', onKeyChange)
+            }
+        }, 'shiftKeyListener')
     }),
 ])

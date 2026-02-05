@@ -136,13 +136,9 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
     elif checker.is_boolean_flag_fully_rolled_out(flag):
         return {"rollout_state": "fully_rolled_out", "active_variant": None}
 
-    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0 or flag was never called
+    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0
     groups = flag.filters.get("groups", [])
     if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
-        return {"rollout_state": "not_rolled_out", "active_variant": None}
-
-    # Flag was never called and is not fully rolled out — treat as not rolled out
-    if flag.last_called_at is None and not flag.active:
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
@@ -1840,11 +1836,10 @@ class FeatureFlagViewSet(
         validated_ids = []
         invalid_ids = []
         for flag_id in flag_ids:
-            if str(flag_id).isdigit():
-                try:
-                    validated_ids.append(int(flag_id))
-                except (ValueError, TypeError):
-                    invalid_ids.append(flag_id)
+            if isinstance(flag_id, int):
+                validated_ids.append(flag_id)
+            elif isinstance(flag_id, str) and flag_id.isdigit():
+                validated_ids.append(int(flag_id))
             else:
                 invalid_ids.append(flag_id)
 
@@ -1904,11 +1899,10 @@ class FeatureFlagViewSet(
         validated_ids = []
         invalid_ids = []
         for flag_id in flag_ids:
-            if str(flag_id).isdigit():
-                try:
-                    validated_ids.append(int(flag_id))
-                except (ValueError, TypeError):
-                    invalid_ids.append(flag_id)
+            if isinstance(flag_id, int):
+                validated_ids.append(flag_id)
+            elif isinstance(flag_id, str) and flag_id.isdigit():
+                validated_ids.append(int(flag_id))
             else:
                 invalid_ids.append(flag_id)
 

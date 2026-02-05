@@ -6,7 +6,7 @@ import { LemonButton, LemonCollapse, LemonModal, lemonToast } from '@posthog/lem
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { DeletedFlagInfo, flagSelectionLogic } from './flagSelectionLogic'
+import { DeletedFlagInfo, FlagRolloutState, flagSelectionLogic } from './flagSelectionLogic'
 
 function generateCleanupPrompt(deletedFlags: DeletedFlagInfo[]): string {
     if (deletedFlags.length === 0) {
@@ -213,7 +213,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
 }
 
 function FlagResultsList({ flags }: { flags: DeletedFlagInfo[] }): JSX.Element {
-    const stateLabels: Record<string, string> = {
+    const stateLabels: Record<FlagRolloutState, string> = {
         fully_rolled_out: 'was 100% rolled out',
         not_rolled_out: 'was at 0% / never called',
         partial: 'had partial rollout',
