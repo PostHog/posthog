@@ -934,6 +934,67 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.data[0]["name"] == "first"
         assert response.data[1]["name"] == "second"
 
+    def test_response_serializer_with_empty_list(self):
+        """ListSerializer should handle empty list responses."""
+
+        class ItemSerializer(serializers.Serializer):
+            id = serializers.IntegerField()
+            name = serializers.CharField()
+
+        @validated_request(
+            responses={
+                200: OpenApiResponse(response=ItemSerializer(many=True)),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response([], status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == []
+
+    def test_response_serializer_with_many_true_invalid_item_raises(self):
+        """ListSerializer should surface validation errors for invalid items."""
+
+        class ItemSerializer(serializers.Serializer):
+            id = serializers.IntegerField()
+            name = serializers.CharField()
+
+        @validated_request(
+            responses={
+                200: OpenApiResponse(response=ItemSerializer(many=True)),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            # Second item is missing required 'name'
+            return Response(
+                [
+                    {"id": 1, "name": "first"},
+                    {"id": 2},
+                ],
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        with pytest.raises(Exception) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "name" in str(exc_info.value)
+
     def test_response_serializer_class(self):
         """Response serializer can be provided as class (e.g., MySerializer)"""
 

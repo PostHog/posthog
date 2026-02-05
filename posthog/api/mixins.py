@@ -195,7 +195,7 @@ def validated_request(
                 # Handles list serializers and (many=True)
                 if isinstance(response_serializer, serializers.ListSerializer):
                     child_class = type(response_serializer.child)
-                    serialized = serializers.ListSerializer(data=data, child=child_class(), context=context)
+                    serialized = child_class(data=data, many=True, context=context)
                     serializer_class_name = f"{child_class.__name__}(many=True)"
                 # Handles instances like MySerializer()
                 elif isinstance(response_serializer, serializers.Serializer):
