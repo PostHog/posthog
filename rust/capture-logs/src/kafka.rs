@@ -195,6 +195,10 @@ impl KafkaSink {
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
     ) -> Result<(), anyhow::Error> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
         let schema = Schema::parse_str(AVRO_SCHEMA)?;
         let mut writer = Writer::with_codec(
             &schema,
