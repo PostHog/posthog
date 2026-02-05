@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
@@ -259,6 +261,81 @@ class TestServiceFlagsCache(BaseTest):
         assert len(flags) == 2
         flag_keys = {f["key"] for f in flags}
         assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+        assert "encrypted-remote-config" not in flag_keys
+
+    @parameterized.expand(
+        [
+            # (is_remote_config, has_encrypted, should_include, description)
+            (False, False, True, "regular_flag"),
+            (False, True, True, "encrypted_but_not_remote_config"),
+            (True, False, True, "unencrypted_remote_config"),
+            (True, True, False, "encrypted_remote_config"),
+            (None, False, True, "null_remote_config_unencrypted"),
+            (None, True, True, "null_remote_config_encrypted"),
+            (False, None, True, "regular_flag_null_encrypted"),
+            (True, None, True, "remote_config_null_encrypted"),
+            (None, None, True, "legacy_flag_both_null"),
+        ]
+    )
+    def test_filtering_matrix_for_service(self, is_remote_config, has_encrypted, should_include, desc):
+        """Test filtering behavior for all combinations of is_remote_configuration and has_encrypted_payloads.
+
+        This parameterized test covers all 9 combinations including NULL values to ensure
+        legacy flags (created before these fields existed) are handled correctly.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{desc}",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            has_encrypted_payloads=has_encrypted,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flag_keys = {f["key"] for f in result["flags"]}
+
+        if should_include:
+            assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
+        else:
+            assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
+
+    @parameterized.expand(
+        [
+            # (is_remote_config, has_encrypted, should_include, description)
+            (False, False, True, "regular_flag"),
+            (False, True, True, "encrypted_but_not_remote_config"),
+            (True, False, True, "unencrypted_remote_config"),
+            (True, True, False, "encrypted_remote_config"),
+            (None, False, True, "null_remote_config_unencrypted"),
+            (None, True, True, "null_remote_config_encrypted"),
+            (False, None, True, "regular_flag_null_encrypted"),
+            (True, None, True, "remote_config_null_encrypted"),
+            (None, None, True, "legacy_flag_both_null"),
+        ]
+    )
+    def test_filtering_matrix_for_teams_batch(self, is_remote_config, has_encrypted, should_include, desc):
+        """Test batch function filtering for all combinations of is_remote_configuration and has_encrypted_payloads.
+
+        This parameterized test covers all 9 combinations including NULL values to ensure
+        legacy flags (created before these fields existed) are handled correctly in batch loading.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{desc}",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            has_encrypted_payloads=has_encrypted,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flag_keys = {f["key"] for f in result[self.team.id]["flags"]}
+
+        if should_include:
+            assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
+        else:
+            assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
