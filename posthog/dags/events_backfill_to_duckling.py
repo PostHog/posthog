@@ -126,13 +126,14 @@ PERSONS_CONCURRENCY_TAG = {
 # ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 # DuckLake table uses TIMESTAMPTZ to match this format.
 # Note: _timestamp is DateTime (not DateTime64), so we convert it to DateTime64 for consistency.
+# Note: is_identified is Int8 in ClickHouse, cast to Bool for proper BOOLEAN type in Parquet.
 PERSONS_COLUMNS = """
     pd.team_id AS team_id,
     pd.distinct_id AS distinct_id,
     toString(p.id) AS id,
     p.properties AS properties,
     p.created_at AS created_at,
-    p.is_identified AS is_identified,
+    toBool(p.is_identified) AS is_identified,
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
     toDateTime64(p._timestamp, 6) AS _timestamp,
