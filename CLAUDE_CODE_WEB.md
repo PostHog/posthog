@@ -33,9 +33,9 @@ The following example shows how to install Python 3.12.12. Adjust the version nu
 mkdir -p /tmp/python-install && cd /tmp/python-install
 
 # Download Python 3.12.12 from python-build-standalone
-# Note: Replace version and release tag as needed
+# Note: This URL is an example. Replace the version and <RELEASE_TAG> with a valid release from GitHub Releases.
 curl -L -o python.tar.gz \
-  "https://github.com/astral-sh/python-build-standalone/releases/download/20260203/cpython-3.12.12%2B20260203-x86_64-unknown-linux-gnu-install_only.tar.gz"
+  "https://github.com/astral-sh/python-build-standalone/releases/download/<RELEASE_TAG>/cpython-3.12.12%2B<RELEASE_TAG>-x86_64-unknown-linux-gnu-install_only.tar.gz"
 
 # Extract
 tar -xzf python.tar.gz
