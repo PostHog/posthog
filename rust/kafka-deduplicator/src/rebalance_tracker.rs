@@ -125,7 +125,12 @@ impl RebalanceTracker {
 
         // Cancel export token on FIRST rebalance (0 -> 1 transition)
         if prev == 0 {
-            let token = self.export_suppression_token.read().unwrap();
+            // Clone the token and release the lock before calling cancel() to avoid
+            // potential deadlock if cancel() triggers callbacks that need this lock
+            let token = {
+                let guard = self.export_suppression_token.read().unwrap();
+                guard.clone()
+            };
             token.cancel();
             info!("Export suppression: cancelled all in-flight exports (rebalance started)");
         }
