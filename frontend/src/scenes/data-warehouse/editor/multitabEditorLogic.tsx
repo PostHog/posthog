@@ -633,6 +633,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setQueryInput(queryObject.query || '')
                 }
             }
+
+            // Focus the editor after creating a new tab
+            props.editor?.focus()
         },
         setSourceQuery: ({ sourceQuery }) => {
             if (!values.activeTab) {

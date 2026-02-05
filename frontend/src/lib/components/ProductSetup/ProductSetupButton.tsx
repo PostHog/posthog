@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { ProductSetupPopover } from './ProductSetupPopover'
@@ -93,9 +94,7 @@ const MinimizedButton = forwardRef<HTMLButtonElement, MinimizedButtonProps>(func
                 <span className="relative">
                     <IconTarget />
                     {remainingCount > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 flex items-center justify-center w-3.5 h-3.5 text-[9px] font-bold bg-warning text-white rounded-full">
-                            {remainingCount}
-                        </span>
+                        <LemonBadge.Number count={remainingCount} status="warning" size="medium" position="top-right" />
                     )}
                 </span>
             }
@@ -131,9 +130,7 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
             data-attr="global-product-setup-button"
             sideIcon={
                 showBadge && remainingCount > 0 ? (
-                    <span className="flex items-center justify-center min-w-5 h-5 px-1 text-xs font-bold bg-warning text-white rounded-full">
-                        {remainingCount}
-                    </span>
+                    <LemonBadge.Number count={remainingCount} status="warning" size="medium" />
                 ) : undefined
             }
         >

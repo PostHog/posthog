@@ -242,7 +242,9 @@ class PersonQuery:
         # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
-            properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
+            properties_to_query -= extract_tables_and_properties(
+                self._inner_person_properties.flat, team_id=self._team_id
+            )
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 

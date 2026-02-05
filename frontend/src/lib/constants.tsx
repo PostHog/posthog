@@ -312,6 +312,9 @@ export const FEATURE_FLAGS = {
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-signals
     MAX_SESSION_SUMMARIZATION_BUTTON: 'max-session-summarization-button', // owner: #team-signals
+    MAX_SESSION_SUMMARIZATION_VIDEO_AS_BASE: 'max-session-summarization-video-as-base', // owner: #team-signals
+    PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
+    MEMBERS_PAGE_PLATFORM_ADDON_AD: 'members-page-platform-addon-ad', // owner: @reecejones #team-platform-features multivariate=control,test-audit-trail,test-paper-trail,test-space-scale,test-big-village
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @benjackwhite
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
@@ -361,6 +364,7 @@ export const FEATURE_FLAGS = {
     SESSIONS_EXPLORER: 'sessions-explorer', // owner: @jabahamondes #team-web-analytics
     SEMVER_TARGETING: 'semver-targeting', // owner: #team-feature-flags
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
+    SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
