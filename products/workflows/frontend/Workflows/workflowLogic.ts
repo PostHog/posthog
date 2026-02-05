@@ -99,7 +99,7 @@ function hasSurveyTrigger(workflow: HogFlow): boolean {
         return false
     }
     const events = trigger.config.filters?.events ?? []
-    return events.some((e: any) => e.id === SurveyEventName.SENT)
+    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
 }
 
 function ensureSurveysLoaded(): void {
@@ -574,7 +574,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (
                     'type' in updatedConfig &&
                     updatedConfig.type === 'event' &&
-                    updatedConfig.filters?.events?.some((e: any) => e.id === SurveyEventName.SENT)
+                    updatedConfig.filters?.events?.length === 1 &&
+                    updatedConfig.filters?.events?.[0]?.id === SurveyEventName.SENT
                 ) {
                     ensureSurveysLoaded()
                 }

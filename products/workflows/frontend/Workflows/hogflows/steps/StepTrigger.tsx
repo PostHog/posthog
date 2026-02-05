@@ -152,17 +152,19 @@ export function StepTriggerConfiguration({
         })
     }
 
-    triggerOptions.splice(1, 0, {
-        label: 'Survey',
-        value: 'survey',
-        icon: <IconMessage />,
-        labelInMenu: (
-            <div className="flex flex-col my-1">
-                <div className="font-semibold">Survey</div>
-                <p className="text-xs text-muted">Trigger when a user submits a survey response</p>
-            </div>
-        ),
-    })
+    if (featureFlags[FEATURE_FLAGS.WORKFLOWS_SURVEY_TRIGGERS]) {
+        triggerOptions.splice(1, 0, {
+            label: 'Survey',
+            value: 'survey',
+            icon: <IconMessage />,
+            labelInMenu: (
+                <div className="flex flex-col my-1">
+                    <div className="font-semibold">Survey</div>
+                    <p className="text-xs text-muted">Trigger when a user submits a survey response</p>
+                </div>
+            ),
+        })
+    }
 
     // For display purposes, detect if this is a survey trigger (event trigger with 'survey sent' event)
     const displayType = isSurveyTriggerConfig(node.data.config) ? 'survey' : type
