@@ -427,7 +427,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if survey is None:
             raise MaxToolRetryableError(f"Survey with id={survey_id} not found.")
         await self.check_object_access(survey, "viewer", resource="survey", action="read")
-        return await context.execute_and_format()
+        return await context.execute_and_format(survey)
 
     async def _read_artifact(self, artifact_id: str) -> str:
         try:
