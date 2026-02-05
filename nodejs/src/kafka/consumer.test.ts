@@ -139,9 +139,7 @@ describe('consumer', () => {
     afterEach(async () => {
         if (consumer) {
             // CRITICAL: Clear background tasks BEFORE disconnect to prevent hanging
-            if (consumer['backgroundTask']) {
-                consumer['backgroundTask'] = []
-            }
+            consumer['backgroundTaskCoordinator'].clear()
         }
 
         // Force resolve any remaining unresolved promises to prevent memory leaks
@@ -220,7 +218,7 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(3) // NOT 4
 
             // At this point we have 3 background work items so we must be waiting for one of them
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(3)
 
             expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
 
@@ -235,7 +233,7 @@ describe('consumer', () => {
             // Check the other background work releases has no effect on the consume call count
             expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(4)
 
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([])
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(0)
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
                 [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
                 [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
@@ -257,19 +255,21 @@ describe('consumer', () => {
 
             // At this point we have 3 background work items so we must be waiting for one of them
 
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(3)
             expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
 
             p1.resolve()
             await delay(1) // Let the promises callbacks trigger
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p2.promise, p3.promise])
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(2)
             p3.resolve()
             await delay(1) // Let the promises callbacks trigger
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p2.promise])
+            // Note: task count stays at 2 because p3 completed but p2 hasn't stored offsets yet
+            // (offsets are stored in order, so p3 waits for p2)
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(1)
             p2.resolve()
             await delay(1) // Let the promises callbacks trigger
 
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([])
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(0)
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
                 [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
                 [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
@@ -277,81 +277,52 @@ describe('consumer', () => {
             ])
         })
 
-        it('should not corrupt backgroundTask array when task is not found (index = -1)', async () => {
-            // This test verifies proper handling when indexOf returns -1
-            // Expected correct behavior:
-            // 1. If task not found (index = -1), nothing should be removed from array
-            // 2. The task should not wait for any other tasks
-            // 3. The array should remain unchanged
+        it('should handle interleaved add and complete operations', async () => {
+            // This test verifies that tasks can be added and completed in an interleaved manner
+            // and the coordinator handles it correctly
 
-            // Set up initial background tasks
+            // Add and complete first batch
             await simulateMessageWithBackgroundTask(
                 [createKafkaMessage({ offset: 1, partition: 0 })],
                 Promise.resolve()
             )
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 2, partition: 0 })],
-                Promise.resolve()
-            )
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 3, partition: 0 })],
-                Promise.resolve()
-            )
+            await delay(10)
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(0)
 
-            // Wait for tasks to complete and clear
-            await delay(100)
-
-            // Now add 3 pending tasks
+            // Now add pending tasks
             const p1 = triggerablePromise()
             const p2 = triggerablePromise()
             const p3 = triggerablePromise()
 
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 4, partition: 0 })], p1.promise)
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 5, partition: 0 })], p2.promise)
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 6, partition: 0 })], p3.promise)
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p1.promise)
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 3, partition: 0 })], p2.promise)
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 4, partition: 0 })], p3.promise)
 
-            const tasksBeforeCorruption = [...consumer['backgroundTask']]
-            expect(tasksBeforeCorruption.map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(3)
 
-            // Simulate a task that completes but is somehow not in the array
-            // This could happen due to race conditions or double-completion
-            const orphanTask = Promise.resolve()
-
-            // Manually inject the orphan task's finally handler using the FIXED logic
-            // This includes the error handling that should trigger when index = -1
-            const backgroundTaskWithFinally = orphanTask.finally(async () => {
-                const index = consumer['backgroundTask'].findIndex((t) => t.promise === orphanTask)
-                // This will be -1 since orphanTask is not in the array
-
-                // FIXED logic includes error detection and reporting
-                if (index < 0) {
-                    // In real code, this would captureException and increment metrics
-                    // For test, we just verify the logic path works
-                    expect(index).toBe(-1) // Confirm we're in the error case
-                }
-
-                const promisesToWait =
-                    index >= 0 ? consumer['backgroundTask'].slice(0, index).map((t) => t.promise) : []
-
-                // Only remove the task if it was actually found
-                if (index >= 0) {
-                    consumer['backgroundTask'].splice(index, 1)
-                }
-
-                await Promise.all(promisesToWait)
-            })
-
-            await backgroundTaskWithFinally
-
-            // The array should remain unchanged if the code handles -1 index properly
-            // With the bug, p3 would be incorrectly removed
-            expect(consumer['backgroundTask'].map((t) => t.promise)).toEqual([p1.promise, p2.promise, p3.promise])
-
-            // Clean up
-            p1.resolve()
-            p2.resolve()
+            // Complete task 3 first (out of order)
             p3.resolve()
-            await delay(100)
+            await delay(1)
+            // Task 3 completed but is still tracked because it's waiting for p1 and p2 to store offsets
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(2)
+
+            // Complete task 1
+            p1.resolve()
+            await delay(1)
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(1)
+
+            // Complete task 2 - this should release task 3 as well
+            p2.resolve()
+            await delay(1)
+            expect(consumer['backgroundTaskCoordinator'].taskCount).toBe(0)
+
+            // Offsets should still be stored in order
+            expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
+                [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 4, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 5, partition: 0, topic: 'test-topic' }]],
+            ])
         })
     })
 
@@ -377,7 +348,7 @@ describe('consumer', () => {
         })
 
         it('should call incrementalUnassign when no background tasks exist', async () => {
-            consumer['backgroundTask'] = []
+            // Coordinator starts empty, no need to set anything
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -391,18 +362,14 @@ describe('consumer', () => {
 
         it('should wait for offset storage before calling incrementalUnassign', async () => {
             // Create controllable promises to test actual waiting behavior
-            // task1/task2 are the background tasks, offsetsStored1/offsetsStored2 track offset storage
             const task1 = triggerablePromise()
             const task2 = triggerablePromise()
-            const offsetsStored1 = triggerablePromise()
-            const offsetsStored2 = triggerablePromise()
 
-            // Explicitly assign promise array with metadata (handled in afterEach cleanup)
-            // The rebalance callback now waits for offsetsStoredPromise, not just the task promise
-            void (consumer['backgroundTask'] = [
-                { promise: task1.promise, createdAt: Date.now(), offsetsStoredPromise: offsetsStored1.promise },
-                { promise: task2.promise, createdAt: Date.now(), offsetsStoredPromise: offsetsStored2.promise },
-            ])
+            // Use the coordinator to add tasks - this creates the offsetsStoredPromise internally
+            const onOffsetsStored1 = jest.fn()
+            const onOffsetsStored2 = jest.fn()
+            consumer['backgroundTaskCoordinator'].addTask(task1.promise, onOffsetsStored1)
+            consumer['backgroundTaskCoordinator'].addTask(task2.promise, onOffsetsStored2)
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -414,16 +381,16 @@ describe('consumer', () => {
             await delay(10)
             expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
 
-            // Resolve background tasks and their offset storage
+            // Resolve first task - offset storage callback runs, but still waiting for task2
             task1.resolve()
-            offsetsStored1.resolve()
             await delay(1)
+            expect(onOffsetsStored1).toHaveBeenCalled()
             expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
 
-            // Resolve second task and offset storage - now should proceed
+            // Resolve second task - now both tasks are complete and offsets stored
             task2.resolve()
-            offsetsStored2.resolve()
             await delay(10)
+            expect(onOffsetsStored2).toHaveBeenCalled()
 
             // Should have called commitSync after all offsets are stored
             expect(mockRdKafkaConsumer.commitSync).toHaveBeenCalledWith(null)
@@ -444,11 +411,8 @@ describe('consumer', () => {
 
             const mockConsumerDisabled = jest.mocked(consumerDisabled['rdKafkaConsumer'])
 
-            // Add background tasks with metadata
-            // Explicitly assign promise array (handled in cleanup)
-            void (consumerDisabled['backgroundTask'] = [
-                { promise: Promise.resolve(), createdAt: Date.now(), offsetsStoredPromise: Promise.resolve() },
-            ])
+            // Add a background task using the coordinator
+            consumerDisabled['backgroundTaskCoordinator'].addTask(Promise.resolve(), jest.fn())
 
             consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -467,18 +431,13 @@ describe('consumer', () => {
             // Set a short timeout for testing
             consumer['rebalanceCoordination'].rebalanceTimeoutMs = 50
 
-            // Create a promise that will never resolve (simulating stuck offset storage)
-            const neverResolvingPromise = new Promise<void>(() => {
+            // Create a promise that will never resolve (simulating stuck task)
+            const neverResolvingTask = new Promise<void>(() => {
                 // Intentionally never resolves
             })
 
-            void (consumer['backgroundTask'] = [
-                {
-                    promise: Promise.resolve(),
-                    createdAt: Date.now(),
-                    offsetsStoredPromise: neverResolvingPromise,
-                },
-            ])
+            // Add a task that never completes - its offset storage will also never complete
+            consumer['backgroundTaskCoordinator'].addTask(neverResolvingTask, jest.fn())
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -499,22 +458,16 @@ describe('consumer', () => {
         })
 
         it('should handle offset storage error and still proceed with revocation', async () => {
-            // Create a promise that rejects (simulating offset storage error)
-            const rejectingPromise = Promise.reject(new Error('Offset storage failed'))
-
-            void (consumer['backgroundTask'] = [
-                {
-                    promise: Promise.resolve(),
-                    createdAt: Date.now(),
-                    offsetsStoredPromise: rejectingPromise,
-                },
-            ])
+            // Add a task with a callback that throws an error
+            consumer['backgroundTaskCoordinator'].addTask(Promise.resolve(), () => {
+                throw new Error('Offset storage failed')
+            })
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
             ])
 
-            // Wait for the rejection to be handled
+            // Wait for the error to be handled
             await delay(10)
 
             // Should still proceed with commit and revocation despite error
