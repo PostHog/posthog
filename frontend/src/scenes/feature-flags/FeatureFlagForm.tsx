@@ -515,8 +515,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             </>
                                         ) : multivariateEnabled ? (
                                             <>
-                                                Returns a variant key (string) based on rollout percentages. Each
-                                                variant can optionally include a JSON payload. Access the variant via{' '}
+                                                When release conditions match, returns one of the variant keys (string)
+                                                based on rollout percentages. Each variant can optionally include a JSON
+                                                payload. Access the variant via{' '}
                                                 <code className="text-xs">getFeatureFlag</code> and its payload via{' '}
                                                 <code className="text-xs">getFeatureFlagPayload</code>.
                                             </>
