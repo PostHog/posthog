@@ -24,6 +24,9 @@ class AIEventType(StrEnum):
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
     FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
+    FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
+    FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
+    FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -43,6 +46,7 @@ class AgentMode(StrEnum):
     EXECUTION = "execution"
     SURVEY = "survey"
     RESEARCH = "research"
+    FLAGS = "flags"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -337,8 +341,6 @@ class AssistantTool(StrEnum):
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    CREATE_DASHBOARD = "create_dashboard"
-    EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
     READ_TAXONOMY = "read_taxonomy"
     SEARCH = "search"
     READ_DATA = "read_data"
@@ -3249,6 +3251,12 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationType(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
 
 
 class TimeWindowMode(StrEnum):
@@ -13696,6 +13704,14 @@ class RetentionEntity(BaseModel):
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    aggregationProperty: str | None = Field(
+        default=None,
+        description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationType: AggregationType | None = Field(
+        default=AggregationType.COUNT,
+        description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
