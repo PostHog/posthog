@@ -152,7 +152,7 @@ function ProductRecommendations({
     onContinue,
 }: ProductRecommendationsProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-px w-full break-words items-start px-4 py-2">
+        <div className="flex flex-col gap-px w-full break-words items-start p-3">
             <div className="flex flex-col gap-2 mt-3 w-full">
                 <div className="text-sm font-medium text-muted mb-1">Recommended for you (click to select):</div>
                 {products.map((productKey: ProductKey, index: number) => {
@@ -272,28 +272,25 @@ export function OnboardingMax(): JSX.Element {
         <BindLogic logic={maxLogic} props={{ tabId: ONBOARDING_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <AIConsentPopoverWrapper>
-                    <div className="flex flex-col h-full min-h-[600px]">
-                        {!threadVisible ? (
-                            <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
-                                <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
-                                    <OnboardingIntro />
-                                    <OnboardingQuestionInput />
-                                </div>
-                            </div>
-                        ) : (
-                            <ThreadAutoScroller>
-                                <Thread className="p-3" />
-                                {recommendedProducts.length > 0 && (
-                                    <ProductRecommendations
-                                        products={recommendedProducts}
-                                        selectedProducts={selectedProducts}
-                                        onToggleProduct={handleToggleProduct}
-                                        onContinue={handleContinueToSetup}
-                                    />
-                                )}
-                                <SidebarQuestionInput isSticky />
-                            </ThreadAutoScroller>
-                        )}
+                    <div className="flex flex-col h-full min-h-[calc(100vh-var(--scene-layout-header-height))]">
+                        <ThreadAutoScroller>
+                            {!threadVisible ? (
+                                <OnboardingWelcome />
+                            ) : (
+                                <>
+                                    <Thread className="p-3" />
+                                    {recommendedProducts.length > 0 && (
+                                        <ProductRecommendations
+                                            products={recommendedProducts}
+                                            selectedProducts={selectedProducts}
+                                            onToggleProduct={handleToggleProduct}
+                                            onContinue={handleContinueToSetup}
+                                        />
+                                    )}
+                                </>
+                            )}
+                            <SidebarQuestionInput isSticky />
+                        </ThreadAutoScroller>
                     </div>
                 </AIConsentPopoverWrapper>
             </BindLogic>
@@ -301,7 +298,7 @@ export function OnboardingMax(): JSX.Element {
     )
 }
 
-function OnboardingQuestionInput(): JSX.Element {
+function OnboardingWelcome(): JSX.Element {
     const { setAgentMode } = useActions(maxThreadLogic)
     const { askMax } = useActions(maxLogic({ tabId: ONBOARDING_TAB_ID }))
 
@@ -310,8 +307,9 @@ function OnboardingQuestionInput(): JSX.Element {
     }, [setAgentMode])
 
     return (
-        <div className="w-full max-w-xl flex flex-col gap-3">
-            <div className="flex flex-col gap-2">
+        <div className="flex flex-col items-center px-4 py-8">
+            <OnboardingIntro />
+            <div className="w-full max-w-xl flex flex-col gap-2 mt-4">
                 {QUICK_OPTIONS.map((option) => (
                     <button
                         key={option.label}
@@ -326,9 +324,8 @@ function OnboardingQuestionInput(): JSX.Element {
                         <IconArrowRight className="text-muted" />
                     </button>
                 ))}
+                <div className="text-center text-xs text-tertiary mt-2">or describe what you need below</div>
             </div>
-            <div className="text-center text-xs text-tertiary mb-1">or describe what you need</div>
-            <SidebarQuestionInput />
         </div>
     )
 }
