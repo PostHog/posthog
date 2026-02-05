@@ -30,13 +30,11 @@ import gatsbyImage from './logos/gatsby.svg'
 import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
-import heliconeImage from './logos/helicone.svg'
 import htmlImage from './logos/html.svg'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
 import langfuseImage from './logos/langfuse.svg'
 import laravelImage from './logos/laravel.svg'
-import litellmImage from './logos/litellm.png'
 import moengageImage from './logos/moengage.png'
 import n8nImage from './logos/n8n.svg'
 import nextjsImage from './logos/nextjs.svg'
@@ -186,7 +184,7 @@ export const ALL_SDKS: SDK[] = [
         name: 'Helicone',
         key: SDKKey.HELICONE,
         tags: [SDKTag.LLM],
-        image: heliconeImage,
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/helicone_7c41fa4c2d.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/integrations/helicone-posthog',
     },
     {
@@ -228,7 +226,7 @@ export const ALL_SDKS: SDK[] = [
         name: 'LiteLLM',
         key: SDKKey.LITELLM,
         tags: [],
-        image: litellmImage,
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/litellmicon_a2805d75e5.png',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/litellm',
     },
     {
