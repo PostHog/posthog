@@ -22,11 +22,12 @@ export const NotebookMarkLink = Mark.create({
 
     renderHTML({ HTMLAttributes }) {
         const href = HTMLAttributes.href || ''
+        const target = isPostHogLink(href) ? undefined : '_blank'
         if (!isSafeProtocol(href)) {
             HTMLAttributes.href = ''
         }
-        const target = isPostHogLink(HTMLAttributes.href) ? undefined : '_blank'
         return ['a', mergeAttributes(HTMLAttributes, { target }), 0]
+    },
     },
 
     addPasteRules() {
