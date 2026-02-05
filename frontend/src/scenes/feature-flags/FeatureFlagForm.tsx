@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     IconBalance,
@@ -49,7 +49,7 @@ import { FeatureFlagEvaluationRuntime } from '~/types'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
-import { FeatureFlagTemplates, type ModifiedField } from './FeatureFlagTemplates'
+import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
@@ -63,6 +63,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         isEditingFlag,
         showImplementation,
         openVariants,
+        payloadExpanded,
+        highlightedFields,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -75,23 +77,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         loadFeatureFlag,
         setShowImplementation,
         setOpenVariants,
+        setPayloadExpanded,
+        setHighlightedFields,
+        clearHighlight,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-    const [highlightedFields, setHighlightedFields] = useState<ModifiedField[]>([])
     const implementationRef = useRef<HTMLDivElement>(null)
-    const hasBooleanPayload = !!featureFlag?.filters?.payloads?.['true']
-    const [payloadExpanded, setPayloadExpanded] = useState(hasBooleanPayload)
-
-    const handleTemplateApplied = (fields: ModifiedField[]): void => {
-        setHighlightedFields(fields)
-    }
-
-    const clearHighlight = (field: ModifiedField): void => {
-        setHighlightedFields((prev) => prev.filter((f) => f !== field))
-    }
 
     const handleShowImplementation = (): void => {
         setShowImplementation(true)
@@ -207,7 +201,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                 <SceneContent>
                     {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={handleTemplateApplied} />}
+                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={setHighlightedFields} />}
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">

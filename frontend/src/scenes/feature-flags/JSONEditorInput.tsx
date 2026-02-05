@@ -101,7 +101,7 @@ export function JSONEditorInput({ onChange, placeholder, value = '', readOnly = 
                     value={valString}
                     onChange={(val) => onChange?.(val || undefined)}
                     placeholder={placeholder}
-                    readOnly={readOnly}
+                    disabled={readOnly}
                     fullWidth
                 />
             )}

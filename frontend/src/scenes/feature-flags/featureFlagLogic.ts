@@ -26,6 +26,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { type ModifiedField } from 'scenes/feature-flags/FeatureFlagTemplates'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -384,6 +385,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
+        setPayloadExpanded: (expanded: boolean) => ({ expanded }),
+        setHighlightedFields: (fields: ModifiedField[]) => ({ fields }),
+        clearHighlight: (field: ModifiedField) => ({ field }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -713,6 +717,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             [] as string[],
             {
                 setOpenVariants: (_, { openVariants }) => openVariants,
+            },
+        ],
+        payloadExpanded: [
+            false,
+            {
+                setPayloadExpanded: (_, { expanded }) => expanded,
+                loadFeatureFlagSuccess: (_, { featureFlag }) => !!featureFlag?.filters?.payloads?.['true'],
+            },
+        ],
+        highlightedFields: [
+            [] as ModifiedField[],
+            {
+                setHighlightedFields: (_, { fields }) => fields,
+                clearHighlight: (state, { field }) => state.filter((f: ModifiedField) => f !== field),
             },
         ],
     }),
