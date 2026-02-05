@@ -1,5 +1,5 @@
 import { IconGear, IconTrash } from '@posthog/icons'
-import { LemonColorGlyph, LemonColorPicker, LemonMenu } from '@posthog/lemon-ui'
+import { LemonColorGlyph, LemonColorPicker, LemonLabel, LemonMenu, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -79,23 +79,25 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                                         {
                                             key: 'label-placement',
                                             label: () => (
-                                                <LemonSwitch
-                                                    label="Label at start"
-                                                    className="pb-2"
-                                                    fullWidth
-                                                    checked={(position ?? 'end') === 'start'}
-                                                    onChange={(checked) =>
-                                                        updateGoalLine(
-                                                            goalLineIndex,
-                                                            'position',
-                                                            checked ? 'start' : 'end'
-                                                        )
-                                                    }
-                                                    disabledReason={
-                                                        displayLabel ? null : 'Enable "Show label" to change placement.'
-                                                    }
-                                                    data-attr="goal-line-label-placement-switch"
-                                                />
+                                                <div className="flex gap-1 mx-2 mb-2">
+                                                    <LemonLabel className="font-medium mr-1">Label position</LemonLabel>
+                                                    <LemonSegmentedButton
+                                                        value={position ?? 'end'}
+                                                        onChange={(value) =>
+                                                            updateGoalLine(
+                                                                goalLineIndex,
+                                                                'position',
+                                                                value as 'start' | 'end'
+                                                            )
+                                                        }
+                                                        options={[
+                                                            { value: 'start', label: 'Start' },
+                                                            { value: 'end', label: 'End' },
+                                                        ]}
+                                                        size="xsmall"
+                                                        data-attr="goal-line-position-selector"
+                                                    />
+                                                </div>
                                             ),
                                         },
                                     ],
