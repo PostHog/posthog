@@ -106,10 +106,12 @@ class TestTeam(BaseTest):
             team.test_account_filters,
             [
                 {
+                    "cohort_name": TEST_USERS_COHORT_NAME,
                     "key": "id",
+                    "label": None,
+                    "operator": "not_in",
                     "type": "cohort",
                     "value": test_users_cohort.id,
-                    "negation": True,
                 },
             ],
         )

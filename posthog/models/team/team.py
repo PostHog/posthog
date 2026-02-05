@@ -134,7 +134,7 @@ class TeamManager(models.Manager):
         cohort_filter = CohortPropertyFilter(
             cohort_name=test_users_cohort.name, value=test_users_cohort.id, operator=PropertyOperator.NOT_IN
         )
-        team.test_account_filters = [cohort_filter.model_dump_json()]
+        team.test_account_filters = [cohort_filter.model_dump()]
 
         if kwargs.get("is_demo") and not skip_demo_data_generation:
             if initiating_user is None:
