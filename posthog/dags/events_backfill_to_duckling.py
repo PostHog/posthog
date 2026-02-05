@@ -284,11 +284,15 @@ def get_earliest_event_date_for_team(team_id: int) -> datetime | None:
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
+        # Filter timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
+        # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
+        # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
         result = client.execute(
             """
             SELECT toDate(min(timestamp)) as earliest_date
             FROM events
             WHERE team_id = %(team_id)s
+              AND timestamp >= '1970-01-01'
             """,
             {"team_id": team_id},
         )
@@ -320,11 +324,15 @@ def get_earliest_person_date_for_team(team_id: int) -> datetime | None:
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     def query_earliest(client: Client) -> datetime | None:
+        # Filter _timestamp >= '1970-01-01' to avoid toDate() overflow on pre-epoch timestamps.
+        # ClickHouse's Date type is UInt16 (days since 1970-01-01), so negative timestamps
+        # overflow to the max date (2149-06-06), breaking the backfill sensor logic.
         result = client.execute(
             """
             SELECT toDate(min(_timestamp)) as earliest_date
             FROM person
             WHERE team_id = %(team_id)s
+              AND _timestamp >= '1970-01-01'
             """,
             {"team_id": team_id},
         )
@@ -399,7 +407,7 @@ def _set_table_partitioning(
         conn: DuckDB connection with catalog attached.
         alias: Catalog alias.
         table: Table name (must be alphanumeric/underscore only).
-        partition_expr: Partition expression (e.g., "year(timestamp), month(timestamp)").
+        partition_expr: Partition expression (e.g., "year(timestamp), month(timestamp), day(timestamp)").
         context: Dagster asset execution context.
         team_id: Team ID for logging.
 
@@ -458,7 +466,7 @@ def ensure_events_table_exists(
             context.log.info("Events table already exists in duckling catalog")
             # Ensure partitioning is set even on existing tables (idempotent)
             _set_table_partitioning(
-                conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id
+                conn, alias, "events", "year(timestamp), month(timestamp), day(timestamp)", context, catalog.team_id
             )
             return False
 
@@ -475,7 +483,7 @@ def ensure_events_table_exists(
                 context.log.info("Events table was created by another worker")
                 # Ensure partitioning is set even when another worker created the table
                 _set_table_partitioning(
-                    conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id
+                    conn, alias, "events", "year(timestamp), month(timestamp), day(timestamp)", context, catalog.team_id
                 )
                 return False
             # Real error - log and re-raise
@@ -484,8 +492,10 @@ def ensure_events_table_exists(
 
         context.log.info("Successfully created events table")
 
-        # Set partitioning by year/month for efficient querying
-        _set_table_partitioning(conn, alias, "events", "year(timestamp), month(timestamp)", context, catalog.team_id)
+        # Set partitioning by year/month/day for efficient querying
+        _set_table_partitioning(
+            conn, alias, "events", "year(timestamp), month(timestamp), day(timestamp)", context, catalog.team_id
+        )
 
         logger.info(
             "duckling_events_table_created",
