@@ -258,14 +258,13 @@ export class EmailService {
             FeedbackForwardingEmailAddress: params.from.email,
         }
 
-        if (!params.isTransactionalEmail) {
-            // Automatically add unsubscribe headers for non-transactional emails
-            if (sendEmailParams.Content?.Simple) {
-                sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
-                    team_id: result.invocation.teamId,
-                    identifier: params.to.email,
-                })
-            }
+        const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
+        // Automatically add unsubscribe headers for non-transactional emails
+        if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
+            sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
+                team_id: result.invocation.teamId,
+                identifier: params.to.email,
+            })
         }
 
         if (params.replyTo && params.replyTo.trim()) {

@@ -39,7 +39,6 @@ export const template: HogFunctionTemplate = {
                 preheader: '',
                 text: 'Hello from PostHog!',
                 html: '<div>Hi {{ person.properties.name }}, this email was sent from PostHog!</div>',
-                isTransactionalEmail: false,
             },
             secret: false,
             description: 'The email message to send. Configure the recipient, sender, subject, and content.',
