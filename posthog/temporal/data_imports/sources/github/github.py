@@ -47,7 +47,7 @@ def get_resource(
 
     # Pull requests don't support 'since', so we use descending sort instead
     # and stop pagination when we hit old records (handled in the source)
-    if name == "pull_requests":
+    if name == "pull_requests" and should_use_incremental_field:
         params["sort"] = "updated"
         params["direction"] = "desc"
 
