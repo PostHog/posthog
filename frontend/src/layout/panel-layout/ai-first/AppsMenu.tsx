@@ -96,7 +96,7 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
         intent: 'Open all apps menu',
         interaction: 'function',
         callback: () => {
-            setOpen(!open)
+            setOpen((open) => !open)
         },
     })
 
