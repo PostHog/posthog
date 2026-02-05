@@ -104,25 +104,7 @@ echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo te
 
 ## Environment Variables
 
-Tests expect certain environment variables. These are defined in [`.github/workflows/ci-backend.yml`](.github/workflows/ci-backend.yml):
-
-```bash
-export SECRET_KEY='6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
-export DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
-export REDIS_URL='redis://localhost'
-export CLICKHOUSE_HOST='localhost'
-export CLICKHOUSE_SECURE='False'
-export CLICKHOUSE_VERIFY='False'
-export TEST=1
-export DEBUG=1
-export OBJECT_STORAGE_ENABLED='True'
-export OBJECT_STORAGE_ENDPOINT='http://localhost:19000'
-export OBJECT_STORAGE_ACCESS_KEY_ID='object_storage_root_user'
-export OBJECT_STORAGE_SECRET_ACCESS_KEY='object_storage_root_password'
-export DJANGO_SETTINGS_MODULE='posthog.settings'
-```
-
-You can also copy `.env.example` to `.env` for local development defaults.
+Tests require environment variables defined in [`.github/workflows/ci-backend.yml`](.github/workflows/ci-backend.yml) (see the `env:` section at the top of the file). You can also copy `.env.example` to `.env` for local development defaults.
 
 ## Additional Setup
 
@@ -189,14 +171,8 @@ uv sync --python /tmp/python-install/python/bin/python3.12
 # Create frontend placeholders
 mkdir -p frontend/dist && touch frontend/dist/{index,layout,exporter}.html
 
-# Set required environment variables
-export SECRET_KEY='6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
-export DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
-export REDIS_URL='redis://localhost'
-export CLICKHOUSE_HOST='localhost'
-export TEST=1
-export DEBUG=1
-export DJANGO_SETTINGS_MODULE='posthog.settings'
+# Set environment variables (see .github/workflows/ci-backend.yml for full list)
+cp .env.example .env
 
 # Run a specific test
 .venv/bin/pytest posthog/api/test/test_utils.py -v
