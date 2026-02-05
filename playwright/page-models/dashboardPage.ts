@@ -75,6 +75,26 @@ export class DashboardPage {
         await this.topBarName.getByRole('button').getByText('Save').click()
     }
 
+    async findCardByTitle(title: string): Promise<Locator> {
+        const cards = this.page.locator('.InsightCard')
+        const count = await cards.count()
+
+        for (let i = 0; i < count; i++) {
+            const card = cards.nth(i)
+            await card.scrollIntoViewIfNeeded()
+            const titleText = await card
+                .locator('[data-attr="insight-card-title"]')
+                .textContent({ timeout: 5000 })
+                .catch(() => null)
+
+            if (titleText?.includes(title)) {
+                return card
+            }
+        }
+
+        throw new Error(`Could not find InsightCard with title "${title}"`)
+    }
+
     async openFirstTileMenu(): Promise<void> {
         const card = this.page.locator('.InsightCard').first()
         await card.scrollIntoViewIfNeeded()

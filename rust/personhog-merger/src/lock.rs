@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use std::collections::HashSet;
+#[cfg(test)]
 use std::sync::Arc;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::Mutex;
+#[cfg(test)]
+use tokio::sync::Notify;
 
 /// Error returned when lock acquisition fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,11 +68,13 @@ impl LockService for InMemoryLockService {
 }
 
 /// Identifies a lock operation for breakpoints.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockOperation {
     pub lock_id: String,
 }
 
+#[cfg(test)]
 impl LockOperation {
     pub fn new(lock_id: &str) -> Self {
         Self {
@@ -79,11 +84,13 @@ impl LockOperation {
 }
 
 /// A breakpoint that fires before a lock operation.
+#[cfg(test)]
 pub struct LockBreakpoint {
     pub operation: LockOperation,
     notify: Arc<Notify>,
 }
 
+#[cfg(test)]
 impl LockBreakpoint {
     pub fn new(operation: LockOperation) -> Self {
         Self {
@@ -96,7 +103,6 @@ impl LockBreakpoint {
         Self::new(LockOperation::new(lock_id))
     }
 
-    /// Complete this breakpoint, allowing waiters to proceed.
     pub fn complete(&self) {
         self.notify.notify_one();
     }
@@ -107,11 +113,13 @@ impl LockBreakpoint {
 }
 
 /// An error to be injected for a specific lock operation.
+#[cfg(test)]
 pub struct InjectedLockError {
     pub operation: LockOperation,
     pub error: LockError,
 }
 
+#[cfg(test)]
 impl InjectedLockError {
     pub fn new(operation: LockOperation, error: LockError) -> Self {
         Self { operation, error }
@@ -131,12 +139,14 @@ impl InjectedLockError {
 }
 
 /// A lock service wrapper that pauses at breakpoints and can inject errors.
+#[cfg(test)]
 pub struct BreakpointedLockService<L: LockService> {
     inner: L,
     breakpoints: Arc<Mutex<Vec<LockBreakpoint>>>,
     injected_errors: Arc<Mutex<Vec<InjectedLockError>>>,
 }
 
+#[cfg(test)]
 impl<L: LockService> BreakpointedLockService<L> {
     pub fn new(inner: L) -> Self {
         Self {
@@ -146,18 +156,14 @@ impl<L: LockService> BreakpointedLockService<L> {
         }
     }
 
-    /// Add a breakpoint that will pause execution before the matching operation.
     pub async fn add_breakpoint(&self, breakpoint: LockBreakpoint) {
         self.breakpoints.lock().await.push(breakpoint);
     }
 
-    /// Inject an error that will be returned when the matching operation is attempted.
-    /// The error is consumed on first match (one-shot).
     pub async fn inject_error(&self, error: InjectedLockError) {
         self.injected_errors.lock().await.push(error);
     }
 
-    /// Complete a breakpoint, allowing the paused operation to proceed.
     pub async fn complete_breakpoint(&self, operation: &LockOperation) {
         let breakpoints = self.breakpoints.lock().await;
         if let Some(bp) = breakpoints.iter().find(|bp| &bp.operation == operation) {
@@ -165,7 +171,6 @@ impl<L: LockService> BreakpointedLockService<L> {
         }
     }
 
-    /// Complete all pending breakpoints.
     pub async fn complete_all_breakpoints(&self) {
         let breakpoints = self.breakpoints.lock().await;
         for bp in breakpoints.iter() {
@@ -198,6 +203,7 @@ impl<L: LockService> BreakpointedLockService<L> {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
 impl<L: LockService> LockService for BreakpointedLockService<L> {
     async fn acquire(&self, lock_id: &str) -> Result<(), LockError> {

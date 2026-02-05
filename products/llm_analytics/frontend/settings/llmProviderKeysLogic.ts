@@ -60,6 +60,23 @@ export interface KeyValidationResult {
     error_message: string | null
 }
 
+export interface DependentEvaluation {
+    id: string
+    name: string
+    model_configuration_id: string
+}
+
+export interface AlternativeKey {
+    id: string
+    name: string
+    provider: LLMProvider
+}
+
+export interface DependentConfigsResponse {
+    evaluations: DependentEvaluation[]
+    alternative_keys: AlternativeKey[]
+}
+
 export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     path(['products', 'llm_analytics', 'settings', 'llmProviderKeysLogic']),
 
@@ -67,6 +84,8 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
+        confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
 
     reducers({
@@ -100,9 +119,34 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 setEditingKey: () => null,
             },
         ],
+        keyToDelete: [
+            null as LLMProviderKey | null,
+            {
+                setKeyToDelete: (_, { key }) => key,
+                deleteProviderKeySuccess: () => null,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
+        dependentConfigs: [
+            null as DependentConfigsResponse | null,
+            {
+                loadDependentConfigs: async ({
+                    keyId,
+                }: {
+                    keyId: string
+                }): Promise<DependentConfigsResponse | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await api.get(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
+                    )
+                },
+            },
+        ],
         preValidationResult: [
             null as KeyValidationResult | null,
             {
@@ -182,12 +226,21 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     actions.setEditingKey(null)
                     return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
                 },
-                deleteProviderKey: async ({ id }: { id: string }): Promise<LLMProviderKey[]> => {
+                deleteProviderKey: async ({
+                    id,
+                    replacementKeyId,
+                }: {
+                    id: string
+                    replacementKeyId?: string
+                }): Promise<LLMProviderKey[]> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    await api.delete(`/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`)
+                    const url = replacementKeyId
+                        ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
+                        : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
+                    await api.delete(url)
                     // If deleted key was active, reload config to reflect change
                     if (values.evaluationConfig?.active_provider_key?.id === id) {
                         actions.loadEvaluationConfig()
@@ -234,7 +287,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         ],
     }),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         loadProviderKeysFailure: ({ error }) => {
             lemonToast.error(`Failed to load API keys: ${error || 'Unknown error'}`)
         },
@@ -249,6 +302,16 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         },
         deleteProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
+        },
+        setKeyToDelete: ({ key }) => {
+            if (key) {
+                actions.loadDependentConfigs({ keyId: key.id })
+            }
+        },
+        confirmDelete: ({ replacementKeyId }) => {
+            if (values.keyToDelete) {
+                actions.deleteProviderKey({ id: values.keyToDelete.id, replacementKeyId })
+            }
         },
     })),
 
