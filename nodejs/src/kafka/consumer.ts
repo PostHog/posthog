@@ -829,12 +829,8 @@ export class KafkaConsumer {
                         topic: this.config.topic,
                         groupId: this.config.groupId,
                     })
-                    const hadBackpressure = await this.backgroundTaskCoordinator.applyBackpressure(
-                        this.maxBackgroundTasks
-                    )
-                    if (hadBackpressure) {
-                        stopBackpressureTimer()
-                    }
+                    await this.backgroundTaskCoordinator.applyBackpressure(this.maxBackgroundTasks)
+                    stopBackpressureTimer()
                 }
 
                 // Once we are stopping, make sure that we wait for all background work to finish
