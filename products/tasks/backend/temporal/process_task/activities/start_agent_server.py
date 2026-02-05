@@ -62,7 +62,12 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            sandbox_url = sandbox.start_agent_server(repository=ctx.repository)
+            sandbox_url = sandbox.start_agent_server(
+                repository=ctx.repository,
+                task_id=ctx.task_id,
+                run_id=ctx.run_id,
+                mode=ctx.mode,
+            )
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to start agent server in sandbox",

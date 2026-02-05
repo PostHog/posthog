@@ -271,3 +271,14 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class TaskRunCreateRequestSerializer(serializers.Serializer):
+    """Request body for creating a new task run"""
+
+    mode = serializers.ChoiceField(
+        choices=["interactive", "background"],
+        required=False,
+        default="interactive",
+        help_text="Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs",
+    )
