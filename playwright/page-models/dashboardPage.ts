@@ -45,6 +45,12 @@ export class DashboardPage {
 
         await this.page.getByTestId('create-dashboard-blank').click()
 
+        // Wait for the toast confirming the insight was added to the dashboard.
+        // This ensures the async updateInsight API call has completed before we
+        // check for the InsightCard, avoiding a race condition where the dashboard
+        // page loads before the insight is actually added.
+        await expect(this.page.getByText('Insight added to dashboard')).toBeVisible({ timeout: 30000 })
+
         await expect(this.page.locator('.InsightCard')).toBeVisible({ timeout: 30000 })
         await this.closeSidePanels()
     }
