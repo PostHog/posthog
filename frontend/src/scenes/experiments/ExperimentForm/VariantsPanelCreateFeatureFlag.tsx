@@ -120,10 +120,16 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <div />
                         <div className="col-span-4">Variant key</div>
                         <div className="col-span-6">Description</div>
-                        <div className="col-span-3 flex justify-between items-center gap-1">
+                        <div className="col-span-3 flex items-center gap-1">
                             <span>Split</span>
                             {!disabled && (
-                                <>
+                                <div className="flex items-center gap-1 min-w-[72px]">
+                                    <LemonButton
+                                        onClick={() => setIsCustomSplit(!isCustomSplit)}
+                                        tooltip="Customize split"
+                                    >
+                                        <IconPencil />
+                                    </LemonButton>
                                     {!isEvenlyDistributed(variants) && (
                                         <LemonButton
                                             onClick={() => distributeVariantsEqually()}
@@ -132,13 +138,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                             <IconBalance />
                                         </LemonButton>
                                     )}
-                                    <LemonButton
-                                        onClick={() => setIsCustomSplit(!isCustomSplit)}
-                                        tooltip="Customize split"
-                                    >
-                                        <IconPencil />
-                                    </LemonButton>
-                                </>
+                                </div>
                             )}
                         </div>
                     </div>
