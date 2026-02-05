@@ -46,6 +46,7 @@ import {
     MaxErrorTrackingIssueContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxUIContext,
 } from './maxTypes'
 
 export function isMultiVisualizationMessage(
@@ -234,6 +235,30 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
     }
 }
 
+/**
+ * Generic context that can be passed when opening PostHog AI.
+ */
+export interface MaxOpenContext {
+    /** Error tracking issue context */
+    errorTrackingIssue?: {
+        id: string
+        name?: string | null
+    }
+}
+
+/**
+ * Converts MaxOpenContext to MaxUIContext
+ */
+export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxUIContext> {
+    const uiContext: Partial<MaxUIContext> = {}
+
+    if (openContext.errorTrackingIssue) {
+        uiContext.error_tracking_issues = [errorTrackingIssueToMaxContextPayload(openContext.errorTrackingIssue)]
+    }
+
+    return uiContext
+}
+
 export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
     return {
         label,
@@ -275,7 +300,7 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
-        if (def.scenes.has(sceneId)) {
+        if (def.scenes?.has(sceneId)) {
             return mode as AgentMode
         }
     }

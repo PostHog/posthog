@@ -1,14 +1,16 @@
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-import posthoganalytics
-
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentExecutable, ChatAgentToolsExecutable
-from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
+from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
-from ee.hogai.utils.feature_flags import has_upsert_dashboard_feature_flag
 
 from ..factory import AgentModeDefinition
 from ..toolkit import AgentToolkit
@@ -53,27 +55,7 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [CreateInsightTool]
-
-        # Add other lower-priority tools
-        if has_upsert_dashboard_feature_flag(self._team, self._user):
-            tools.append(UpsertDashboardTool)
-        else:
-            tools.append(CreateDashboardTool)
-
-        return tools
-
-    def _has_session_summarization_feature_flag(self) -> bool:
-        """
-        Check if the user has the session summarization feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return [CreateInsightTool, UpsertDashboardTool]
 
 
 product_analytics_agent = AgentModeDefinition(
@@ -85,12 +67,20 @@ product_analytics_agent = AgentModeDefinition(
 )
 
 
-class SubagentProductAnalyticsAgentToolkit(AgentToolkit):
-    """Product analytics toolkit for subagents — excludes UpsertDashboardTool (dangerous operation)."""
+class ReadOnlyProductAnalyticsAgentToolkit(AgentToolkit):
+    """Product analytics toolkit for readonly operations — excludes UpsertDashboardTool (dangerous operation)."""
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
         return [CreateInsightTool]
 
 
-subagent_product_analytics_agent = replace(product_analytics_agent, toolkit_class=SubagentProductAnalyticsAgentToolkit)
+subagent_product_analytics_agent = replace(product_analytics_agent, toolkit_class=ReadOnlyProductAnalyticsAgentToolkit)
+
+chat_agent_plan_product_analytics_agent = AgentModeDefinition(
+    mode=AgentMode.PRODUCT_ANALYTICS,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,  # Only CreateInsightTool
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
+)

@@ -29,7 +29,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
     const { exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssue()
+    const { openMax } = useErrorTrackingExplainIssue(issue.id)
 
     return (
         <ButtonGroupPrimitive size="sm">

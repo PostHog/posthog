@@ -7,9 +7,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 const options: Record<LogMessage['severity_text'], string> = {
     trace: 'Trace',
@@ -23,9 +21,9 @@ const options: Record<LogMessage['severity_text'], string> = {
 const ALL_LOG_LEVELS = Object.values(options) as LogMessage['severity_text'][]
 
 export const SeverityLevelsFilter = (): JSX.Element => {
-    const { severityLevels } = useValues(logsSceneLogic)
-    const { setSeverityLevels } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { severityLevels } = filters
+    const { setSeverityLevels } = useActions(logsViewerFiltersLogic)
 
     const onClick = (level: LogMessage['severity_text']): void => {
         const levels = [...severityLevels]
@@ -39,7 +37,6 @@ export const SeverityLevelsFilter = (): JSX.Element => {
         }
 
         setSeverityLevels(levels)
-        setFilter('severityLevels', levels)
     }
 
     const displayLevels =
