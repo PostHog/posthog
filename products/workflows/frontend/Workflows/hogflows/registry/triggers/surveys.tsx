@@ -20,6 +20,7 @@ import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLog
 
 import { surveyTriggerLogic } from '../../steps/surveyTriggerLogic'
 import { HogFlowAction } from '../../types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function isSurveyTriggerConfig(config: Extract<HogFlowAction, { type: 'trigger' }>['config']): boolean {
     if (config.type !== 'event') {
@@ -298,6 +299,7 @@ registerTriggerType({
     label: 'Survey response',
     icon: <IconMessage />,
     description: 'Trigger when a user submits a survey response',
+    featureFlag: FEATURE_FLAGS.WORKFLOWS_SURVEY_TRIGGERS,
     matchConfig: (config) => isSurveyTriggerConfig(config),
     buildConfig: () => ({
         type: 'event',
