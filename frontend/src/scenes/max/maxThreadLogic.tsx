@@ -33,6 +33,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
@@ -54,6 +55,7 @@ import {
     SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
+import { SidePanelTab } from '~/types'
 import {
     Conversation,
     ConversationDetail,
@@ -1563,6 +1565,36 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
 
+        // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
+        // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
+        if (
+            props.tabId === 'sidepanel' &&
+            !values.agentMode &&
+            sidePanelStateLogic.isMounted() &&
+            sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
+            sidePanelStateLogic.values.selectedTabOptions
+        ) {
+            const options = sidePanelStateLogic.values.selectedTabOptions
+            if (typeof options === 'string' && options.startsWith('mode=')) {
+                const colonIndex = options.indexOf(':', 5)
+                const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
+                // Parse the mode value
+                let parsedMode: AgentMode | null = null
+                if (modeValue === 'auto') {
+                    parsedMode = null
+                } else if (modeValue === 'research') {
+                    parsedMode = AgentMode.Research
+                } else if (modeValue === 'plan') {
+                    parsedMode = AgentMode.Plan
+                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
+                    parsedMode = modeValue as AgentMode
+                }
+                if (parsedMode !== undefined) {
+                    actions.setAgentMode(parsedMode)
+                }
+            }
+        }
+
         if (values.queueingEnabled && values.conversation?.id) {
             actions.loadQueueData()
         }
@@ -1589,14 +1621,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneId: (sceneId: Scene | null) => {
-            // Only auto-set mode when no conversation is active
-            if (!values.conversation) {
-                const suggestedMode = getAgentModeForScene(sceneId)
-                if (suggestedMode !== values.agentMode) {
-                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
-                    actions.syncAgentModeFromConversation(suggestedMode)
+            // Defer to next tick to allow URL-based mode setting to complete first
+            // This prevents race conditions where the subscription fires during mount
+            // before setAgentMode from URL params has updated the state
+            setTimeout(() => {
+                // Guard against accessing values after the logic is unmounted
+                try {
+                    // Only auto-set mode when no conversation is active and user hasn't manually set mode (e.g., via URL params)
+                    if (!values.conversation && !values.agentModeLockedByUser) {
+                        const suggestedMode = getAgentModeForScene(sceneId)
+                        if (suggestedMode !== values.agentMode) {
+                            // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                            actions.syncAgentModeFromConversation(suggestedMode)
+                        }
+                    }
+                } catch {
+                    // Logic was unmounted before setTimeout fired - ignore
                 }
-            }
+            }, 0)
         },
         queueingEnabled: (enabled: boolean) => {
             if (enabled) {
