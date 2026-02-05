@@ -25,17 +25,13 @@ from posthog.temporal.ai.session_summary.types.video import VideoSummarySingleSe
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
-from ee.hogai.session_summaries.constants import (
-    DEFAULT_VIDEO_EXPORT_MIME_TYPE,
-    EXPIRES_AFTER_DAYS,
-    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
-)
+from ee.hogai.session_summaries.constants import EXPIRES_AFTER_DAYS, MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 
 logger = structlog.get_logger(__name__)
 
 # We can speed things up a bit right now - but not too much, as CSS animations are the same speed
-VIDEO_ANALYSIS_PLAYBACK_SPEED = 2
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 1
 
 
 @temporalio.activity.defn
@@ -50,7 +46,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         existing_asset = (
             await ExportedAsset.objects.filter(
                 team_id=inputs.team_id,
-                export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+                # TODO: Use constant
+                export_format="video/mp4",
                 export_context__session_recording_id=inputs.session_id,
             )
             .exclude(content_location__isnull=True, content__isnull=True)
@@ -105,7 +102,8 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         created_at = now()
         exported_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            # TODO: Use constant
+            export_format="video/mp4",
             export_context={
                 "session_recording_id": inputs.session_id,
                 "timestamp": 0,  # Start from beginning
@@ -126,11 +124,13 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
         try:
             await client.execute_workflow(
                 VideoExportWorkflow.run,
-                VideoExportInputs(exported_asset_id=exported_asset.id),
+                VideoExportInputs(exported_asset_id=exported_asset.id, use_puppeteer=True),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                # Keep hard limit to avoid hanging workflows
+                execution_timeout=timedelta(hours=3),
             )
         except WorkflowAlreadyStartedError:
             # Another request already started exporting this session - wait for it to complete

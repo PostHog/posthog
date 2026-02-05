@@ -21,9 +21,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 export const taxonomicFilterLogicKey = 'logs'
 export const taxonomicGroupTypes = [
@@ -33,14 +31,14 @@ export const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterGroup = (): JSX.Element => {
-    const { filterGroup, tabId, utcDateRange, serviceNames } = useValues(logsSceneLogic)
-    const { setFilterGroup } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { filters, tabId, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filterGroup, serviceNames } = filters
+    const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
         filterGroup,
-        serviceNames: serviceNames,
+        serviceNames,
     }
 
     return (
@@ -50,9 +48,7 @@ export const LogsFilterGroup = (): JSX.Element => {
             taxonomicGroupTypes={taxonomicGroupTypes}
             endpointFilters={endpointFilters}
             onChange={(group) => {
-                const newFilterGroup = { type: FilterLogicalOperator.And, values: [group] }
-                setFilterGroup(newFilterGroup)
-                setFilter('filterGroup', newFilterGroup)
+                setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
             }}
         >
             <UniversalSearch />
@@ -62,7 +58,7 @@ export const LogsFilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
+    const { utcDateRange, filters: logsFilters } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -79,8 +75,8 @@ const UniversalSearch = (): JSX.Element => {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: logsFilterGroup,
-            serviceNames: serviceNames,
+            filterGroup: logsFilters.filterGroup,
+            serviceNames: logsFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             setVisible(false)

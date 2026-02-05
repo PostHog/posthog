@@ -132,7 +132,6 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             field = self.get_warehouse_field(node.table_name, node.timestamp_field)
 
             timestamp_expr: ast.Expr
-            # TODO: Move validations to funnel base / series entity
             if isinstance(field, DateTimeDatabaseField):
                 timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
             elif isinstance(field, StringDatabaseField):
@@ -149,12 +148,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                     alias="timestamp",
                     expr=timestamp_expr,
                 ),
-                ast.Alias(
-                    alias="aggregation_target",
-                    expr=ast.Call(
-                        name="toUUID", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.distinct_id_field])]
-                    ),
-                ),
+                ast.Alias(alias="aggregation_target", expr=parse_expr(node.distinct_id_field)),
                 *all_step_cols,
             ]
 

@@ -20,7 +20,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
-from posthog.schema import NodeKind
+from posthog.schema import FunnelLayout, NodeKind
 
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -139,10 +139,15 @@ def _export_to_png(
             query = exported_asset.insight.query or {}
             source = query.get("source", query)  # This to handle the InsightVizNode wrapper
             is_funnel = source.get("kind") == NodeKind.FUNNELS_QUERY
-            # Set initial window size large enough for wide content like funnels with many steps
+            # Only use wide width for left-to-right funnels (vertical layout, which is the default)
+            # Top-to-bottom funnels (horizontal layout) grow vertically, not horizontally
+            funnels_filter = source.get("funnelsFilter") or {}
+            funnel_layout = funnels_filter.get("layout")
+            is_left_to_right_funnel = is_funnel and (funnel_layout is None or funnel_layout == FunnelLayout.VERTICAL)
+            # Set initial window size large enough for wide content like left-to-right funnels with many steps
             # Small funnels will be constrained later.
             # The higher the number, the more RAM will be required by the Chromium driver.
-            screenshot_width = 4000 if is_funnel else 800
+            screenshot_width = 4000 if is_left_to_right_funnel else 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
@@ -291,6 +296,8 @@ def _screenshot_asset(
                 return replayElement.offsetWidth;
             }}
 
+            // Check for left-to-right funnel (FunnelBarVertical)
+            // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
             const funnelElement = document.querySelector('.FunnelBarVertical');
             if (funnelElement) {{
                 // Force funnel to shrink to content size

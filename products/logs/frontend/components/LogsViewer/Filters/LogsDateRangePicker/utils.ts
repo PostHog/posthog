@@ -19,6 +19,17 @@ export function formatDateRangeLabel(dateRange: DateRange, timezone: string, dat
         return matchingOption.key
     }
 
+    // Handle relative date expressions (e.g. "-10M") that don't match a preset
+    if (date_from && !date_to) {
+        const relativeMatch = date_from.match(RELATIVE_DATE_REGEX)
+        if (relativeMatch) {
+            const amount = parseInt(relativeMatch[1], 10)
+            const unit = relativeMatch[2]
+            const label = amount === 1 ? UNIT_LABEL_SINGULAR[unit] : UNIT_LABEL_PLURAL[unit]
+            return `Last ${amount} ${label}`
+        }
+    }
+
     const from = date_from ? parseDateExpression(date_from, timezone) : null
     const to = date_to ? parseDateExpression(date_to, timezone) : dayjs().tz(timezone)
 
@@ -41,6 +52,28 @@ const UNIT_MAP: Record<string, 'minute' | 'month' | 'hour' | 'day' | 'week' | 'y
     w: 'week',
     y: 'year',
     q: 'month', // 'q' represents quarters; it maps to 'month' and is treated as 3 months via a multiplier in parseDateExpression.
+    s: 'second',
+}
+
+const UNIT_LABEL_PLURAL: Record<string, string> = {
+    M: 'minutes',
+    m: 'months',
+    h: 'hours',
+    d: 'days',
+    w: 'weeks',
+    y: 'years',
+    q: 'quarters',
+    s: 'seconds',
+}
+
+const UNIT_LABEL_SINGULAR: Record<string, string> = {
+    M: 'minute',
+    m: 'month',
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    y: 'year',
+    q: 'quarter',
     s: 'second',
 }
 

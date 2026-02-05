@@ -66,6 +66,7 @@ export interface ConversationTicket {
 export interface ConversationMessage {
     id: string
     content: string
+    rich_content?: Record<string, unknown> | null
     author_type: MessageAuthorType
     author_name?: string
     created_at: string
@@ -81,6 +82,7 @@ export interface MessageAuthor {
 export interface ChatMessage {
     id: string
     content: string
+    richContent?: Record<string, unknown> | null
     authorType: MessageAuthorType
     authorName: string
     createdBy?: MessageAuthor | null
