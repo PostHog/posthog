@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import structlog
@@ -865,12 +866,18 @@ class DashboardsViewSet(
         from_dashboard = kwargs["pk"]
         to_dashboard = request.data["toDashboard"]
 
-        tile = DashboardTile.objects.get(dashboard_id=from_dashboard, id=tile["id"])
+        tile = get_object_or_404(
+            DashboardTile,
+            dashboard_id=from_dashboard,
+            id=tile["id"],
+            dashboard__team__project_id=self.team.project_id,
+        )
+        get_object_or_404(Dashboard, id=to_dashboard, team__project_id=self.team.project_id)
         tile.dashboard_id = to_dashboard
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            Dashboard.objects.get(id=from_dashboard),
+            get_object_or_404(Dashboard, id=from_dashboard, team__project_id=self.team.project_id),
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
