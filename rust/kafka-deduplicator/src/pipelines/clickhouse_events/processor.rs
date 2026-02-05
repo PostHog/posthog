@@ -3,10 +3,9 @@
 //! This processor implements timestamp-based deduplication for events
 //! from the `clickhouse_events_json` topic (output of ingestion pipeline).
 //!
-//! - Detects duplicates based on (timestamp, event, distinct_id, team_id)
-//! - Tracks duplicate counts and seen UUIDs
+//! It uses the generic `TimestampDeduplicator` for the core deduplication logic.
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use anyhow::Result;
 use axum::async_trait;
@@ -18,19 +17,14 @@ use tracing::error;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::types::Partition;
-use crate::metrics_const::PARTITION_BATCH_PROCESSING_DURATION_MS;
-use crate::pipelines::processor::{
-    batch_read_timestamp_records, batch_write_timestamp_records, emit_deduplication_result_metrics,
-    get_result_labels, get_store_or_drop, StoreResult,
+use crate::pipelines::timestamp_deduplicator::{
+    TimestampDeduplicator, TimestampDeduplicatorConfig,
 };
-use crate::pipelines::traits::DeduplicationKeyExtractor;
-use crate::pipelines::{DeduplicationResult, DuplicateReason, EnrichedEvent};
+use crate::pipelines::traits::EventParser;
 use crate::store::DeduplicationStoreConfig;
 use crate::store_manager::StoreManager;
 
-use super::metadata::ClickHouseEventMetadata;
 use super::parser::ClickHouseEventParser;
-use crate::pipelines::traits::EventParser;
 
 /// Configuration for the ClickHouse events deduplication processor
 #[derive(Debug, Clone)]
@@ -39,9 +33,11 @@ pub struct ClickHouseEventsConfig {
 }
 
 /// Batch processor for ClickHouse events with timestamp-based deduplication.
+///
+/// This processor wraps `TimestampDeduplicator<ClickHouseEvent>` and implements
+/// the `BatchConsumerProcessor` trait for Kafka batch consumption.
 pub struct ClickHouseEventsBatchProcessor {
-    config: ClickHouseEventsConfig,
-    store_manager: Arc<StoreManager>,
+    deduplicator: TimestampDeduplicator<ClickHouseEvent>,
 }
 
 #[async_trait]
@@ -71,16 +67,23 @@ impl BatchConsumerProcessor<ClickHouseEvent> for ClickHouseEventsBatchProcessor 
 
 impl ClickHouseEventsBatchProcessor {
     /// Create a new ClickHouse events deduplication processor
-    pub fn new(config: ClickHouseEventsConfig, store_manager: Arc<StoreManager>) -> Self {
-        Self {
-            config,
-            store_manager,
-        }
+    pub fn new(_config: ClickHouseEventsConfig, store_manager: Arc<StoreManager>) -> Self {
+        let dedup_config = TimestampDeduplicatorConfig {
+            pipeline_name: "clickhouse_events".to_string(),
+            publisher: None, // ClickHouse events pipeline doesn't publish
+            offset_tracker: None,
+        };
+
+        let deduplicator = TimestampDeduplicator::new(dedup_config, store_manager);
+
+        Self { deduplicator }
     }
 
-    /// Get the store configuration
+    /// Get the store configuration (for backwards compatibility)
     pub fn store_config(&self) -> &DeduplicationStoreConfig {
-        &self.config.store_config
+        // Note: This method is kept for API compatibility but the config
+        // is now managed by the store_manager
+        unimplemented!("store_config is managed by store_manager")
     }
 
     async fn process_partition_batch(
@@ -88,8 +91,6 @@ impl ClickHouseEventsBatchProcessor {
         partition: Partition,
         messages: Vec<&KafkaMessage<ClickHouseEvent>>,
     ) -> Result<()> {
-        let batch_start = Instant::now();
-
         // Parse events (identity transform for ClickHouseEvent)
         let parsed_events: Vec<Result<ClickHouseEvent>> = messages
             .iter()
@@ -116,117 +117,34 @@ impl ClickHouseEventsBatchProcessor {
             return Ok(());
         }
 
-        // Deduplicate the batch
-        let dedup_results = self
+        // Deduplicate using the generic deduplicator
+        // Metrics are emitted inside deduplicate_batch
+        let _results = self
+            .deduplicator
             .deduplicate_batch(partition.topic(), partition.partition_number(), events)
             .await?;
-
-        // Emit metrics
-        for result in &dedup_results {
-            emit_deduplication_result_metrics(
-                partition.topic(),
-                partition.partition_number(),
-                "clickhouse_events",
-                get_result_labels(result),
-            );
-        }
-
-        // Record batch processing time
-        let batch_duration = batch_start.elapsed();
-        metrics::histogram!(PARTITION_BATCH_PROCESSING_DURATION_MS)
-            .record(batch_duration.as_millis() as f64);
 
         Ok(())
     }
 
-    async fn deduplicate_batch(
+    /// Deduplicate a batch of events (for testing)
+    #[cfg(test)]
+    pub async fn deduplicate_batch(
         &self,
         topic: &str,
         partition: i32,
         events: Vec<&ClickHouseEvent>,
-    ) -> Result<Vec<DeduplicationResult>> {
-        // Get the store for this partition (gracefully drops if not found)
-        let store = match get_store_or_drop(&self.store_manager, topic, partition, events.len())? {
-            StoreResult::Found(store) => store,
-            StoreResult::NotFound => return Ok(vec![]),
-        };
-
-        // Step 1: Extract dedup keys
-        let enriched_events: Vec<EnrichedEvent<ClickHouseEvent>> = events
-            .into_iter()
-            .map(|event| EnrichedEvent {
-                dedup_key_bytes: event.extract_dedup_key(),
-                event,
-            })
-            .collect();
-
-        // Step 2: Batch read from RocksDB
-        let keys_refs: Vec<&[u8]> = enriched_events
-            .iter()
-            .map(|e| e.dedup_key_bytes.as_slice())
-            .collect();
-        let existing_records = batch_read_timestamp_records(&store, keys_refs)?;
-
-        // Step 3: Process results and prepare writes
-        let event_count = enriched_events.len();
-        let mut batch_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::with_capacity(event_count);
-        let mut writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(event_count);
-        let mut dedup_results: Vec<DeduplicationResult> = Vec::with_capacity(event_count);
-
-        for (idx, enriched) in enriched_events.iter().enumerate() {
-            // Check RocksDB first, then batch cache
-            let existing_bytes: Option<&[u8]> = existing_records[idx].as_deref().or_else(|| {
-                batch_cache
-                    .get(&enriched.dedup_key_bytes)
-                    .map(|v| v.as_slice())
-            });
-
-            let (result, metadata) = Self::check_duplicate(existing_bytes, enriched.event)?;
-
-            // Serialize and prepare write
-            let value = metadata.to_bytes()?;
-            writes.push((enriched.dedup_key_bytes.clone(), value.clone()));
-            batch_cache.insert(enriched.dedup_key_bytes.clone(), value);
-
-            dedup_results.push(result);
-        }
-
-        // Step 4: Batch write to RocksDB
-        batch_write_timestamp_records(&store, &writes)?;
-
-        Ok(dedup_results)
-    }
-
-    /// Check if an event is a duplicate based on existing metadata
-    fn check_duplicate(
-        existing_bytes: Option<&[u8]>,
-        event: &ClickHouseEvent,
-    ) -> Result<(DeduplicationResult, ClickHouseEventMetadata)> {
-        match existing_bytes {
-            Some(bytes) => {
-                let mut metadata = ClickHouseEventMetadata::from_bytes(bytes)?;
-                let is_same_uuid = metadata.is_same_uuid(event);
-                metadata.update_duplicate(event);
-
-                let result = if is_same_uuid {
-                    DeduplicationResult::ConfirmedDuplicate(DuplicateReason::SameUuid)
-                } else {
-                    DeduplicationResult::PotentialDuplicate
-                };
-
-                Ok((result, metadata))
-            }
-            None => {
-                let metadata = ClickHouseEventMetadata::new(event);
-                Ok((DeduplicationResult::New, metadata))
-            }
-        }
+    ) -> Result<Vec<crate::pipelines::DeduplicationResult>> {
+        self.deduplicator
+            .deduplicate_batch(topic, partition, events)
+            .await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipelines::{DeduplicationResult, DuplicateReason};
     use crate::test_utils::create_test_tracker;
     use common_types::PersonMode;
     use tempfile::TempDir;
