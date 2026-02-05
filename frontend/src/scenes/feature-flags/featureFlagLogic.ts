@@ -733,6 +733,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setHighlightedFields: (_, { fields }) => fields,
                 clearHighlight: (state, { field }) => state.filter((f: ModifiedField) => f !== field),
+                // Reset when loading a new flag to avoid stale highlights
+                loadFeatureFlag: () => [],
             },
         ],
         templateExpanded: [
@@ -741,6 +743,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setTemplateExpanded: (_, { expanded }) => expanded,
                 // Collapse when a template is applied from URL
                 applyUrlTemplate: () => false,
+                // Reset to open when loading a new flag
+                loadFeatureFlag: () => true,
             },
         ],
         urlTemplateApplied: [
@@ -1752,6 +1756,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
+                    // When there is template, we load the feature flag (for applying template)
+                    if (props.id === 'new' && searchParams.template != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
                     // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
                     if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
                         return
@@ -1764,7 +1773,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        if (props.id === 'new' && (router.values.searchParams.sourceId || router.values.searchParams.type)) {
+        if (
+            props.id === 'new' &&
+            (router.values.searchParams.sourceId ||
+                router.values.searchParams.type ||
+                router.values.searchParams.template)
+        ) {
             actions.loadFeatureFlag()
             return
         }
