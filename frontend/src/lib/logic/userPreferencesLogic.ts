@@ -5,13 +5,15 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { userPreferencesLogicType } from './userPreferencesLogicType'
 
+type SqlEditorNewTabPreference = 'search' | 'editor'
+
 // This logic is for browser stored user preferences where it's not super important that it is persisted to the server
 export const userPreferencesLogic = kea<userPreferencesLogicType>([
     path(['lib', 'logic', 'userPreferencesLogic']),
     actions({
         setHidePostHogPropertiesInTable: (enabled: boolean) => ({ enabled }),
         setHideNullValues: (enabled: boolean) => ({ enabled }),
-        setSqlEditorNewTabOpensSearch: (enabled: boolean) => ({ enabled }),
+        setSqlEditorNewTabPreference: (value: SqlEditorNewTabPreference) => ({ value }),
         pinPersonProperty: (prop: string) => ({ prop }),
         unpinPersonProperty: (prop: string) => ({ prop }),
         pinGroupProperty: (prop: string) => ({ prop }),
@@ -29,10 +31,10 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
             },
         ],
         hideNullValues: [true, { persist: true }, { setHideNullValues: (_, { enabled }) => enabled }],
-        sqlEditorNewTabOpensSearch: [
-            false,
+        sqlEditorNewTabPreference: [
+            'editor' as SqlEditorNewTabPreference,
             { persist: true },
-            { setSqlEditorNewTabOpensSearch: (_, { enabled }) => enabled },
+            { setSqlEditorNewTabPreference: (_, { value }) => value },
         ],
         pinnedPersonProperties: [
             [
