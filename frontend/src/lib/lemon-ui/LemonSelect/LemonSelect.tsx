@@ -162,7 +162,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                               icon: <IconX />,
                               divider: false,
                               onClick: () => {
-                                  onChange?.(null as T)
+                                  onChange?.(null as unknown as T)
                               },
                           }
                         : null
@@ -186,7 +186,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
                           ? activeLeaf.label
-                          : (value ?? placeholder)}
+                          : ((value ?? placeholder) as React.ReactNode)}
                 </span>
             </LemonButton>
         </LemonMenu>

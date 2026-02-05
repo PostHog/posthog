@@ -1,11 +1,10 @@
 import { JSONContent } from '@tiptap/core'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconLock } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconLock } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
@@ -15,7 +14,7 @@ export interface MessageInputProps {
     placeholder?: string
     buttonText?: string
     minRows?: number
-    /** Whether to show the "Send as private" option in the dropdown */
+    /** Whether to show the "Send as private" checkbox */
     showPrivateOption?: boolean
 }
 
@@ -29,9 +28,10 @@ export function MessageInput({
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(true)
     const [isUploading, setIsUploading] = useState(false)
+    const [isPrivate, setIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
 
-    const handleSubmit = (isPrivate: boolean): void => {
+    const handleSubmit = (): void => {
         if (editorRef.current && !isEmpty) {
             const richContent = editorRef.current.getJSON()
             const content = serializeToMarkdown(richContent)
@@ -50,41 +50,36 @@ export function MessageInput({
                     editorRef.current = editor
                 }}
                 onUpdate={(empty) => setIsEmpty(empty)}
-                onPressCmdEnter={() => handleSubmit(false)}
+                onPressCmdEnter={handleSubmit}
                 onUploadingChange={setIsUploading}
                 disabled={messageSending}
                 minRows={minRows}
+                className={isPrivate ? 'bg-warning-highlight border-warning' : undefined}
             />
-            <div className="flex justify-end mt-2">
+            <div className="flex justify-between items-center mt-2">
+                {showPrivateOption ? (
+                    <Tooltip title="Private messages are only visible to your team, not to the customer">
+                        <span>
+                            <LemonCheckbox
+                                checked={isPrivate}
+                                onChange={setIsPrivate}
+                                label={
+                                    <span className="inline-flex items-center gap-1">
+                                        <IconLock className="text-sm" />
+                                        Send as private
+                                    </span>
+                                }
+                            />
+                        </span>
+                    </Tooltip>
+                ) : (
+                    <div />
+                )}
                 <LemonButton
                     type="primary"
-                    onClick={() => handleSubmit(false)}
+                    onClick={handleSubmit}
                     loading={messageSending}
                     disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
-                    sideAction={
-                        showPrivateOption
-                            ? {
-                                  icon: <IconChevronDown />,
-                                  dropdown: {
-                                      placement: 'bottom-end',
-                                      matchWidth: false,
-                                      overlay: (
-                                          <LemonMenuOverlay
-                                              items={[
-                                                  {
-                                                      label: 'Send as private',
-                                                      icon: <IconLock />,
-                                                      tooltip:
-                                                          'Private messages are only visible to your team, not to the customer',
-                                                      onClick: () => handleSubmit(true),
-                                                  },
-                                              ]}
-                                          />
-                                      ),
-                                  },
-                              }
-                            : undefined
-                    }
                 >
                     {buttonText}
                 </LemonButton>

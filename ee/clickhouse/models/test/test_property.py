@@ -1100,7 +1100,7 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
 
     assert (
         parse_prop_grouped_clauses(
-            team_id=1,
+            team_id=team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
             allow_denormalized_props=False,

@@ -29,17 +29,18 @@
     "license": "MIT",
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.0.1",
-        "@modelcontextprotocol/sdk": "^1.25.3",
+        "@modelcontextprotocol/sdk": "^1.26.0",
         "@toon-format/toon": "^2.1.0",
-        "agents": "^0.0.113",
-        "ai": "^5.0.18",
-        "fflate": "^0.7.4",
+        "agents": "^0.3.6",
+        "ai": "^6.0.0",
+        "fflate": "^0.8.2",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.10.4",
         "uuid": "^11.1.0",
         "zod": "^3.24.4"
     },
     "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260120.0",
         "@types/dotenv": "^6.1.1",
         "@types/node": "^22.17.2",
         "@types/react": "^17.0.39",

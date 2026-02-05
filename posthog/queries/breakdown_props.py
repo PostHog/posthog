@@ -381,8 +381,8 @@ def _parse_breakdown_cohorts(cohorts: list[Cohort], hogql_context: HogQLContext)
     return queries, params
 
 
-def get_breakdown_cohort_name(cohort_id: int) -> str:
+def get_breakdown_cohort_name(cohort_id: int, team: Team) -> str:
     if cohort_id == ALL_USERS_COHORT_ID:
         return "all users"
     else:
-        return Cohort.objects.get(pk=cohort_id).name
+        return Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
