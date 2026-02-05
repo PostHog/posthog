@@ -1,41 +1,53 @@
 # Claude Code for Web - Test Setup
 
-This document describes how to set up and run Python tests in a Claude Code for web environment, where flox is not available and Python 3.12.12 cannot be easily downloaded.
+This document describes how to set up and run Python tests in a Claude Code for web environment, where flox is not available.
 
 ## Problem
 
 The project requires Python 3.12.12 exactly (pinned in `pyproject.toml`), but:
 - Claude Code for web environments typically have Python 3.12.3 (from system packages)
-- Python 3.12.12 is not available in python-build-standalone (used by `uv`)
-- External downloads may be restricted
-- `uv sync` enforces the exact version constraint and will fail
+- `uv python install 3.12.12` may fail if the version isn't yet indexed by uv
+- `uv sync` enforces the exact version constraint and will fail with the wrong Python version
 
-## Solution
+## Solution: Download Python 3.12.12 from python-build-standalone
 
-Use `uv pip install` instead of `uv sync` to install dependencies into a manually created virtualenv. This bypasses the `requires-python` version check.
+Python 3.12.12 is available from the [python-build-standalone](https://github.com/astral-sh/python-build-standalone) GitHub releases. Download and extract it, then use it with `uv sync`.
 
-### Step 1: Create a virtualenv with system Python
-
-```bash
-/usr/bin/python3.12 -m venv /tmp/posthog-venv
-```
-
-### Step 2: Install dependencies using uv pip
+### Step 1: Download and install Python 3.12.12
 
 ```bash
-# Install main dependencies
-uv pip install -p /tmp/posthog-venv --requirements /home/user/posthog/pyproject.toml
+# Create installation directory
+mkdir -p /tmp/python-install && cd /tmp/python-install
 
-# Install dev dependencies (includes pytest, etc.)
-uv pip install -p /tmp/posthog-venv --group dev --requirements /home/user/posthog/pyproject.toml
+# Download Python 3.12.12 from python-build-standalone
+curl -L -o python-3.12.12.tar.gz \
+  "https://github.com/astral-sh/python-build-standalone/releases/download/20260203/cpython-3.12.12%2B20260203-x86_64-unknown-linux-gnu-install_only.tar.gz"
+
+# Extract
+tar -xzf python-3.12.12.tar.gz
+
+# Verify installation
+/tmp/python-install/python/bin/python3.12 --version
+# Should output: Python 3.12.12
 ```
+
+### Step 2: Run uv sync with Python 3.12.12
+
+```bash
+cd /home/user/posthog
+uv sync --python /tmp/python-install/python/bin/python3.12
+```
+
+This creates a `.venv` directory with all dependencies installed using the correct Python version.
 
 ### Step 3: Run tests
 
 ```bash
-# Set PYTHONPATH and use the virtualenv's pytest
-PYTHONPATH=/home/user/posthog:/home/user/posthog/common \
-  /tmp/posthog-venv/bin/pytest path/to/test.py::TestClass::test_method
+# Run a specific test
+.venv/bin/pytest path/to/test.py::TestClass::test_method -v
+
+# Run all tests in a directory
+.venv/bin/pytest posthog/hogql/test/ -v
 ```
 
 ## Docker Services
@@ -119,18 +131,22 @@ Default ignores: `--ignore=posthog/user_scripts --ignore=services/llm-gateway --
 
 ## Limitations
 
-- **Python 3.12.3 vs 3.12.12**: Minor version difference, most tests should work
 - **Docker unavailable**: Tests requiring services will fail without Docker
-- **Network restrictions**: Some tests may fail in restricted environments
+- **Network restrictions**: Downloading Python requires GitHub access
 - **Temporal tests**: Require additional Temporal service setup
 
 ## Quick Reference
 
 ```bash
-# One-time setup
-/usr/bin/python3.12 -m venv /tmp/posthog-venv
-uv pip install -p /tmp/posthog-venv --requirements pyproject.toml
-uv pip install -p /tmp/posthog-venv --group dev --requirements pyproject.toml
+# One-time Python setup
+mkdir -p /tmp/python-install && cd /tmp/python-install
+curl -L -o python-3.12.12.tar.gz \
+  "https://github.com/astral-sh/python-build-standalone/releases/download/20260203/cpython-3.12.12%2B20260203-x86_64-unknown-linux-gnu-install_only.tar.gz"
+tar -xzf python-3.12.12.tar.gz
+
+# One-time project setup
+cd /home/user/posthog
+uv sync --python /tmp/python-install/python/bin/python3.12
 
 # Create frontend placeholders
 mkdir -p frontend/dist && touch frontend/dist/{index,layout,exporter}.html
@@ -145,10 +161,10 @@ export DEBUG=1
 export DJANGO_SETTINGS_MODULE='posthog.settings'
 
 # Run a specific test
-PYTHONPATH=.:/home/user/posthog/common /tmp/posthog-venv/bin/pytest posthog/api/test/test_utils.py -v
+.venv/bin/pytest posthog/api/test/test_utils.py -v
 
 # Run tests without services (unit tests only)
-PYTHONPATH=.:/home/user/posthog/common /tmp/posthog-venv/bin/pytest posthog/hogql/test/ -v
+.venv/bin/pytest posthog/hogql/test/ -v
 ```
 
 ## Checking Docker availability
@@ -158,3 +174,16 @@ docker --version && docker compose version
 ```
 
 If Docker is not available, you can only run unit tests that don't require external services. Many HogQL tests, for example, can run without services.
+
+## Finding the correct Python release
+
+If Python 3.12.12 is no longer available at the URL above (release tags change), find the latest release:
+
+```bash
+# Get the latest release tag
+RELEASE_TAG=$(curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+
+# Find the Python 3.12.12 download URL
+curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" | \
+  grep "browser_download_url" | grep "3.12.12" | grep "x86_64-unknown-linux-gnu-install_only.tar.gz"
+```
