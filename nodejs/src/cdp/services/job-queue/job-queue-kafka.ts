@@ -197,8 +197,7 @@ export class CyclotronJobQueueKafka {
         const consumer = new RdKafkaConsumer(
             {
                 'client.id': `${hostname()}-seek-test`,
-                'security.protocol': 'plaintext',
-                'metadata.broker.list': 'kafka:9092',
+                'metadata.broker.list': this.config.KAFKA_HOSTS,
                 ...getKafkaConfigFromEnv('CONSUMER'),
                 // Unique group.id - we only use assign(), never subscribe(), so no group coordination
                 'group.id': `cdp-seek-test-${hostname()}-${Date.now()}`,
