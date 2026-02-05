@@ -4,11 +4,13 @@ from django.views.generic import View
 
 import pydantic
 from asgiref.sync import async_to_sync
+from posthoganalytics import capture_exception
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
+from structlog import get_logger
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
@@ -16,6 +18,8 @@ from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError
+
+logger = get_logger(__name__)
 
 
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -57,7 +61,10 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             validated_args = tool.args_schema.model_validate(args_data)
         except pydantic.ValidationError as e:
             return Response(
-                {"success": False, "content": f"There was a validation error calling the tool: {e}"},
+                {
+                    "success": False,
+                    "content": f"There was a validation error calling the tool:\n{e.errors(include_url=False)}",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -65,7 +72,9 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             content = async_to_sync(tool.execute)(validated_args)
         except MaxToolError as e:
             return Response({"success": False, "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}"})
-        except Exception:
+        except Exception as e:
+            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
+            capture_exception(e, properties={"tag": "mcp", "args": args_data})
             return Response(
                 {
                     "success": False,
