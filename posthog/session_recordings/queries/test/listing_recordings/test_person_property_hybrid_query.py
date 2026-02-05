@@ -7,9 +7,12 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.schema import PersonPropertyFilter, PropertyOperator, RecordingsQuery
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Person
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
@@ -204,3 +207,103 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 },
                 [session_id_1, session_id_2, session_id_3],
             )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_hybrid_query_skips_negative_operators(self, mock_feature_enabled) -> None:
+        """
+        Test that _should_use_hybrid_query returns False when person property filters
+        have negative operators, even when the feature flag is enabled.
+        """
+        # Test with IS_NOT operator
+        query_with_is_not = RecordingsQuery(
+            properties=[
+                PersonPropertyFilter(
+                    key="email",
+                    value="internal@company.com",
+                    operator=PropertyOperator.IS_NOT,
+                    type="person",
+                )
+            ]
+        )
+        subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_is_not)
+        person_props = subquery.person_properties
+        assert person_props is not None
+        self.assertFalse(
+            subquery._should_use_hybrid_query(person_props),
+            "Hybrid query should NOT be used with IS_NOT operator",
+        )
+
+        # Test with NOT_ICONTAINS operator
+        query_with_not_icontains = RecordingsQuery(
+            properties=[
+                PersonPropertyFilter(
+                    key="email",
+                    value="company.com",
+                    operator=PropertyOperator.NOT_ICONTAINS,
+                    type="person",
+                )
+            ]
+        )
+        subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_not_icontains)
+        person_props = subquery.person_properties
+        assert person_props is not None
+        self.assertFalse(
+            subquery._should_use_hybrid_query(person_props),
+            "Hybrid query should NOT be used with NOT_ICONTAINS operator",
+        )
+
+        # Test with NOT_REGEX operator
+        query_with_not_regex = RecordingsQuery(
+            properties=[
+                PersonPropertyFilter(
+                    key="email",
+                    value=".*@internal\\.com",
+                    operator=PropertyOperator.NOT_REGEX,
+                    type="person",
+                )
+            ]
+        )
+        subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_not_regex)
+        person_props = subquery.person_properties
+        assert person_props is not None
+        self.assertFalse(
+            subquery._should_use_hybrid_query(person_props),
+            "Hybrid query should NOT be used with NOT_REGEX operator",
+        )
+
+        # Test with IS_NOT_SET operator
+        query_with_is_not_set = RecordingsQuery(
+            properties=[
+                PersonPropertyFilter(
+                    key="email",
+                    operator=PropertyOperator.IS_NOT_SET,
+                    type="person",
+                )
+            ]
+        )
+        subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_is_not_set)
+        person_props = subquery.person_properties
+        assert person_props is not None
+        self.assertFalse(
+            subquery._should_use_hybrid_query(person_props),
+            "Hybrid query should NOT be used with IS_NOT_SET operator",
+        )
+
+        # Test that positive operators still work
+        query_with_exact = RecordingsQuery(
+            properties=[
+                PersonPropertyFilter(
+                    key="email",
+                    value="user@example.com",
+                    operator=PropertyOperator.EXACT,
+                    type="person",
+                )
+            ]
+        )
+        subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_exact)
+        person_props = subquery.person_properties
+        assert person_props is not None
+        self.assertTrue(
+            subquery._should_use_hybrid_query(person_props),
+            "Hybrid query SHOULD be used with EXACT operator",
+        )

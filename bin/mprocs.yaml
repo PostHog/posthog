@@ -158,7 +158,7 @@ procs:
         capability: mcp_server
 
     mcp-ui-apps:
-        shell: 'cd services/mcp/typescript && pnpm run build:ui-apps -- --watch'
+        shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
 
     migrate-postgres:
