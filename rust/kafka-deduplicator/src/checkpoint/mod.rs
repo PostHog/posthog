@@ -1,6 +1,7 @@
 pub mod client;
 pub mod config;
 pub mod downloader;
+pub mod error;
 pub mod export;
 pub mod import;
 pub mod metadata;
@@ -22,3 +23,5 @@ pub use s3_downloader::S3Downloader;
 pub use s3_uploader::S3Uploader;
 pub use uploader::CheckpointUploader;
 pub use worker::CheckpointWorker;
+
+pub use error::{DownloadCancelledError, ImportTimeoutError, UploadCancelledError};

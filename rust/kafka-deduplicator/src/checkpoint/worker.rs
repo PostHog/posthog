@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata};
+use super::{
+    plan_checkpoint, CheckpointExporter, CheckpointInfo, CheckpointMetadata, UploadCancelledError,
+};
 use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
@@ -340,18 +342,10 @@ impl CheckpointWorker {
                     }
 
                     Err(e) => {
-                        // Cancellation is NOT an error - use distinct metrics tag and warn! instead of error!
-                        let is_cancelled = e.to_string().contains("cancelled");
-
-                        if is_cancelled {
+                        // Cancellation is NOT an error - metrics only (s3_uploader already logged the detail)
+                        if e.downcast_ref::<UploadCancelledError>().is_some() {
                             let tags = [("result", "skipped"), ("cause", "cancelled")];
                             metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);
-                            warn!(
-                                self.worker_id,
-                                local_attempt_path = local_attempt_path_tag,
-                                attempt_type,
-                                "Checkpoint worker: export cancelled"
-                            );
                         } else {
                             let tags = [("result", "error"), ("cause", "export")];
                             metrics::counter!(CHECKPOINT_WORKER_STATUS_COUNTER, &tags).increment(1);

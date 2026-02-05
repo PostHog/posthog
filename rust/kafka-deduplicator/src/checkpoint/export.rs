@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use super::{CheckpointPlan, CheckpointUploader};
+use super::{CheckpointPlan, CheckpointUploader, UploadCancelledError};
 use crate::metrics_const::{CHECKPOINT_UPLOADS_COUNTER, CHECKPOINT_UPLOAD_DURATION_HISTOGRAM};
 
 use anyhow::Result;
@@ -78,10 +78,8 @@ impl CheckpointExporter {
 
             Err(e) => {
                 let upload_duration = upload_start.elapsed();
-                // Cancellation is NOT an error - use distinct metrics tag and warn! instead of error!
-                let is_cancelled = e.to_string().contains("cancelled");
-
-                if is_cancelled {
+                // Cancellation is NOT an error - metrics only (s3_uploader already logged the detail)
+                if e.downcast_ref::<UploadCancelledError>().is_some() {
                     // Map cause to static strings for metrics (metrics library requires 'static)
                     let cause: &'static str = match cancel_cause {
                         Some("rebalance") => "rebalance",
@@ -92,12 +90,6 @@ impl CheckpointExporter {
                         .record(upload_duration.as_secs_f64());
                     metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "cancelled", "cause" => cause)
                         .increment(1);
-                    warn!(
-                        remote_path = plan.info.get_metadata_key(),
-                        elapsed_seconds = upload_duration.as_secs_f64(),
-                        cause = cause,
-                        "Export cancelled"
-                    );
                 } else {
                     metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "result" => "error")
                         .record(upload_duration.as_secs_f64());
@@ -125,7 +117,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::{TimeZone, Utc};
 
-    use crate::checkpoint::{CheckpointInfo, CheckpointMetadata};
+    use crate::checkpoint::{CheckpointInfo, CheckpointMetadata, UploadCancelledError};
 
     /// Mock uploader for testing cancellation detection
     #[derive(Debug)]
@@ -165,7 +157,10 @@ mod tests {
             _cancel_token: Option<&CancellationToken>,
         ) -> Result<Vec<String>> {
             if self.should_return_cancelled {
-                Err(anyhow::anyhow!("Upload cancelled: test"))
+                Err(UploadCancelledError {
+                    reason: "test".to_string(),
+                }
+                .into())
             } else if self.should_return_error {
                 Err(anyhow::anyhow!("S3 error: connection failed"))
             } else {
@@ -215,14 +210,14 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.to_string().contains("cancelled"),
-            "Error should contain 'cancelled': {}",
+            err.downcast_ref::<UploadCancelledError>().is_some(),
+            "Error should be UploadCancelledError: {}",
             err
         );
     }
 
     #[tokio::test]
-    async fn test_export_error_returns_error_without_cancelled_message() {
+    async fn test_export_error_returns_error_without_cancelled_type() {
         let uploader = Box::new(MockUploader::new_error());
         let exporter = CheckpointExporter::new(uploader);
         let plan = create_test_plan();
@@ -234,8 +229,8 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            !err.to_string().contains("cancelled"),
-            "Error should NOT contain 'cancelled': {}",
+            err.downcast_ref::<UploadCancelledError>().is_none(),
+            "Error should NOT be UploadCancelledError: {}",
             err
         );
     }
