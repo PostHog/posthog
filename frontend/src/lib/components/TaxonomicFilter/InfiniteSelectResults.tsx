@@ -37,7 +37,7 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -64,6 +64,10 @@ function CategoryPill({
                     ) : (
                         totalResultCount
                     )}
+                    {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                        {hasMore ? '+' : ''}
+                    </span>
                 </>
             )}
         </LemonTag>

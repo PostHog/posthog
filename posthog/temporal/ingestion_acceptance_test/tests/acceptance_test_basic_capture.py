@@ -8,21 +8,26 @@ from ..runner import AcceptanceTest
 class TestBasicCapture(AcceptanceTest):
     """Test basic event capture and retrieval flow."""
 
-    def test_capture_event_and_query(self) -> None:
+    def test_capture_event(self) -> None:
         """Capture a basic event and verify it appears in HogQL queries."""
         event_name = "$test_basic_capture"
         distinct_id = str(uuid.uuid4())
 
-        event_uuid = self.client.capture_event(event_name=event_name, distinct_id=distinct_id)
+        event_uuid = self.client.capture_event(event_name, distinct_id)
+        found_event = self.client.query_event_by_uuid(event_uuid)
+        self.assert_event(found_event, event_uuid, event_name, distinct_id)
 
-        found_event = self.client.query_event_by_uuid(
-            event_uuid=event_uuid,
-            timeout_seconds=self.config.event_timeout_seconds,
-        )
+    def test_capture_event_with_properties(self) -> None:
+        """Capture an event with custom properties and verify they are stored."""
+        event_name = "$test_custom_props"
+        distinct_id = str(uuid.uuid4())
+        properties = {
+            "button_name": "signup",
+            "page_url": "https://example.com/signup",
+            "referrer": "google",
+        }
 
-        assert found_event is not None, (
-            f"Event with UUID '{event_uuid}' not found within {self.config.event_timeout_seconds}s timeout"
-        )
-        assert found_event.uuid == event_uuid
-        assert found_event.event == event_name
-        assert found_event.distinct_id == distinct_id
+        event_uuid = self.client.capture_event(event_name, distinct_id, properties)
+        found_event = self.client.query_event_by_uuid(event_uuid)
+        found_event = self.assert_event(found_event, event_uuid, event_name, distinct_id)
+        self.assert_properties_contain(found_event.properties, properties)
