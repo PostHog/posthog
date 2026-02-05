@@ -255,7 +255,7 @@ class AlertSerializer(serializers.ModelSerializer):
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
             # calculate alert right now, don't wait until preset time
-            self.next_check_at = None
+            instance.next_check_at = None
 
         return super().update(instance, validated_data)
 

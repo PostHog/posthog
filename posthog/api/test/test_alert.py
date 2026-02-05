@@ -218,6 +218,98 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         check = AlertCheck.objects.filter(alert_configuration=firing_alert.id).latest("created_at")
         assert check.state == AlertState.SNOOZED
 
+    @parameterized.expand(
+        [
+            (
+                "threshold_bounds_change",
+                {"threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"lower": 10}}}},
+            ),
+            (
+                "threshold_type_change",
+                {"threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}}},
+            ),
+            (
+                "calculation_interval_change",
+                {"calculation_interval": "weekly"},
+            ),
+        ]
+    )
+    def test_alert_settings_change_triggers_immediate_recheck(self, _name: str, update_payload: dict) -> None:
+        """
+        When a user updates alert threshold or calculation_interval, the alert should be
+        re-checked immediately rather than waiting for the next scheduled check time.
+        This is done by resetting next_check_at to None.
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            "calculation_interval": "daily",
+        }
+        alert_response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_id = alert_response["id"]
+
+        # Simulate that the alert has been checked and next_check_at is set to future
+        future_check_time = timezone.now() + timedelta(days=1)
+        alert = AlertConfiguration.objects.get(pk=alert_id)
+        alert.next_check_at = future_check_time
+        alert.last_checked_at = timezone.now()
+        alert.save()
+
+        # Verify next_check_at is set to future
+        alert.refresh_from_db()
+        assert alert.next_check_at == future_check_time
+
+        # Update the alert settings
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", update_payload)
+
+        # After settings change, next_check_at should be reset to None
+        # so the alert gets re-checked immediately on next check_alerts_task run
+        alert.refresh_from_db()
+        assert alert.next_check_at is None, (
+            f"Expected next_check_at to be None after settings change, but got {alert.next_check_at}. "
+            "Alert should be re-checked immediately when threshold or calculation_interval changes."
+        )
+
+    def test_alert_non_settings_change_does_not_reset_next_check(self) -> None:
+        """
+        When a user updates alert fields that don't affect the check logic (like name),
+        the next_check_at should NOT be reset.
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "name": "alert name",
+            "calculation_interval": "daily",
+        }
+        alert_response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_id = alert_response["id"]
+
+        # Simulate that the alert has been checked and next_check_at is set to future
+        future_check_time = timezone.now() + timedelta(days=1)
+        alert = AlertConfiguration.objects.get(pk=alert_id)
+        alert.next_check_at = future_check_time
+        alert.last_checked_at = timezone.now()
+        alert.save()
+
+        # Update just the name (shouldn't affect check timing)
+        self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "new name"})
+
+        # next_check_at should NOT be reset for non-settings changes
+        alert.refresh_from_db()
+        assert alert.next_check_at == future_check_time, (
+            f"Expected next_check_at to remain {future_check_time} after name change, but got {alert.next_check_at}. "
+            "Non-settings changes should not trigger immediate re-check."
+        )
+
 
 class TestAlertAPIKeyAccess(APIBaseTest):
     """Test that the alert scope is properly enforced for API key access."""
