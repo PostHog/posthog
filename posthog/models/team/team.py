@@ -405,6 +405,9 @@ class Team(UUIDTClassicModel):
     conversations_enabled = models.BooleanField(null=True, blank=True)
     conversations_settings = models.JSONField(null=True, blank=True)
 
+    # Proactive tasks (#team-signals)
+    proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
+
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")

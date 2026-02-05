@@ -1503,7 +1503,6 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
     // This is properly FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     // but this large of a union doesn't provide any type-safety and causes python mypy issues, so represented as any.
     results: any
-    isUdf?: boolean
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -2896,6 +2895,10 @@ export type FileSystemIconType =
     | 'health'
     | 'sdk_doctor'
     | 'pipeline_status'
+    | 'llm_evaluations'
+    | 'llm_datasets'
+    | 'llm_prompts'
+    | 'llm_clusters'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -5216,6 +5219,10 @@ export enum ProductKey {
     LINKS = 'links',
     LIVE_DEBUGGER = 'live_debugger',
     LLM_ANALYTICS = 'llm_analytics',
+    LLM_CLUSTERS = 'llm_clusters',
+    LLM_DATASETS = 'llm_datasets',
+    LLM_EVALUATIONS = 'llm_evaluations',
+    LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
@@ -5270,6 +5277,10 @@ export enum ProductIntentContext {
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+    LLM_CLUSTER_EXPLORED = 'llm_cluster_explored',
+    LLM_DATASET_CREATED = 'llm_dataset_created',
+    LLM_EVALUATION_CREATED = 'llm_evaluation_created',
+    LLM_PROMPT_CREATED = 'llm_prompt_created',
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
