@@ -2,6 +2,8 @@
 
 This document describes how to set up and run Python tests in a Claude Code for web environment, where flox is not available.
 
+If you get stuck following these instructions, please bail out to the user and seek their guidance. Please suggest that they update this guide.
+
 ## Problem
 
 The project requires a specific Python version pinned in `pyproject.toml` (check `requires-python`), but:
