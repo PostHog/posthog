@@ -1,0 +1,72 @@
+from django.contrib import admin
+
+from posthog.admin.admins.team_admin import TeamAutocompleteFilter
+
+from .models import SignalReportArtefact
+
+
+class SignalReportArtefactInline(admin.TabularInline):
+    model = SignalReportArtefact
+    extra = 0
+    fields = ("id", "type", "content_size", "created_at")
+    readonly_fields = fields
+    can_delete = False
+
+    @admin.display(description="Content size (bytes)")
+    def content_size(self, obj: SignalReportArtefact) -> int:
+        return len(obj.content) if obj.content else 0
+
+
+class SignalReportAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "team_id",
+        "status",
+        "title",
+        "signal_count",
+        "total_weight",
+        "created_at",
+        "promoted_at",
+    )
+    list_display_links = ("id",)
+    list_filter = (TeamAutocompleteFilter, "status")
+    search_fields = ("id", "team_id", "title", "summary")
+    ordering = ("-created_at",)
+    show_full_result_count = False
+    list_select_related = ("team",)
+
+    readonly_fields = (
+        "id",
+        "team",
+        "status",
+        "total_weight",
+        "signal_count",
+        "conversation",
+        "signals_at_run",
+        "title",
+        "summary",
+        "error",
+        "created_at",
+        "updated_at",
+        "promoted_at",
+        "last_run_at",
+        "relevant_user_count",
+        "cluster_centroid_updated_at",
+    )
+
+    fieldsets = (
+        (None, {"fields": ("id", "team", "status")}),
+        ("Content", {"fields": ("title", "summary", "error")}),
+        ("Stats", {"fields": ("signal_count", "total_weight", "relevant_user_count", "signals_at_run")}),
+        ("Related", {"fields": ("conversation",)}),
+        ("Clustering", {"fields": ("cluster_centroid_updated_at",)}),
+        ("Dates", {"fields": ("created_at", "updated_at", "promoted_at", "last_run_at")}),
+    )
+
+    inlines = [SignalReportArtefactInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
