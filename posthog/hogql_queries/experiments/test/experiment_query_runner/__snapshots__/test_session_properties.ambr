@@ -38,12 +38,13 @@
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_event_timestamp
            FROM
              (SELECT events.`$session_id` AS `$session_id`,
+                     events.`$session_id_uuid` AS `$session_id_uuid`,
                      events.distinct_id AS distinct_id,
                      events.event AS event,
                      events.person_id AS person_id,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp
               FROM events
-              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-01 12:00:00', 6, 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(parseDateTime64BestEffortOrNull('2024-01-15 12:00:00', 6, 'UTC')), toIntervalSecond(0))), equals(events.event, '$pageview'), isNotNull(events.`$session_id`), notEquals(events.`$session_id`, ''))) AS events
+              WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, '$pageview'), isNotNull(events.`$session_id`), notEquals(events.`$session_id`, ''))) AS events
            LEFT JOIN
              (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
