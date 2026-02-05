@@ -117,10 +117,22 @@ class BreakdownInjector:
                     else:
                         # Ordered funnel: use argMinIf to attribute from first exposure in metric_events
                         # Qualify the field reference to avoid ambiguity
-                        # nosemgrep: hogql-no-fstring
-                        # Safe: alias is programmatically generated as "breakdown_value_N" (not user input)
                         entity_metrics_cte.expr.select.append(
-                            parse_expr(f"argMinIf(metric_events.{alias}, timestamp, step_0 = 1) AS {alias}")
+                            ast.Alias(
+                                alias=alias,
+                                expr=ast.Call(
+                                    name="argMinIf",
+                                    args=[
+                                        ast.Field(chain=["metric_events", alias]),
+                                        ast.Field(chain=["timestamp"]),
+                                        ast.CompareOperation(
+                                            op=ast.CompareOperationOp.Eq,
+                                            left=ast.Field(chain=["step_0"]),
+                                            right=ast.Constant(value=1),
+                                        ),
+                                    ],
+                                ),
+                            )
                         )
 
                 # For unordered funnels, also add breakdown to entity_metrics GROUP BY
