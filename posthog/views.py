@@ -469,36 +469,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     """Render the preferences page for a given recipient token"""
     response = validate_messaging_preferences_token(token)
     if response.status_code != 200:
-        error_msg = response.json().get("error", "Invalid recipient token")
-        return render(request, "message_preferences/error.html", {"error": error_msg}, status=400)
+from django.views.decorators.csrf import csrf_exempt
 
-    data = response.json()
-    if not data.get("valid"):
-        return render(request, "message_preferences/error.html", {"error": "Invalid recipient token"}, status=400)
-
-    team_id = data.get("team_id")
-    identifier = data.get("identifier")
-    if not team_id or not identifier:
-        return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
-
-    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
-
-    is_one_click_unsubscribe = (
-        request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
-    )
-    if is_one_click_unsubscribe:
-        # If one-click unsubscribe, set all preferences to opted out
-        categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing")
-        preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
-
-        # Also set the "$all" preference
-        preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
-
-        recipient.preferences = preferences_dict
-        recipient.save(update_fields=["preferences"])
-
-        if request.method == "POST":
-            return HttpResponse(status=200)
+@csrf_exempt  # Required for RFC 8058 List-Unsubscribe-Post one-click functionality
+@require_http_methods(["GET", "POST"])
+def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
     # Only fetch active categories and their preferences
     categories = MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
