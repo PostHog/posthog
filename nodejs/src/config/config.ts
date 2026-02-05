@@ -239,9 +239,9 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
             : 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow',
         CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
-        CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
-        CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 0.1,
-        CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 100,
+        CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
+        CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 0.01,
+        CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
