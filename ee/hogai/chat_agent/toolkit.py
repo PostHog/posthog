@@ -4,7 +4,6 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from products.experiments.backend.max_tools import ExperimentSummaryTool
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
@@ -32,7 +31,6 @@ from ee.hogai.tools import (
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
     has_create_form_tool_feature_flag,
-    has_experiment_summary_tool_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
@@ -90,8 +88,6 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(ManageMemoriesTool)
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
-        if has_experiment_summary_tool_feature_flag(self._team, self._user):
-            tools.append(ExperimentSummaryTool)
         return tools
 
 
