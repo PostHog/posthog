@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, Sum
 
@@ -47,6 +49,8 @@ class PersonSerializer(serializers.Serializer):
 
     def get_name(self, person: Person) -> str:
         team = self.context.get("team")
+        if team is None:
+            return ""
         return get_person_name(team, person)
 
 
@@ -185,7 +189,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["team"] = self.team
         return context
 
-    def _attach_persons_to_tickets(self, tickets: list[Ticket]) -> None:
+    def _attach_persons_to_tickets(self, tickets: Sequence[Ticket]) -> None:
         """Batch-fetch persons by distinct_id and attach to tickets."""
         distinct_ids = sorted([t.distinct_id for t in tickets if t.distinct_id])
         if not distinct_ids:
@@ -223,7 +227,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for person in distinct_id_to_person.values():
                 person._distinct_ids = person_to_distinct_ids.get(person.id, [])
 
-        # Attach person to each ticket
+        # Attach person to each ticket (dynamic attribute for serialization)
         for ticket in tickets:
             if ticket.distinct_id:
                 ticket.person = distinct_id_to_person.get(ticket.distinct_id)
