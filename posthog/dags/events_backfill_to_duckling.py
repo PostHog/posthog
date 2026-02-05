@@ -997,6 +997,12 @@ def _is_transaction_conflict(exc: BaseException) -> bool:
     return isinstance(exc, duckdb.TransactionException) and "Transaction conflict" in str(exc)
 
 
+def _is_file_already_registered(exc: BaseException) -> bool:
+    """Check if exception indicates the file is already registered (idempotent success)."""
+    exc_str = str(exc).lower()
+    return "already" in exc_str and ("registered" in exc_str or "exists" in exc_str or "added" in exc_str)
+
+
 def export_events_to_duckling_s3(
     context: AssetExecutionContext,
     client: Client,
@@ -1123,6 +1129,17 @@ def register_file_with_duckling(
 
         except Exception as e:
             last_exception = e
+
+            # Idempotent: treat "already registered" as success
+            if _is_file_already_registered(e):
+                context.log.info(f"File already registered (idempotent): {s3_path}")
+                logger.info(
+                    "duckling_file_already_registered",
+                    s3_path=s3_path,
+                    team_id=catalog.team_id,
+                )
+                return True
+
             if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
                 wait_time = min(4 * (2**attempt), 60)  # Exponential backoff: 4, 8, 16, ... capped at 60s
                 context.log.warning(
@@ -1345,6 +1362,17 @@ def register_persons_file_with_duckling(
 
         except Exception as e:
             last_exception = e
+
+            # Idempotent: treat "already registered" as success
+            if _is_file_already_registered(e):
+                context.log.info(f"Persons file already registered (idempotent): {s3_path}")
+                logger.info(
+                    "duckling_persons_file_already_registered",
+                    s3_path=s3_path,
+                    team_id=catalog.team_id,
+                )
+                return True
+
             if _is_transaction_conflict(e) and attempt < MAX_RETRY_ATTEMPTS - 1:
                 wait_time = min(4 * (2**attempt), 60)
                 context.log.warning(
