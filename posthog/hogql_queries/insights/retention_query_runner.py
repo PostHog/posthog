@@ -3,6 +3,7 @@ from math import ceil
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    AggregationType,
     Breakdown,
     BreakdownType,
     CachedRetentionQueryResponse,
@@ -148,7 +149,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         Extract prop val
         """
         if (
-            self.query.retentionFilter.aggregationType in ["sum", "avg"]
+            self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
             and self.query.retentionFilter.aggregationProperty
         ):
             property_field = ast.Field(chain=["events", "properties", self.query.retentionFilter.aggregationProperty])
@@ -790,7 +791,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 is_first_interval_after_start_event, intervals_from_base_array_aggregator
             )
 
-        select_fields = [
+        select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.target_field])),
             # start events between date_from and date_to (represented by start of interval)
             # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
@@ -986,7 +987,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
             count_expr: ast.Expr
             if self.aggregation_target:
-                if self.query.retentionFilter.aggregationType == "avg":
+                if self.query.retentionFilter.aggregationType == AggregationType.AVG:
                     count_expr = parse_expr(
                         "sum(actor_activity.retention_value) / COUNT(DISTINCT actor_activity.actor_id)"
                     )
