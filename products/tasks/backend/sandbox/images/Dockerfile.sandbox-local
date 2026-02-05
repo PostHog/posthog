@@ -4,7 +4,24 @@
 
 FROM posthog-sandbox-base
 
-COPY local-agent /local-agent
-RUN cd /local-agent && npm pack && \
-    cd /scripts && npm install /local-agent/*.tgz && \
-    rm -rf /local-agent
+# Copy all workspace packages
+COPY packages /workspace/packages
+
+# Remove workspace: deps from all packages (they'll be installed separately)
+RUN cd /workspace/packages/git && \
+    sed -i 's/"@posthog\/shared": "workspace:\*",//' package.json && \
+    cd /workspace/packages/agent && \
+    sed -i 's/"@posthog\/shared": "workspace:\*",//' package.json && \
+    sed -i 's/"@twig\/git": "workspace:\*",//' package.json
+
+# Pack all workspace packages
+RUN cd /workspace/packages/shared && npm pack && \
+    cd /workspace/packages/git && npm pack && \
+    cd /workspace/packages/agent && npm pack
+
+# Install all packages in order (deps first, then agent)
+RUN cd /scripts && \
+    npm install /workspace/packages/shared/*.tgz && \
+    npm install /workspace/packages/git/*.tgz && \
+    npm install /workspace/packages/agent/*.tgz && \
+    rm -rf /workspace
