@@ -276,8 +276,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 ])
             })
 
-            processor['personsManager'].countMany = mockCountMany
-            processor['personsManager'].streamMany = mockStreamMany
+            processor['clickHousePersonsManager'].countMany = mockCountMany
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter to not limit
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -374,8 +374,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
                 await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -424,8 +424,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
                 await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -496,8 +496,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
                 await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -560,8 +560,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     { personId: 'person-2', distinctId: 'distinct-2' },
                 ])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(2)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(2)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([

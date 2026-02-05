@@ -192,13 +192,13 @@ export class ClickHousePersonRepository implements PersonRepository {
                             .filter((v) => v !== null)
                             .map((v) => `'${escapeClickHouseString(v!)}'`)
                             .join(', ')
-                        return `JSONExtractString(properties, '${escapedKey}') NOT IN (${values})`
+                        return `toString(JSONExtractString(properties, '${escapedKey}')) NOT IN (${values})`
                     } else {
                         const normalizedValue = normalizeValue(value)
                         if (normalizedValue === null) {
                             return `JSONExtractString(properties, '${escapedKey}') != ''`
                         }
-                        return `JSONExtractString(properties, '${escapedKey}') != '${escapeClickHouseString(normalizedValue)}'`
+                        return `toString(JSONExtractString(properties, '${escapedKey}')) != '${escapeClickHouseString(normalizedValue)}'`
                     }
                 }
 
@@ -284,7 +284,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     if (normalizedValue === null) {
                         return '1=0'
                     }
-                    return `toDateTime(JSONExtractString(properties, '${escapedKey}')) < toDateTime('${escapeClickHouseString(normalizedValue)}')`
+                    return this.buildDateBeforeExpr(escapedKey, normalizedValue)
                 }
 
                 case 'is_date_after': {
@@ -295,7 +295,7 @@ export class ClickHousePersonRepository implements PersonRepository {
                     if (normalizedValue === null) {
                         return '1=0'
                     }
-                    return `toDateTime(JSONExtractString(properties, '${escapedKey}')) > toDateTime('${escapeClickHouseString(normalizedValue)}')`
+                    return this.buildDateAfterExpr(escapedKey, normalizedValue)
                 }
 
                 // The "is_cleaned_path_exact" operator is intended for URL/path event properties,
@@ -334,6 +334,61 @@ export class ClickHousePersonRepository implements PersonRepository {
 
     private async query<T>(query: string): Promise<T[]> {
         return await this.clickHouseRouter.query<T>(query)
+    }
+
+    private parseRelativeDate(value: string): string | null {
+        const match = /^-?(?<number>[0-9]+)(?<interval>[a-z])$/.exec(value)
+        if (!match?.groups?.number || !match?.groups?.interval) {
+            return null
+        }
+
+        const number = parseInt(match.groups.number, 10)
+        if (Number.isNaN(number) || number >= 10000) {
+            return null
+        }
+
+        const interval = match.groups.interval
+        const now = DateTime.utc()
+        const relative =
+            interval === 'h'
+                ? now.minus({ hours: number })
+                : interval === 'd'
+                  ? now.minus({ days: number })
+                  : interval === 'w'
+                    ? now.minus({ weeks: number })
+                    : interval === 'm'
+                      ? now.minus({ months: number })
+                      : interval === 'y'
+                        ? now.minus({ years: number })
+                        : null
+
+        return relative ? relative.toFormat('yyyy-MM-dd HH:mm:ss') : null
+    }
+
+    private buildDatePropertyExpr(escapedKey: string): string {
+        const propertyExpr = `JSONExtractString(properties, '${escapedKey}')`
+        return `coalesce(parseDateTimeBestEffortOrNull(${propertyExpr}), parseDateTimeBestEffortOrNull(substring(${propertyExpr}, 1, 10)))`
+    }
+
+    private normalizeDateValue(value: string): string {
+        return this.parseRelativeDate(value) ?? value
+    }
+
+    private buildDateBeforeExpr(escapedKey: string, value: string): string {
+        const parsedExpr = this.buildDatePropertyExpr(escapedKey)
+        const dateValue = escapeClickHouseString(this.normalizeDateValue(value))
+        return `${parsedExpr} < parseDateTimeBestEffortOrNull('${dateValue}')`
+    }
+
+    private buildDateAfterExpr(escapedKey: string, value: string): string {
+        const parsedExpr = this.buildDatePropertyExpr(escapedKey)
+        const dateValue = this.normalizeDateValue(value)
+        const escapedDateValue = escapeClickHouseString(dateValue)
+        const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+        const compareValue = isDateOnly
+            ? `subtractSeconds(addDays(toDate('${escapedDateValue}'), 1), 1)`
+            : `parseDateTimeBestEffortOrNull('${escapedDateValue}')`
+        return `${parsedExpr} > ${compareValue}`
     }
 
     /**

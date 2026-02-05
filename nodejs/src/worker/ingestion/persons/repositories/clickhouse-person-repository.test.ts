@@ -1,5 +1,6 @@
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 
+import { Clickhouse } from '../../../../../tests/helpers/clickhouse'
 import { resetTestDatabase } from '../../../../../tests/helpers/sql'
 import { Hub, PropertyOperator, Team } from '../../../../types'
 import { ClickHouseRouter } from '../../../../utils/db/clickhouse'
@@ -14,31 +15,33 @@ describe('ClickHousePersonRepository', () => {
     let hub: Hub
     let clickHouseRouter: ClickHouseRouter
     let repository: ClickHousePersonRepository
+    let clickhouse: Clickhouse
 
     async function executeClickHouseTestQuery(query: string): Promise<void> {
-        const client = (clickHouseRouter as any).client
-        if (!client) {
-            throw new Error('ClickHouse client not initialized')
-        }
-        await client.exec({ query })
+        await clickhouse.exec(query)
     }
+
+    beforeAll(() => {
+        clickhouse = Clickhouse.create()
+    })
 
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
+        await clickhouse.resetTestDatabase()
         clickHouseRouter = new ClickHouseRouter(hub)
         clickHouseRouter.initialize()
         repository = new ClickHousePersonRepository(clickHouseRouter)
-
-        // Clear test ClickHouse tables while preserving schema
-        await executeClickHouseTestQuery('TRUNCATE TABLE IF EXISTS person')
-        await executeClickHouseTestQuery('TRUNCATE TABLE IF EXISTS person_distinct_id2')
     })
 
     afterEach(async () => {
         await clickHouseRouter.close()
         await closeHub(hub)
         jest.clearAllMocks()
+    })
+
+    afterAll(() => {
+        clickhouse.close()
     })
 
     const TIMESTAMP = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
@@ -361,6 +364,68 @@ describe('ClickHousePersonRepository', () => {
             expect(count).toBe(2)
         })
 
+        it('should count persons with relative is_date_before operator values', async () => {
+            const previousNow = Settings.now
+            Settings.now = () => new Date('2024-07-01T00:00:00.000Z').valueOf()
+
+            try {
+                const personId1 = new UUIDT().toString()
+                const personId2 = new UUIDT().toString()
+                const personId3 = new UUIDT().toString()
+
+                await insertPersonIntoClickHouse(team.id, personId1, { signup_date: '2024-06-29 00:00:00' })
+                await insertPersonIntoClickHouse(team.id, personId2, { signup_date: '2024-06-30 00:00:00' })
+                await insertPersonIntoClickHouse(team.id, personId3, { signup_date: '2024-07-01 00:00:00' })
+
+                const count = await repository.countPersonsByProperties({
+                    teamId: team.id,
+                    properties: [
+                        {
+                            key: 'signup_date',
+                            value: '-24h',
+                            operator: PropertyOperator.IsDateBefore,
+                            type: 'person',
+                        },
+                    ],
+                })
+
+                expect(count).toBe(1)
+            } finally {
+                Settings.now = previousNow
+            }
+        })
+
+        it('should count persons with relative is_date_after operator values', async () => {
+            const previousNow = Settings.now
+            Settings.now = () => new Date('2024-07-01T00:00:00.000Z').valueOf()
+
+            try {
+                const personId1 = new UUIDT().toString()
+                const personId2 = new UUIDT().toString()
+                const personId3 = new UUIDT().toString()
+
+                await insertPersonIntoClickHouse(team.id, personId1, { signup_date: '2024-06-29 00:00:00' })
+                await insertPersonIntoClickHouse(team.id, personId2, { signup_date: '2024-06-30 00:00:00' })
+                await insertPersonIntoClickHouse(team.id, personId3, { signup_date: '2024-07-01 00:00:00' })
+
+                const count = await repository.countPersonsByProperties({
+                    teamId: team.id,
+                    properties: [
+                        {
+                            key: 'signup_date',
+                            value: '24h',
+                            operator: PropertyOperator.IsDateAfter,
+                            type: 'person',
+                        },
+                    ],
+                })
+
+                expect(count).toBe(1)
+            } finally {
+                Settings.now = previousNow
+            }
+        })
+
         it('should count persons with multiple property filters (AND condition)', async () => {
             const personId1 = new UUIDT().toString()
             const personId2 = new UUIDT().toString()
@@ -515,6 +580,29 @@ describe('ClickHousePersonRepository', () => {
             expect(persons[0].id).toBe(personId2)
         })
 
+        it('should fetch persons with is_not operator using array value (NOT IN logic)', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const personId3 = new UUIDT().toString()
+            const personId4 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { role: 'admin' }, 1, 'distinct1')
+            await insertPersonIntoClickHouse(team.id, personId2, { role: 'user' }, 1, 'distinct2')
+            await insertPersonIntoClickHouse(team.id, personId3, { role: 'moderator' }, 1, 'distinct3')
+            await insertPersonIntoClickHouse(team.id, personId4, { role: 'guest' }, 1, 'distinct4')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    { key: 'role', value: ['admin', 'moderator'], operator: PropertyOperator.IsNot, type: 'person' },
+                ],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([personId2, personId4].sort())
+        })
+
         it('should fetch persons with is_set operator', async () => {
             const personId1 = new UUIDT().toString()
             const personId2 = new UUIDT().toString()
@@ -563,6 +651,72 @@ describe('ClickHousePersonRepository', () => {
             expect(persons[0].id).toBe(personId1)
         })
 
+        it('should fetch persons with not_icontains operator', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const personId3 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { email: 'admin@example.com' }, 1, 'distinct1')
+            await insertPersonIntoClickHouse(team.id, personId2, { email: 'user@test.com' }, 1, 'distinct2')
+            await insertPersonIntoClickHouse(team.id, personId3, { email: 'moderator@Example.com' }, 1, 'distinct3')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    { key: 'email', value: 'example', operator: PropertyOperator.NotIContains, type: 'person' },
+                ],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(personId2)
+        })
+
+        it('should fetch persons with regex operator', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const personId3 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { email: 'admin@example.com' }, 1, 'distinct1')
+            await insertPersonIntoClickHouse(team.id, personId2, { email: 'user@test.com' }, 1, 'distinct2')
+            await insertPersonIntoClickHouse(team.id, personId3, { email: 'admin@test.org' }, 1, 'distinct3')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    { key: 'email', value: '^admin@.*\\.com$', operator: PropertyOperator.Regex, type: 'person' },
+                ],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(personId1)
+        })
+
+        it('should fetch persons with not_regex operator', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const personId3 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { email: 'admin@example.com' }, 1, 'distinct1')
+            await insertPersonIntoClickHouse(team.id, personId2, { email: 'user@test.com' }, 1, 'distinct2')
+            await insertPersonIntoClickHouse(team.id, personId3, { email: 'admin@test.org' }, 1, 'distinct3')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    {
+                        key: 'email',
+                        value: '^admin@.*\\.com$',
+                        operator: PropertyOperator.NotRegex,
+                        type: 'person',
+                    },
+                ],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([personId2, personId3].sort())
+        })
+
         it('should fetch persons with gt operator', async () => {
             const personId1 = new UUIDT().toString()
             const personId2 = new UUIDT().toString()
@@ -589,6 +743,154 @@ describe('ClickHousePersonRepository', () => {
             const persons = await repository.fetchPersonsByProperties({
                 teamId: team.id,
                 properties: [{ key: 'age', value: '40', operator: PropertyOperator.LessThan, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(personId1)
+        })
+
+        it('should fetch persons with is_date_before operator', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const personId3 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { signup_date: '2024-01-01 00:00:00' }, 1, 'd1')
+            await insertPersonIntoClickHouse(team.id, personId2, { signup_date: '2024-06-01 00:00:00' }, 1, 'd2')
+            await insertPersonIntoClickHouse(team.id, personId3, { signup_date: '2024-12-01 00:00:00' }, 1, 'd3')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    {
+                        key: 'signup_date',
+                        value: '2024-07-01 00:00:00',
+                        operator: PropertyOperator.IsDateBefore,
+                        type: 'person',
+                    },
+                ],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([personId1, personId2].sort())
+        })
+
+        it('should fetch persons with is_date_after operator', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+            const personId3 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { signup_date: '2024-01-01 00:00:00' }, 1, 'd1')
+            await insertPersonIntoClickHouse(team.id, personId2, { signup_date: '2024-06-01 00:00:00' }, 1, 'd2')
+            await insertPersonIntoClickHouse(team.id, personId3, { signup_date: '2024-12-01 00:00:00' }, 1, 'd3')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [
+                    {
+                        key: 'signup_date',
+                        value: '2024-05-01 00:00:00',
+                        operator: PropertyOperator.IsDateAfter,
+                        type: 'person',
+                    },
+                ],
+            })
+
+            expect(persons).toHaveLength(2)
+            const personIds = persons.map((p) => p.id).sort()
+            expect(personIds).toEqual([personId2, personId3].sort())
+        })
+
+        it('should fetch persons with relative is_date_before operator values', async () => {
+            const previousNow = Settings.now
+            Settings.now = () => new Date('2024-07-01T00:00:00.000Z').valueOf()
+
+            try {
+                const personId1 = new UUIDT().toString()
+                const personId2 = new UUIDT().toString()
+                const personId3 = new UUIDT().toString()
+
+                await insertPersonIntoClickHouse(team.id, personId1, { signup_date: '2024-06-29 00:00:00' }, 1, 'd1')
+                await insertPersonIntoClickHouse(team.id, personId2, { signup_date: '2024-06-30 00:00:00' }, 1, 'd2')
+                await insertPersonIntoClickHouse(team.id, personId3, { signup_date: '2024-07-01 00:00:00' }, 1, 'd3')
+
+                const persons = await repository.fetchPersonsByProperties({
+                    teamId: team.id,
+                    properties: [
+                        {
+                            key: 'signup_date',
+                            value: '-24h',
+                            operator: PropertyOperator.IsDateBefore,
+                            type: 'person',
+                        },
+                    ],
+                })
+
+                expect(persons).toHaveLength(1)
+                expect(persons[0].id).toBe(personId1)
+            } finally {
+                Settings.now = previousNow
+            }
+        })
+
+        it('should fetch persons with relative is_date_after operator values', async () => {
+            const previousNow = Settings.now
+            Settings.now = () => new Date('2024-07-01T00:00:00.000Z').valueOf()
+
+            try {
+                const personId1 = new UUIDT().toString()
+                const personId2 = new UUIDT().toString()
+                const personId3 = new UUIDT().toString()
+
+                await insertPersonIntoClickHouse(team.id, personId1, { signup_date: '2024-06-29 00:00:00' }, 1, 'd1')
+                await insertPersonIntoClickHouse(team.id, personId2, { signup_date: '2024-06-30 00:00:00' }, 1, 'd2')
+                await insertPersonIntoClickHouse(team.id, personId3, { signup_date: '2024-07-01 00:00:00' }, 1, 'd3')
+
+                const persons = await repository.fetchPersonsByProperties({
+                    teamId: team.id,
+                    properties: [
+                        {
+                            key: 'signup_date',
+                            value: '24h',
+                            operator: PropertyOperator.IsDateAfter,
+                            type: 'person',
+                        },
+                    ],
+                })
+
+                expect(persons).toHaveLength(1)
+                expect(persons[0].id).toBe(personId3)
+            } finally {
+                Settings.now = previousNow
+            }
+        })
+
+        it('should handle null values correctly', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { name: null }, 1, 'distinct1')
+            await insertPersonIntoClickHouse(team.id, personId2, { name: 'John' }, 1, 'distinct2')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'name', value: null, operator: PropertyOperator.Exact, type: 'person' }],
+            })
+
+            expect(persons).toHaveLength(1)
+            expect(persons[0].id).toBe(personId1)
+        })
+
+        it('should handle numeric values as strings', async () => {
+            const personId1 = new UUIDT().toString()
+            const personId2 = new UUIDT().toString()
+
+            await insertPersonIntoClickHouse(team.id, personId1, { count: 42 }, 1, 'distinct1')
+            await insertPersonIntoClickHouse(team.id, personId2, { count: 100 }, 1, 'distinct2')
+
+            const persons = await repository.fetchPersonsByProperties({
+                teamId: team.id,
+                properties: [{ key: 'count', value: '42', operator: PropertyOperator.Exact, type: 'person' }],
             })
 
             expect(persons).toHaveLength(1)
