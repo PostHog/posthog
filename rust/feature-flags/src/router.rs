@@ -252,6 +252,17 @@ fn spawn_rate_limiter_cleanup_task(
 }
 
 /// Path to the preStop marker file created during graceful shutdown.
+///
+/// The Kubernetes preStop hook must be configured to create this file before
+/// the pod begins terminating. This is managed in the posthog/charts repository,
+/// not in this codebase. Example preStop hook configuration:
+///
+/// ```yaml
+/// lifecycle:
+///   preStop:
+///     exec:
+///       command: ["touch", "/tmp/posthog_prestop"]
+/// ```
 pub const PRESTOP_MARKER_PATH: &str = "/tmp/posthog_prestop";
 
 /// Readiness check for Kubernetes.
