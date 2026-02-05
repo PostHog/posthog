@@ -484,6 +484,11 @@ export function ProjectTree({
 
                     return (
                         <>
+                            {root === 'products://' && treeSize === 'narrow' && (
+                                <>
+                                    <p className="mb-1 font-semibold">{item.displayName}</p>
+                                </>
+                            )}
                             {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
