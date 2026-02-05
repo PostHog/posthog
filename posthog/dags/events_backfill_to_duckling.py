@@ -1799,6 +1799,12 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
+    # Get existing partitions to skip already-created ones.
+    # If the cursor falls behind (e.g., prior tick created partitions but cursor
+    # wasn't persisted due to timeout), we advance past existing partitions
+    # without re-requesting runs that Dagster would deduplicate anyway.
+    existing_partitions = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
+
     # Process catalogs starting from where we left off
     for catalog_idx, catalog in enumerate(catalogs[start_idx:], start=start_idx):
         if len(new_partitions) >= BACKFILL_MONTHS_PER_TICK:
@@ -1829,6 +1835,14 @@ def duckling_full_backfill_sensor(context: SensorEvaluationContext) -> SensorRes
                 break
 
             partition_key = f"{team_id}_{month}"
+
+            # Skip partitions that already exist — the cursor may have fallen
+            # behind if a prior tick created partitions but failed to persist
+            # the cursor (e.g., timeout). Just advance past them.
+            if partition_key in existing_partitions:
+                current_month = month
+                continue
+
             new_partitions.append(partition_key)
             run_requests.append(
                 RunRequest(
