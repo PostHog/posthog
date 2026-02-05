@@ -16,7 +16,10 @@ def get_s3_function_call(s3_folder: str, s3_key: str | None, s3_secret: str | No
     """
     s3_url = f"{s3_folder}/export_{{{{_partition_id}}}}.arrow"
     if s3_key is not None and s3_secret is not None:
-        s3_call = f"s3('{s3_url}', '{s3_key}', '{s3_secret}', 'ArrowStream')"
+        # Escape single quotes by doubling them (ClickHouse SQL escaping)
+        escaped_key = s3_key.replace("'", "''")
+        escaped_secret = s3_secret.replace("'", "''")
+        s3_call = f"s3('{s3_url}', '{escaped_key}', '{escaped_secret}', 'ArrowStream')"
     else:
         s3_call = f"s3('{s3_url}', 'ArrowStream')"
 
