@@ -433,18 +433,49 @@ class TestConnectDuckdb:
             conn.close()
 
 
-class TestDeleteDateRange:
+class TestDeleteRangePredicate:
     @parameterized.expand(
         [
-            (datetime(2025, 3, 1), "2025-03-01", "2025-03-02"),
-            (datetime(2025, 3, 31), "2025-03-31", "2025-04-01"),
-            (datetime(2024, 2, 29), "2024-02-29", "2024-03-01"),  # Leap year
-            (datetime(2024, 12, 31), "2024-12-31", "2025-01-01"),  # Year boundary
-            (datetime(2023, 2, 28), "2023-02-28", "2023-03-01"),  # Non-leap year
+            # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)
+            (
+                ["2024-01-15 00:00:00", "2024-01-15 12:30:00", "2024-01-15 23:59:59.999999"],
+                "2024-01-15",
+                3,
+                0,
+            ),
+            (
+                ["2024-01-14 23:59:59.999999", "2024-01-15 00:00:00", "2024-01-16 00:00:00"],
+                "2024-01-15",
+                1,
+                2,
+            ),
+            (
+                ["2024-02-29 00:00:00", "2024-02-29 23:59:59.999999", "2024-03-01 00:00:00"],
+                "2024-02-29",
+                2,
+                1,
+            ),
         ]
     )
-    def test_date_range_boundaries(self, partition_date, expected_start, expected_end):
-        date_str = partition_date.strftime("%Y-%m-%d")
-        next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
-        assert date_str == expected_start
-        assert next_date_str == expected_end
+    def test_range_predicate_deletes_correct_rows(self, timestamps, target_date, expected_deleted, expected_remaining):
+        conn = duckdb.connect()
+        try:
+            conn.execute("CREATE TABLE events (team_id INTEGER, timestamp TIMESTAMPTZ)")
+            for ts in timestamps:
+                conn.execute("INSERT INTO events VALUES (1, ?)", [ts])
+
+            date_str = target_date
+            next_date_str = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+            result = conn.execute(
+                "DELETE FROM events WHERE team_id = $1 AND timestamp >= $2 AND timestamp < $3",
+                [1, date_str, next_date_str],
+            ).fetchone()
+
+            deleted = result[0] if result else 0
+            assert deleted == expected_deleted
+
+            remaining = conn.execute("SELECT count(*) FROM events").fetchone()[0]
+            assert remaining == expected_remaining
+        finally:
+            conn.close()
