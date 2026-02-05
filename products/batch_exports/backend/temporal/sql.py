@@ -4,6 +4,26 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr
 
+
+def get_s3_function_call(s3_folder: str, s3_key: str | None, s3_secret: str | None, num_partitions: int) -> str:
+    """Generate the s3() function call for ClickHouse INSERT queries.
+
+    When using keyless S3 auth (IAM roles), we omit credentials and ClickHouse uses the
+    default credential provider chain. Otherwise, we pass the access key and secret.
+
+    Note: We use %% for the modulo operator because the ClickHouse client uses % for
+    parameter substitution, so %% produces a literal % in the final query.
+    """
+    s3_url = f"{s3_folder}/export_{{{{_partition_id}}}}.arrow"
+    if s3_key is not None and s3_secret is not None:
+        s3_call = f"s3('{s3_url}', '{s3_key}', '{s3_secret}', 'ArrowStream')"
+    else:
+        s3_call = f"s3('{s3_url}', 'ArrowStream')"
+
+    return f"""{s3_call}
+    PARTITION BY rand() %% {num_partitions}"""
+
+
 SELECT_FROM_PERSONS = """
 SELECT
     persons.team_id AS team_id,
@@ -506,14 +526,7 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
 
 EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -554,14 +567,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_RECENT = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -601,14 +607,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -647,14 +646,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_BACKFILL = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -692,14 +684,7 @@ SETTINGS
 
 EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM
@@ -720,14 +705,7 @@ SETTINGS
 )
 EXPORT_TO_S3_FROM_EVENTS = Template(
     """
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     $fields
 FROM (
@@ -767,14 +745,7 @@ SETTINGS
 )
 
 EXPORT_TO_S3_FROM_PERSONS_BACKFILL = Template("""
-INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     pd.team_id AS team_id,
     pd.distinct_id AS distinct_id,
@@ -841,14 +812,7 @@ SETTINGS
 
 
 EXPORT_TO_S3_FROM_PERSONS = Template("""
-INSERT INTO FUNCTION
-    s3(
-        '$s3_folder/export_{{_partition_id}}.arrow',
-        '$s3_key',
-        '$s3_secret',
-        'ArrowStream'
-    )
-    PARTITION BY rand() %% $num_partitions
+INSERT INTO FUNCTION $s3_function
 SELECT
     persons.team_id AS team_id,
     persons.distinct_id AS distinct_id,
