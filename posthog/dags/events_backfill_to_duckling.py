@@ -1041,7 +1041,6 @@ def export_events_to_duckling_s3(
         {EVENTS_COLUMNS}
     FROM events
     WHERE {where_clause}
-    ORDER BY event, distinct_id, timestamp
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
@@ -1184,7 +1183,6 @@ def export_persons_to_duckling_s3(
       AND toDate(p._timestamp) = '{date_str}'
       AND p.is_deleted = 0
       AND pd.is_deleted = 0
-    ORDER BY distinct_id, _timestamp
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
@@ -1238,7 +1236,7 @@ def export_persons_full_to_duckling_s3(
     # Join person with person_distinct_id2 to get distinct_ids
     # Use FINAL to handle ReplacingMergeTree deduplication
     # No date filtering - export all persons for the team
-    # Full exports need more memory due to FINAL + JOIN + ORDER BY on large datasets
+    # Full exports need more memory due to FINAL + JOIN on large datasets
     # Also enable external sorting to spill to disk if memory is still exceeded
     full_export_settings = settings.copy()
     full_export_settings.update(
