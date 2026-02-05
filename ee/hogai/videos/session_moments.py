@@ -26,7 +26,6 @@ from products.llm_analytics.backend.providers.gemini import GeminiProvider
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-    SESSION_VIDEO_RENDERING_DELAY,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
 )
@@ -228,11 +227,7 @@ class SessionMomentsLLMAnalyzer:
                 total_video_duration = get_video_duration_s(video_bytes=video_bytes)
             except ValueError:
                 total_video_duration = None
-            start_offset_s = (
-                total_video_duration - VALIDATION_VIDEO_DURATION + SESSION_VIDEO_RENDERING_DELAY
-                if total_video_duration
-                else None
-            )
+            start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
             # Analyze the video with LLM
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,

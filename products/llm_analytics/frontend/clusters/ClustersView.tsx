@@ -78,6 +78,8 @@ export function ClustersView(): JSX.Element {
         traceSummaries,
         traceSummariesLoading,
         isScatterPlotExpanded,
+        clusterMetrics,
+        clusterMetricsLoading,
     } = useValues(clustersLogic)
     const {
         setClusteringLevel,
@@ -121,6 +123,7 @@ export function ClustersView(): JSX.Element {
                                     { value: 'generation', label: 'Generations' },
                                 ]}
                                 size="small"
+                                data-attr="clusters-level-toggle"
                             />
                         </span>
                     </Tooltip>
@@ -130,6 +133,7 @@ export function ClustersView(): JSX.Element {
                         icon={<IconRefresh />}
                         onClick={loadClusteringRuns}
                         tooltip="Refresh clustering runs"
+                        data-attr="clusters-refresh-runs"
                     />
                 </div>
 
@@ -165,6 +169,7 @@ export function ClustersView(): JSX.Element {
                                     { value: 'generation', label: 'Generations' },
                                 ]}
                                 size="small"
+                                data-attr="clusters-level-toggle"
                             />
                         </span>
                     </Tooltip>
@@ -179,6 +184,7 @@ export function ClustersView(): JSX.Element {
                                     label: run.label,
                                 }))}
                                 placeholder="Select a run"
+                                data-attr="clusters-run-select"
                             />
                         </span>
                     </Tooltip>
@@ -188,6 +194,7 @@ export function ClustersView(): JSX.Element {
                         icon={<IconRefresh />}
                         onClick={loadClusteringRuns}
                         tooltip="Refresh clustering runs"
+                        data-attr="clusters-refresh-runs"
                     />
                 </div>
 
@@ -238,6 +245,7 @@ export function ClustersView(): JSX.Element {
                             icon={<IconGear />}
                             onClick={openModal}
                             tooltip="Run clustering with custom parameters"
+                            data-attr="clusters-run-clustering-button"
                         >
                             Run clustering
                         </LemonButton>
@@ -258,6 +266,7 @@ export function ClustersView(): JSX.Element {
                     <div
                         className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
                         onClick={toggleScatterPlotExpanded}
+                        data-attr="clusters-scatter-plot-toggle"
                     >
                         <div className="flex items-center gap-4">
                             <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
@@ -294,6 +303,8 @@ export function ClustersView(): JSX.Element {
                             loadingTraces={traceSummariesLoading}
                             runId={effectiveRunId || ''}
                             clusteringLevel={clusteringLevel}
+                            metrics={clusterMetrics[cluster.cluster_id]}
+                            metricsLoading={clusterMetricsLoading}
                         />
                     ))}
                 </div>

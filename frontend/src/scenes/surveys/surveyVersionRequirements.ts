@@ -105,9 +105,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Repeated survey activation (show every time)',
-        sdkVersions: { 'posthog-js': '1.234.11' },
+        sdkVersions: {
+            'posthog-js': '1.234.11',
+            'posthog-react-native': '4.27.0',
+        },
         unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2961' },
             { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/446' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/389' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/260' },
@@ -140,9 +142,11 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Auto-submit on selection',
-        sdkVersions: { 'posthog-js': '1.244.0' },
+        sdkVersions: {
+            'posthog-js': '1.244.0',
+            'posthog-react-native': '4.26.0',
+        },
         unsupportedSdks: [
-            { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2963' },
             { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/448' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/391' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/262' },
@@ -209,10 +213,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.300.0',
             'posthog-react-native': '4.15.0',
             'posthog-ios': '3.38.0',
+            posthog_flutter: '5.13.0',
         },
         unsupportedSdks: [
             { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/pull/233' },
         ],
         check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
     },
@@ -222,10 +226,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.310.1',
             'posthog-react-native': '4.17.0',
             'posthog-ios': '3.38.0',
+            posthog_flutter: '5.13.0',
         },
         unsupportedSdks: [
             { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/pull/233' },
         ],
         check: (s) => s.appearance?.textColor !== undefined || s.appearance?.submitButtonTextColor !== undefined,
     },
@@ -235,9 +239,9 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.326.0',
             'posthog-react-native': '4.19.0',
             'posthog-ios': '3.38.0',
+            posthog_flutter: '5.13.0',
         },
         unsupportedSdks: [
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/pull/233' },
             { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
         ],
         check: (s) =>

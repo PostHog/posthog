@@ -26,6 +26,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MODE,
     DEFAULT_MODEL,
     DEFAULT_WINDOW_MINUTES,
+    DEFAULT_WINDOW_OFFSET_MINUTES,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
     MAX_TEXT_REPR_LENGTH,
     SAMPLE_TIMEOUT_SECONDS,
@@ -107,7 +108,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         max_length,
                     ],
                     activity_id=f"summarize-gen-{item.generation_id}",
-                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
             else:
@@ -126,7 +127,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         max_length,
                     ],
                     activity_id=f"summarize-{item.trace_id}",
-                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
 
@@ -152,8 +153,9 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_end = inputs.window_end
         else:
             now = temporalio.workflow.now()
-            window_end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-            window_start = (now - timedelta(minutes=inputs.window_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            offset = timedelta(minutes=DEFAULT_WINDOW_OFFSET_MINUTES)
+            window_end = (now - offset).strftime("%Y-%m-%dT%H:%M:%SZ")
+            window_start = (now - offset - timedelta(minutes=inputs.window_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Prepare inputs with computed window
         inputs_with_window = BatchSummarizationInputs(

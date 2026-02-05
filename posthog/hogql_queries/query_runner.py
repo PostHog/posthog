@@ -87,7 +87,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
@@ -1096,10 +1096,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") in [
-            AccessMethod.PERSONAL_API_KEY,
-            AccessMethod.PROJECT_SECRET_API_KEY,
-        ]
+        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
 
         if self.is_query_service:
             tag_queries(chargeable=1)

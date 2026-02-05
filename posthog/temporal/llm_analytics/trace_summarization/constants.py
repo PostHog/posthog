@@ -13,6 +13,7 @@ DEFAULT_MAX_ITEMS_PER_WINDOW = (
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
+DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
 
 # Max text representation length (in characters)
@@ -51,19 +52,6 @@ GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-l
 
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 50  # Higher than traces - generations are simpler units
-
-# Team allowlist - only these teams will be processed by the coordinator
-# Empty list means no teams will be processed (coordinator skips)
-ALLOWED_TEAM_IDS: list[int] = [
-    1,  # Local development
-    2,  # Internal PostHog project
-    # Dogfooding projects
-    112495,
-    148051,
-    140227,
-    237906,
-    294356,
-]
 
 # Temporal configuration
 WORKFLOW_NAME = "llma-trace-summarization"
