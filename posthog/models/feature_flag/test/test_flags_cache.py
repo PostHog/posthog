@@ -170,6 +170,96 @@ class TestServiceFlagsCache(BaseTest):
         inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
         assert inactive_flag["active"] is False
 
+    def test_get_feature_flags_for_service_excludes_encrypted_remote_config(self):
+        """Test that encrypted remote config flags are excluded from cache.
+
+        Encrypted remote config flags can only be accessed via the dedicated
+        /remote_config endpoint which handles decryption. Including them in
+        /flags would return unusable encrypted ciphertext.
+
+        Unencrypted remote config flags should still be included since they
+        work with useFeatureFlagPayload.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create unencrypted remote config flag (should be included)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="unencrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create encrypted remote config flag (should be excluded)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flags = result["flags"]
+
+        # Regular and unencrypted remote config should be included
+        # Encrypted remote config should be excluded
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+
+    def test_get_feature_flags_for_teams_batch_excludes_encrypted_remote_config(self):
+        """Test that batch function excludes encrypted remote config flags.
+
+        This tests the same behavior as test_get_feature_flags_for_service_excludes_encrypted_remote_config
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create unencrypted remote config flag (should be included)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="unencrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create encrypted remote config flag (should be excluded)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Regular and unencrypted remote config should be included
+        # Encrypted remote config should be excluded
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"regular-flag", "unencrypted-remote-config"}
+
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
         # Create a flag
