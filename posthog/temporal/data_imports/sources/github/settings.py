@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
@@ -12,7 +12,7 @@ class GithubEndpointConfig:
     default_incremental_field: Optional[str] = None
     partition_key: Optional[str] = None
     page_size: int = 100  # GitHub default, max is 100
-    sort_mode: str = "asc"  # "asc" or "desc" - affects how incremental sync tracks progress
+    sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str = "id"  # Primary key for upsert operations
 
 
