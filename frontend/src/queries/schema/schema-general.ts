@@ -1747,25 +1747,33 @@ export interface EndpointRunRequest {
     /** @default 'cache' */
     refresh?: EndpointRefreshMode
     /**
-     * A map for overriding insight query filters.
+     * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
      *
-     * Tip: Use to get data for a specific customer or user.
-     */
-    filters_override?: DashboardFilter
-    /**
-     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value.
-     * Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date})
-     * For example: {"from_date": "1970-01-01"}
+     * For HogQL endpoints:
+     *   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).
+     *   Example: `{"event_name": "$pageview"}`
+     *
+     * For non-materialized insight endpoints (e.g. TrendsQuery):
+     *   - `date_from` and `date_to` are built-in variables that filter the date range.
+     *     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     *
+     * For materialized insight endpoints:
+     *   - Use the breakdown property name as the key to filter by breakdown value.
+     *     Example: `{"$browser": "Chrome"}`
+     *   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+     *
+     * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
     /**
-     * Map of Insight query keys to be overridden at execution time.
-     * For example:
-     *   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}
-     *   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}
-     *   The query executed will return the count of $identify events, instead of $pageview's
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
      */
-    query_override?: Record<string, any>
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -3954,6 +3962,9 @@ export type AIEventType =
     | '$ai_feedback'
     | '$ai_evaluation'
     | '$ai_trace_summary'
+    | '$ai_generation_summary'
+    | '$ai_trace_clusters'
+    | '$ai_generation_clusters'
 
 export interface LLMTraceEvent {
     id: string
