@@ -1,3 +1,4 @@
+import gc
 import io
 import json
 import time
@@ -834,55 +835,61 @@ async def run_consumers(
     can_perform_merge: bool,
     max_consumers: int,
 ) -> BatchExportResult:
+    pa_memory_pool = pa.default_memory_pool()
     tasks = []
     max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
 
-    async with asyncio.TaskGroup() as tg:
-        for _ in range(max_consumers):
-            consumer = BigQueryConsumer(
-                client=client,
-                table=table,
-                file_format=file_format,
-            )
-
-            if can_perform_merge:
-                transformer: ChunkTransformerProtocol = PipelineTransformer(
-                    transformers=(
-                        SchemaTransformer(
-                            table=table,
-                        ),
-                        ParquetStreamTransformer(
-                            compression="zstd",
-                            max_file_size_bytes=max_file_size_bytes_per_consumer,
-                        ),
-                    )
-                )
-            else:
-                transformer = PipelineTransformer(
-                    transformers=(
-                        SchemaTransformer(
-                            table=table,
-                        ),
-                        JSONLStreamTransformer(
-                            max_file_size_bytes=max_file_size_bytes_per_consumer,
-                        ),
-                    )
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for _ in range(max_consumers):
+                consumer = BigQueryConsumer(
+                    client=client,
+                    table=table,
+                    file_format=file_format,
                 )
 
-            tasks.append(
-                tg.create_task(
-                    consumer.start(
-                        queue=queue,
-                        producer_task=producer_task,
-                        transformer=transformer,
-                        json_columns=(),
+                if can_perform_merge:
+                    transformer: ChunkTransformerProtocol = PipelineTransformer(
+                        transformers=(
+                            SchemaTransformer(
+                                table=table,
+                            ),
+                            ParquetStreamTransformer(
+                                compression="zstd",
+                                max_file_size_bytes=max_file_size_bytes_per_consumer,
+                            ),
+                        )
+                    )
+                else:
+                    transformer = PipelineTransformer(
+                        transformers=(
+                            SchemaTransformer(
+                                table=table,
+                            ),
+                            JSONLStreamTransformer(
+                                max_file_size_bytes=max_file_size_bytes_per_consumer,
+                            ),
+                        )
+                    )
+
+                tasks.append(
+                    tg.create_task(
+                        consumer.start(
+                            queue=queue,
+                            producer_task=producer_task,
+                            transformer=transformer,
+                            json_columns=(),
+                        )
                     )
                 )
-            )
 
-    await raise_on_task_failure(producer_task)
+        await raise_on_task_failure(producer_task)
 
-    return reduce_batch_export_results(task.result() for task in tasks)
+        return reduce_batch_export_results(task.result() for task in tasks)
+    finally:
+        # Release PyArrow memory pool allocations and run garbage collection
+        pa_memory_pool.release_unused()
+        gc.collect()
 
 
 class MergeSettings(typing.NamedTuple):

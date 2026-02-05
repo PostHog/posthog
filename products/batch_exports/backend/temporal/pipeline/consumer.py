@@ -1,3 +1,4 @@
+import gc
 import abc
 import enum
 import typing
@@ -14,6 +15,9 @@ from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTr
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
 from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
+
+# How often to run garbage collection during batch processing
+GC_INTERVAL_BATCHES = 10
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -167,6 +171,12 @@ class Consumer:
 
             self.track_record_batch(record_batch)
 
+            # Periodic memory cleanup to prevent accumulation across batches
+            # Similar pattern to data warehouse pipeline
+            if self.total_record_batches_count % GC_INTERVAL_BATCHES == 0:
+                pa.default_memory_pool().release_unused()
+                gc.collect()
+
     def track_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Track consumer progress based on the last consumed record batch."""
 
@@ -231,12 +241,21 @@ async def run_consumer_from_stage(
             - The total number of bytes exported (this is the size of the actual data
                 exported, which takes into account the file type and compression).
     """
-    result = await consumer.start(
-        queue=queue,
-        producer_task=producer_task,
-        transformer=transformer,
-        json_columns=json_columns,
-    )
+    pa_memory_pool = pa.default_memory_pool()
 
-    await raise_on_task_failure(producer_task)
-    return result
+    try:
+        result = await consumer.start(
+            queue=queue,
+            producer_task=producer_task,
+            transformer=transformer,
+            json_columns=json_columns,
+        )
+
+        await raise_on_task_failure(producer_task)
+        return result
+    finally:
+        # Release PyArrow memory pool allocations and run garbage collection
+        # to help reduce memory footprint between batch export runs.
+        # This follows the same pattern as the data warehouse pipeline.
+        pa_memory_pool.release_unused()
+        gc.collect()
