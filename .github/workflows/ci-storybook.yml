@@ -144,53 +144,29 @@ jobs:
             matrix:
                 include:
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 1
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 2
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 3
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 4
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 5
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 6
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 7
                     - browser: chromium
-                      shard_count: 16
+                      shard_count: 8
                       shard: 8
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 9
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 10
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 11
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 12
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 13
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 14
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 15
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 16
                     # WebKit is much faster, so we run with only 3 shards
                     - browser: webkit
                       shard_count: 3
