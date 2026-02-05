@@ -1,12 +1,11 @@
 import json
 import time
 
-import jwt
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.test import TestCase, override_settings
 
+import jwt
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -780,7 +779,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
-        response = self.client.get(f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/connection_token/")
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/connection_token/"
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
