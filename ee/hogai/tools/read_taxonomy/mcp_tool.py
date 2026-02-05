@@ -7,7 +7,7 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 from .core import ReadTaxonomyToolArgs, execute_taxonomy_query
 
 
-@mcp_tool_registry.register(scopes=["insight:read", "query:read"])
+@mcp_tool_registry.register(scopes=["action:read", "property_definition:read", "event_definition:read"])
 class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
     """
     MCP version of ReadTaxonomyTool.

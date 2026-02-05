@@ -16,7 +16,7 @@ class ReadDataWarehouseSchemaMCPToolArgs(BaseModel):
     query: ReadDataWarehouseSchemaQuery
 
 
-@mcp_tool_registry.register(scopes=["insight:read", "query:read"])
+@mcp_tool_registry.register(scopes=["warehouse_table:read", "warehouse_view:read"])
 class ReadDataWarehouseSchemaMCPTool(HogQLDatabaseMixin, MCPTool[ReadDataWarehouseSchemaMCPToolArgs]):
     """
     MCP tool that returns core PostHog table schemas (events, groups, persons, sessions).

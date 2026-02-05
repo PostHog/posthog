@@ -11,7 +11,7 @@ class ExecuteSQLMCPToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
 
 
-@mcp_tool_registry.register(scopes=["insight:read", "query:read"])
+@mcp_tool_registry.register(scopes=["query:read"])
 class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     """
     MCP version of ExecuteSQLTool.
