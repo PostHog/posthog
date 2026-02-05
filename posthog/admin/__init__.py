@@ -18,6 +18,7 @@ def register_all_admin():
         EventIngestionRestrictionConfigAdmin,
         ExperimentAdmin,
         ExperimentSavedMetricAdmin,
+        ExportedAssetAdmin,
         FeatureFlagAdmin,
         GroupTypeMappingAdmin,
         HogFunctionAdmin,
@@ -52,6 +53,7 @@ def register_all_admin():
         EventIngestionRestrictionConfig,
         Experiment,
         ExperimentSavedMetric,
+        ExportedAsset,
         FeatureFlag,
         GroupTypeMapping,
         HogFunction,
@@ -92,6 +94,7 @@ def register_all_admin():
 
     admin.site.register(Experiment, ExperimentAdmin)
     admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
+    admin.site.register(ExportedAsset, ExportedAssetAdmin)
     admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
