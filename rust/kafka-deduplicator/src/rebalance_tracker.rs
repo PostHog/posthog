@@ -12,24 +12,28 @@
 //! - `ProcessorRebalanceHandler`: Calls `start_rebalancing()` when partitions are assigned
 //! - `StoreManager`: Checks `is_rebalancing()` to skip cleanup during rebalance
 //! - `OffsetTracker`: Checks `is_rebalancing()` to block offset commits during rebalance
-//! - `CheckpointManager`: Checks `is_rebalancing()` to skip checkpoint work during rebalance
+//! - `CheckpointManager`: Uses `get_export_token()` to obtain cancellation tokens for export
+//!   workers. These tokens are cancelled when rebalancing starts, freeing S3 bandwidth for
+//!   the more critical checkpoint imports.
 //!
 //! # Counter Semantics
 //!
-//! - `start_rebalancing()`: Increments the counter. Called synchronously in the rdkafka
-//!   callback before async work is queued.
-//! - `finish_rebalancing()`: Decrements the counter. Called when async work completes
-//!   (typically via the RAII `RebalancingGuard`).
+//! - `start_rebalancing()`: Increments the counter. On 0->1 transition, cancels the export
+//!   suppression token to immediately stop in-flight checkpoint exports.
+//! - `finish_rebalancing()`: Decrements the counter. On 1->0 transition, creates a fresh
+//!   export suppression token so checkpoint exports can resume.
 //! - `is_rebalancing()`: Returns true if counter > 0.
+//! - `get_export_token()`: Returns a child of the export suppression token. Workers use this
+//!   to check if they should bail out of S3 uploads.
 //!
 //! The counter supports overlapping rebalances:
-//! - Rebalance A starts: counter = 1
-//! - Rebalance B starts before A finishes: counter = 2
-//! - Rebalance A finishes: counter = 1 (still rebalancing!)
-//! - Rebalance B finishes: counter = 0 (safe to proceed)
+//! - Rebalance A starts: counter = 1, export token cancelled
+//! - Rebalance B starts before A finishes: counter = 2 (token already cancelled)
+//! - Rebalance A finishes: counter = 1 (still rebalancing, exports still suppressed!)
+//! - Rebalance B finishes: counter = 0, fresh export token created (exports can resume)
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use dashmap::mapref::entry::Entry;
 use dashmap::{DashMap, DashSet};
@@ -69,6 +73,7 @@ struct PartitionSetupTask {
 /// It provides the single source of truth for:
 /// - Whether a rebalance is in progress (counter-based for overlapping rebalances)
 /// - Which partitions are currently owned by this consumer
+/// - Export suppression during rebalancing (to prioritize imports)
 pub struct RebalanceTracker {
     /// Counter tracking the number of in-progress rebalances.
     /// Using a counter (not bool) correctly handles overlapping rebalances.
@@ -83,15 +88,23 @@ pub struct RebalanceTracker {
     /// - Shared<JoinHandle> allows multiple async_setup calls to await the same task
     /// - CancellationToken allows cancelling ONLY this partition's S3 download on revoke
     partition_setup_tasks: DashMap<Partition, PartitionSetupTask>,
+
+    /// Token for suppressing checkpoint exports during rebalancing.
+    /// Cancelled when rebalancing starts (count 0->1), recreated when complete (count 1->0).
+    /// CheckpointManager workers use child tokens from this via `get_export_token()`.
+    /// This ensures S3 bandwidth is available for checkpoint imports during rebalance.
+    export_suppression_token: RwLock<CancellationToken>,
 }
 
 impl RebalanceTracker {
     /// Create a new tracker with the counter initialized to 0 and no owned partitions.
+    /// Export suppression token starts fresh (uncancelled).
     pub fn new() -> Self {
         Self {
             rebalancing_count: AtomicUsize::new(0),
             owned_partitions: DashSet::new(),
             partition_setup_tasks: DashMap::new(),
+            export_suppression_token: RwLock::new(CancellationToken::new()),
         }
     }
 
@@ -101,10 +114,30 @@ impl RebalanceTracker {
     /// to ensure no gap where cleanup could run.
     ///
     /// While counter > 0, operations like orphan cleanup and offset commits are blocked.
+    ///
+    /// On the 0->1 transition (first rebalance starts), cancels the export suppression
+    /// token to immediately stop all in-flight checkpoint exports. This frees S3
+    /// bandwidth for the more critical checkpoint imports.
     pub fn start_rebalancing(&self) {
         let prev = self.rebalancing_count.fetch_add(1, Ordering::SeqCst);
         let new_count = prev + 1;
         metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+
+        // Cancel export token on FIRST rebalance (0 -> 1 transition)
+        if prev == 0 {
+            // Clone the token and release the lock before calling cancel() to avoid
+            // potential deadlock if cancel() triggers callbacks that need this lock
+            let token = {
+                let guard = self
+                    .export_suppression_token
+                    .read()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                guard.clone()
+            };
+            token.cancel();
+            info!("Export suppression: cancelled all in-flight exports (rebalance started)");
+        }
+
         info!(
             previous_count = prev,
             new_count = new_count,
@@ -116,13 +149,24 @@ impl RebalanceTracker {
     ///
     /// Typically called via the `RebalancingGuard` RAII pattern to ensure cleanup
     /// even on panic or cancellation.
+    ///
+    /// On the 1->0 transition (all rebalances complete), creates a fresh export
+    /// suppression token so checkpoint exports can resume normally.
     pub fn finish_rebalancing(&self) {
         let prev = self.rebalancing_count.fetch_sub(1, Ordering::SeqCst);
         let new_count = prev.saturating_sub(1);
         metrics::gauge!(REBALANCING_COUNT).set(new_count as f64);
+
         if prev == 0 {
             warn!("finish_rebalancing called when counter was already 0");
         } else if new_count == 0 {
+            // Create fresh token when ALL rebalances complete (1 -> 0 transition)
+            let mut token = self
+                .export_suppression_token
+                .write()
+                .unwrap_or_else(|poison| poison.into_inner());
+            *token = CancellationToken::new();
+            info!("Export suppression: created fresh token (all rebalances complete)");
             info!("All rebalances completed, counter returned to 0");
         } else {
             info!(
@@ -138,6 +182,21 @@ impl RebalanceTracker {
     /// Returns true if the counter is greater than 0.
     pub fn is_rebalancing(&self) -> bool {
         self.rebalancing_count.load(Ordering::SeqCst) > 0
+    }
+
+    /// Get a child token for checkpoint export suppression.
+    ///
+    /// CheckpointManager calls this when spawning export workers. The returned
+    /// child token will be cancelled when any rebalance starts, allowing workers
+    /// to bail out of S3 uploads early and free bandwidth for imports.
+    ///
+    /// Returns a child of the current export suppression token. If a rebalance
+    /// is in progress, the returned token will already be cancelled.
+    pub fn get_export_token(&self) -> CancellationToken {
+        self.export_suppression_token
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .child_token()
     }
 
     /// Get a guard that will decrement the counter when dropped.
@@ -696,5 +755,161 @@ mod tests {
 
         assert!(!tracker.has_setup_task(&p0));
         assert!(tracker.get_setup_task(&p0).is_none());
+    }
+
+    // ============================================
+    // EXPORT SUPPRESSION TOKEN TESTS
+    // ============================================
+
+    #[test]
+    fn test_export_token_not_cancelled_on_new_tracker() {
+        let tracker = RebalanceTracker::new();
+        let token = tracker.get_export_token();
+        assert!(
+            !token.is_cancelled(),
+            "Export token should NOT be cancelled on fresh tracker"
+        );
+    }
+
+    #[test]
+    fn test_export_token_cancelled_on_first_rebalance() {
+        let tracker = RebalanceTracker::new();
+
+        // Get child token before rebalance starts
+        let token = tracker.get_export_token();
+        assert!(!token.is_cancelled(), "Token should not be cancelled yet");
+
+        // Start first rebalance (0 -> 1 transition)
+        tracker.start_rebalancing();
+
+        // Token should be cancelled now
+        assert!(
+            token.is_cancelled(),
+            "Export token should be cancelled when first rebalance starts"
+        );
+    }
+
+    #[test]
+    fn test_export_token_stays_cancelled_during_overlapping_rebalances() {
+        let tracker = RebalanceTracker::new();
+
+        // Start first rebalance
+        tracker.start_rebalancing();
+        let token_during_first = tracker.get_export_token();
+        assert!(
+            token_during_first.is_cancelled(),
+            "Token should be cancelled during first rebalance"
+        );
+
+        // Start second overlapping rebalance
+        tracker.start_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 2);
+
+        // Token should still be cancelled
+        let token_during_second = tracker.get_export_token();
+        assert!(
+            token_during_second.is_cancelled(),
+            "Token should stay cancelled during overlapping rebalances"
+        );
+
+        // First rebalance finishes
+        tracker.finish_rebalancing();
+        assert_eq!(tracker.rebalancing_count(), 1);
+
+        // Token should STILL be cancelled (count is still > 0)
+        let token_after_first_finish = tracker.get_export_token();
+        assert!(
+            token_after_first_finish.is_cancelled(),
+            "Token should stay cancelled while any rebalance is in progress"
+        );
+    }
+
+    #[test]
+    fn test_export_token_refreshed_when_all_rebalances_complete() {
+        let tracker = RebalanceTracker::new();
+
+        // Get initial token
+        let initial_token = tracker.get_export_token();
+        assert!(!initial_token.is_cancelled());
+
+        // Start and complete a rebalance
+        tracker.start_rebalancing();
+        assert!(initial_token.is_cancelled(), "Token cancelled on rebalance");
+
+        tracker.finish_rebalancing();
+
+        // Initial token should STILL be cancelled (it's a child of the old cancelled token)
+        assert!(
+            initial_token.is_cancelled(),
+            "Old child tokens stay cancelled after refresh"
+        );
+
+        // But NEW tokens should NOT be cancelled
+        let new_token = tracker.get_export_token();
+        assert!(
+            !new_token.is_cancelled(),
+            "New tokens should not be cancelled after all rebalances complete"
+        );
+    }
+
+    #[test]
+    fn test_export_token_multiple_rebalance_cycles() {
+        let tracker = RebalanceTracker::new();
+
+        // Cycle 1
+        let token1 = tracker.get_export_token();
+        tracker.start_rebalancing();
+        assert!(token1.is_cancelled());
+        tracker.finish_rebalancing();
+
+        // After cycle 1, new token should work
+        let token2 = tracker.get_export_token();
+        assert!(!token2.is_cancelled());
+
+        // Cycle 2
+        tracker.start_rebalancing();
+        assert!(token2.is_cancelled());
+        tracker.finish_rebalancing();
+
+        // After cycle 2, new token should work
+        let token3 = tracker.get_export_token();
+        assert!(!token3.is_cancelled());
+    }
+
+    #[test]
+    fn test_export_token_child_inherits_cancelled_state() {
+        let tracker = RebalanceTracker::new();
+
+        // Start rebalance to cancel the token
+        tracker.start_rebalancing();
+
+        // Child tokens obtained during rebalance should already be cancelled
+        let child = tracker.get_export_token();
+        assert!(
+            child.is_cancelled(),
+            "Child tokens obtained during rebalance should be pre-cancelled"
+        );
+    }
+
+    #[test]
+    fn test_export_token_with_guard() {
+        let tracker = Arc::new(RebalanceTracker::new());
+
+        let token = tracker.get_export_token();
+        assert!(!token.is_cancelled());
+
+        tracker.start_rebalancing();
+        {
+            let _guard = tracker.rebalancing_guard();
+            // Token cancelled during rebalance
+            assert!(token.is_cancelled());
+        } // guard drops, calls finish_rebalancing
+
+        // Token should STAY cancelled (it was a child of the old parent)
+        assert!(token.is_cancelled());
+
+        // New token should NOT be cancelled
+        let new_token = tracker.get_export_token();
+        assert!(!new_token.is_cancelled());
     }
 }
