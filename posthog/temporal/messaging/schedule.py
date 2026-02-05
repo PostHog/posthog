@@ -35,7 +35,7 @@ DEFAULT_BATCH_DELAY_MINUTES = 5
 POSTHOG_TEAM_ID = 2
 
 # No execution timeout for coordinator - let children have their own timeouts
-COORDINATOR_EXECUTION_TIMEOUT_SECONDS = None
+COORDINATOR_EXECUTION_TIMEOUT_SECONDS: int | None = None
 
 
 async def create_realtime_cohort_calculation_schedule(client: Client):
