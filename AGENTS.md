@@ -6,7 +6,6 @@
   - Auto-detect flox environment before running terminal commands
   - If flox is available, and you run into trouble executing commands, try with `flox activate -- bash -c "<command>"` pattern
     - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - **Claude Code for web**: See `CLAUDE_CODE_WEB.md` for environment setup instructions
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`

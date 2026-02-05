@@ -74,6 +74,19 @@ from posthog.ducklake.storage import configure_cross_account_connection
 
 logger = structlog.get_logger(__name__)
 
+# DuckDB memory limit for Dagster pod operations.
+# The Dagster pod has 16Gi total; we cap DuckDB at 4Gi to leave headroom
+# for Python, Dagster framework, and ClickHouse client overhead.
+DUCKDB_MEMORY_LIMIT = "4GB"
+
+
+def _connect_duckdb() -> duckdb.DuckDBPyConnection:
+    """Create a DuckDB connection with memory limits appropriate for the Dagster pod."""
+    conn = duckdb.connect(config={"memory_limit": DUCKDB_MEMORY_LIMIT})
+    conn.execute("SET temp_directory = '/tmp/duckdb_temp'")
+    return conn
+
+
 # Columns to export from ClickHouse events table for duckling backfill.
 # ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 # DuckLake table uses TIMESTAMPTZ to match this format.
@@ -490,7 +503,7 @@ def ensure_events_table_exists(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -559,7 +572,7 @@ def ensure_persons_table_exists(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -622,7 +635,7 @@ def delete_events_table(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -660,7 +673,7 @@ def delete_persons_table(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -697,7 +710,7 @@ def validate_duckling_schema(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -746,7 +759,7 @@ def validate_duckling_persons_schema(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -834,18 +847,23 @@ def delete_events_partition_data(
     alias = "ducklake"
     date_str = partition_date.strftime("%Y-%m-%d")
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
 
-        # Delete existing data for this partition (using parameterized query)
+        # Range predicate enables DuckLake partition pruning.
+        # The table is partitioned by year(timestamp), month(timestamp), day(timestamp).
+        # A half-open range [start_of_day, start_of_next_day) allows DuckDB to prune
+        # to a single day's partition instead of scanning all data files.
+        next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
         delete_sql = f"""
         DELETE FROM {alias}.posthog.events
         WHERE team_id = $1
-          AND CAST(timestamp AS DATE) = $2
+          AND timestamp >= $2
+          AND timestamp < $3
         """
-        result = conn.execute(delete_sql, [team_id, date_str]).fetchone()
+        result = conn.execute(delete_sql, [team_id, date_str, next_date_str]).fetchone()
         deleted_count = result[0] if result else 0
 
         if deleted_count > 0:
@@ -884,7 +902,7 @@ def delete_persons_partition_data(
     catalog_config = get_team_config(catalog.team_id)
     alias = "ducklake"
 
-    conn = duckdb.connect()
+    conn = _connect_duckdb()
     try:
         configure_cross_account_connection(conn, destinations=[destination])
         attach_catalog(conn, catalog_config, alias=alias)
@@ -898,14 +916,17 @@ def delete_persons_partition_data(
             context.log.info(f"Deleting all existing persons for team_id={team_id}")
             result = conn.execute(delete_sql, [team_id]).fetchone()
         else:
-            # Daily export - delete persons modified on this date (using parameterized query)
+            # Range predicate enables DuckLake partition pruning.
+            # The table is partitioned by year(_timestamp), month(_timestamp).
             date_str = partition_date.strftime("%Y-%m-%d")
+            next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
             delete_sql = f"""
             DELETE FROM {alias}.posthog.persons
             WHERE team_id = $1
-              AND CAST(_timestamp AS DATE) = $2
+              AND _timestamp >= $2
+              AND _timestamp < $3
             """
-            result = conn.execute(delete_sql, [team_id, date_str]).fetchone()
+            result = conn.execute(delete_sql, [team_id, date_str, next_date_str]).fetchone()
         deleted_count = result[0] if result else 0
 
         if deleted_count > 0:
@@ -1044,7 +1065,7 @@ def register_file_with_duckling(
 
     last_exception: Exception | None = None
     for attempt in range(MAX_RETRY_ATTEMPTS):
-        conn = duckdb.connect()
+        conn = _connect_duckdb()
         try:
             configure_cross_account_connection(conn, destinations=[destination])
             attach_catalog(conn, catalog_config, alias=alias)
@@ -1264,7 +1285,7 @@ def register_persons_file_with_duckling(
 
     last_exception: Exception | None = None
     for attempt in range(MAX_RETRY_ATTEMPTS):
-        conn = duckdb.connect()
+        conn = _connect_duckdb()
         try:
             configure_cross_account_connection(conn, destinations=[destination])
             attach_catalog(conn, catalog_config, alias=alias)

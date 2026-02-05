@@ -1,4 +1,6 @@
-import { IconBalance, IconPlus, IconTrash } from '@posthog/icons'
+import { useState } from 'react'
+
+import { IconBalance, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,7 +13,7 @@ import { alphabet } from 'lib/utils'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { percentageDistribution } from '../utils'
+import { isEvenlyDistributed, percentageDistribution } from '../utils'
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
@@ -32,6 +34,8 @@ export const VariantsPanelCreateFeatureFlag = ({
     onChange,
     disabled = false,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
+    const [isCustomSplit, setIsCustomSplit] = useState(false)
+
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
         { key: 'test', rollout_percentage: 50 },
@@ -116,15 +120,25 @@ export const VariantsPanelCreateFeatureFlag = ({
                         <div />
                         <div className="col-span-4">Variant key</div>
                         <div className="col-span-6">Description</div>
-                        <div className="col-span-3 flex justify-between items-center gap-1">
-                            <span>Rollout</span>
+                        <div className="col-span-3 flex items-center gap-1">
+                            <span>Split</span>
                             {!disabled && (
-                                <LemonButton
-                                    onClick={() => distributeVariantsEqually()}
-                                    tooltip="Normalize variant rollout percentages"
-                                >
-                                    <IconBalance />
-                                </LemonButton>
+                                <div className="flex items-center gap-1 min-w-[72px]">
+                                    <LemonButton
+                                        onClick={() => setIsCustomSplit(!isCustomSplit)}
+                                        tooltip="Customize split"
+                                    >
+                                        <IconPencil />
+                                    </LemonButton>
+                                    {!isEvenlyDistributed(variants) && (
+                                        <LemonButton
+                                            onClick={() => distributeVariantsEqually()}
+                                            tooltip="Distribute split evenly"
+                                        >
+                                            <IconBalance />
+                                        </LemonButton>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>
@@ -176,26 +190,27 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 />
                             </div>
                             <div className="col-span-3">
-                                <LemonInput
-                                    type="number"
-                                    min={0}
-                                    max={100}
-                                    value={variant.rollout_percentage}
-                                    onChange={(changedValue) => {
-                                        const valueInt =
-                                            changedValue !== undefined && !Number.isNaN(changedValue)
-                                                ? parseInt(changedValue.toString(), 10)
-                                                : 0
-                                        updateVariant(index, { rollout_percentage: valueInt })
-                                    }}
-                                    disabledReason={
-                                        disabled
-                                            ? 'You cannot change the variant rollout percentage when editing an experiment.'
-                                            : undefined
-                                    }
-                                    suffix={<span>%</span>}
-                                    data-attr="experiment-variant-rollout-percentage-input"
-                                />
+                                {isCustomSplit && !disabled ? (
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={variant.rollout_percentage}
+                                        onChange={(changedValue) => {
+                                            const valueInt =
+                                                changedValue !== undefined && !Number.isNaN(changedValue)
+                                                    ? parseInt(changedValue.toString(), 10)
+                                                    : 0
+                                            updateVariant(index, { rollout_percentage: valueInt })
+                                        }}
+                                        suffix={<span>%</span>}
+                                        data-attr="experiment-variant-rollout-percentage-input"
+                                    />
+                                ) : (
+                                    <div className="flex items-center h-10 px-2 text-sm">
+                                        {variant.rollout_percentage}%
+                                    </div>
+                                )}
                             </div>
                             <div className="flex items-center justify-center">
                                 {!disabled && variants.length > 2 && index > 0 && (
@@ -211,9 +226,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </div>
                     ))}
                     {variants.length > 0 && !areVariantRolloutsValid && (
-                        <p className="text-danger">
-                            Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
-                        </p>
+                        <p className="text-danger">Variant splits must sum to 100 (currently {variantRolloutSum}).</p>
                     )}
                     {variants.length > 0 && !areVariantKeysValid && (
                         <p className="text-danger">All variants must have a key.</p>
