@@ -50,7 +50,6 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
             // Create primary pool
             let primary_pool =
                 get_pool_with_config(&config.primary_database_url, pool_config.clone())
-                    .await
                     .expect("Failed to create primary database pool");
             tracing::info!("Created primary database pool");
 
@@ -61,7 +60,6 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 primary_pool.clone()
             } else {
                 let pool = get_pool_with_config(replica_url, pool_config)
-                    .await
                     .expect("Failed to create replica database pool");
                 tracing::info!("Created separate replica database pool");
                 pool
