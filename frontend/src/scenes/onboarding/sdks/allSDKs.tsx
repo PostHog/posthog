@@ -43,7 +43,6 @@ import { WordpressLogo } from './logos/WordpressLogo'
 import { XAILogo } from './logos/XAILogo'
 import androidImage from './logos/android.svg'
 import angularImage from './logos/angular.svg'
-import bedrockImage from './logos/bedrock.png'
 import cerebrasImage from './logos/cerebras.png'
 import djangoImage from './logos/django.svg'
 import docusaurusImage from './logos/docusaurus.svg'
@@ -284,13 +283,6 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
         image: <AzureOpenAILogo />,
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/azure-openai',
-    },
-    {
-        name: 'Amazon Bedrock',
-        key: SDKKey.BEDROCK,
-        tags: [SDKTag.LLM, SDKTag.MODEL_PROVIDER],
-        image: bedrockImage,
-        docsLink: 'https://posthog.com/docs/llm-analytics/installation/bedrock',
     },
     {
         name: 'Groq',

@@ -6,7 +6,6 @@ import { TraceEvent } from '@posthog/shared-onboarding/llm-analytics/_snippets/t
 import { AnthropicInstallation } from '@posthog/shared-onboarding/llm-analytics/anthropic'
 import { AutoGenInstallation } from '@posthog/shared-onboarding/llm-analytics/autogen'
 import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/llm-analytics/azure-openai'
-import { BedrockInstallation } from '@posthog/shared-onboarding/llm-analytics/bedrock'
 import { CerebrasInstallation } from '@posthog/shared-onboarding/llm-analytics/cerebras'
 import { CohereInstallation } from '@posthog/shared-onboarding/llm-analytics/cohere'
 import { CrewAIInstallation } from '@posthog/shared-onboarding/llm-analytics/crewai'
@@ -158,10 +157,6 @@ const LLMDeepSeekInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DeepSeekInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
-const LLMBedrockInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: BedrockInstallation,
-    snippets: PROVIDER_SNIPPETS,
-})
 const LLMTogetherAIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: TogetherAIInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -224,7 +219,6 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.MISTRAL]: LLMMistralInstructionsWrapper,
     [SDKKey.OLLAMA]: LLMOllamaInstructionsWrapper,
     [SDKKey.DEEPSEEK]: LLMDeepSeekInstructionsWrapper,
-    [SDKKey.BEDROCK]: LLMBedrockInstructionsWrapper,
     [SDKKey.TOGETHER_AI]: LLMTogetherAIInstructionsWrapper,
     [SDKKey.FIREWORKS_AI]: LLMFireworksAIInstructionsWrapper,
     [SDKKey.AZURE_OPENAI]: LLMAzureOpenAIInstructionsWrapper,

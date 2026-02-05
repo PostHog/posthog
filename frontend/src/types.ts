@@ -5682,7 +5682,6 @@ export enum SDKKey {
     AUTOGEN = 'autogen',
     AZURE_OPENAI = 'azure_openai',
     API = 'api',
-    BEDROCK = 'bedrock',
     BUBBLE = 'bubble',
     CEREBRAS = 'cerebras',
     COHERE = 'cohere',
