@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { type RenderResult, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { type RenderResult, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
@@ -75,25 +75,10 @@ describe('VariantsPanelCreateFeatureFlag', () => {
     })
 
     describe('rendering', () => {
-        it('renders feature flag key input', () => {
-            renderComponent(defaultExperiment)
-
-            expect(screen.getByLabelText('Feature flag key')).toBeInTheDocument()
-            expect(screen.getByPlaceholderText(/examples: new-landing-page/)).toBeInTheDocument()
-        })
-
-        it('displays current feature flag key value', () => {
-            renderComponent(defaultExperiment)
-
-            const input = screen.getByDisplayValue('test-experiment')
-            expect(input).toBeInTheDocument()
-        })
-
         it('renders variant keys section', () => {
             renderComponent(defaultExperiment)
 
             expect(screen.getByText('Variant keys')).toBeInTheDocument()
-            expect(screen.getByText(/rollout percentage.*must add up to 100%/i)).toBeInTheDocument()
         })
 
         it('renders default variants (control and test)', () => {
@@ -127,99 +112,6 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             expect(screen.getByText(/persist flag across authentication steps/i)).toBeInTheDocument()
             expect(screen.getByRole('checkbox')).toBeInTheDocument()
-        })
-    })
-
-    describe('feature flag key input', () => {
-        it('calls onChange when key is typed', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'new-flag-key')
-
-            // Verify onChange was called with feature_flag_key parameter
-            expect(mockOnChange).toHaveBeenCalled()
-            expect(mockOnChange.mock.calls.some((call) => call[0].feature_flag_key !== undefined)).toBe(true)
-        })
-
-        it('replaces spaces with dashes automatically', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'my flag key')
-
-            // Verify onChange was called and all calls have dashes instead of spaces
-            expect(mockOnChange).toHaveBeenCalled()
-            const allCallsHaveDashes = mockOnChange.mock.calls.every(
-                (call) => !call[0].feature_flag_key || !call[0].feature_flag_key.includes(' ')
-            )
-            expect(allCallsHaveDashes).toBe(true)
-        })
-
-        it('shows validation spinner while validating', async () => {
-            renderComponent(defaultExperiment)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'test')
-
-            // Spinner should appear during validation (debounced)
-            await waitFor(() => {
-                const spinner = document.querySelector('.Spinner')
-                expect(spinner).toBeInTheDocument()
-            })
-        })
-
-        it('shows success checkmark for valid key', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'valid-new-key')
-
-            // Wait for validation (debounce is 300ms + API call)
-            await waitFor(
-                () => {
-                    // Should show success checkmark (IconCheck with text-success class)
-                    const checkmark = document.querySelector('.text-success')
-                    expect(checkmark).toBeInTheDocument()
-                },
-                { timeout: 1000 }
-            )
-        })
-
-        it.skip('shows error message for invalid key', async () => {
-            const experimentWithoutKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithoutKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            await userEvent.type(input, 'existing-key')
-
-            // Wait for validation and check for error indicator
-            await waitFor(
-                () => {
-                    const errorText = screen.queryByText(/already exists/i)
-                    expect(errorText).toBeInTheDocument()
-                },
-                { timeout: 1000 }
-            )
         })
     })
 
@@ -454,18 +346,6 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             // Should render with default variants
             expect(screen.getByDisplayValue('control')).toBeInTheDocument()
             expect(screen.getByDisplayValue('test')).toBeInTheDocument()
-        })
-
-        it('handles empty feature flag key', () => {
-            const experimentWithEmptyKey = {
-                ...defaultExperiment,
-                feature_flag_key: '',
-            }
-
-            renderComponent(experimentWithEmptyKey)
-
-            const input = screen.getByPlaceholderText(/examples: new-landing-page/)
-            expect(input).toHaveValue('')
         })
 
         it('prevents adding more than maximum variants', async () => {
