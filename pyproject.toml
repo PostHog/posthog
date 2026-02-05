@@ -3,7 +3,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.12.12" # Pin full version to control Python upgrades explicitly
+requires-python = ">=3.12.11,<3.13" # Allow recent 3.12.x versions for compatibility with uv-managed Python
 # Prefer ~= (compat) over >= (floor). Only pin exact versions (==) when necessary.
 #
 # ~= signals to others (security, devex, dependabot) that deps can be updated within
