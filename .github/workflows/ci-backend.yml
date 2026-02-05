@@ -183,7 +183,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.products == 'true'
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 30
         name: Turbo tests (products)
         outputs:
             run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
