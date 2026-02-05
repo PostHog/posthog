@@ -8,7 +8,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { sceneLogic } from './sceneLogic'
@@ -39,42 +38,8 @@ describe('sceneLogic', () => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        useMocks({
-            get: {
-                '/api/user_home_settings/@me/': {
-                    tabs: [
-                        {
-                            id: 'tab-2',
-                            pathname: '/b',
-                            search: '',
-                            hash: '',
-                            title: 'Tab B',
-                            iconType: 'blank',
-                            pinned: true,
-                            active: false,
-                        },
-                    ],
-                    homepage: null,
-                },
-            },
-            patch: {
-                '/api/user_home_settings/@me/': {
-                    tabs: [
-                        {
-                            id: 'tab-2',
-                            pathname: '/b',
-                            search: '',
-                            hash: '',
-                            title: 'Tab B',
-                            iconType: 'blank',
-                            pinned: true,
-                            active: false,
-                        },
-                    ],
-                    homepage: null,
-                },
-            },
-        })
+        ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
@@ -163,7 +128,6 @@ describe('sceneLogic', () => {
                 expect.objectContaining({ id: 'tab-1', pinned: false }),
             ],
         })
-        await expectLogic(logic).delay(600)
 
         const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')
         expect(storedPinned).toEqual({
@@ -172,8 +136,6 @@ describe('sceneLogic', () => {
         })
 
         logic.actions.setHomepage(logic.values.tabs[0])
-
-        await expectLogic(logic).delay(600)
 
         expect(JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')).toEqual({
             tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
@@ -188,7 +150,7 @@ describe('sceneLogic', () => {
                 expect.objectContaining({ id: 'tab-2', pinned: false }),
             ]),
         })
-        await expectLogic(logic).delay(600)
+
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
         expect(logic.values.homepage).toBeNull()
     })
@@ -384,8 +346,6 @@ describe('sceneLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['setTabs'])
-
-        await expectLogic(logic).delay(0)
 
         expect(logic.values.tabs).toEqual(
             expect.arrayContaining([expect.objectContaining({ id: 'legacy-tab', pinned: true })])
