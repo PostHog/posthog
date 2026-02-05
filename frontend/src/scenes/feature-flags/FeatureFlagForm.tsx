@@ -78,7 +78,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
-        setHighlightedFields,
         clearHighlight,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
@@ -201,7 +200,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                 <SceneContent>
                     {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={setHighlightedFields} />}
+                    {isNewFeatureFlag && <FeatureFlagTemplates />}
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">

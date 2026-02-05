@@ -316,7 +316,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             groupsModel,
             ['aggregationLabel'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['hasAvailableFeature', 'user'],
             organizationLogic,
             ['currentOrganization'],
             enabledFeaturesLogic,
@@ -390,6 +390,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         clearHighlight: (field: ModifiedField) => ({ field }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
+        applyTemplate: (templateId: string) => ({ templateId }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -1387,10 +1388,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setMultivariateOptions(null)
             }
         },
-        loadFeatureFlagSuccess: async () => {
+        loadFeatureFlagSuccess: async ({ featureFlag }) => {
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
+
+            // Auto-apply template from URL param on first load
+            const templateId = router.values.searchParams.template as string | undefined
+            if (templateId && featureFlag && !values.urlTemplateApplied) {
+                actions.applyTemplate(templateId)
+            }
+        },
+        applyTemplate: ({ templateId }) => {
+            const template = values.templates.find((t) => t.id === templateId)
+            if (!template || !values.featureFlag) {
+                return
+            }
+            const templateValues = template.getValues(values.featureFlag)
+
+            actions.setFeatureFlag({
+                ...values.featureFlag,
+                ...templateValues,
+                filters: {
+                    ...values.featureFlag.filters,
+                    ...templateValues.filters,
+                },
+            } as FeatureFlagType)
+
+            actions.setTemplateExpanded(false)
+            actions.setHighlightedFields(template.modifiedFields)
+            actions.applyUrlTemplate(templateId)
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
@@ -1735,6 +1762,116 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }))
                 return errors
             },
+        ],
+        emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
+        templates: [
+            (s) => [s.emailDomain],
+            (
+                emailDomain
+            ): Array<{
+                id: string
+                name: string
+                description: string
+                modifiedFields: ModifiedField[]
+                getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
+            }> => [
+                {
+                    id: 'simple',
+                    name: 'Simple flag',
+                    description: 'On/off for all users',
+                    modifiedFields: ['key', 'rollout'],
+                    getValues: (flag) => ({
+                        key: 'my-feature',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: null,
+                            groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                        },
+                    }),
+                },
+                {
+                    id: 'targeted',
+                    name: 'Targeted release',
+                    description: 'Release to specific users',
+                    modifiedFields: ['key', 'conditions', 'rollout'],
+                    getValues: (flag) => ({
+                        key: 'targeted-release',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: null,
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'email',
+                                            type: PropertyFilterType.Person,
+                                            value: `@${emailDomain}`,
+                                            operator: PropertyOperator.IContains,
+                                        },
+                                    ],
+                                    rollout_percentage: 100,
+                                    variant: null,
+                                },
+                            ],
+                        },
+                    }),
+                },
+                {
+                    id: 'multivariate',
+                    name: 'Multivariate',
+                    description: 'Multiple variants',
+                    modifiedFields: ['key', 'flagType', 'rollout'],
+                    getValues: (flag) => ({
+                        key: 'multivariate-flag',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                            groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                        },
+                    }),
+                },
+                {
+                    id: 'targeted-multivariate',
+                    name: 'Targeted multivariate',
+                    description: 'Variants for specific users',
+                    modifiedFields: ['key', 'flagType', 'conditions', 'rollout'],
+                    getValues: (flag) => ({
+                        key: 'targeted-multivariate',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'email',
+                                            type: PropertyFilterType.Person,
+                                            value: `@${emailDomain}`,
+                                            operator: PropertyOperator.IContains,
+                                        },
+                                    ],
+                                    rollout_percentage: 100,
+                                    variant: null,
+                                },
+                            ],
+                        },
+                    }),
+                },
+            ],
         ],
     }),
     urlToAction(({ actions, props, values }) => ({
