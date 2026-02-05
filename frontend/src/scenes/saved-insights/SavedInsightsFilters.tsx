@@ -87,11 +87,12 @@ export function SavedInsightsFilters({
                                 >
                                     <LemonInput
                                         type="search"
-                                        placeholder="Search members"
+                                        placeholder="Search"
                                         autoFocus
                                         value={memberSearch}
                                         onChange={setMemberSearch}
                                         fullWidth
+                                        data-attr="created-by-member-search"
                                     />
                                     <ul className="deprecated-space-y-px">
                                         {filteredMembers.map((member) => (
