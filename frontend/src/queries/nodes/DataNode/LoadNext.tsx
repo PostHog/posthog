@@ -1,6 +1,7 @@
-import { IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { IconWarning } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -92,15 +93,13 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         <>
             {showFirstPrefix ? (
                 <Tooltip title="You can override this by adding your own LIMIT clause to the query, e.g. LIMIT 10000">
-                    <span className="inline-flex items-center gap-1 text-warning-dark font-medium cursor-help">
-                        <IconWarning className="text-warning text-base" />
+                    <span className="text-warning-dark cursor-help">
+                        <IconWarning className="mr-1" />
                         Results limited to the first {resultCount} rows
                     </span>
                 </Tooltip>
             ) : (
-                <span>
-                    Showing {isSingleEntry ? 'one row' : `${resultCount} rows`}
-                </span>
+                <span>Showing {isSingleEntry ? 'one row' : `${resultCount} rows`}</span>
             )}
             {lastRefreshTimeUtc && (
                 <>
