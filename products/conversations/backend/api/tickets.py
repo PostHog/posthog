@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Prefetch, Q, QuerySet, Sum
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -8,9 +8,11 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
@@ -33,8 +35,24 @@ class TicketPagination(pagination.LimitOffsetPagination):
     max_limit = 1000
 
 
+class PersonSerializer(serializers.Serializer):
+    """Minimal person serializer for embedding in ticket responses."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.SerializerMethodField()
+    distinct_ids = serializers.ListField(child=serializers.CharField(), read_only=True)
+    properties = serializers.DictField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    is_identified = serializers.BooleanField(read_only=True)
+
+    def get_name(self, person: Person) -> str:
+        team = self.context.get("team")
+        return get_person_name(team, person)
+
+
 class TicketSerializer(serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
+    person = PersonSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = Ticket
@@ -57,6 +75,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "unread_team_count",
             "session_id",
             "session_context",
+            "person",
         ]
         read_only_fields = [
             "id",
@@ -71,6 +90,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "assignee",
             "session_id",
             "session_context",
+            "person",
         ]
 
 
@@ -160,6 +180,57 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset.order_by("-updated_at")
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context
+
+    def _attach_persons_to_tickets(self, tickets: list[Ticket]) -> None:
+        """Batch-fetch persons by distinct_id and attach to tickets."""
+        distinct_ids = sorted([t.distinct_id for t in tickets if t.distinct_id])
+        if not distinct_ids:
+            return
+
+        # Query PersonDistinctId to get Person objects in a single batch
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team_id=self.team_id)
+            .prefetch_related(
+                Prefetch(
+                    "person",
+                    queryset=Person.objects.filter(team_id=self.team_id),
+                )
+            )
+        )
+
+        # Build distinct_id -> person mapping
+        distinct_id_to_person: dict[str, Person] = {}
+        for pdi in person_distinct_ids:
+            if pdi.person:
+                # Avoid loading all distinct_ids for each person (optimization)
+                pdi.person._distinct_ids = [pdi.distinct_id]
+                distinct_id_to_person[pdi.distinct_id] = pdi.person
+
+        # Attach person to each ticket
+        for ticket in tickets:
+            if ticket.distinct_id:
+                ticket.person = distinct_id_to_person.get(ticket.distinct_id)
+
+    def list(self, request, *args, **kwargs):
+        """List tickets with person data attached."""
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            self._attach_persons_to_tickets(page)
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        tickets = list(queryset)
+        self._attach_persons_to_tickets(tickets)
+        serializer = self.get_serializer(tickets, many=True)
+        return Response(serializer.data)
+
     def retrieve(self, request, *args, **kwargs):
         """Get single ticket and mark as read by team."""
         instance = self.get_object()
@@ -168,6 +239,10 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save(update_fields=["unread_team_count"])
             # Invalidate cache since unread count changed
             invalidate_unread_count_cache(self.team_id)
+
+        # Attach person data
+        self._attach_persons_to_tickets([instance])
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
