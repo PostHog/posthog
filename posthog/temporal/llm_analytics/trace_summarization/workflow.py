@@ -108,7 +108,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         max_length,
                     ],
                     activity_id=f"summarize-gen-{item.generation_id}",
-                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
             else:
@@ -127,7 +127,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                         max_length,
                     ],
                     activity_id=f"summarize-{item.trace_id}",
-                    schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
+                    start_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                     retry_policy=constants.SUMMARIZE_RETRY_POLICY,
                 )
 
