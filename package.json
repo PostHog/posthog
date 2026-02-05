@@ -47,7 +47,8 @@
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true",
         "lint": "pnpm lint:js && pnpm lint:css",
         "lint:js": "oxlint --quiet",
-        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\""
+        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\"",
+        "test:unit": "pnpm --filter=@posthog/frontend test"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
