@@ -30,7 +30,7 @@ export function PosthogStatusShownOnlyIfNotOperational(): JSX.Element | null {
             <Link
                 buttonProps={{
                     iconOnly: true,
-                    className: 'text-secondary group-hover:text-primary border-secondary',
+                    className: 'text-secondary group-hover:text-primary',
                 }}
                 to="https://posthogstatus.com"
                 tooltip={tooltipText}
