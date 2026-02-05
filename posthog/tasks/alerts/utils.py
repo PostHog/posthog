@@ -1,5 +1,4 @@
 import json
-import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -16,6 +15,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
+from posthog.utils import generate_content_hash
 
 logger = structlog.get_logger(__name__)
 
@@ -31,13 +31,14 @@ def compute_insight_query_hash(query: dict | None) -> Optional[str]:
     Compute a deterministic hash of an insight query for change detection.
 
     Returns None if query is None, otherwise returns a SHA256 hex string.
+    Uses the same hashing logic as the query cache API.
     """
     if query is None:
         return None
 
     # Create deterministic JSON string with sorted keys at all levels
     json_str = json.dumps(query, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
+    return generate_content_hash(json_str)
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]

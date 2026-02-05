@@ -1,7 +1,8 @@
+from posthog.test.base import BaseTest
+
 from parameterized import parameterized
 
 from posthog.tasks.alerts.utils import compute_insight_query_hash
-from posthog.test.base import BaseTest
 
 
 class TestComputeInsightQueryHash(BaseTest):
@@ -28,6 +29,7 @@ class TestComputeInsightQueryHash(BaseTest):
         query = {"kind": "TrendsQuery"}
         hash_result = compute_insight_query_hash(query)
         assert hash_result is not None
+        # SHA256 hash is 64 hex chars
         assert len(hash_result) == 64
         assert all(c in "0123456789abcdef" for c in hash_result)
 

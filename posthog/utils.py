@@ -801,8 +801,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_content_hash(stringified: str) -> str:
+    """Generate a SHA256 hash of the given string content."""
+    return hashlib.sha256(stringified.encode("utf-8")).hexdigest()
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"cache_{team_pk}_{generate_content_hash(stringified)}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:

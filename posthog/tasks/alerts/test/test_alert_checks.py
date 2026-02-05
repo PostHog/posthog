@@ -699,7 +699,8 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
         assert alert_check.insight_query_hash is not None
-        assert len(alert_check.insight_query_hash) == 64  # SHA256 hex length
+        # SHA256 hash is 64 hex chars
+        assert len(alert_check.insight_query_hash) == 64
 
     def test_alert_check_query_has_changed_false_when_insight_unchanged(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock

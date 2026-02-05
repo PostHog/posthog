@@ -12,6 +12,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="alertcheck",
             name="insight_query_hash",
+            # SHA256 hash of the insight query at check time
             field=models.CharField(max_length=64, null=True, blank=True),
         ),
     ]
