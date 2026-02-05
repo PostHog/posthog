@@ -30,6 +30,7 @@ use crate::utils::graph_utils::{
 };
 use anyhow::Result;
 use common_metrics::{inc, timing_guard};
+use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
@@ -1208,7 +1209,7 @@ impl FeatureFlagMatcher {
 
         // Merge in overrides (overrides take precedence)
         if let Some(overrides) = property_overrides {
-            merged_properties.extend(overrides.clone());
+            merged_properties.extend(overrides.iter_owned());
         }
 
         // Return all merged properties
@@ -1227,7 +1228,7 @@ impl FeatureFlagMatcher {
 
         // Merge in overrides (overrides take precedence)
         if let Some(overrides) = property_overrides {
-            merged_properties.extend(overrides.clone());
+            merged_properties.extend(overrides.iter_owned());
         }
 
         // Populate missing $initial_ properties from their non-initial counterparts.
