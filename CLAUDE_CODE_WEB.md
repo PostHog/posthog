@@ -7,6 +7,7 @@ If you get stuck following these instructions, please bail out to the user and s
 ## Problem
 
 The project requires a specific Python version pinned in `pyproject.toml` (check `requires-python`), but:
+
 - Claude Code for web environments may have a different system Python version
 - `uv python install <version>` may fail if the version isn't yet indexed by uv
 - `uv sync` enforces the exact version constraint and will fail with the wrong Python version
@@ -128,6 +129,7 @@ sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 ## Pytest Configuration
 
 The `pytest.ini` sets:
+
 - `pythonpath = . common`
 - `DJANGO_SETTINGS_MODULE = posthog.settings`
 - `DEBUG=1`, `TEST=1`
@@ -137,6 +139,7 @@ Default ignores: `--ignore=posthog/user_scripts --ignore=services/llm-gateway --
 ## Debugging Installation Issues
 
 If you encounter issues with the test setup, refer to [`.github/workflows/ci-backend.yml`](.github/workflows/ci-backend.yml) for the authoritative CI configuration. This file shows:
+
 - Exact Python version used in CI
 - System dependencies installed
 - Environment variables set
