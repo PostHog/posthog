@@ -508,6 +508,7 @@ jobs:
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
@@ -520,3 +521,4 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Visual regression tests pass'
