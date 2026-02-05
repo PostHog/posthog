@@ -1,4 +1,5 @@
 import math
+from contextlib import asynccontextmanager
 
 import pytest
 from unittest.mock import patch
@@ -12,6 +13,12 @@ from posthog.temporal.llm_analytics.team_discovery import (
 )
 
 
+@asynccontextmanager
+async def _noop_heartbeater(*args, **kwargs):
+    yield
+
+
+@patch("posthog.temporal.llm_analytics.team_discovery.Heartbeater", _noop_heartbeater)
 @pytest.mark.asyncio
 class TestGetTeamIdsForLlmAnalytics:
     @parameterized.expand(

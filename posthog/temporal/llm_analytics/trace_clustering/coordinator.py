@@ -33,6 +33,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.llm_analytics.team_discovery import (
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
+        GUARANTEED_TEAM_IDS,
         SAMPLE_PERCENTAGE,
         TeamDiscoveryInput,
         get_team_ids_for_llm_analytics,
@@ -83,20 +84,18 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             max_samples=inputs.max_samples,
         )
 
-        # Discover teams dynamically via activity
-        team_ids = await temporalio.workflow.execute_activity(
-            get_team_ids_for_llm_analytics,
-            TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
-            start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
-            retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
-        )
-
-        if not team_ids:
-            logger.info("No teams discovered")
-            return {
-                "teams_processed": 0,
-                "total_clusters": 0,
-            }
+        # Discover teams dynamically via activity, falling back to guaranteed
+        # teams if the activity fails (e.g. ClickHouse timeout).
+        try:
+            team_ids = await temporalio.workflow.execute_activity(
+                get_team_ids_for_llm_analytics,
+                TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
+                start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
+                retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
+            )
+        except Exception:
+            logger.warning("Team discovery activity failed, falling back to guaranteed teams", exc_info=True)
+            team_ids = sorted(GUARANTEED_TEAM_IDS)
 
         logger.info("Processing discovered teams", team_count=len(team_ids), team_ids=team_ids)
 
