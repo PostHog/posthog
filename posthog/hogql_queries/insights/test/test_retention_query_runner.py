@@ -4561,6 +4561,100 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_retention_aggregation_multiple_events_same_day(self):
+        """Test that multiple events on the same day are correctly summed"""
+        Person.objects.create(team=self.team, distinct_ids=["user1"])
+        Person.objects.create(team=self.team, distinct_ids=["user2"])
+
+        # User 1: Multiple events on Day 1 and Day 2
+        _create_events(
+            self.team,
+            [
+                ("user1", _date(0), {"revenue": 10}),
+                ("user1", _date(1), {"revenue": 20}),
+                ("user1", _date(1), {"revenue": 30}),  # Second event on Day 1
+                ("user1", _date(2), {"revenue": 40}),
+                ("user1", _date(2), {"revenue": 50}),  # Second event on Day 2
+                ("user1", _date(2), {"revenue": 60}),  # Third event on Day 2
+            ],
+        )
+
+        # User 2: Single events per day
+        _create_events(
+            self.team,
+            [
+                ("user2", _date(0), {"revenue": 100}),
+                ("user2", _date(1), {"revenue": 200}),
+                ("user2", _date(2), {"revenue": 300}),
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test SUM aggregation
+        result_sum = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (SUM):
+        # Cohort (Day 0):
+        # Day 0: User1(10) + User2(100) = 110
+        # Day 1: User1(20+30=50) + User2(200) = 250  # Multiple events on Day 1 for User1
+        # Day 2: User1(40+50+60=150) + User2(300) = 450  # Multiple events on Day 2 for User1
+        self.assertEqual(
+            pluck(result_sum, "values", "count"),
+            pad(
+                [
+                    [110, 250, 450, 0, 0, 0, 0],
+                    [250, 450, 0, 0, 0, 0],
+                    [450, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+        # Test AVG aggregation
+        result_avg = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0, hour=0), "date_to": _date(6)},
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "aggregationType": "avg",
+                    "aggregationProperty": "revenue",
+                },
+            }
+        )
+
+        # Expected result (AVG):
+        # Cohort (Day 0):
+        # Day 0: (10 + 100) / 2 = 55
+        # Day 1: (50 + 200) / 2 = 125  # User1's multiple events are summed first: 20+30=50
+        # Day 2: (150 + 300) / 2 = 225  # User1's multiple events are summed first: 40+50+60=150
+        self.assertEqual(
+            pluck(result_avg, "values", "count"),
+            pad(
+                [
+                    [55, 125, 225, 0, 0, 0, 0],
+                    [125, 225, 0, 0, 0, 0],
+                    [225, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
