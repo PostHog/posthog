@@ -62,12 +62,19 @@ function isSurveyTriggerConfig(config: HogFlowAction['config']): boolean {
     return events.length === 1 && events[0]?.id === SurveyEventName.SENT
 }
 
-function getSelectedSurveyId(config: HogFlowAction['config']): string | null {
+function getSelectedSurveyId(config: HogFlowAction['config']): string | null | 'any' {
     if (!('type' in config) || config.type !== 'event') {
         return null
     }
     const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
-    return surveyIdProp?.value ?? null
+    if (!surveyIdProp) {
+        return null // No selection made
+    }
+    // If operator is 'is_set', it means "Any survey" was selected
+    if (surveyIdProp.operator === 'is_set') {
+        return 'any'
+    }
+    return surveyIdProp.value ?? null
 }
 
 function getCompletedResponsesOnly(config: HogFlowAction['config']): boolean {
@@ -166,19 +173,17 @@ export function StepTriggerConfiguration({
         })
     }
 
-    // if (featureFlags[FEATURE_FLAGS.WORKFLOWS_SURVEY_TRIGGERS]) {
     triggerOptions.splice(1, 0, {
         label: 'Survey',
         value: 'survey',
         icon: <IconMessage />,
         labelInMenu: (
             <div className="flex flex-col my-1">
-                <div className="font-semibold">Survey response</div>
+                <div className="font-semibold">Survey</div>
                 <p className="text-xs text-muted">Trigger when a user submits a survey response</p>
             </div>
         ),
     })
-    // }
 
     // For display purposes, detect if this is a survey trigger (event trigger with 'survey sent' event)
     const displayType = isSurveyTriggerConfig(node.data.config) ? 'survey' : type
@@ -203,7 +208,10 @@ export function StepTriggerConfiguration({
                                     type: 'event',
                                     filters: {
                                         events: [{ id: SurveyEventName.SENT, type: 'events', name: 'Survey sent' }],
-                                        properties: [],
+                                        // Default to completed responses only
+                                        properties: [
+                                            { key: '$survey_completed', value: true, operator: 'exact', type: 'event' },
+                                        ],
                                     },
                                 })
                               : value === 'webhook'
@@ -352,17 +360,23 @@ function StepTriggerConfigurationSurvey({
     config: Extract<HogFlowAction['config'], { type: 'event' }>
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { actionValidationErrorsById } = useValues(workflowLogic)
     const { allSurveys, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
         useValues(surveyTriggerLogic)
     const { loadSurveys, loadMoreSurveys } = useActions(surveyTriggerLogic)
+    const validationResult = actionValidationErrorsById[action.id]
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
     // Helper to build properties array based on current settings
-    const buildProperties = (surveyId: string | null, completedResponsesOnly: boolean): any[] => {
+    // surveyId can be: specific UUID, 'any' for any survey, or null for no selection
+    const buildProperties = (surveyId: string | null | 'any', completedResponsesOnly: boolean): any[] => {
         const properties: any[] = []
-        if (surveyId) {
+        if (surveyId === 'any') {
+            // "Any survey" - use is_set operator to match all survey events
+            properties.push({ key: '$survey_id', operator: 'is_set', type: 'event' })
+        } else if (surveyId) {
             properties.push({ key: '$survey_id', value: surveyId, operator: 'exact', type: 'event' })
         }
         if (completedResponsesOnly) {
@@ -417,67 +431,84 @@ function StepTriggerConfigurationSurvey({
                   },
               ]
             : []),
-        // Search input as first visible option
-        {
-            label: '',
-            value: '__search__' as string | null,
-            labelInMenu: (
-                <LemonInput
-                    type="search"
-                    placeholder="Search surveys..."
-                    autoFocus
-                    value={searchTerm}
-                    onChange={setSearchTerm}
-                    fullWidth
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                        // Allow Escape to bubble up so the menu can close
-                        if (e.key !== 'Escape') {
-                            e.stopPropagation()
-                        }
-                    }}
-                    className="mb-1"
-                />
-            ),
-        },
-        {
-            label: 'Any survey',
-            value: null as string | null,
-            labelInMenu: (
-                <div className="flex flex-col py-1">
-                    <span className="font-medium">Any survey</span>
-                    <span className="text-xs text-muted">Trigger on any survey response</span>
-                </div>
-            ),
-        },
+        // Search input - only show if surveys exist
+        ...(allSurveys.length > 0
+            ? [
+                  {
+                      label: '',
+                      value: '__search__' as string | null,
+                      labelInMenu: (
+                          <LemonInput
+                              type="search"
+                              placeholder="Search surveys..."
+                              autoFocus
+                              value={searchTerm}
+                              onChange={setSearchTerm}
+                              fullWidth
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                  // Allow Escape to bubble up so the menu can close
+                                  if (e.key !== 'Escape') {
+                                      e.stopPropagation()
+                                  }
+                              }}
+                              className="mb-1"
+                          />
+                      ),
+                  },
+              ]
+            : []),
+        // Show "Any survey" option only if surveys exist
+        ...(allSurveys.length > 0
+            ? [
+                  {
+                      label: 'Any survey',
+                      value: 'any' as string | null,
+                      labelInMenu: (
+                          <div className="flex flex-col py-1">
+                              <span className="font-medium">Any survey</span>
+                              <span className="text-xs text-muted">Trigger on any survey response</span>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
+        // Show "Create survey" link when no surveys exist
+        ...(!surveysLoading && allSurveys.length === 0
+            ? [
+                  {
+                      label: 'No surveys yet',
+                      value: '__create__' as string | null,
+                      labelInMenu: (
+                          <Link
+                              to={urls.surveyTemplates()}
+                              target="_blank"
+                              className="flex items-center gap-2 py-2 text-primary font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                          >
+                              Create your first survey <IconOpenInNew className="text-sm" />
+                          </Link>
+                      ),
+                  },
+              ]
+            : []),
         ...filteredSurveys.map((s) => {
             const responseCount = responseCounts[s.id] ?? 0
             return {
                 label: s.name,
                 value: s.id,
                 labelInMenu: (
-                    <div className="flex items-center justify-between py-1 gap-2 w-full">
-                        <div className="flex flex-col min-w-0 flex-1">
-                            <span className="font-medium truncate">{s.name}</span>
-                            <span className="flex items-center gap-2 text-xs text-muted">
-                                <span className="flex items-center gap-1">
-                                    <span
-                                        className={`inline-block w-1.5 h-1.5 rounded-full ${s.start_date ? 'bg-success' : 'bg-muted-alt'}`}
-                                    />
-                                    {s.start_date ? 'Active' : 'Draft'}
-                                </span>
-                                {responseCount > 0 && <span>· {responseCount.toLocaleString()} responses</span>}
+                    <div className="flex flex-col py-1">
+                        <span className="font-medium truncate">{s.name}</span>
+                        <span className="flex items-center gap-2 text-xs text-muted">
+                            <span className="flex items-center gap-1">
+                                <span
+                                    className={`inline-block w-1.5 h-1.5 rounded-full ${s.start_date ? 'bg-success' : 'bg-muted-alt'}`}
+                                />
+                                {s.start_date ? 'Active' : 'Draft'}
                             </span>
-                        </div>
-                        <Link
-                            to={urls.survey(s.id)}
-                            target="_blank"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-muted hover:text-primary shrink-0"
-                            title="Open survey"
-                        >
-                            <IconOpenInNew className="text-base" />
-                        </Link>
+                            {responseCount > 0 && <span>· {responseCount.toLocaleString()} responses</span>}
+                        </span>
                     </div>
                 ),
             }
@@ -506,14 +537,14 @@ function StepTriggerConfigurationSurvey({
 
     return (
         <>
-            <LemonField.Pure label="Select a survey">
+            <LemonField.Pure label="Select a survey" error={validationResult?.errors?.filters}>
                 <LemonSelect
                     options={surveyOptions}
                     value={selectedSurveyId}
                     loading={surveysLoading}
                     onChange={(surveyId) => {
-                        if (surveyId === '__search__') {
-                            return // Ignore search input selection
+                        if (surveyId === '__search__' || surveyId === '__create__') {
+                            return // Ignore non-selectable options
                         }
                         if (surveyId === '__load_more__') {
                             loadMoreSurveys()
@@ -563,24 +594,19 @@ function StepTriggerConfigurationSurvey({
                 />
             </LemonField.Pure>
 
-            {(() => {
-                // Warning: "Any survey" selected but no surveys exist
-                if (selectedSurveyId === null && !surveysLoading && allSurveys.length === 0) {
-                    return (
-                        <LemonBanner type="warning" className="w-full">
-                            <p>
-                                You don't have any surveys yet. This workflow won't be triggered until you create your
-                                first survey.{' '}
-                                <Link to={urls.survey('new')} target="_blank" className="font-semibold">
-                                    Create a survey <IconOpenInNew className="inline text-sm" />
-                                </Link>
-                            </p>
-                        </LemonBanner>
-                    )
-                }
+            {/* Info: "Any survey" selected */}
+            {selectedSurveyId === 'any' && (
+                <p className="text-xs text-muted">
+                    This workflow will be triggered when someone submits a response to any of your surveys.
+                </p>
+            )}
 
-                // Warning: Selected survey is not active
-                const survey = selectedSurveyId ? allSurveys.find((s) => s.id === selectedSurveyId) : null
+            {/* Warning: Selected survey is not active */}
+            {(() => {
+                const survey =
+                    selectedSurveyId && selectedSurveyId !== 'any'
+                        ? allSurveys.find((s) => s.id === selectedSurveyId)
+                        : null
                 if (survey && !survey.start_date) {
                     return (
                         <LemonBanner type="warning" className="w-full">
@@ -591,7 +617,6 @@ function StepTriggerConfigurationSurvey({
                         </LemonBanner>
                     )
                 }
-
                 return null
             })()}
 
