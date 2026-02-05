@@ -239,15 +239,25 @@ async def analyze_video_segment_activity(
         return segments
 
     except Exception as e:
-        temporalio.activity.logger.error(
+        context = (
+            f"session_id={inputs.session_id}, segment_index={segment.segment_index}, "
+            f"segment_start_time={segment.start_time}, segment_end_time={segment.end_time}, "
+            f"video_duration_seconds={uploaded_video.duration_seconds}, model={inputs.model_to_use}"
+        )
+        temporalio.activity.logger.exception(
             f"Failed to analyze segment {segment.segment_index} for session {inputs.session_id}: {e}",
             extra={
                 "session_id": inputs.session_id,
                 "segment_index": segment.segment_index,
                 "signals_type": "session-summaries",
+                "segment_start_time": segment.start_time,
+                "segment_end_time": segment.end_time,
+                "video_file_uri": uploaded_video.file_uri,
+                "video_duration_seconds": uploaded_video.duration_seconds,
+                "model": inputs.model_to_use,
             },
         )
-        raise
+        raise type(e)(f"{e} | {context}") from e  # Enriching error with key context to help debug
     finally:
         duration_seconds = time.monotonic() - start_time
         team = await Team.objects.aget(id=inputs.team_id)
