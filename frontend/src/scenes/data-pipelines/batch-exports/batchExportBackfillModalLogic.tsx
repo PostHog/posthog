@@ -180,8 +180,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                 if (dayOfWeek === null) {
                     return null
                 }
-                let dayOfWeekName = dayOptions[dayOfWeek].label
-                return dayOfWeekName
+                return dayOptions[dayOfWeek].label
             },
         ],
         hourOffset: [
