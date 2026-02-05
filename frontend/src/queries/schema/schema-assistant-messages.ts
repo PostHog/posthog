@@ -447,6 +447,8 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
+    Research = 'research',
+    Flags = 'flags',
 }
 
 export enum SlashCommandName {

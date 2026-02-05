@@ -152,6 +152,7 @@ jobs:
         name: Playwright E2E tests
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
+        # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         steps:
@@ -216,6 +217,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Determine if hogql-parser has changed compared to master
@@ -293,6 +295,14 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
@@ -323,13 +333,18 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
-                  python manage.py migrate_clickhouse &
+                  # Postgres migrations must run first — ClickHouse migration 0026
+                  # depends on the posthog_instancesetting table in Postgres
                   python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database
@@ -337,8 +352,8 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
+                  python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
-                  wait
 
             - name: Source celery queues
               run: |
@@ -348,7 +363,8 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
+                  # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -365,8 +381,8 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
-              # Run 6 Playwright workers against 4 granian workers
-              # This balances parallelism with server capacity to avoid timeouts
+              # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
@@ -374,7 +390,7 @@ jobs:
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -394,7 +410,7 @@ jobs:
                       # Attempt 2: Update snapshots
                       echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
@@ -458,7 +474,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: playwright-test-results-${{ matrix.segment }}
+                  name: playwright-test-results
                   path: |
                       playwright/playwright-report/
                       playwright/playwright-report-attempt-*/
@@ -482,10 +498,13 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         needs: [changes, playwright]
-        if: needs.changes.outputs.shouldRun == 'true'
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
+            needs.changes.outputs.shouldRun == 'true' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -493,6 +512,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Playwright tests pass'
                   runner: 'depot'
 
     # Aggregate all screenshot artifacts and commit once

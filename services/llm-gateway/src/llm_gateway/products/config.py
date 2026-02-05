@@ -32,6 +32,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset(
             {
                 "claude-opus-4-5",
+                "claude-opus-4-6",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
                 "gpt-5.2",
@@ -63,6 +64,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llma_summarization": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini"}),
+        allow_api_keys=True,
+    ),
+    "llma_eval_summary": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5-mini"}),
         allow_api_keys=True,
     ),
 }

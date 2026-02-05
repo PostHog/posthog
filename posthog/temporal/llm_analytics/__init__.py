@@ -1,3 +1,4 @@
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
     disable_evaluation_activity,
@@ -8,6 +9,7 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
@@ -47,6 +49,9 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    # Team discovery
+    get_team_ids_for_llm_analytics,
+    # Summarization activities
     sample_items_in_window_activity,
     generate_and_save_summary_activity,
     generate_and_save_generation_summary_activity,

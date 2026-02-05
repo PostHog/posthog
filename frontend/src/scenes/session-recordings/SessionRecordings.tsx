@@ -1,21 +1,19 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconDocument, IconEllipsis, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { WarningHog } from 'lib/components/hedgehogs'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -23,6 +21,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -44,7 +43,7 @@ function Header(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
-
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
         reportRecordingPlaylistCreated('new')
@@ -55,21 +54,43 @@ function Header(): JSX.Element {
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
                     <LiveRecordingsCount />
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Playback from PostHog JSON file',
-                                to: urls.replayFilePlayback(),
-                            },
-                            {
-                                label: 'Kiosk mode',
-                                to: urls.replayKiosk(),
-                            },
-                        ]}
-                        placement="bottom-end"
-                    >
-                        <LemonButton icon={<IconEllipsis />} size="small" />
-                    </LemonMenu>
+                    {!isRemovingSidePanelFlag && (
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Playback from PostHog JSON file',
+                                    to: urls.replayFilePlayback(),
+                                },
+                                {
+                                    label: 'Kiosk mode',
+                                    to: urls.replayKiosk(),
+                                },
+                            ]}
+                            placement="bottom-end"
+                        >
+                            <LemonButton icon={<IconEllipsis />} size="small" />
+                        </LemonMenu>
+                    )}
+                    <ScenePanel>
+                        <ScenePanelActionsSection>
+                            <Link
+                                to={urls.replaySettings()}
+                                buttonProps={{
+                                    menuItem: true,
+                                }}
+                            >
+                                <IconDocument /> Playback from PostHog JSON file
+                            </Link>
+                            <Link
+                                to={urls.replayKiosk()}
+                                buttonProps={{
+                                    menuItem: true,
+                                }}
+                            >
+                                <IconHeadset /> Kiosk mode
+                            </Link>
+                        </ScenePanelActionsSection>
+                    </ScenePanel>
                 </>
             )}
 
@@ -106,10 +127,6 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-
     return (
         <>
             {recordingsDisabled ? (
@@ -120,7 +137,7 @@ function Warnings(): JSX.Element {
                         </div>
                         <div className="flex flex-col gap-2 flex-shrink max-w-180">
                             <h2 className="text-lg font-semibold">
-                                Session recordings are not yet enabled for this {settingLevel}
+                                Session recordings are not yet enabled for this project
                             </h2>
                             <p className="font-normal">Enabling session recordings will help you:</p>
                             <ul className="list-disc list-inside font-normal">
@@ -167,16 +184,7 @@ function Warnings(): JSX.Element {
                         </div>
                     </div>
                 </LemonBanner>
-            ) : (
-                <ProductIntroduction
-                    productName="session replay"
-                    productKey={ProductKey.SESSION_REPLAY}
-                    thingName="playlist"
-                    description="Use session replay playlists to easily group and analyze user sessions. Curate playlists based on events or user segments, spot patterns, diagnose issues, and share insights with your team."
-                    docsURL="https://posthog.com/docs/session-replay/manual"
-                    customHog={FilmCameraHog}
-                />
-            )}
+            ) : null}
         </>
     )
 }

@@ -18,6 +18,7 @@ from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
+    _get_feature_flags_for_teams_batch,
     _get_team_ids_with_recently_updated_flags,
     clear_flags_cache,
     flags_hypercache,
@@ -99,8 +100,12 @@ class TestServiceFlagsCache(BaseTest):
         assert len(flags) == 1
         assert flags[0]["key"] == "active-flag"
 
-    def test_get_feature_flags_for_service_excludes_inactive(self):
-        """Test that inactive flags are excluded from cache."""
+    def test_get_feature_flags_for_service_includes_inactive(self):
+        """Test that inactive flags are included in cache.
+
+        Inactive flags must be included so that flag dependencies can reference them
+        and evaluate them as false, rather than raising DependencyNotFound errors.
+        """
         # Create active flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -121,8 +126,109 @@ class TestServiceFlagsCache(BaseTest):
         result = _get_feature_flags_for_service(self.team)
         flags = result["flags"]
 
+        # Both active and inactive flags should be included
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"active-flag", "inactive-flag"}
+
+        # Verify the inactive flag has active=False
+        inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
+        assert inactive_flag["active"] is False
+
+    def test_get_feature_flags_for_service_excludes_remote_config(self):
+        """Test that remote config flags are excluded from cache.
+
+        Remote config flags (is_remote_configuration=True) are served via a
+        separate API and should not appear in /flags responses.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create remote config flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="remote-config-flag",
+            created_by=self.user,
+            is_remote_configuration=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+        flags = result["flags"]
+
+        # Only the regular flag should be included
         assert len(flags) == 1
-        assert flags[0]["key"] == "active-flag"
+        assert flags[0]["key"] == "regular-flag"
+
+    def test_get_feature_flags_for_teams_batch_includes_inactive(self):
+        """Test that batch function includes inactive flags for dependency resolution.
+
+        This tests the same behavior as test_get_feature_flags_for_service_includes_inactive
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create active flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="active-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create inactive flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="inactive-flag",
+            created_by=self.user,
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Both active and inactive flags should be included
+        assert len(flags) == 2
+        flag_keys = {f["key"] for f in flags}
+        assert flag_keys == {"active-flag", "inactive-flag"}
+
+        # Verify the inactive flag has active=False
+        inactive_flag = next(f for f in flags if f["key"] == "inactive-flag")
+        assert inactive_flag["active"] is False
+
+    def test_get_feature_flags_for_teams_batch_excludes_remote_config(self):
+        """Test that batch function excludes remote config flags.
+
+        This tests the same behavior as test_get_feature_flags_for_service_excludes_remote_config
+        but for the batch function used in management commands and cache warming.
+        """
+        # Create regular feature flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="regular-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Create remote config flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="remote-config-flag",
+            created_by=self.user,
+            is_remote_configuration=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+        flags = result[self.team.id]["flags"]
+
+        # Only the regular flag should be included
+        assert len(flags) == 1
+        assert flags[0]["key"] == "regular-flag"
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""
@@ -1935,8 +2041,10 @@ class TestGetTeamIdsWithRecentlyUpdatedFlags(BaseTest):
     def test_ignores_recently_deactivated_flags(self):
         """Test returns empty set for team with recently deactivated flag.
 
-        When a flag is deactivated, the cache update removes it. We shouldn't skip
-        verification just because an inactive flag was recently updated.
+        The grace period function only considers active flags when determining
+        whether to skip cache verification. Inactive flags are included in the
+        cache (for dependency resolution), but their recent updates should not
+        trigger the grace period because their evaluation is deterministic (always false).
         """
         flag = FeatureFlag.objects.create(
             team=self.team,

@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCornerDownRight, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -23,7 +23,6 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -52,9 +51,7 @@ export function EnvironmentSwitcherOverlay({
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam, currentProject } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
-    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
-    const { openModal } = useActions(environmentRollbackModalLogic)
+    const { showCreateProjectModal } = useActions(globalModalsLogic)
     const [open, setOpen] = useState(false)
 
     const { location } = useValues(router)
@@ -142,13 +139,6 @@ export function EnvironmentSwitcherOverlay({
                     className="shrink-0"
                     tooltip="We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects."
                     disabled
-                    onClick={() => {
-                        guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
-                            currentUsage: currentOrganization?.teams?.filter(
-                                (team) => team.project_id === currentTeam.project_id
-                            ).length,
-                        })
-                    }}
                 >
                     <IconBlank />
                     <IconPlusSmall />
@@ -230,16 +220,7 @@ export function EnvironmentSwitcherOverlay({
             }
         }
         return [
-            hasEnvironmentsRollbackFeature ? (
-                <Combobox.Group value={['warning']} key="warning">
-                    <Combobox.Item asChild>
-                        <ButtonPrimitive menuItem onClick={openModal} variant="danger" className="h-auto">
-                            <IconWarning />
-                            We're rolling back the environments beta
-                        </ButtonPrimitive>
-                    </Combobox.Item>
-                </Combobox.Group>
-            ) : null,
+            null,
             currentProjectItems.length ? <>{currentProjectItems}</> : null,
             otherProjectsItems.length ? <>{otherProjectsItems}</> : null,
         ]
@@ -251,9 +232,6 @@ export function EnvironmentSwitcherOverlay({
         location.pathname,
         onClickInside,
         guardAvailableFeature,
-        showCreateEnvironmentModal,
-        hasEnvironmentsRollbackFeature,
-        openModal,
     ])
 
     if (!currentOrganization || !currentTeam) {

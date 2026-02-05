@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -23,8 +23,7 @@ import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
-import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
+import { PlayerMetaBar } from './player-meta/PlayerMetaBar'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
@@ -38,7 +37,6 @@ import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecording
 export interface PurePlayerProps {
     noMeta?: boolean
     noBorder?: boolean
-    playerRef: React.RefObject<HTMLDivElement>
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -48,7 +46,8 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
     )
 }
 
-export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: PurePlayerProps): JSX.Element {
+export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
+    const playerRef = useRef<HTMLDivElement>(null)
     const {
         incrementClickCount,
         setIsFullScreen,
@@ -80,6 +79,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         quickEmojiIsOpen,
         showingClipParams,
         isMuted,
+        endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
     const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
@@ -95,10 +95,11 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         mode === SessionRecordingPlayerMode.Kiosk
 
     useEffect(() => {
-        if (hidePlayerElements) {
+        // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)
+        if (hidePlayerElements && !showMetadataFooter) {
             setSkipInactivitySetting(false)
         }
-    }, [mode, setSkipInactivitySetting, hidePlayerElements])
+    }, [mode, setSkipInactivitySetting, hidePlayerElements, showMetadataFooter])
 
     useEffect(
         () => {
@@ -112,6 +113,13 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isRecentAndInvalid]
     )
+
+    // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            ;(window as any).__POSTHOG_RECORDING_ENDED__ = endReached
+        }
+    }, [endReached])
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
@@ -248,17 +256,10 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    <div className="relative">
-                                        {showMeta ? (
-                                            <>
-                                                <PlayerMeta />
-                                                <PlayerMetaTopSettings />
-                                            </>
-                                        ) : null}
-                                    </div>
+                                    <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     <div
                                         className="SessionRecordingPlayer__body"
-                                        draggable={draggable}
+                                        draggable={draggable && !isCommenting}
                                         {...elementProps}
                                     >
                                         <PlayerFrame />

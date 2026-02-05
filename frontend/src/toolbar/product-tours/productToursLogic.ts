@@ -26,7 +26,7 @@ import {
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
-import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshot } from './utils'
+import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshotV2 } from './utils'
 
 /**
  * Editor state machine - explicit states instead of multiple boolean flags.
@@ -162,6 +162,8 @@ export const productToursLogic = kea<productToursLogicType>([
 
         setEditorState: (state: EditorState) => ({ state }),
 
+        setSessionRecordingConsent: (consent: boolean) => ({ consent }),
+
         // Step actions
         addStep: (stepType: ProductTourStepType) => ({ stepType }),
         selectElement: (element: HTMLElement) => ({ element }),
@@ -283,6 +285,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectTour: () => null,
                 newTour: () => null,
                 removeStep: () => null,
+                startPreviewMode: () => null,
             },
         ],
         sidebarTransitioning: [
@@ -305,6 +308,13 @@ export const productToursLogic = kea<productToursLogicType>([
             {
                 setLaunchedFromMainApp: (_, { value }) => value,
                 selectTour: (state, { id }) => (id === null ? false : state),
+            },
+        ],
+        sessionRecordingConsent: [
+            null as boolean | null,
+            { persist: true },
+            {
+                setSessionRecordingConsent: (_, { consent }) => consent,
             },
         ],
     }),
@@ -497,7 +507,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const { stepIndex } = editorState
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
-            const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
+            const screenshot = await captureAndUploadElementScreenshotV2(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })
@@ -602,10 +612,26 @@ export const productToursLogic = kea<productToursLogicType>([
         },
         newTour: () => {
             toolbarLogic.actions.setVisibleMenu('none')
+            if (values.sessionRecordingConsent) {
+                toolbarPosthogJS.startSessionRecording()
+            }
+        },
+        setSessionRecordingConsent: ({ consent }) => {
+            toolbarPosthogJS.capture(ProductTourEvent.CONSENT_SELECTED, { consent })
+            if (consent && values.selectedTourId !== null) {
+                toolbarPosthogJS.startSessionRecording()
+            } else if (!consent) {
+                toolbarPosthogJS.stopSessionRecording()
+            }
         },
         selectTour: ({ id }) => {
             if (id !== null) {
                 toolbarLogic.actions.setVisibleMenu('none')
+                if (values.sessionRecordingConsent) {
+                    toolbarPosthogJS.startSessionRecording()
+                }
+            } else if (!values.isPreviewing && values.sessionRecordingConsent) {
+                toolbarPosthogJS.stopSessionRecording()
             }
         },
         saveTour: () => {
@@ -876,6 +902,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 window.removeEventListener('PHProductTourCompleted', cache.onTourEnded)
                 window.removeEventListener('PHProductTourDismissed', cache.onTourEnded)
             }
+            toolbarPosthogJS.stopSessionRecording()
         },
     })),
 ])

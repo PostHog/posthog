@@ -157,6 +157,8 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
+ * `research` - research
+ * `flags` - flags
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -168,6 +170,8 @@ export const AgentModeEnumApi = {
     plan: 'plan',
     execution: 'execution',
     survey: 'survey',
+    research: 'research',
+    flags: 'flags',
 } as const
 
 /**
@@ -185,7 +189,6 @@ export interface MessageApi {
     billing_context?: unknown
     trace_id: string
     session_id?: string
-    deep_research_mode?: boolean
     agent_mode?: AgentModeEnumApi
     resume_payload?: unknown | null
 }

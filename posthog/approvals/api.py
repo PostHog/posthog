@@ -3,7 +3,7 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-from rest_framework import status, viewsets
+from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -171,5 +171,22 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(
             created_by=self.request.user,
             organization=self.organization,
-            team=self.team if hasattr(self, "team") else None,
+            team=self.team,
         )
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        action_key = request.data.get("action_key")
+
+        if (
+            action_key
+            and ApprovalPolicy.objects.filter(
+                action_key=action_key,
+                organization=self.organization,
+                team=self.team,
+            ).exists()
+        ):
+            raise exceptions.ValidationError(
+                "A policy for this action already exists. You can edit the existing policy instead."
+            )
+
+        return super().create(request, *args, **kwargs)
