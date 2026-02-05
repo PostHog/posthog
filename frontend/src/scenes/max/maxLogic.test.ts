@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
@@ -195,6 +198,19 @@ describe('maxLogic', () => {
     })
 
     describe('mode URL parameter', () => {
+        beforeEach(() => {
+            // Enable feature flags for gated modes
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MAX_DEEP_RESEARCH]: true,
+                [FEATURE_FLAGS.PHAI_PLAN_MODE]: true,
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.unmount()
+        })
+
         it('parses mode=research:!Question correctly', async () => {
             sidePanelStateLogic.mount()
             await expectLogic(sidePanelStateLogic, () => {
