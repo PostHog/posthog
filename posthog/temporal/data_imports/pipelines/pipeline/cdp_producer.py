@@ -160,7 +160,7 @@ class CDPProducer:
 
             try:
                 # File I/O operations run in thread pool
-                def _process_file() -> int:
+                def _process_file(file_path: str) -> int:
                     local_row_index = 0
                     with fs.open_input_file(file_path) as f:
                         pf = pq.ParquetFile(f)
@@ -176,7 +176,7 @@ class CDPProducer:
                     kafka_producer.flush()
                     return local_row_index
 
-                row_index = await asyncio.to_thread(_process_file)
+                row_index = await asyncio.to_thread(_process_file, file_path)
                 await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
             except Exception as e:
                 capture_exception(e)
