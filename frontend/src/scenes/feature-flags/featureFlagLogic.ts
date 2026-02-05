@@ -388,6 +388,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
         setHighlightedFields: (fields: ModifiedField[]) => ({ fields }),
         clearHighlight: (field: ModifiedField) => ({ field }),
+        setTemplateExpanded: (expanded: boolean) => ({ expanded }),
+        applyUrlTemplate: (templateId: string) => ({ templateId }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -731,6 +733,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setHighlightedFields: (_, { fields }) => fields,
                 clearHighlight: (state, { field }) => state.filter((f: ModifiedField) => f !== field),
+            },
+        ],
+        templateExpanded: [
+            true,
+            {
+                setTemplateExpanded: (_, { expanded }) => expanded,
+                // Collapse when a template is applied from URL
+                applyUrlTemplate: () => false,
+            },
+        ],
+        urlTemplateApplied: [
+            false,
+            {
+                applyUrlTemplate: () => true,
+                // Reset when loading a new flag
+                loadFeatureFlag: () => false,
             },
         ],
     }),

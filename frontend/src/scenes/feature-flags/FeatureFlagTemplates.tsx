@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconFlask, IconPeople, IconTestTube, IconToggle } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
@@ -33,36 +34,10 @@ interface FeatureFlagTemplatesProps {
 }
 
 export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplatesProps): JSX.Element | null {
-    const { featureFlag, featureFlagLoading } = useValues(featureFlagLogic)
-    const { setFeatureFlag } = useActions(featureFlagLogic)
+    const { featureFlag, featureFlagLoading, templateExpanded, urlTemplateApplied } = useValues(featureFlagLogic)
+    const { setFeatureFlag, setTemplateExpanded, applyUrlTemplate, setHighlightedFields } = useActions(featureFlagLogic)
     const { user } = useValues(userLogic)
-    const [isExpanded, setIsExpanded] = useState(true)
-
-    const applyTemplate = (template: FlagTemplate): void => {
-        if (!featureFlag) {
-            return
-        }
-        const templateValues = template.getValues(featureFlag)
-
-        setFeatureFlag({
-            ...featureFlag,
-            ...templateValues,
-            filters: {
-                ...featureFlag.filters,
-                ...templateValues.filters,
-            },
-        } as FeatureFlagType)
-
-        onTemplateApplied?.(template.modifiedFields)
-    }
-
-    if (!featureFlag) {
-        return null
-    }
-
-    // Don't allow template application while the flag is still loading
-    // to prevent race conditions where the loader overwrites template values
-    const isLoading = featureFlagLoading
+    const { searchParams } = useValues(router)
 
     const emailDomain = user?.email?.split('@')[1] || 'example.com'
 
@@ -169,12 +144,60 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
         },
     ]
 
+    const applyTemplate = (template: FlagTemplate): void => {
+        if (!featureFlag) {
+            return
+        }
+        const templateValues = template.getValues(featureFlag)
+
+        setFeatureFlag({
+            ...featureFlag,
+            ...templateValues,
+            filters: {
+                ...featureFlag.filters,
+                ...templateValues.filters,
+            },
+        } as FeatureFlagType)
+
+        setTemplateExpanded(false)
+        setHighlightedFields(template.modifiedFields)
+        onTemplateApplied?.(template.modifiedFields)
+    }
+
+    // Auto-apply template from URL param on first load
+    useEffect(() => {
+        const templateId = searchParams.template as string | undefined
+        if (templateId && featureFlag && !featureFlagLoading && !urlTemplateApplied) {
+            const template = templates.find((t) => t.id === templateId)
+            if (template) {
+                applyTemplate(template)
+                applyUrlTemplate(templateId)
+            }
+        }
+    }, [
+        searchParams.template,
+        featureFlag,
+        featureFlagLoading,
+        urlTemplateApplied,
+        applyTemplate,
+        applyUrlTemplate,
+        templates,
+    ])
+
+    if (!featureFlag) {
+        return null
+    }
+
+    // Don't allow template application while the flag is still loading
+    // to prevent race conditions where the loader overwrites template values
+    const isLoading = featureFlagLoading
+
     return (
         <>
             <div className="mb-4">
                 <LemonCollapse
-                    activeKey={isExpanded ? 'templates' : undefined}
-                    onChange={(key) => setIsExpanded(key === 'templates')}
+                    activeKey={templateExpanded ? 'templates' : undefined}
+                    onChange={(key) => setTemplateExpanded(key === 'templates')}
                     panels={[
                         {
                             key: 'templates',
@@ -205,7 +228,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
                     embedded
                 />
             </div>
-            {isExpanded && <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>}
+            {templateExpanded && <h3 className="text-sm font-semibold text-muted mb-2">Or customize your flag</h3>}
         </>
     )
 }

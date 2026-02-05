@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import React from 'react'
 
-import { IconCode, IconFlask, IconSparkles, IconTestTube, IconToggle, IconWrench } from '@posthog/icons'
+import { IconCode, IconFlask, IconPeople, IconSparkles, IconTestTube, IconToggle, IconWrench } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,37 +15,43 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-type FeatureFlagNewType = 'boolean' | 'multivariate' | 'remote_config'
+type FeatureFlagTemplate = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
 
-interface FeatureFlagTypeMetadata {
+interface TemplateMetadata {
     name: string
     description: string
     icon: React.ComponentType
     url: string
 }
 
-const FEATURE_FLAG_TYPE_METADATA: Record<FeatureFlagNewType, FeatureFlagTypeMetadata> = {
-    boolean: {
-        name: 'Boolean flag',
-        description: 'Simple on/off toggle for feature releases',
+const TEMPLATE_METADATA: Record<FeatureFlagTemplate, TemplateMetadata> = {
+    simple: {
+        name: 'Simple flag',
+        description: 'On/off for all users',
         icon: IconToggle,
-        url: urls.featureFlagNew({ type: 'boolean' }),
+        url: urls.featureFlagNew({ template: 'simple' }),
+    },
+    targeted: {
+        name: 'Targeted release',
+        description: 'Release to specific users',
+        icon: IconPeople,
+        url: urls.featureFlagNew({ template: 'targeted' }),
     },
     multivariate: {
-        name: 'Multivariate flag',
-        description: 'Multiple variants with rollout percentages',
+        name: 'Multivariate',
+        description: 'Multiple variants',
         icon: IconTestTube,
-        url: urls.featureFlagNew({ type: 'multivariate' }),
+        url: urls.featureFlagNew({ template: 'multivariate' }),
     },
-    remote_config: {
-        name: 'Remote config',
-        description: 'Deliver configuration values to your app',
-        icon: IconCode,
-        url: urls.featureFlagNew({ type: 'remote_config' }),
+    'targeted-multivariate': {
+        name: 'Targeted multivariate',
+        description: 'Variants for specific users',
+        icon: IconFlask,
+        url: urls.featureFlagNew({ template: 'targeted-multivariate' }),
     },
 }
 
-const FLAG_TYPES: FeatureFlagNewType[] = ['boolean', 'multivariate', 'remote_config']
+const TEMPLATES: FeatureFlagTemplate[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
 const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
 const AI_SUGGESTIONS = [
@@ -61,15 +67,15 @@ export function OverlayForNewFeatureFlagMenu(): JSX.Element {
 
     return (
         <>
-            {FLAG_TYPES.map((flagType) => {
-                const metadata = FEATURE_FLAG_TYPE_METADATA[flagType]
+            {TEMPLATES.map((template) => {
+                const metadata = TEMPLATE_METADATA[template]
                 return (
                     <LemonButton
-                        key={flagType}
+                        key={template}
                         icon={<metadata.icon />}
                         to={metadata.url}
                         data-attr="new-feature-flag-menu-item"
-                        data-attr-flag-type={flagType}
+                        data-attr-template={template}
                         fullWidth
                     >
                         <div className="flex flex-col text-sm py-1">
@@ -79,6 +85,19 @@ export function OverlayForNewFeatureFlagMenu(): JSX.Element {
                     </LemonButton>
                 )
             })}
+            <LemonDivider className="my-1" />
+            <LemonButton
+                icon={<IconCode />}
+                to={urls.featureFlagNew({ type: 'remote_config' })}
+                data-attr="new-feature-flag-menu-item"
+                data-attr-template="remote_config"
+                fullWidth
+            >
+                <div className="flex flex-col text-sm py-1">
+                    <strong>Remote config</strong>
+                    <span className="text-xs font-sans font-normal">Deliver configuration values to your app</span>
+                </div>
+            </LemonButton>
             <LemonDivider className="my-1" />
             <LemonButton
                 icon={<IconFlask />}
