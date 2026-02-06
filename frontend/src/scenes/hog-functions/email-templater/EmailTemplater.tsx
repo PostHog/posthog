@@ -1,10 +1,12 @@
+import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import EmailEditor from 'react-email-editor'
 
-import { IconExternal, IconEye } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
@@ -14,6 +16,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { urls } from 'scenes/urls'
+
+import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
@@ -256,6 +260,79 @@ function LiquidSupportedText({
     )
 }
 
+const PAGE_SIZE = 5
+
+function TemplateSlider({
+    templates,
+    onSelect,
+    onSaveAsTemplate,
+}: {
+    templates: any[]
+    onSelect: (template: any) => void
+    onSaveAsTemplate?: () => void
+}): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const [page, setPage] = useState(0)
+
+    const totalPages = Math.ceil(templates.length / PAGE_SIZE)
+    const visibleTemplates = templates.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+    return (
+        <div className="border-b">
+            <div
+                className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
+                <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
+                {onSaveAsTemplate && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onSaveAsTemplate()
+                        }}
+                    >
+                        Save as new template
+                    </LemonButton>
+                )}
+            </div>
+            {expanded && (
+                <div className="flex items-center gap-1 px-1 pb-2">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronLeft />}
+                        disabled={page === 0}
+                        onClick={() => setPage(page - 1)}
+                    />
+                    <div className="flex gap-3 flex-1 overflow-hidden" key={page}>
+                        {visibleTemplates.map((template, index) => (
+                            <div
+                                key={template.id}
+                                className="shrink-0 w-48 h-56 MessageTemplateSlider__SlideIn--animate"
+                                style={{ animationDelay: `${index * 50}ms` }}
+                            >
+                                <MessageTemplateCard
+                                    template={template}
+                                    index={page * PAGE_SIZE + index}
+                                    onClick={() => onSelect(template)}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronRight />}
+                        disabled={page >= totalPages - 1}
+                        onClick={() => setPage(page + 1)}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
 function NativeEmailTemplaterForm({
     mode,
     onSaveAsTemplate,
@@ -263,12 +340,8 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     onSaveAsTemplate?: () => void
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
-        useValues(emailTemplaterLogic)
+    const { unlayerEditorProjectId, logicProps, templates, mergeTags } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
-
-    const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
-    const isPreviewClick = useRef(false)
 
     return (
         <>
@@ -322,64 +395,13 @@ function NativeEmailTemplaterForm({
 
                 {mode === 'full' ? (
                     <>
-                        <div className="flex gap-2 items-center px-2 py-1 border-b">
-                            <span className="flex-1">Start from a template (optional)</span>
-                            <LemonSelect
-                                size="xsmall"
-                                placeholder="Choose template"
-                                loading={templatesLoading}
-                                value={appliedTemplate?.id ?? null}
-                                options={[
-                                    {
-                                        title: 'Templates',
-                                        options: templates.map((template) => ({
-                                            label: template.name,
-                                            labelInMenu: (
-                                                <div className="flex items-center justify-between w-full gap-2">
-                                                    <span className="flex-1">{template.name}</span>
-                                                    <span
-                                                        className="cursor-pointer text-muted hover:text-default"
-                                                        onClick={() => {
-                                                            isPreviewClick.current = true
-                                                            setPreviewTemplate(template)
-                                                        }}
-                                                        title="Preview template"
-                                                    >
-                                                        <IconEye className="text-lg" />
-                                                    </span>
-                                                </div>
-                                            ),
-                                            value: template.id,
-                                        })),
-                                    },
-                                    {
-                                        options: [
-                                            {
-                                                label: 'Save as new template',
-                                                value: 'save-as-template',
-                                            },
-                                        ],
-                                    },
-                                ]}
-                                onChange={(id) => {
-                                    // Check if this was a preview click
-                                    if (isPreviewClick.current) {
-                                        isPreviewClick.current = false
-                                        return
-                                    }
-
-                                    if (id === 'save-as-template') {
-                                        onSaveAsTemplate?.()
-                                        return
-                                    }
-                                    const template = templates.find((t) => t.id === id)
-                                    if (template) {
-                                        applyTemplate(template)
-                                    }
-                                }}
-                                data-attr="email-template-selector"
+                        {templates.length > 0 && (
+                            <TemplateSlider
+                                templates={templates}
+                                onSelect={applyTemplate}
+                                onSaveAsTemplate={onSaveAsTemplate}
                             />
-                        </div>
+                        )}
 
                         <EmailEditor
                             ref={(r) => setEmailEditorRef(r)}
@@ -415,20 +437,6 @@ function NativeEmailTemplaterForm({
                                     : undefined,
                             }}
                         />
-                        <LemonModal
-                            isOpen={!!previewTemplate}
-                            onClose={() => setPreviewTemplate(null)}
-                            title={`Preview: ${previewTemplate?.name}`}
-                            width="90vw"
-                        >
-                            <div className="h-[80vh] overflow-auto">
-                                <iframe
-                                    srcDoc={previewTemplate?.content.email.html}
-                                    sandbox=""
-                                    className="w-full h-full border-0"
-                                />
-                            </div>
-                        </LemonModal>
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
