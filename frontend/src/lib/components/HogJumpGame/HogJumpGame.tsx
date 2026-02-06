@@ -358,6 +358,7 @@ export function HogJumpGame({
     const frameRef = useRef(0)
 
     const [highScore, setHighScore] = useState(getHighScore)
+    const [isFocused, setIsFocused] = useState(false)
 
     useEffect(() => {
         const hog = new Image()
@@ -391,6 +392,11 @@ export function HogJumpGame({
             }
         }
     }, [resetGame])
+
+    const handleCanvasClick = useCallback(() => {
+        canvasRef.current?.focus()
+        jump()
+    }, [jump])
 
     useEffect(() => {
         if (!isActive) {
@@ -449,14 +455,14 @@ export function HogJumpGame({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (isActive && (e.code === 'Space' || e.code === 'ArrowUp')) {
+            if (isActive && isFocused && (e.code === 'Space' || e.code === 'ArrowUp')) {
                 e.preventDefault()
                 jump()
             }
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [isActive, jump])
+    }, [isActive, isFocused, jump])
 
     return (
         <div className="flex flex-col items-center gap-4">
@@ -466,8 +472,11 @@ export function HogJumpGame({
                 ref={canvasRef}
                 width={GAME_WIDTH}
                 height={GAME_HEIGHT}
-                onClick={jump}
-                className="cursor-pointer rounded border border-border"
+                tabIndex={0}
+                onClick={handleCanvasClick}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                className="cursor-pointer rounded border border-border outline-none focus:ring-2 focus:ring-primary"
             />
             {highScore > 0 && (
                 <LemonButton type="tertiary" size="small" onClick={handleClearHighScore}>
