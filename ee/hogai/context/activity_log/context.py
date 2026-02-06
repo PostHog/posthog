@@ -27,12 +27,14 @@ class ActivityLogContext:
         self,
         *,
         scope: str | None = None,
+        activity: str | None = None,
         item_id: str | None = None,
         user_email: str | None = None,
         limit: int = 20,
     ) -> str:
         entries = await self._fetch_entries(
             scope=scope,
+            activity=activity,
             item_id=item_id,
             user_email=user_email,
             limit=limit,
@@ -48,6 +50,7 @@ class ActivityLogContext:
         self,
         *,
         scope: str | None = None,
+        activity: str | None = None,
         item_id: str | None = None,
         user_email: str | None = None,
         limit: int = 20,
@@ -69,6 +72,8 @@ class ActivityLogContext:
 
         if scope:
             queryset = queryset.filter(scope=scope)
+        if activity:
+            queryset = queryset.filter(activity=activity)
         if item_id:
             queryset = queryset.filter(item_id=item_id)
         if user_email:

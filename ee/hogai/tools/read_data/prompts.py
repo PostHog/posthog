@@ -19,6 +19,7 @@ Retrieves recent activity log entries showing who changed what and when.
 
 ## Parameters:
 - scope: Filter by entity type (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard'). Optional.
+- activity: Filter by activity type (e.g. 'created', 'updated', 'deleted'). Optional.
 - item_id: Filter by specific item ID. Optional.
 - user_email: Filter by the email of the user who made the change. Optional.
 - limit: Number of entries to return (1-50, default 20).

@@ -134,6 +134,10 @@ class ReadActivityLog(BaseModel):
         default=None,
         description="Filter by scope (e.g. 'FeatureFlag', 'Insight', 'Experiment', 'Dashboard').",
     )
+    activity: str | None = Field(
+        default=None,
+        description="Filter by activity type (e.g. 'created', 'updated', 'deleted').",
+    )
     item_id: str | None = Field(default=None, description="Filter by item ID.")
     user_email: str | None = Field(default=None, description="Filter by user email.")
     limit: int = Field(default=20, ge=1, le=50, description="Number of entries to return.")
@@ -273,7 +277,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not self._context_manager.check_has_audit_logs_access():
                     raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
                 return await self._read_activity_log(
-                    schema.scope, schema.item_id, schema.user_email, schema.limit
+                    schema.scope, schema.activity, schema.item_id, schema.user_email, schema.limit
                 ), None
 
     async def _read_insight(
@@ -552,6 +556,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_activity_log(
         self,
         scope: str | None,
+        activity: str | None,
         item_id: str | None,
         user_email: str | None,
         limit: int,
@@ -559,6 +564,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         context = ActivityLogContext(team=self._team, user=self._user)
         return await context.fetch_and_format(
             scope=scope,
+            activity=activity,
             item_id=item_id,
             user_email=user_email,
             limit=limit,
