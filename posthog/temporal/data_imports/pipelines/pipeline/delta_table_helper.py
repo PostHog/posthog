@@ -127,6 +127,13 @@ class DeltaTableHelper:
         await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
 
+    async def get_file_uris(self) -> list[str]:
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return []
+
+        return await asyncio.to_thread(delta_table.file_uris)
+
     async def write_to_deltalake(
         self,
         data: pa.Table,

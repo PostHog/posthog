@@ -272,7 +272,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
     ):
         delta_table = await self._delta_table_helper.get_delta_table()
-        previous_file_uris = delta_table.file_uris() if delta_table else []
+        previous_file_uris = await self._delta_table_helper.get_file_uris()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
@@ -343,9 +343,11 @@ class PipelineNonDLT(Generic[ResumableData]):
         # available to start using
         # TODO - enable this for all source types
         if is_first_ever_sync and supports_partial_data_loading(self._schema):
+            file_uris = await self._delta_table_helper.get_file_uris()
+
             await self._process_partial_data(
                 previous_file_uris=previous_file_uris,
-                file_uris=delta_table.file_uris(),
+                file_uris=file_uris,
                 row_count=row_count,
                 chunk_index=index,
             )
@@ -411,7 +413,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             capture_exception(e)
             await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
 
-        file_uris = delta_table.file_uris()
+        file_uris = await self._delta_table_helper.get_file_uris()
         await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
 
         folder_path = await database_sync_to_async(self._job.folder_path)()
