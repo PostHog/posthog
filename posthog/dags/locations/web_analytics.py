@@ -5,6 +5,7 @@ from posthog.settings import TEST
 from products.web_analytics.dags import (
     cache_favicons,
     cache_warming,
+    web_analytics_watchdog,
     web_pre_aggregated_accuracy,
     web_preaggregated,
     web_preaggregated_asset_checks,
@@ -22,6 +23,7 @@ schedules = [
     web_preaggregated.web_pre_aggregate_historical_schedule,
     web_preaggregated.web_pre_aggregate_current_day_schedule,
     cache_warming.web_analytics_cache_warming_schedule,
+    web_analytics_watchdog.web_analytics_watchdog_schedule,
 ]
 
 # Only include the backfill schedule when not in TEST mode
@@ -42,6 +44,7 @@ defs = dagster.Definitions(
         web_preaggregated.web_pre_aggregated_bounces,
         web_preaggregated.web_pre_aggregated_stats,
         web_pre_aggregated_accuracy.web_pre_aggregated_accuracy,
+        web_analytics_watchdog.web_analytics_watchdog,
         cache_favicons.cache_favicons,
     ],
     asset_checks=[
@@ -52,6 +55,7 @@ defs = dagster.Definitions(
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated.web_pre_aggregate_job,
+        web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
     ],
     schedules=schedules,
