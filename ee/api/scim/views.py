@@ -79,8 +79,9 @@ class SCIMBaseView(APIView):
             payload = drf_request.data
             if payload is not None:
                 log_data["payload"] = mask_scim_payload(payload)
-        if drf_request.GET.get("filter"):
-            log_data["filter"] = mask_scim_filter(drf_request.GET.get("filter"))
+        filter_param = drf_request.GET.get("filter")
+        if filter_param:
+            log_data["filter"] = mask_scim_filter(filter_param)
 
         logger.info("scim_request", **log_data)
 
