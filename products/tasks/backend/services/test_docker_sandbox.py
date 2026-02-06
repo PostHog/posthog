@@ -146,15 +146,19 @@ class TestDockerSandboxUnit:
         assert result.stderr == ""
 
     @pytest.mark.parametrize(
-        "task_id,run_id,repo_path,expected_quoted",
+        "task_id,run_id,repo_path",
         [
-            ("task-123", "run-456", "/tmp/workspace/repos/org/repo", True),
-            ("task; echo hacked", "run-789", "/tmp/workspace/repos/org/repo", True),
-            ("task-abc", "run; rm -rf /", "/tmp/workspace/repos/org/repo", True),
-            ("task-xyz", "run-123", "/tmp/workspace/repos/org'; echo hacked; echo '/repo", True),
+            ("task-123", "run-456", "/tmp/workspace/repos/org/repo"),
+            ("task; echo hacked", "run-789", "/tmp/workspace/repos/org/repo"),
+            ("task-abc", "run; rm -rf /", "/tmp/workspace/repos/org/repo"),
+            ("task-xyz", "run-123", "/tmp/workspace/repos/org'; echo hacked; echo '/repo"),
+            ("task$(whoami)", "run-123", "/tmp/workspace/repos/org/repo"),
+            ("task-123", "run`id`", "/tmp/workspace/repos/org/repo"),
         ],
     )
-    def test_task_command_shell_injection_prevention(self, task_id, run_id, repo_path, expected_quoted):
+    def test_task_command_shell_injection_prevention(self, task_id, run_id, repo_path):
+        import shlex
+
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -162,18 +166,24 @@ class TestDockerSandboxUnit:
 
         command = sandbox._get_task_command(task_id, run_id, repo_path, create_pr=True)
 
-        if ";" in task_id or ";" in run_id or "'" in repo_path:
-            assert "'" in command
-            assert task_id in command or task_id.replace("'", "'\\''") in command
+        assert shlex.quote(task_id) in command
+        assert shlex.quote(run_id) in command
+        assert shlex.quote(repo_path) in command
 
     @pytest.mark.parametrize(
-        "repository,expected_org,expected_repo",
+        "repository",
         [
-            ("PostHog/posthog", "posthog", "posthog"),
-            ("org/repo-name", "org", "repo-name"),
+            "PostHog/posthog",
+            "org/repo-name",
+            "org/repo; echo hacked",
+            "org/repo$(whoami)",
+            "org'/repo",
+            "org/repo`id`",
         ],
     )
-    def test_clone_repository_command_escaping(self, repository, expected_org, expected_repo):
+    def test_clone_repository_command_escaping(self, repository):
+        import shlex
+
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -185,8 +195,13 @@ class TestDockerSandboxUnit:
                 call_args = mock_execute.call_args
                 command = call_args[0][0]
 
-                assert expected_org in command
-                assert expected_repo in command
+                org, repo = repository.lower().split("/")
+                target_path = f"/tmp/workspace/repos/{org}/{repo}"
+                org_path = f"/tmp/workspace/repos/{org}"
+
+                assert shlex.quote(target_path) in command
+                assert shlex.quote(org_path) in command
+                assert shlex.quote(repo) in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
