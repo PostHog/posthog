@@ -3943,7 +3943,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
@@ -3988,17 +3988,17 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -4061,7 +4061,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4137,7 +4137,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4213,7 +4213,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4289,7 +4289,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4368,7 +4368,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
@@ -4413,17 +4413,17 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -4489,7 +4489,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
@@ -4534,17 +4534,17 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -4607,7 +4607,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4683,7 +4683,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4759,7 +4759,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4835,7 +4835,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -4914,7 +4914,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
@@ -4959,17 +4959,17 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -5035,7 +5035,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
@@ -5080,17 +5080,17 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -5153,7 +5153,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -5229,7 +5229,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -5305,7 +5305,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -5381,7 +5381,7 @@
      GROUP BY funnel_actors.actor_id
      ORDER BY funnel_actors.actor_id ASC) AS source
   ORDER BY source.actor_id ASC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
                     join_algorithm='auto',
                     readonly=2,
@@ -5460,7 +5460,7 @@
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
   HAVING notIn((aggregation_target_with_props.prop).1, [])
-  LIMIT 100
+  LIMIT 2000
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
          countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
@@ -5505,16 +5505,16 @@
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
