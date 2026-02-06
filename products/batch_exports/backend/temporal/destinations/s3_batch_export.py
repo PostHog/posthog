@@ -38,6 +38,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
+from products.batch_exports.backend.temporal.memory_profiler import aggressive_cleanup, log_memory_status
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -313,6 +314,8 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         data_interval_end=inputs.data_interval_end,
     )
 
+    log_memory_status("s3_activity_start")
+
     if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
         raise UnsupportedFileFormatError(inputs.file_format)
     if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
@@ -383,13 +386,26 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        return await run_consumer_from_stage(
-            queue=queue,
-            consumer=consumer,
-            producer_task=producer_task,
-            transformer=transformer,
-            json_columns=json_columns,
-        )
+        try:
+            result = await run_consumer_from_stage(
+                queue=queue,
+                consumer=consumer,
+                producer_task=producer_task,
+                transformer=transformer,
+                json_columns=json_columns,
+            )
+            return result
+        finally:
+            # Log memory after processing and perform aggressive cleanup
+            log_memory_status("s3_activity_after_consumer")
+            cleanup_stats = aggressive_cleanup()
+            log_memory_status("s3_activity_after_cleanup")
+            external_logger.info(
+                "Memory cleanup completed",
+                rss_freed_mb=cleanup_stats["rss_freed_mb"],
+                pa_bytes_freed=cleanup_stats["pa_bytes_freed"],
+                malloc_trimmed=cleanup_stats["malloc_trimmed"],
+            )
 
 
 class ConcurrentS3Consumer(Consumer):
