@@ -211,17 +211,24 @@ jobs:
                   "
 
             - name: Seed test data
-              run: python manage.py setup_dev --no-data
+              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 
-            - name: Extract test org and project IDs
+            - name: Create API key and extract test IDs
               run: |
                   python -c "
                   import django, os
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
-                  from posthog.models import Organization, Team
+                  from posthog.models import Organization, Team, User
+                  from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
                   org = Organization.objects.first()
                   team = Team.objects.first()
+                  user = User.objects.first()
+                  PersonalAPIKey.objects.create(
+                      user=user,
+                      label='mcp_ci_api_key',
+                      secure_value=hash_key_value('e2e_demo_api_key'),
+                  )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
