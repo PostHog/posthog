@@ -1135,6 +1135,21 @@ def create_backfill(
     Returns:
         The backfill workflow ID
     """
+    if start_at_input is None:
+        if not posthoganalytics.feature_enabled(
+            "batch-export-earliest-backfill",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        ):
+            raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
     temporal = sync_connect()
 
     if start_at_input is not None:
