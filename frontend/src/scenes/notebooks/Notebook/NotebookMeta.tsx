@@ -5,10 +5,12 @@ import { IconBook, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
@@ -87,10 +89,30 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
     ) : null
 }
 
-export const NotebookExpandButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
+interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
+    inPanel: boolean
+}
+
+export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { setIsExpanded } = useActions(notebookSettingsLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
+    if (isRemovingSidePanelFlag && props.inPanel) {
+        return (
+            <ButtonPrimitive
+                onClick={() => setIsExpanded(!isExpanded)}
+                iconOnly
+                tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+                tooltipPlacement="left"
+            >
+                <IconDocumentExpand
+                    className="text-tertiary size-4 group-hover:text-primary z-10"
+                    mode={isExpanded ? 'expand' : 'collapse'}
+                />
+            </ButtonPrimitive>
+        )
+    }
     return (
         <LemonButton
             {...props}

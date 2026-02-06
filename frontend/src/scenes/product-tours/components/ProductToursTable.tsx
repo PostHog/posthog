@@ -23,7 +23,7 @@ import {
     productToursLogic,
 } from '../productToursLogic'
 
-function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
+export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
     const status = getProductTourStatus(tour)
 
     const statusConfig: Record<

@@ -1,8 +1,8 @@
 # Migration container for running Rust-based database migrations
 # Supports persons, behavioral cohorts, cyclotron migrations
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.91-bookworm AS builder
 
-RUN cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+RUN cargo install sqlx-cli --version 0.8.0 --features native-tls,postgres --no-default-features --locked
 
 FROM debian:bookworm-slim
 
@@ -11,6 +11,7 @@ RUN apt-get update && \
     ca-certificates \
     libpq5 \
     postgresql-client \
+    libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx

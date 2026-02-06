@@ -1,11 +1,10 @@
 from typing import TYPE_CHECKING
 
-from django.conf import settings
-
 from structlog import get_logger
 
+from posthog.email import EmailMessage, is_email_available
 from posthog.models import User
-from posthog.models.instance_setting import get_instance_setting
+from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.approvals.models import Approval, ChangeRequest
@@ -13,9 +12,69 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _get_user_display_name(user: User | None, fallback: str = "A team member") -> str:
+    """Get display name for a user, falling back to email or default."""
+    if not user:
+        return fallback
+    return user.get_full_name() or user.email
+
+
+def _build_change_request_url(change_request: "ChangeRequest") -> str:
+    """Build the absolute URL to view a change request."""
+    return absolute_uri(f"/project/{change_request.team.project_id}/approvals/{change_request.id}")
+
+
+def _send_approval_email(
+    recipient: User,
+    template_name: str,
+    subject: str,
+    change_request: "ChangeRequest",
+    extra_context: dict | None = None,
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        logger.info(
+            "notifications.email_skipped.email_not_available",
+            recipient_id=recipient.id,
+            template=template_name,
+        )
+        return
+
+    change_request_url = _build_change_request_url(change_request)
+    campaign_key = f"approval_{template_name}_{change_request.id}_{recipient.id}"
+
+    template_context = {
+        "change_request_url": change_request_url,
+        "team_name": change_request.team.name,
+    }
+    if extra_context:
+        template_context.update(extra_context)
+
+    try:
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            template_name=template_name,
+            subject=subject,
+            template_context=template_context,
+            use_http=True,
+        )
+        message.add_user_recipient(recipient)
+        message.send(send_async=True)
+
+    except Exception as e:
+        logger.exception(
+            "notifications.email_error",
+            recipient_id=recipient.id,
+            template=template_name,
+            change_request_id=str(change_request.id),
+            error=str(e),
+        )
+        raise
+
+
 def send_approval_requested_notification(change_request: "ChangeRequest") -> None:
     """
     Notify approvers that a new change request requires their approval.
+    Sends one email per approver for granular retry.
     """
     policy = change_request.get_policy()
     if not policy:
@@ -26,20 +85,24 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
         return
 
     approver_ids = policy.get_approver_user_ids()
+    if not approver_ids:
+        logger.info(
+            "send_approval_requested_notification.no_approvers",
+            change_request_id=str(change_request.id),
+        )
+        return
+
     approvers = User.objects.filter(id__in=approver_ids)
+    requester_name = _get_user_display_name(change_request.created_by)
 
     for approver in approvers:
         try:
-            _send_email(
+            _send_approval_email(
                 recipient=approver,
-                subject=f"Approval required: {change_request.action_key}",
-                template="approval_requested",
-                context={
-                    "change_request": change_request,
-                    "approver": approver,
-                    "requester": change_request.created_by,
-                    "team": change_request.team,
-                },
+                template_name="approval_requested",
+                subject=f"{requester_name} needs your sign-off",
+                change_request=change_request,
+                extra_context={"requester_name": requester_name},
             )
         except Exception as e:
             logger.exception(
@@ -57,21 +120,25 @@ def send_approval_decision_notification(
     """
     Notify the requester that their change request was approved or rejected.
     """
+    if not change_request.created_by:
+        logger.info(
+            "send_approval_decision_notification.no_requester",
+            change_request_id=str(change_request.id),
+        )
+        return
+
+    is_approved = approval.decision == "approved"
+    template_name = "approval_approved" if is_approved else "approval_rejected"
+    approver_name = _get_user_display_name(approval.created_by, fallback="Someone")
+    subject = f"{approver_name} approved your change" if is_approved else "Your change request was declined"
+
     try:
-        if not change_request.created_by:
-            return
-        decision = "approved" if approval.decision == "approved" else "rejected"
-        _send_email(
+        _send_approval_email(
             recipient=change_request.created_by,
-            subject=f"Your change request was {decision}: {change_request.action_key}",
-            template=f"approval_{decision}",
-            context={
-                "change_request": change_request,
-                "approval": approval,
-                "requester": change_request.created_by,
-                "approver": approval.created_by,
-                "team": change_request.team,
-            },
+            template_name=template_name,
+            subject=subject,
+            change_request=change_request,
+            extra_context={"approver_name": approver_name},
         )
     except Exception as e:
         logger.exception(
@@ -86,18 +153,19 @@ def send_approval_expired_notification(change_request: "ChangeRequest") -> None:
     """
     Notify the requester that their change request has expired.
     """
+    if not change_request.created_by:
+        logger.info(
+            "send_approval_expired_notification.no_requester",
+            change_request_id=str(change_request.id),
+        )
+        return
+
     try:
-        if not change_request.created_by:
-            return
-        _send_email(
+        _send_approval_email(
             recipient=change_request.created_by,
-            subject=f"Your change request expired: {change_request.action_key}",
-            template="approval_expired",
-            context={
-                "change_request": change_request,
-                "requester": change_request.created_by,
-                "team": change_request.team,
-            },
+            template_name="approval_expired",
+            subject="Your change request timed out",
+            change_request=change_request,
         )
     except Exception as e:
         logger.exception(
@@ -113,16 +181,17 @@ def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
     """
     try:
         if not change_request.created_by:
+            logger.info(
+                "send_approval_applied_notification.no_requester",
+                change_request_id=str(change_request.id),
+            )
             return
-        _send_email(
+
+        _send_approval_email(
             recipient=change_request.created_by,
-            subject=f"Your change request was applied: {change_request.action_key}",
-            template="approval_applied",
-            context={
-                "change_request": change_request,
-                "requester": change_request.created_by,
-                "team": change_request.team,
-            },
+            template_name="approval_applied",
+            subject="Your change is live! 🎉",
+            change_request=change_request,
         )
     except Exception as e:
         logger.exception(
@@ -130,36 +199,3 @@ def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
             change_request_id=str(change_request.id),
             error=str(e),
         )
-
-
-def _send_email(
-    recipient: User,
-    subject: str,
-    template: str,
-    context: dict,
-) -> None:
-    """
-    Send an email using PostHog's email infrastructure.
-    For now, this is a placeholder - actual implementation would use
-    PostHog's messaging system or email backend.
-    """
-    email_enabled = get_instance_setting("EMAIL_ENABLED")
-
-    if settings.TEST or not email_enabled:
-        logger.info(
-            "notifications.email_skipped",
-            recipient_id=recipient.id,
-            subject=subject,
-            template=template,
-        )
-        return
-
-    # TODO: Integrate with PostHog's email system
-    # This would use the messaging system or direct email backend
-    logger.info(
-        "notifications.email_sent",
-        recipient_id=recipient.id,
-        recipient_email=recipient.email,
-        subject=subject,
-        template=template,
-    )

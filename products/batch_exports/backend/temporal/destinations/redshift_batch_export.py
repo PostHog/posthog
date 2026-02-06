@@ -133,10 +133,12 @@ class StringLimitExceededError(Exception):
         else:
             msg = f"A column "
 
-        msg += f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported"
+        msg += (
+            f"in '{schema}.{table}' exceeds Redshift's string limit and cannot be exported."
+            " The 'json_parse_truncate_strings' setting can be enabled in Redshift to"
+            " automatically truncate strings to the maximum limit."
+        )
 
-        if column in {"properties", "set", "set_once", "person_properties"}:
-            msg += ". Consider switching this column to 'SUPER' type which can support longer documents compared to 'VARCHAR'"
         super().__init__(msg)
 
 
@@ -244,6 +246,7 @@ class RedshiftClient(PostgreSQLClient):
         final_table_fields: Fields,
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
         remove_duplicates: bool = True,
+        skip_delete: bool = False,
     ) -> None:
         """Merge two tables in Redshift.
 
@@ -352,11 +355,19 @@ class RedshiftClient(PostgreSQLClient):
                 """
             ).format(update_values=update_values, insert_values=insert_values)
 
+        # This means the default is to not lock, even if we can't get the isolation level.
+        isolation_level = await self.aget_isolation_level()
+        needs_lock = isolation_level == "SERIALIZABLE"
+
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
-                await cursor.execute(sql.SQL("LOCK TABLE {final_table}").format(final_table=final_table_identifier))
+                if needs_lock:
+                    await cursor.execute(sql.SQL("LOCK TABLE {final_table}").format(final_table=final_table_identifier))
+                    self.logger.info("Table locked")
+
                 try:
-                    await cursor.execute(delete_query)
+                    if not skip_delete:
+                        await cursor.execute(delete_query)
                 except psycopg.errors.UndefinedFunction:
                     self.logger.exception(
                         "Query failed",
@@ -394,6 +405,39 @@ class RedshiftClient(PostgreSQLClient):
                         raise StringLimitExceededError(column=None, schema=schema, table=final_table_name) from e
                     else:
                         raise
+
+    async def aget_isolation_level(self) -> typing.Literal["SERIALIZABLE", "SNAPSHOT", "UNKNOWN"]:
+        """Return the isolation level from the current database.
+
+        This method is safe in the sense that it will never raise: In case of any
+        issues, 'UNKNOWN' will be returned.
+        """
+        try:
+            async with self.connection.transaction():
+                async with self.connection.cursor() as cursor:
+                    await cursor.execute(
+                        sql.SQL("SELECT isolation_level FROM STV_DB_ISOLATION_LEVEL WHERE db_name = %s"),
+                        (self.database,),
+                    )
+                    row = await cursor.fetchone()
+
+        except Exception:
+            self.logger.exception("Check isolation level failed")
+            return "UNKNOWN"
+
+        else:
+            if not row:
+                return "UNKNOWN"
+
+            isolation_level = row[0]
+
+            match isolation_level.lower():
+                case "serializable":
+                    return "SERIALIZABLE"
+                case "snapshot isolation":
+                    return "SNAPSHOT"
+                case _:
+                    return "UNKNOWN"
 
     async def acopy_from_s3_bucket(
         self,
@@ -1578,6 +1622,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             update_key=merge_settings.update_key,
                             stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
                             remove_duplicates=remove_duplicates,
+                            skip_delete=isinstance(model, BatchExportModel)
+                            and model.name == "events"
+                            and str(inputs.batch_export.team_id) in settings.BATCH_EXPORT_REDSHIFT_SKIP_DELETE_TEAM_IDS,
                         )
 
                     external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")

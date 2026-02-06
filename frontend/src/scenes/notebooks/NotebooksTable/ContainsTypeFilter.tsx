@@ -25,6 +25,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
     [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.DuckSQL]: 'SQL (duckdb)',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',

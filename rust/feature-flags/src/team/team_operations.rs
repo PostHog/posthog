@@ -22,6 +22,7 @@ const TEAM_COLUMNS: &str = "
     session_recording_opt_in,
     inject_web_apps,
     surveys_opt_in,
+    product_tours_opt_in,
     heatmaps_opt_in,
     conversations_enabled,
     conversations_settings,

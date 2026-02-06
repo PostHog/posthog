@@ -263,7 +263,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
             if (isDataVisualizationNode(query)) {
-                router.actions.push(urls.sqlEditor(query.source.query))
+                router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
                 actions.setQuery({
                     ...query,

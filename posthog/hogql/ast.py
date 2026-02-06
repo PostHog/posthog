@@ -30,6 +30,14 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 
 @dataclass(kw_only=True)
+class TypeCast(Expr):
+    """A type cast expression."""
+
+    expr: Expr
+    type_name: str
+
+
+@dataclass(kw_only=True)
 class Declaration(AST):
     pass
 

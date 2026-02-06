@@ -24,6 +24,7 @@ from django.views.decorators.http import require_http_methods
 
 import structlog
 
+from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
@@ -37,6 +38,7 @@ from posthog.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
@@ -88,7 +90,7 @@ def login_required(view):
                 del search_params["next"]
                 response["Location"] = urlunparse(parsed_url._replace(query=urlencode(search_params)))
 
-        return response
+        return apply_auth_brand_cookie(request, response)
 
     return handler
 
@@ -196,6 +198,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "object_storage": is_cloud() or is_object_storage_available(),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
+    auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
+    if auth_brand:
+        response["auth_brand"] = auth_brand
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
@@ -434,6 +439,14 @@ def api_key_search_view(request: HttpRequest):
         except Team.DoesNotExist:
             pass
 
+    oauth_access_token_object = None
+    if query is not None and query.startswith("pha_"):
+        oauth_access_token_object = find_oauth_access_token(query)
+
+    oauth_refresh_token_object = None
+    if query is not None and query.startswith("phr_"):
+        oauth_refresh_token_object = find_oauth_refresh_token(query)
+
     context = {
         **admin_site.each_context(request),
         **{
@@ -443,6 +456,8 @@ def api_key_search_view(request: HttpRequest):
             "personal_api_key_hash_mode": personal_api_key_hash_mode,
             "team_object": team_object,
             "team_object_key_type": team_object_key_type,
+            "oauth_access_token_object": oauth_access_token_object,
+            "oauth_refresh_token_object": oauth_refresh_token_object,
         },
     }
 

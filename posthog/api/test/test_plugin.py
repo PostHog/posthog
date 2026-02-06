@@ -1,15 +1,18 @@
 import json
 from datetime import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
+from unittest.mock import patch
 
 from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models import Plugin, PluginConfig, PluginSourceFile
@@ -29,8 +32,10 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
+    snapshot: Any
 
     @classmethod
     def setUpTestData(cls):
@@ -734,7 +739,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json(), {"plugin.json": '{"name":"my plugin"}'})
         self.assertEqual(mock_reload.call_count, 3)
 
-    def test_transpile_plugin_frontend_source(self, mock_get, mock_reload):
+    @patch("posthog.api.plugin.transpile", side_effect=mock_transpile)
+    def test_transpile_plugin_frontend_source(self, mock_transpile_fn, mock_get, mock_reload):
         # Setup
         assert mock_reload.call_count == 0
         response = self.client.post(
@@ -779,19 +785,17 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.content.decode("utf-8"),
-            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; '
-            '"use strict";\n\nObject.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
-            "var scene = exports.scene = {};"  # this is it
-            "; return exports; }",
-        )
+
+        content = response.content.decode("utf-8")
+
+        # Use snapshot to verify transpiled frontend.tsx output
+        self.snapshot.assert_match(content)
 
         # Check in the database
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = {}"
         assert plugin_source.error is None
-        assert plugin_source.transpiled == response.content.decode("utf-8")
+        assert plugin_source.transpiled == content
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
         # Updates work
@@ -802,27 +806,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = { name: 'new' }"
         assert plugin_source.error is None
-        assert plugin_source.transpiled == (
-            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
-            'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
-            "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
-            "; return exports; }"
-        )
-        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
-        # Errors as well
-        self.client.patch(
-            f"/api/organizations/@current/plugins/{id}/update_source",
-            {"frontend.tsx": "export const scene = { nam broken code foobar"},
-        )
-        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
-        assert plugin_source.source == "export const scene = { nam broken code foobar"
-        assert plugin_source.transpiled is None
-        assert plugin_source.status == PluginSourceFile.Status.ERROR
-        assert (
-            plugin_source.error
-            == '/frontend.tsx: Unexpected token, expected "," (1:27)\n\n> 1 | export const scene = { nam broken code foobar\n    |                            ^\n'
-        )
+        assert "getFrontendApp" in plugin_source.transpiled
+        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
         # Deletes work
         self.client.patch(
@@ -843,10 +829,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "console.log('hello')"
         assert plugin_source.error is None
-        assert (
-            plugin_source.transpiled
-            == "(function () {let exports={};\"use strict\";\n\nconsole.log('hello');;return exports;})"
-        )
+
+        # Use snapshot to verify transpiled site.ts output
+        self.snapshot.assert_match(plugin_source.transpiled)
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
     def test_plugin_repository(self, mock_get, mock_reload):

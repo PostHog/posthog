@@ -8,8 +8,29 @@ import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
+import { getCustomIcon } from './customIconRegistry'
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
+
+// Hardcoded category order - categories not in this list will be sorted alphabetically after these
+export const CATEGORY_ORDER = ['Analytics', 'AI Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
+
+export function getCategoryOrder(category: string | undefined): number {
+    if (!category) {
+        return CATEGORY_ORDER.length
+    }
+    const index = CATEGORY_ORDER.indexOf(category)
+    return index === -1 ? CATEGORY_ORDER.length : index
+}
+
+// Define the order of categories in the data management panel
+const DATA_MANAGEMENT_PANEL_ORDER: Record<string, number> = {
+    Pipeline: 1,
+    Schema: 2,
+    Tools: 3,
+    Metadata: 4,
+    Unreleased: 5,
+}
 
 export interface ConvertProps {
     imports: (FileSystemImport | FileSystemEntry)[]
@@ -104,7 +125,13 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
-        const icon = iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+        // Check for custom icon component first (e.g., badges), then fall back to static icon
+        const CustomIcon = getCustomIcon(item.type)
+        const icon = CustomIcon ? (
+            <CustomIcon />
+        ) : (
+            iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+        )
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
@@ -260,8 +287,23 @@ export function convertFileSystemEntryToTreeDataItem({
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
-            // If they have a category, sort by that
+            // If they have a category, sort by hardcoded category order
             if (a.record?.category && b.record?.category && a.record.category !== b.record.category) {
+                // Use custom category order for the data management panel
+                if (root === 'data://') {
+                    const orderA = DATA_MANAGEMENT_PANEL_ORDER[a.record.category] ?? 999
+                    const orderB = DATA_MANAGEMENT_PANEL_ORDER[b.record.category] ?? 999
+                    return orderA - orderB
+                }
+
+                // Attempt to sort based on the category order
+                const orderA = getCategoryOrder(a.record.category)
+                const orderB = getCategoryOrder(b.record.category)
+                if (orderA !== orderB) {
+                    return orderA - orderB
+                }
+
+                // Else, use alphabetical sorting
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 
@@ -439,7 +481,20 @@ export function appendResultsToFolders(
     // Append search results into the loaded state to persist data and help with multi-selection between panels
     const newState: Record<string, FileSystemEntry[]> = { ...folders }
     const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
+
+    // Track IDs we've already processed to avoid duplicates within the incoming results
+    const processedIds = new Set<string>()
+
     for (const result of newResults) {
+        // Skip items without IDs or that we've already processed in this batch
+        if (!result.id) {
+            continue
+        }
+        if (processedIds.has(result.id)) {
+            continue
+        }
+        processedIds.add(result.id)
+
         const folder = joinPath(splitPath(result.path).slice(0, -1))
         if (newState[folder]) {
             const existingItem = newState[folder].find((item) => item.id === result.id)

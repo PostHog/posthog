@@ -11,9 +11,8 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
+from .experiment_summary_data_service import ExperimentSummaryDataService
 from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
-
-MAX_METRICS_TO_SUMMARIZE = 20
 
 
 class CreateExperimentArgs(BaseModel):
@@ -164,20 +163,25 @@ Examples:
 class ExperimentSummaryArgs(BaseModel):
     """
     Analyze experiment results to generate an executive summary with key insights and recommendations.
-    All experiment data and results are automatically provided from context.
+    The tool fetches experiment data directly from the backend using the experiment ID.
     """
+
+    experiment_id: int = Field(description="The ID of the experiment to summarize")
 
 
 class ExperimentSummaryOutput(BaseModel):
     """Structured output for experiment summary"""
 
     key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=20)
+    freshness_warning: str | None = Field(default=None, description="Warning if data has been updated since page load")
 
 
 EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = """
 Use this tool to analyze experiment results and generate an executive summary with key insights and recommendations.
 The tool processes experiment data including metrics, statistical significance, and variant performance to provide actionable insights.
 It works with both Bayesian and Frequentist statistical methods and automatically adapts to the experiment's configuration.
+
+**Important:** When presenting results to the user, include any data freshness notices from the tool output. These notices inform the user if the data has been updated since they loaded the page.
 
 # Examples of when to use the experiment_results_summary tool
 
@@ -218,6 +222,9 @@ class ExperimentSummaryTool(MaxTool):
 
     def get_required_resource_access(self):
         return [("experiment", "viewer")]
+
+    def _data_service(self) -> "ExperimentSummaryDataService":
+        return ExperimentSummaryDataService(self._team)
 
     async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:
         """Analyze experiment and generate summary."""
@@ -299,6 +306,10 @@ class ExperimentSummaryTool(MaxTool):
             lines.append(f"\n{section_name}:")
             for metric in metrics:
                 lines.append(f"\nMetric: {metric.name}")
+                if metric.goal:
+                    # Handle enum and string goal representations
+                    goal_str = metric.goal.value if hasattr(metric.goal, "value") else str(metric.goal)
+                    lines.append(f"  Goal: {goal_str.title()}")
 
                 if not metric.variant_results:
                     continue
@@ -314,6 +325,9 @@ class ExperimentSummaryTool(MaxTool):
                             ci_low, ci_high = variant.credible_interval[:2]
                             lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
+
                         lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
                     else:
                         if hasattr(variant, "p_value") and variant.p_value is not None:
@@ -322,6 +336,9 @@ class ExperimentSummaryTool(MaxTool):
                         if hasattr(variant, "confidence_interval") and variant.confidence_interval:
                             ci_low, ci_high = variant.confidence_interval[:2]
                             lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
+
+                        if hasattr(variant, "delta") and variant.delta is not None:
+                            lines.append(f"    Delta (effect size): {variant.delta:.1%}")
 
                         lines.append(f"    Significant: {'Yes' if variant.significant else 'No'}")
 
@@ -333,6 +350,13 @@ class ExperimentSummaryTool(MaxTool):
     def _format_summary_for_user(self, summary: ExperimentSummaryOutput, experiment_name: str) -> str:
         """Format the structured summary into a user-friendly message."""
         lines = []
+
+        if summary.freshness_warning:
+            lines.append("[IMPORTANT: Include this data freshness notice when presenting results to the user]")
+            lines.append(summary.freshness_warning)
+            lines.append("[End of notice]")
+            lines.append("")
+
         lines.append(f"✅ **Experiment Summary: '{experiment_name}'**")
 
         if summary.key_metrics:
@@ -342,47 +366,60 @@ class ExperimentSummaryTool(MaxTool):
 
         return "\n".join(lines)
 
-    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(
+        self,
+        experiment_id: int,
+    ) -> tuple[str, dict[str, Any]]:
+        # Get frontend_last_refresh from the tool's registered context (set by frontend)
+        frontend_last_refresh = self.context.get("frontend_last_refresh")
+
         try:
+            # Fetch experiment data from the backend
             try:
-                validated_context = MaxExperimentSummaryContext(**self.context)
-            except Exception as e:
-                error_details = str(e)
-                error_context = {
-                    "error": "invalid_context",
-                    "details": error_details,
-                }
-
-                if hasattr(e, "__cause__") and e.__cause__:
-                    error_context["validation_cause"] = str(e.__cause__)
-
-                capture_exception(
-                    e,
-                    properties={
-                        "team_id": self._team.id,
-                        "user_id": self._user.id,
-                        "context_keys": list(self.context.keys()) if isinstance(self.context, dict) else None,
-                        "experiment_id": self.context.get("experiment_id") if isinstance(self.context, dict) else None,
-                    },
+                data_service = self._data_service()
+                context, backend_last_refresh, pending_calculation = await data_service.fetch_experiment_data(
+                    experiment_id
                 )
+            except ValueError as e:
+                return f"❌ {str(e)}", {"error": "fetch_failed", "details": str(e)}
 
-                return f"❌ Invalid experiment context: {error_details}", error_context
-
-            if not validated_context.primary_metrics_results and not validated_context.secondary_metrics_results:
-                return "❌ No experiment results to analyze", {
-                    "error": "no_results",
-                    "details": "No metrics results provided in context",
+            if pending_calculation:
+                return "⏳ Experiment results are still computing. Please try again in a minute.", {
+                    "error": "results_pending",
+                    "experiment_id": experiment_id,
                 }
 
-            summary_result = await self._analyze_experiment(validated_context)
-            user_message = self._format_summary_for_user(summary_result, validated_context.experiment_name)
+            if not context.primary_metrics_results and not context.secondary_metrics_results:
+                return "❌ No experiment results to analyze. The experiment may not have collected enough data yet.", {
+                    "error": "no_results",
+                    "experiment_id": experiment_id,
+                }
+
+            # Analyze the experiment
+            summary_result = await self._analyze_experiment(context)
+
+            # Add freshness warning if applicable
+            freshness_warning = self._data_service().check_data_freshness(frontend_last_refresh, backend_last_refresh)
+            if freshness_warning:
+                summary_result.freshness_warning = freshness_warning
+
+            user_message = self._format_summary_for_user(summary_result, context.experiment_name)
 
             return user_message, {
-                "experiment_id": validated_context.experiment_id,
-                "experiment_name": validated_context.experiment_name,
+                "experiment_id": context.experiment_id,
+                "experiment_name": context.experiment_name,
                 "summary": summary_result.model_dump(),
+                "data_refreshed_at": backend_last_refresh.isoformat() if backend_last_refresh else None,
+                "freshness_warning": freshness_warning,
             }
 
         except Exception as e:
-            capture_exception(e, properties={"team_id": self._team.id, "user_id": self._user.id})
+            capture_exception(
+                e,
+                properties={
+                    "team_id": self._team.id,
+                    "user_id": self._user.id,
+                    "experiment_id": experiment_id,
+                },
+            )
             return f"❌ Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}

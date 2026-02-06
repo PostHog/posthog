@@ -62,6 +62,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # conditional
     "if": HogQLFunctionMeta("if", 3, 3, case_sensitive=False),
     "multiIf": HogQLFunctionMeta("multiIf", 3, None),
+    "throwIf": HogQLFunctionMeta("throwIf", 2, 2),
     # maps
     "map": HogQLFunctionMeta("map", 0, None),
     "mapFromArrays": HogQLFunctionMeta("mapFromArrays", 2, 2),

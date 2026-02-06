@@ -58,6 +58,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Install python dependencies
@@ -67,11 +68,15 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: cargo
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
@@ -83,7 +88,7 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval/ci -vv
+              run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml
               env:
                   EVAL_MODE: ci
                   EXPORT_EVAL_RESULTS: true
@@ -104,3 +109,9 @@ jobs:
                       const fs = require("fs")
                       const script = require('.github/scripts/post-eval-summary.js')
                       script({ github, context, fs })
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-ai-evals
+                  path: junit.xml

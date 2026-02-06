@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "PropertyDefinition",
     "Notebook",
     "Endpoint",
+    "EndpointVersion",
     "Dashboard",
     "Replay",
     "Experiment",
@@ -76,6 +77,7 @@ ActivityScope = Literal[
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
+    "ProductTour",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -319,7 +321,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "text_content",
     ],
     "FeatureFlag": [
-        "is_simple_flag",
         "experiment",
         "featureflagoverride",
         "usage_dashboard",
@@ -411,6 +412,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "deleted_name",
     ],
     "Endpoint": [
+        "saved_query",
+        "current_version",
+    ],
+    "EndpointVersion": [
         "saved_query",
     ],
     "Organization": [

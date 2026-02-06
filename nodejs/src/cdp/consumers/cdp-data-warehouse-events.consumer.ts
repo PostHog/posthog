@@ -209,6 +209,9 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
 
         const triggeredInvocationsMetrics: MinimalAppMetric[] = []
 
+        // Track unique events that have been billed (billing is per-event, not per-destination)
+        const billedEventUuids = new Set<string>()
+
         notMaskedInvocations.forEach((item) => {
             triggeredInvocationsMetrics.push({
                 team_id: item.teamId,
@@ -218,14 +221,20 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase<CdpDatawareh
                 count: 1,
             })
 
+            // Bill once per triggering event, not per destination
             if (item.hogFunction.type === 'destination') {
-                triggeredInvocationsMetrics.push({
-                    team_id: item.teamId,
-                    app_source_id: item.functionId,
-                    metric_kind: 'billing',
-                    metric_name: 'billable_invocation',
-                    count: 1,
-                })
+                const eventUuid = item.state?.globals?.event?.uuid
+                if (eventUuid && !billedEventUuids.has(eventUuid)) {
+                    billedEventUuids.add(eventUuid)
+                    triggeredInvocationsMetrics.push({
+                        team_id: item.teamId,
+                        app_source_id: '_event_trigger',
+                        instance_id: eventUuid,
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        count: 1,
+                    })
+                }
             }
         })
 

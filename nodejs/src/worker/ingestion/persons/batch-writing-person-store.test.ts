@@ -741,6 +741,59 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback was attempted
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
+
+            it('should use individual updates when useBatchUpdates is false', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test'
+                )
+                await personStore.flush()
+
+                // Individual mode should call updatePerson, not updatePersonsBatch
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should retry individual updates on error when useBatchUpdates is false', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockKafkaProducer, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                    maxOptimisticUpdateRetries: 2,
+                    optimisticUpdateRetryInterval: 1,
+                })
+
+                // Mock updatePerson to fail twice then succeed
+                let callCount = 0
+                mockRepo.updatePerson = jest.fn().mockImplementation(() => {
+                    callCount++
+                    if (callCount <= 2) {
+                        return Promise.reject(new Error('Temporary error'))
+                    }
+                    return Promise.resolve([person, []])
+                })
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test'
+                )
+                await personStore.flush()
+
+                // Should have retried
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(3)
+                expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+            })
         })
 
         describe('flush with ASSERT_VERSION mode', () => {

@@ -271,6 +271,95 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][1], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_events_first_to_persons(self):
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            flush_persons_and_events()
+
+            response = execute_hogql_query(
+                "SELECT events.event, persons.properties.email "
+                "FROM events JOIN persons ON events.person_id = persons.id "
+                "WHERE events.event = 'pageview'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertTrue(len(response.results) >= 1)
+            self.assertEqual(response.results[0][0], "pageview")
+            self.assertEqual(response.results[0][1], "test@posthog.com")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_lazy_on_both_sides(self):
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                distinct_id="person1",
+                event="click",
+                team=self.team,
+                properties={"$browser": "Firefox"},
+            )
+            flush_persons_and_events()
+
+            response = execute_hogql_query(
+                "SELECT e1.event, e2.event "
+                "FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id "
+                "WHERE e1.event = 'pageview' AND e2.event = 'click'",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertEqual(len(response.results), 1)
+            self.assertEqual(response.results[0][0], "pageview")
+            self.assertEqual(response.results[0][1], "click")
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_joins_persons_to_events(self):
+        with freeze_time("2020-01-10"):
+            _create_person(
+                properties={"email": "test@posthog.com"},
+                team=self.team,
+                distinct_ids=["person1"],
+                is_identified=True,
+            )
+            _create_event(
+                distinct_id="person1",
+                event="pageview",
+                team=self.team,
+                timestamp="2020-01-09",
+            )
+            flush_persons_and_events()
+
+            response = execute_hogql_query(
+                "SELECT persons.id, events.event FROM persons JOIN events ON persons.id = events.person_id LIMIT 10",
+                self.team,
+                pretty=False,
+            )
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertEqual(len(response.results), 1)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_pdi_person(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
@@ -554,14 +643,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
-            response = execute_hogql_query(
-                "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
-                team=self.team,
-                pretty=False,
-            )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+            # Reverse join order (right table column before left table column in ON clause)
+            # is not supported with enable_analyzer=0. See PR #45000.
+            with self.assertRaises(InternalCHQueryError):
+                execute_hogql_query(
+                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
+                    team=self.team,
+                    pretty=False,
+                )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
@@ -599,14 +688,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
-            response = execute_hogql_query(
-                "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
-                team=self.team,
-                pretty=False,
-            )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
-            self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+            # Reverse join order (right table column before left table column in ON clause)
+            # is not supported with enable_analyzer=0. See PR #45000.
+            with self.assertRaises(InternalCHQueryError):
+                execute_hogql_query(
+                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
+                    team=self.team,
+                    pretty=False,
+                )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_lambdas(self):
@@ -1377,17 +1466,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
 
+        # Complex subqueries are not supported with `enable_analyzer=0` (see: https://github.com/PostHog/posthog/pull/45000)
         query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
-        response = execute_hogql_query(query, team=self.team)
-        self.assertEqual(
-            response.results,
-            [
-                (0,),
-                (1,),
-                (2,),
-                (3,),
-            ],
-        )
+        with self.assertRaises(InternalCHQueryError):
+            execute_hogql_query(query, team=self.team)
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
         response = execute_hogql_query(query, team=self.team)

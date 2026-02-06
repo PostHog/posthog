@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_SESSION_REPLAY_EVENTS, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
@@ -126,7 +126,7 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     return KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="kafka_session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
+        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, group=CONSUMER_GROUP_SESSION_REPLAY_EVENTS),
     )
 
 

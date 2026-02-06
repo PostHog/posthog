@@ -73,7 +73,10 @@ class Command(BaseCommand):
                 for op in operations:
                     sql = getattr(op, "_sql", None)
                     if options["print_sql"] and sql is not None:
-                        print(indent("\n\n".join(sql), "    "))
+                        if isinstance(sql, str):
+                            print(indent(sql, "    "))
+                        else:
+                            print(indent("\n\n".join(sql), "    "))
             applied = self.get_applied_migrations(database)
             if len(applied) > 0:
                 last = max(applied)

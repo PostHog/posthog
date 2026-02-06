@@ -32,7 +32,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         setPayloadEditorOpen,
         clearAllOverrides,
     } = useActions(flagsToolbarLogic)
-    const { apiURL, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
+    const { uiHost, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
     const { openPayloadEditors } = useValues(flagsToolbarLogic)
 
     useOnMountEffect(() => {
@@ -86,7 +86,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
-                                                to={`${apiURL}${
+                                                to={`${uiHost}${
                                                     feature_flag.id
                                                         ? urls.featureFlag(feature_flag.id)
                                                         : urls.featureFlags()

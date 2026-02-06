@@ -8,10 +8,18 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter'
+
+export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    gemini: 'Google Gemini',
+    openrouter: 'OpenRouter',
+}
 
 export interface LLMProviderKey {
     id: string
-    provider: 'openai'
+    provider: LLMProvider
     name: string
     state: LLMProviderKeyState
     error_message: string | null
@@ -38,10 +46,9 @@ export interface EvaluationConfig {
 }
 
 export interface CreateLLMProviderKeyPayload {
-    provider: 'openai'
+    provider: LLMProvider
     name: string
     api_key: string
-    set_as_active?: boolean
 }
 
 export interface UpdateLLMProviderKeyPayload {
@@ -54,6 +61,23 @@ export interface KeyValidationResult {
     error_message: string | null
 }
 
+export interface DependentEvaluation {
+    id: string
+    name: string
+    model_configuration_id: string
+}
+
+export interface AlternativeKey {
+    id: string
+    name: string
+    provider: LLMProvider
+}
+
+export interface DependentConfigsResponse {
+    evaluations: DependentEvaluation[]
+    alternative_keys: AlternativeKey[]
+}
+
 export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     path(['products', 'llm_analytics', 'settings', 'llmProviderKeysLogic']),
 
@@ -61,6 +85,8 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
+        confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
 
     reducers({
@@ -94,20 +120,51 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 setEditingKey: () => null,
             },
         ],
+        keyToDelete: [
+            null as LLMProviderKey | null,
+            {
+                setKeyToDelete: (_, { key }) => key,
+                deleteProviderKeySuccess: () => null,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
+        dependentConfigs: [
+            null as DependentConfigsResponse | null,
+            {
+                loadDependentConfigs: async ({
+                    keyId,
+                }: {
+                    keyId: string
+                }): Promise<DependentConfigsResponse | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await api.get(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
+                    )
+                },
+            },
+        ],
         preValidationResult: [
             null as KeyValidationResult | null,
             {
-                preValidateKey: async ({ apiKey }: { apiKey: string }): Promise<KeyValidationResult> => {
+                preValidateKey: async ({
+                    apiKey,
+                    provider,
+                }: {
+                    apiKey: string
+                    provider: LLMProvider
+                }): Promise<KeyValidationResult> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return { state: 'error', error_message: 'No team selected' }
                     }
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
-                        { api_key: apiKey }
+                        { api_key: apiKey, provider }
                     )
                     return response
                 },
@@ -122,16 +179,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         return null
                     }
                     return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
-                },
-                setActiveKey: async ({ keyId }: { keyId: string }): Promise<EvaluationConfig | null> => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return values.evaluationConfig
-                    }
-                    return await api.create(
-                        `/api/environments/${teamId}/llm_analytics/evaluation_config/set_active_key/`,
-                        { key_id: keyId }
-                    )
                 },
             },
         ],
@@ -160,9 +207,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         payload
                     )
                     actions.setNewKeyModalOpen(false)
-                    if (payload.set_as_active) {
-                        actions.loadEvaluationConfig()
-                    }
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({
@@ -183,12 +227,21 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     actions.setEditingKey(null)
                     return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
                 },
-                deleteProviderKey: async ({ id }: { id: string }): Promise<LLMProviderKey[]> => {
+                deleteProviderKey: async ({
+                    id,
+                    replacementKeyId,
+                }: {
+                    id: string
+                    replacementKeyId?: string
+                }): Promise<LLMProviderKey[]> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return values.providerKeys
                     }
-                    await api.delete(`/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`)
+                    const url = replacementKeyId
+                        ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
+                        : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
+                    await api.delete(url)
                     // If deleted key was active, reload config to reflect change
                     if (values.evaluationConfig?.active_provider_key?.id === id) {
                         actions.loadEvaluationConfig()
@@ -214,14 +267,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     })),
 
     selectors({
-        hasActiveKey: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.active_provider_key !== null,
-        ],
-        activeKey: [
-            (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.active_provider_key ?? null,
-        ],
         trialEvalsUsed: [
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_used ?? 0,
@@ -243,7 +288,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         ],
     }),
 
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         loadProviderKeysFailure: ({ error }) => {
             lemonToast.error(`Failed to load API keys: ${error || 'Unknown error'}`)
         },
@@ -259,8 +304,15 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         deleteProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
         },
-        setActiveKeyFailure: ({ error }) => {
-            lemonToast.error(`Failed to activate API key: ${error || 'Unknown error'}`)
+        setKeyToDelete: ({ key }) => {
+            if (key) {
+                actions.loadDependentConfigs({ keyId: key.id })
+            }
+        },
+        confirmDelete: ({ replacementKeyId }) => {
+            if (values.keyToDelete) {
+                actions.deleteProviderKey({ id: values.keyToDelete.id, replacementKeyId })
+            }
         },
     })),
 

@@ -12,7 +12,7 @@ import type { maxErrorTrackingWidgetLogicType } from './maxErrorTrackingWidgetLo
 
 export interface MaxErrorTrackingWidgetLogicProps {
     toolCallId: string
-    filters: MaxErrorTrackingSearchResponse
+    filters: MaxErrorTrackingSearchResponse | null | undefined
 }
 
 export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>([
@@ -26,20 +26,20 @@ export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>(
 
     reducers(({ props }) => ({
         issues: [
-            (props.filters.issues ?? []) as MaxErrorTrackingIssuePreview[],
+            (props.filters?.issues ?? []) as MaxErrorTrackingIssuePreview[],
             {
                 loadMoreIssuesSuccess: (state, { moreIssuesResponse }) =>
                     moreIssuesResponse ? [...state, ...moreIssuesResponse.issues] : state,
             },
         ],
         hasMore: [
-            props.filters.has_more ?? false,
+            props.filters?.has_more ?? false,
             {
                 loadMoreIssuesSuccess: (_, { moreIssuesResponse }) => moreIssuesResponse?.hasMore ?? false,
             },
         ],
         nextCursor: [
-            (props.filters.next_cursor ?? null) as string | null,
+            (props.filters?.next_cursor ?? null) as string | null,
             {
                 loadMoreIssuesSuccess: (_, { moreIssuesResponse }) => moreIssuesResponse?.nextCursor ?? null,
             },
@@ -52,6 +52,9 @@ export const maxErrorTrackingWidgetLogic = kea<maxErrorTrackingWidgetLogicType>(
             {
                 loadMoreIssues: async () => {
                     const filters = props.filters
+                    if (!filters) {
+                        return null
+                    }
                     const currentOffset = values.nextCursor ? parseInt(values.nextCursor, 10) : values.issues.length
                     const limit = filters.limit ?? 50
 

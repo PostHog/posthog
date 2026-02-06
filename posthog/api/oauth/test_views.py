@@ -2201,6 +2201,274 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
+    def test_self_introspection_succeeds_without_introspection_scope(self):
+        """A token can introspect itself without requiring the introspection scope."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid user:read")
+
+    def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
+        """Self-introspection also works via GET method."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+
+        response = self.client.get(
+            f"/oauth/introspect/?token={access_token.token}",
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+
+    def test_self_introspection_with_json_body_succeeds(self):
+        """Self-introspection works with JSON body."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+
+        response = self.client.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_self_introspection_with_expired_token_fails(self):
+        """An expired token cannot self-introspect."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+        access_token.expires = timezone.now() - timedelta(hours=1)
+        access_token.save()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        # Falls back to standard behavior which requires introspection scope
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_introspecting_different_token_still_requires_introspection_scope(self):
+        """Introspecting a different token still requires the introspection scope."""
+        bearer_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        other_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": other_token.token},
+            headers={"Authorization": f"Bearer {bearer_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_introspecting_different_token_succeeds_with_introspection_scope(self):
+        """Introspecting a different token succeeds when bearer has introspection scope."""
+        bearer_token, _ = self._create_access_and_refresh_tokens(scopes="openid introspection")
+        other_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": other_token.token},
+            headers={"Authorization": f"Bearer {bearer_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid user:read")
+
+    def test_dcr_client_gets_extended_token_expiry(self):
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+
+        auth_data = {
+            "client_id": self.public_application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        data = token_response.json()
+
+        self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
+
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        time_diff = abs((access_token.expires - expected_expiry).total_seconds())
+        self.assertLess(time_diff, 60)
+
+    def test_non_dcr_client_gets_default_token_expiry(self):
+        self.public_application.is_dcr_client = False
+        self.public_application.save()
+
+        auth_data = {
+            "client_id": self.public_application.client_id,
+            "redirect_uri": "https://example.com/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+            "scope": "openid",
+        }
+
+        response = self.client.post("/oauth/authorize/", auth_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+
+        data = token_response.json()
+
+        self.assertEqual(data["expires_in"], 60 * 60)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_dcr_client_refresh_token_is_not_rotated(self):
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        original_refresh_token = token_response.json()["refresh_token"]
+        original_access_token = token_response.json()["access_token"]
+
+        # Refresh multiple times - should always get back the same refresh token
+        for _i in range(3):
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": original_refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+            data = refresh_response.json()
+            self.assertEqual(data["refresh_token"], original_refresh_token)
+            self.assertNotEqual(data["access_token"], original_access_token)
+            self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
+            original_access_token = data["access_token"]
+
+        # Verify the refresh token was never revoked
+        db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
+        self.assertIsNone(db_refresh_token.revoked)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_non_dcr_client_refresh_token_is_rotated(self):
+        self.public_application.is_dcr_client = False
+        self.public_application.save()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        )
+        original_refresh_token = token_response.json()["refresh_token"]
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": original_refresh_token,
+                "client_id": self.public_application.client_id,
+            },
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        new_refresh_token = refresh_response.json()["refresh_token"]
+        self.assertNotEqual(new_refresh_token, original_refresh_token)
+
+        old_db_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
+        self.assertIsNotNone(old_db_token.revoked)
+
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):
     """Tests for OAuth 2.0 Authorization Server Metadata (RFC 8414)."""

@@ -39,16 +39,38 @@ impl ServerHandle {
         limited_tokens: Vec<String>,
         valid_tokens: Vec<(String, i32)>, // (token, team_id) pairs
     ) -> ServerHandle {
+        Self::for_config_with_mock_redis_and_recordings(
+            config,
+            limited_tokens,
+            vec![], // no recordings-limited tokens
+            valid_tokens,
+        )
+        .await
+    }
+
+    /// Create a server with mock Redis that supports both feature flag and recordings quota limits.
+    #[allow(dead_code)]
+    pub async fn for_config_with_mock_redis_and_recordings(
+        config: Config,
+        limited_tokens: Vec<String>,            // feature flags limited
+        recordings_limited_tokens: Vec<String>, // session recordings limited
+        valid_tokens: Vec<(String, i32)>,       // (token, team_id) pairs
+    ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
         // Create a mock client that handles both quota limit checks and token verification
-        let mut mock_client = MockRedisClient::new().zrangebyscore_ret(
-            "@posthog/quota-limits/feature_flag_requests",
-            limited_tokens.clone(),
-        );
+        let mut mock_client = MockRedisClient::new()
+            .zrangebyscore_ret(
+                "@posthog/quota-limits/feature_flag_requests",
+                limited_tokens.clone(),
+            )
+            .zrangebyscore_ret(
+                "@posthog/quota-limits/recordings",
+                recordings_limited_tokens.clone(),
+            );
 
         // Add handling for token verification using HyperCache format
         for (token, team_id) in valid_tokens {
@@ -85,9 +107,7 @@ impl ServerHandle {
                 let persons_reader = match get_pool(
                     &config.get_persons_read_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons read Postgres client: {}", e);
@@ -97,9 +117,7 @@ impl ServerHandle {
                 let persons_writer = match get_pool(
                     &config.get_persons_write_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons write Postgres client: {}", e);
@@ -107,7 +125,7 @@ impl ServerHandle {
                     }
                 };
                 let non_persons_reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.read_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -118,7 +136,7 @@ impl ServerHandle {
                         }
                     };
                 let non_persons_writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.write_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -136,22 +154,20 @@ impl ServerHandle {
                 )
             } else {
                 // Same database for both persons and non-persons tables
-                let reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create read Postgres client: {}", e);
-                            return;
-                        }
-                    };
-                let writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create write Postgres client: {}", e);
-                            return;
-                        }
-                    };
+                let reader = match get_pool(&config.read_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create read Postgres client: {}", e);
+                        return;
+                    }
+                };
+                let writer = match get_pool(&config.write_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create write Postgres client: {}", e);
+                        return;
+                    }
+                };
                 (
                     reader.clone(),
                     writer.clone(),
@@ -273,6 +289,25 @@ impl ServerHandle {
                     }
                 };
 
+            // Create config hypercache reader for remote config (array/config.json)
+            let mut config_hypercache_config = HyperCacheConfig::new(
+                "array".to_string(),
+                "config.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            config_hypercache_config.token_based = true;
+            let config_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), config_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
@@ -286,6 +321,7 @@ impl ServerHandle {
                 flags_hypercache_reader,
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
+                config_hypercache_reader,
                 config,
             );
 

@@ -32,16 +32,20 @@ class Command(BaseCommand):
         parser.add_argument(
             "--only-postgres", action="store_true", help="Only set up the Postgres database", default=False
         )
+        parser.add_argument(
+            "--only-clickhouse", action="store_true", help="Only set up the ClickHouse database", default=False
+        )
 
     def handle(self, *args, **options):
         if not TEST:
             raise ValueError("TEST environment variable needs to be set for this command to function")
 
-        disable_migrations()
+        if not options["only_clickhouse"]:
+            disable_migrations()
 
-        test_runner = TestRunner(interactive=False)
-        test_runner.setup_databases()
-        test_runner.setup_test_environment()
+            test_runner = TestRunner(interactive=False)
+            test_runner.setup_databases()
+            test_runner.setup_test_environment()
 
         if options["only_postgres"]:
             print("Only setting up Postgres database")  # noqa: T201

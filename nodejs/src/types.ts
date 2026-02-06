@@ -54,12 +54,12 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_shadow_worker = 'cdp-cyclotron-shadow-worker',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -189,6 +189,8 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+    CYCLOTRON_SHADOW_DATABASE_URL: string
+    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
 
     // SES (Workflows email sending)
     SES_ENDPOINT: string
@@ -205,7 +207,13 @@ export type CdpConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
+/** The lane for ingestion consumers */
+export type IngestionLane = 'main' | 'overflow' | 'historical' | 'async'
+
 export type IngestionConsumerConfig = {
+    /** The lane this consumer is processing (e.g. main, overflow, historical, async) */
+    INGESTION_LANE?: IngestionLane
+
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -219,11 +227,11 @@ export type IngestionConsumerConfig = {
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of token or token:distinct_id to force overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether Kafka message keys should be preserved when rerouted to overflow
-    /** If true, use the joined ingestion pipeline instead of the legacy two-stage pipeline */
-    INGESTION_JOINED_PIPELINE: boolean
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
+    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
+    PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
@@ -251,6 +259,14 @@ export type IngestionConsumerConfig = {
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+
+    // Stateful overflow config
+    /** If true, use stateful overflow redirect with Redis. If false, use stateless MemoryRateLimiter. */
+    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
+    /** TTL in seconds for overflow flags in Redis (default: 300 = 5 minutes) */
+    INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
+    /** TTL in seconds for local cache entries (default: 60 = 1 minute) */
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -338,6 +354,16 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
+    SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
+    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
+    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
+    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
+    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
+    /** TTL in milliseconds for the in-memory session tracker cache */
+    SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
+    /** TTL in milliseconds for the in-memory session filter cache */
+    SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
 }
 
 export interface PluginsServerConfig
@@ -427,6 +453,8 @@ export interface PluginsServerConfig
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     PLUGIN_SERVER_MODE: PluginServerMode | null
+    /** Comma-separated list of capability groups for local dev: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags */
+    NODEJS_CAPABILITY_GROUPS: string | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -514,12 +542,12 @@ export interface PluginServerCapabilities {
     cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerDelay?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    cdpCyclotronShadowWorker?: boolean
 }
 
 export type TeamId = Team['id']
@@ -612,6 +640,13 @@ export interface RawOrganization {
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
 
 /** Usable Team model. */
+export interface LogsSettings {
+    capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
+}
+
 export interface Team {
     id: number
     project_id: ProjectId
@@ -634,6 +669,7 @@ export interface Team {
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
     drop_events_older_than_seconds: number | null
+    logs_settings?: LogsSettings | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

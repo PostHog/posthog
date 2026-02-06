@@ -124,6 +124,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }
+            url.searchParams.append('columns', '$current_url,$screen_name')
 
             cache.batch = []
             cache.eventSourceController = new AbortController()

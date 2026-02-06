@@ -1,13 +1,12 @@
 from typing import Optional, cast
 
-from django.db.models import Q
-
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.hog_flow import HogFlowMaskingSerializer, HogFlowVariableSerializer
 from posthog.api.log_entries import LogEntryMixin
@@ -18,21 +17,24 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
+from products.workflows.backend.templates import get_global_template_by_id, load_global_templates
+
 logger = structlog.get_logger(__name__)
 
 
 # NOTE: We allow unauthenticated access to global hog flow templates, never put anything secret in them
-class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
-    message = "You don't have edit permissions for global workflow templates."
+class PreventGlobalTemplateDatabaseOperations(BasePermission):
+    message = "Global workflow templates are stored in code and cannot be modified via the database."
 
     def has_permission(self, request: Request, view) -> bool:
         if request.method in SAFE_METHODS:
             return True
 
+        # Block creation of global templates in the database
         if request.method == "POST":
             scope = request.data.get("scope")
             if scope == HogFlowTemplate.Scope.GLOBAL:
-                return request.user.is_staff
+                return False
 
         return True
 
@@ -40,9 +42,10 @@ class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        # Prevent non-staff from editing global templates / updating team template to global
+        # Block all modifications to global templates (stored in DB or files)
+        # This includes updating team templates to global scope
         if obj.scope == HogFlowTemplate.Scope.GLOBAL or request.data.get("scope") == HogFlowTemplate.Scope.GLOBAL:
-            return request.user.is_staff
+            return False
 
         return True
 
@@ -123,6 +126,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
     actions = serializers.ListField(child=HogFlowTemplateActionSerializer(), required=True)
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
     variables = HogFlowVariableSerializer(required=False)
+    tags = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
     class Meta:
         model = HogFlowTemplate
@@ -131,6 +135,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "image_url",
+            "tags",
             "scope",
             "created_at",
             "created_by",
@@ -210,22 +215,61 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()
     serializer_class = HogFlowTemplateSerializer
-    permission_classes = [OnlyStaffCanEditGlobalHogFlowTemplate]
+    permission_classes = [PreventGlobalTemplateDatabaseOperations]
     log_source = "hog_flow_template"
     app_source = "hog_flow_template"
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def dangerously_get_queryset(self):
         # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
-        # Return global templates OR templates that match the current team
-        query_condition = Q(team_id=self.team_id) | Q(scope=HogFlowTemplate.Scope.GLOBAL)
-
-        qs = HogFlowTemplate.objects.filter(query_condition)
+        # Only return team-specific templates from DB (global templates now come from files)
+        qs = HogFlowTemplate.objects.filter(team_id=self.team_id).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
 
         if self.action == "list":
             qs = qs.order_by("-updated_at")
 
         return qs
+
+    def list(self, request, *args, **kwargs):
+        """
+        Override list to include global templates from files alongside team templates from DB.
+        """
+        # Get team templates from database (unpaginated first)
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        db_templates = serializer.data
+
+        # Load global templates from files
+        try:
+            file_templates = load_global_templates()
+        except Exception as e:
+            logger.warning("Failed to load global templates from files", error=str(e))
+            file_templates = []
+
+        # Combine both sources (file templates first so they appear at top)
+        all_templates = list(file_templates) + list(db_templates)
+
+        # Now paginate the combined list
+        page = self.paginate_queryset(all_templates)
+        if page is not None:
+            return self.get_paginated_response(page)
+
+        return Response(all_templates)
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Check file-based global templates first, then DB team templates.
+        The queryset excludes all global templates from DB, so this only returns team templates from DB.
+        """
+        template_id: str = kwargs["pk"]
+
+        # Check if it's a global template from files
+        file_template = get_global_template_by_id(template_id)
+        if file_template:
+            return Response(file_template)
+
+        # Not in files, check DB for team templates
+        return super().retrieve(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save()
@@ -297,9 +341,29 @@ class PublicHogFlowTemplateViewSet(
 ):
     """
     Public endpoint for global hogflow templates that doesn't require authentication.
-    Only exposes templates with scope=GLOBAL.
+    Global templates are now loaded from code files instead of the database.
     """
 
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFlowTemplateSerializer
-    queryset = HogFlowTemplate.objects.filter(scope=HogFlowTemplate.Scope.GLOBAL).order_by("-updated_at")
+    # Empty queryset since we load from files
+    queryset = HogFlowTemplate.objects.none()
+
+    def list(self, request, *args, **kwargs):
+        """
+        Load and return global templates from files.
+        """
+        try:
+            templates = load_global_templates()
+            # Sort by updated_at descending (most recent first)
+            templates.sort(key=lambda t: t.get("updated_at", ""), reverse=True)
+
+            # Return paginated response
+            page = self.paginate_queryset(templates)
+            if page is not None:
+                return self.get_paginated_response(page)
+
+            return Response(templates)
+        except Exception:
+            logger.exception("Failed to load global templates from files")
+            return Response({"error": "Failed to load global templates"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

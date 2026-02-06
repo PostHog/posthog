@@ -1,3 +1,6 @@
+import type { TicketAssignee } from './components/Assignee'
+
+export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
@@ -5,6 +8,7 @@ export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type SidePanelViewState = 'list' | 'ticket' | 'new'
+export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 export interface UserBasic {
     id: number
@@ -16,13 +20,22 @@ export interface UserBasic {
     is_email_verified: boolean
 }
 
+export interface TicketPerson {
+    id: string
+    name: string
+    distinct_ids: string[]
+    properties: Record<string, any>
+    created_at?: string
+    is_identified?: boolean
+}
+
 export interface Ticket {
     id: string
+    ticket_number: number
     distinct_id: string
     status: TicketStatus
     priority?: TicketPriority
-    assigned_to?: number | null
-    assigned_to_user?: UserBasic | null
+    assignee?: TicketAssignee
     channel_source: TicketChannel
     anonymous_traits: Record<string, any>
     ai_resolved: boolean
@@ -34,21 +47,36 @@ export interface Ticket {
     last_message_text: string | null
     unread_team_count: number
     unread_customer_count: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
+    person?: TicketPerson | null
 }
 
 export interface ConversationTicket {
     id: string
+    ticket_number?: number
     status: TicketStatus
     last_message?: string
     last_message_at?: string
     message_count: number
     created_at: string
     unread_count?: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
 }
 
 export interface ConversationMessage {
     id: string
     content: string
+    rich_content?: Record<string, unknown> | null
     author_type: MessageAuthorType
     author_name?: string
     created_at: string
@@ -64,10 +92,12 @@ export interface MessageAuthor {
 export interface ChatMessage {
     id: string
     content: string
+    richContent?: Record<string, unknown> | null
     authorType: MessageAuthorType
     authorName: string
     createdBy?: MessageAuthor | null
     createdAt: string
+    isPrivate?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -87,10 +117,26 @@ export const statusOptionsWithoutAll: { value: TicketStatus; label: string }[] =
     { value: 'resolved', label: 'Resolved' },
 ]
 
+// Multiselect-compatible options for LemonInputSelect
+export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = [
+    { key: 'new', label: 'New' },
+    { key: 'open', label: 'Open' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'on_hold', label: 'On hold' },
+    { key: 'resolved', label: 'Resolved' },
+]
+
 export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+]
+
+// Multiselect-compatible options for LemonInputSelect
+export const priorityMultiselectOptions: { key: TicketPriority; label: string }[] = [
+    { key: 'low', label: 'Low' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'high', label: 'High' },
 ]
 
 export const channelOptions: { value: TicketChannel | 'all'; label: string }[] = [

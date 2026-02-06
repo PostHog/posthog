@@ -39,7 +39,10 @@ export default defineConfig({
     */
     workers: process.env.CI ? 3 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-    reporter: [['html', { open: 'never' }]],
+    reporter: [
+        ['html', { open: 'never' }],
+        ...(process.env.CI ? [['junit', { outputFile: 'junit-results.xml' }] as const] : []),
+    ],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
         /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */

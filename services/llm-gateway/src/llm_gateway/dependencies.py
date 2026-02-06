@@ -8,10 +8,11 @@ from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, get_auth_service
-from llm_gateway.products.config import check_product_access
+from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, resolve_product_alias
+from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.request_context import get_request_id
+from llm_gateway.request_context import get_request_id, set_throttle_context
 
 
 async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # noqa: UP037
@@ -37,8 +38,10 @@ async def get_authenticated_user(
 def get_product_from_request(request: Request) -> str:
     path = request.url.path
     parts = path.strip("/").split("/")
-    if parts and parts[0] in {"array", "wizard", "llm_gateway"}:
-        return parts[0]
+    if parts:
+        product = resolve_product_alias(parts[0])
+        if product in ALLOWED_PRODUCTS:
+            return product
     return "llm_gateway"
 
 
@@ -89,38 +92,33 @@ async def enforce_throttles(
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
     runner: Annotated[ThrottleRunner, Depends(get_throttle_runner)],
 ) -> AuthenticatedUser:
+    ensure_costs_fresh()
     product = get_product_from_request(request)
-    model = await get_model_from_request(request)
 
-    input_tokens: int | None = None
-    max_output_tokens: int | None = None
-
-    body = await get_cached_body(request)
-    if body:
-        try:
-            data: dict[str, Any] = json.loads(body)
-            max_output_tokens = data.get("max_tokens")
-
-            if model and "messages" in data:
-                token_counter = getattr(request.app.state, "token_counter", None)
-                if token_counter:
-                    input_tokens = token_counter.count(model, data["messages"])
-        except (json.JSONDecodeError, TypeError):
-            pass
+    # For OAuth, end_user_id is the token holder (user_id)
+    # For personal API key, it will be set later from the request's 'user' param
+    end_user_id = str(user.user_id) if user.auth_method == "oauth_access_token" else None
 
     context = ThrottleContext(
         user=user,
         product=product,
-        model=model,
-        input_tokens=input_tokens,
-        max_output_tokens=max_output_tokens,
         request_id=get_request_id() or None,
+        end_user_id=end_user_id,
     )
     request.state.throttle_context = context
+    set_throttle_context(runner, context)
     result = await runner.check(context)
 
     if not result.allowed:
-        raise HTTPException(status_code=result.status_code, detail=result.detail)
+        headers = {"Retry-After": str(result.retry_after)} if result.retry_after is not None else None
+        detail = {
+            "error": {
+                "message": "Rate limit exceeded",
+                "type": "rate_limit_error",
+                "reason": result.detail,
+            }
+        }
+        raise HTTPException(status_code=result.status_code, detail=detail, headers=headers)
     return user
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import structlog
 from redis.asyncio import Redis
 
@@ -115,6 +117,20 @@ class TokenRateLimiter:
             capacity=fallback_limit,
         )
 
+    async def would_allow(self, key: str, tokens: int = 1) -> bool:
+        """Check if tokens would be allowed WITHOUT consuming them."""
+        if self.redis is None:
+            return self._fallback.would_allow(key, float(tokens))
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            current = await self.redis.get(redis_key)
+            current_count = int(current or 0)
+            return (current_count + tokens) <= self.limit
+        except Exception:
+            logger.exception("redis_rate_limit_check_failed", key=key)
+            return self._fallback.would_allow(key, float(tokens))
+
     async def consume(self, key: str, tokens: int = 1) -> bool:
         """Consume tokens. Returns True if allowed."""
         if self.redis is None:
@@ -165,3 +181,105 @@ class TokenRateLimiter:
         except Exception:
             logger.exception("redis_release_failed", key=key)
             self._fallback.release(key, float(tokens))
+
+
+class CostAccumulator:
+    """In-memory cost accumulator with TTL-based expiration for fallback rate limiting."""
+
+    def __init__(self, limit: float, window_seconds: int):
+        self._buckets: dict[str, tuple[float, float]] = {}  # key -> (cost, start_time)
+        self._limit = limit
+        self._window = window_seconds
+
+    def _get_bucket(self, key: str) -> tuple[float, float]:
+        """Get or create bucket, expiring old ones."""
+        now = time.monotonic()
+        if key in self._buckets:
+            cost, start_time = self._buckets[key]
+            if now - start_time < self._window:
+                return cost, start_time
+        self._buckets[key] = (0.0, now)
+        return 0.0, now
+
+    def get_current(self, key: str) -> float:
+        cost, _ = self._get_bucket(key)
+        return cost
+
+    def incr(self, key: str, cost: float) -> bool:
+        current, start_time = self._get_bucket(key)
+        new_val = current + cost
+        self._buckets[key] = (new_val, start_time)
+        return new_val <= self._limit
+
+
+class CostRateLimiter:
+    """
+    Redis-backed cost rate limiter with local fallback.
+
+    Uses Redis for cluster-wide cost limits with float values.
+    Falls back to in-memory with limit / IN_MEMORY_LIMIT_DIVIDER.
+    """
+
+    def __init__(
+        self,
+        redis: Redis[bytes] | None,
+        limit: float,
+        window_seconds: int,
+    ):
+        self.redis = redis
+        self.limit = limit
+        self.window = window_seconds
+        self._fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
+        self._fallback = CostAccumulator(self._fallback_limit, window_seconds)
+
+    async def get_current(self, key: str) -> float:
+        """Get current accumulated cost for a key."""
+        if self.redis is None:
+            return self._fallback.get_current(key)
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            current = await self.redis.get(redis_key)
+            return float(current or 0)
+        except Exception:
+            logger.exception("redis_get_current_failed", key=key)
+            return self._fallback.get_current(key)
+
+    async def incr(self, key: str, cost: float) -> bool:
+        """Increment cost. Returns True if still under limit."""
+        if self.redis is None:
+            return self._fallback.incr(key, cost)
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            script = """
+            local current = redis.call('GET', KEYS[1])
+            local new_val = tonumber(current or 0) + tonumber(ARGV[1])
+            local ttl = redis.call('TTL', KEYS[1])
+            if ttl < 0 then
+                redis.call('SET', KEYS[1], new_val, 'EX', ARGV[2])
+            else
+                redis.call('SET', KEYS[1], new_val, 'KEEPTTL')
+            end
+            return new_val
+            """
+            new_val = await self.redis.eval(script, 1, redis_key, str(cost), self.window)
+            return float(new_val) <= self.limit
+        except Exception:
+            logger.exception("redis_cost_incr_failed", key=key)
+            REDIS_FALLBACK.inc()
+            return self._fallback.incr(key, cost)
+
+    async def get_ttl(self, key: str) -> int:
+        """Get remaining TTL for a key in seconds."""
+        if self.redis is None:
+            return self.window
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            ttl = await self.redis.ttl(redis_key)
+            if ttl < 0:
+                return self.window
+            return ttl
+        except Exception:
+            return self.window

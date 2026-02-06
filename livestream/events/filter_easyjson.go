@@ -61,11 +61,13 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
-					v1 := in.Interface()
+					var v1 interface{}
 					if m, ok := v1.(easyjson.Unmarshaler); ok {
 						m.UnmarshalEasyJSON(in)
 					} else if m, ok := v1.(json.Unmarshaler); ok {
 						_ = m.UnmarshalJSON(in.Raw())
+					} else {
+						v1 = in.Interface()
 					}
 					(out.Properties)[key] = v1
 					in.WantComma()
@@ -193,6 +195,10 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 			out.Lat = float64(in.Float64())
 		case "lng":
 			out.Lng = float64(in.Float64())
+		case "country_code":
+			out.CountryCode = string(in.String())
+		case "distinct_id":
+			out.DistinctId = string(in.String())
 		case "count":
 			out.Count = uint(in.Uint())
 		default:
@@ -218,6 +224,16 @@ func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 		const prefix string = ",\"lng\":"
 		out.RawString(prefix)
 		out.Float64(float64(in.Lng))
+	}
+	{
+		const prefix string = ",\"country_code\":"
+		out.RawString(prefix)
+		out.String(string(in.CountryCode))
+	}
+	{
+		const prefix string = ",\"distinct_id\":"
+		out.RawString(prefix)
+		out.String(string(in.DistinctId))
 	}
 	{
 		const prefix string = ",\"count\":"

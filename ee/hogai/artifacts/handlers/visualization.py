@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
@@ -93,6 +93,12 @@ class VisualizationHandler(ArtifactHandler[VisualizationArtifactContent, Visuali
         """No enrichment needed for visualizations."""
         return content
 
+    def get_metadata(self, content: VisualizationArtifactContent) -> dict[str, Any]:
+        return {
+            "name": content.name,
+            "description": content.description,
+        }
+
     def _from_state(
         self, artifact_id: str, messages: Sequence[AssistantMessageUnion]
     ) -> VisualizationArtifactContent | None:
@@ -107,11 +113,7 @@ class VisualizationHandler(ArtifactHandler[VisualizationArtifactContent, Visuali
         for msg in messages:
             if isinstance(msg, VisualizationMessage) and msg.id == artifact_id:
                 try:
-                    return VisualizationArtifactContent(
-                        query=msg.answer,
-                        name=msg.query,
-                        plan=msg.plan,
-                    )
+                    return VisualizationArtifactContent(query=msg.answer, name="Insight", plan=msg.plan)
                 except ValidationError as e:
                     capture_exception(e)
                     # Old unsupported visualization messages schemas

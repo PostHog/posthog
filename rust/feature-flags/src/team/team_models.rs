@@ -20,6 +20,7 @@ pub struct Team {
     pub session_recording_opt_in: bool, // Not nullable in schema, so needs to be handled in deserialization
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
+    pub product_tours_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
     pub conversations_enabled: Option<bool>,
     pub conversations_settings: Option<Json<serde_json::Value>>,

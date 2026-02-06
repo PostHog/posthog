@@ -35,8 +35,8 @@ class DataModelingEdgeQuerySet(models.QuerySet):
         raise NotImplementedError("bulk_create() is disabled for Edge objects to ensure cycle detection.")
 
     def bulk_update(self, objs, fields, *args, **kwargs):
-        for key in DISALLOWED_UPDATE_FIELDS:
-            if key in kwargs:
+        for field in fields:
+            if field in DISALLOWED_UPDATE_FIELDS:
                 raise NotImplementedError(
                     f"QuerySet.bulk_update() is disabled for fields ({DISALLOWED_UPDATE_FIELDS}) to ensure cycle detection. "
                     "Use individual save() calls instead."
@@ -67,7 +67,11 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             models.UniqueConstraint(fields=["dag_id", "source", "target"], name="unique_within_dag"),
         ]
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, skip_validation: bool = False, **kwargs):
+        if skip_validation:
+            super().save(*args, **kwargs)
+            return
+
         with transaction.atomic():
             self._detect_cycles()
             self._detect_dag_mismatch()
@@ -93,23 +97,32 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             WITH RECURSIVE reachable(node_id) AS (
                 SELECT e.target_id
                 FROM posthog_datamodelingedge e
-                WHERE e.source_id = '{target_id}'
-                    AND e.team_id = '{team_id}'
-                    AND e.dag_id = '{dag_id}'
+                WHERE e.source_id = %s
+                    AND e.team_id = %s
+                    AND e.dag_id = %s
                 UNION
                 SELECT e.target_id
                 FROM posthog_datamodelingedge e
                 INNER JOIN reachable r
                 ON e.source_id = r.node_id
-                WHERE e.target_id <> '{target_id}'
-                    AND e.team_id = '{team_id}'
-                    AND e.dag_id = '{dag_id}'
+                WHERE e.target_id <> %s
+                    AND e.team_id = %s
+                    AND e.dag_id = %s
             )
-            SELECT 1 FROM reachable WHERE node_id = '{source_id}'
+            SELECT 1 FROM reachable WHERE node_id = %s
         """
         with connection.cursor() as cursor:
             cursor.execute(
-                sql.format(team_id=self.team_id, dag_id=self.dag_id, source_id=self.source_id, target_id=self.target_id)
+                sql,
+                [
+                    self.target_id,
+                    self.team_id,
+                    self.dag_id,
+                    self.target_id,
+                    self.team_id,
+                    self.dag_id,
+                    self.source_id,
+                ],
             )
             return cursor.fetchone() is not None
 

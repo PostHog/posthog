@@ -1,8 +1,8 @@
 from typing import cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 
-import openai
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -15,23 +15,16 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
+from ..llm.client import Client
 from ..models.evaluation_config import EvaluationConfig
-from ..models.provider_keys import LLMProviderKey
+from ..models.evaluations import Evaluation
+from ..models.model_configuration import LLMModelConfiguration
+from ..models.provider_keys import LLMProvider, LLMProviderKey
 
 
-def validate_openai_key(api_key: str) -> tuple[str, str | None]:
-    try:
-        client = openai.OpenAI(api_key=api_key)
-        client.models.list()
-        return (LLMProviderKey.State.OK, None)
-    except openai.AuthenticationError:
-        return (LLMProviderKey.State.INVALID, "Invalid API key")
-    except openai.RateLimitError:
-        return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
-    except openai.APIConnectionError:
-        return (LLMProviderKey.State.ERROR, "Could not connect to OpenAI")
-    except Exception:
-        return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]:
+    """Validate an API key for any supported provider using the unified client."""
+    return Client.validate_key(provider, api_key)
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -64,10 +57,18 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return "****"
 
     def validate_api_key(self, value: str) -> str:
-        if not value.startswith(("sk-", "sk-proj-")):
-            raise serializers.ValidationError(
-                "Invalid OpenAI API key format. Key should start with 'sk-' or 'sk-proj-'."
-            )
+        provider = self.initial_data.get("provider", LLMProvider.OPENAI)
+
+        if provider == LLMProvider.OPENAI:
+            if not value.startswith(("sk-", "sk-proj-")):
+                raise serializers.ValidationError(
+                    "Invalid OpenAI API key format. Key should start with 'sk-' or 'sk-proj-'."
+                )
+        elif provider == LLMProvider.ANTHROPIC:
+            if not value.startswith("sk-ant-"):
+                raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
+        # Gemini and OpenRouter keys have no standard prefix, so no format validation needed
+
         return value
 
     def validate(self, data):
@@ -81,9 +82,10 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         validated_data["team"] = team
         validated_data["created_by"] = self.context["request"].user
+        provider = validated_data.get("provider", LLMProvider.OPENAI)
 
         if api_key:
-            state, error_message = validate_openai_key(api_key)
+            state, error_message = validate_provider_key(provider, api_key)
             if state != LLMProviderKey.State.OK:
                 raise serializers.ValidationError({"api_key": error_message or "Key validation failed"})
             validated_data["encrypted_config"] = {"api_key": api_key}
@@ -103,7 +105,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         api_key = validated_data.pop("api_key", None)
 
         if api_key:
-            state, error_message = validate_openai_key(api_key)
+            state, error_message = validate_provider_key(instance.provider, api_key)
             if state != LLMProviderKey.State.OK:
                 raise serializers.ValidationError({"api_key": error_message or "Key validation failed"})
             instance.encrypted_config = {"api_key": api_key}
@@ -179,7 +181,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        state, error_message = validate_openai_key(api_key)
+        state, error_message = validate_provider_key(instance.provider, api_key)
         instance.state = state
         instance.error_message = error_message
         instance.save(update_fields=["state", "error_message"])
@@ -218,9 +220,72 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    @action(detail=True, methods=["get"])
+    @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
+    def dependent_configs(self, request: Request, **_kwargs) -> Response:
+        """Get evaluations using this key and alternative keys for replacement."""
+        instance = self.get_object()
+
+        model_configs = LLMModelConfiguration.objects.filter(provider_key=instance).prefetch_related("evaluations")
+
+        evaluations = []
+        for config in model_configs:
+            for evaluation in config.evaluations.filter(deleted=False):
+                evaluations.append(
+                    {
+                        "id": str(evaluation.id),
+                        "name": evaluation.name,
+                        "model_configuration_id": str(config.id),
+                    }
+                )
+
+        alternative_keys = LLMProviderKey.objects.filter(
+            team_id=self.team_id,
+            provider=instance.provider,
+            state=LLMProviderKey.State.OK,
+        ).exclude(id=instance.id)
+
+        return Response(
+            {
+                "evaluations": evaluations,
+                "alternative_keys": [
+                    {"id": str(key.id), "name": key.name, "provider": key.provider} for key in alternative_keys
+                ],
+            }
+        )
+
     @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")
     def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+        replacement_key_id = request.query_params.get("replacement_key_id")
+
+        if replacement_key_id:
+            try:
+                replacement_key = LLMProviderKey.objects.get(id=replacement_key_id, team_id=self.team_id)
+            except LLMProviderKey.DoesNotExist:
+                return Response({"detail": "Replacement key not found"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if replacement_key.provider != instance.provider:
+                return Response(
+                    {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            with transaction.atomic():
+                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).update(
+                    provider_key=replacement_key
+                )
+                return super().destroy(request, *args, **kwargs)
+        else:
+            model_config_ids = list(
+                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                    "id", flat=True
+                )
+            )
+            with transaction.atomic():
+                Evaluation.objects.filter(
+                    model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
+                ).update(enabled=False)
+                return super().destroy(request, *args, **kwargs)
 
 
 class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -232,6 +297,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
         api_key = request.data.get("api_key")
+        provider = request.data.get("provider", LLMProvider.OPENAI)
 
         if not api_key:
             return Response(
@@ -239,5 +305,11 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        state, error_message = validate_openai_key(api_key)
+        if provider not in [choice[0] for choice in LLMProvider.choices]:
+            return Response(
+                {"detail": f"Invalid provider. Must be one of: {', '.join([c[0] for c in LLMProvider.choices])}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        state, error_message = validate_provider_key(provider, api_key)
         return Response({"state": state, "error_message": error_message})

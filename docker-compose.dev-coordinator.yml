@@ -33,18 +33,12 @@ services:
         # and eventually kills postgres, these settings aim to stop that happening.
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
-    redis:
-        extends:
-            file: docker-compose.base.yml
-            service: redis
-        ports:
-            - '6379:6379'
     redis7:
         extends:
             file: docker-compose.base.yml
             service: redis7
         ports:
-            - '6479:6379'
+            - '6379:6379'
 
     flower:
         extends:
@@ -155,7 +149,7 @@ services:
         environment:
             - DEBUG=1
         depends_on:
-            - redis
+            - redis7
             - kafka
 
     # replay capture-rs
@@ -164,7 +158,7 @@ services:
             file: docker-compose.base.yml
             service: replay-capture
         depends_on:
-            - redis
+            - redis7
             - kafka
 
     property-defs-rs:
@@ -179,7 +173,7 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis
+            - redis7
             - db
 
     # Temporal containers

@@ -1,22 +1,40 @@
-import { ChartConfiguration } from 'lib/Chart'
-import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { useChart } from 'lib/hooks/useChart'
+import { useCallback, useRef } from 'react'
 
-import { ChartDataPoint, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { Chart, ChartConfiguration } from 'lib/Chart'
+
+import { ChartDataPoint } from './LiveWebAnalyticsMetricsTypes'
+import { TOOLTIP_STYLE, useLiveChart } from './useLiveChart'
+
+const EmptyState = ({ message }: { message: string }): JSX.Element => (
+    <div className="h-full flex items-center justify-center text-muted text-sm">{message}</div>
+)
 
 export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
-    const { canvasRef } = useChart<'bar'>({
-        getConfig: (): ChartConfiguration<'bar'> => ({
+    const hasData = data.some((d) => d.users > 0)
+    const dataRef = useRef<ChartDataPoint[]>(data)
+    dataRef.current = data
+
+    const createConfig = useCallback((): ChartConfiguration<'bar'> => {
+        return {
             type: 'bar',
             data: {
                 labels: data.map((d) => d.minute),
                 datasets: [
                     {
-                        label: 'Active users',
-                        data: data.map((d) => d.users),
-                        backgroundColor: getSeriesColor(0),
+                        label: 'New visitors',
+                        data: data.map((d) => d.newUsers),
+                        backgroundColor: 'rgb(34, 197, 94)',
                         borderWidth: 0,
-                        borderRadius: 2,
+                        borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 2, bottomRight: 2 },
+                        barPercentage: 0.8,
+                        categoryPercentage: 0.9,
+                    },
+                    {
+                        label: 'Returning visitors',
+                        data: data.map((d) => d.returningUsers),
+                        backgroundColor: 'rgb(59, 130, 246)',
+                        borderWidth: 0,
+                        borderRadius: { topLeft: 2, topRight: 2, bottomLeft: 0, bottomRight: 0 },
                         barPercentage: 0.8,
                         categoryPercentage: 0.9,
                     },
@@ -25,131 +43,65 @@ export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.E
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                animation: false,
+                animation: {
+                    duration: 300,
+                    easing: 'easeOutQuart',
+                },
                 plugins: {
                     legend: {
-                        display: false,
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            boxWidth: 12,
+                            boxHeight: 12,
+                            useBorderRadius: true,
+                            borderRadius: 2,
+                            padding: 16,
+                            font: { size: 11 },
+                        },
                     },
                     tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        padding: 12,
-                        displayColors: false,
+                        ...TOOLTIP_STYLE,
+                        mode: 'index',
                         callbacks: {
                             title: (items) => {
-                                if (items.length > 0) {
-                                    return `Time: ${items[0].label}`
-                                }
-                                return ''
+                                const dataPoint = dataRef.current[items[0]?.dataIndex]
+                                return dataPoint
+                                    ? `${items[0].label} · ${dataPoint.users} visitors · ${dataPoint.pageviews} pageviews`
+                                    : ''
                             },
-                            label: (item) => {
-                                const dataPoint = data[item.dataIndex]
-                                return [`Users: ${item.raw as number}`, `Pageviews: ${dataPoint?.pageviews || 0}`]
-                            },
+                            label: (item) => ` ${item.dataset.label}: ${item.raw as number}`,
                         },
                     },
                 },
                 scales: {
                     x: {
-                        grid: {
-                            display: false,
-                        },
-                        ticks: {
-                            maxRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: 10,
-                            font: {
-                                size: 10,
-                            },
-                        },
+                        stacked: true,
+                        grid: { display: false },
+                        ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } },
                     },
                     y: {
+                        stacked: true,
                         beginAtZero: true,
-                        grid: {
-                            color: 'rgba(0, 0, 0, 0.05)',
-                        },
-                        ticks: {
-                            precision: 0,
-                            font: {
-                                size: 10,
-                            },
-                        },
+                        grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                        ticks: { precision: 0, font: { size: 10 } },
                     },
                 },
             },
-        }),
-        deps: [data],
-    })
+        }
+    }, [data])
 
-    return <canvas ref={canvasRef} />
-}
+    const updateData = useCallback((chart: Chart<'bar'>, newData: ChartDataPoint[]) => {
+        chart.data.labels = newData.map((d) => d.minute)
+        chart.data.datasets[0].data = newData.map((d) => d.newUsers)
+        chart.data.datasets[1].data = newData.map((d) => d.returningUsers)
+    }, [])
 
-export const DeviceBreakdownChart = ({ data }: { data: DeviceBreakdownItem[] }): JSX.Element => {
-    const hasData = data.some((d) => d.count > 0)
-
-    const { canvasRef } = useChart<'doughnut'>({
-        getConfig: (): ChartConfiguration<'doughnut'> | null => {
-            if (!hasData) {
-                return null
-            }
-
-            return {
-                type: 'doughnut',
-                data: {
-                    labels: data.map((d) => d.device),
-                    datasets: [
-                        {
-                            data: data.map((d) => d.count),
-                            backgroundColor: getSeriesColorPalette(),
-                            borderColor: '#fff',
-                            borderWidth: 2,
-                            hoverOffset: 4,
-                        },
-                    ],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    cutout: '60%',
-                    plugins: {
-                        // @ts-expect-error Types of library are out of date
-                        crosshair: false,
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                padding: 16,
-                                usePointStyle: true,
-                                pointStyle: 'circle',
-                                font: {
-                                    size: 12,
-                                },
-                            },
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            titleColor: '#fff',
-                            bodyColor: '#fff',
-                            padding: 12,
-                            callbacks: {
-                                label: (item) => {
-                                    const dataItem = data[item.dataIndex]
-                                    return `${dataItem.device}: ${dataItem.count.toLocaleString()} (${dataItem.percentage.toFixed(1)}%)`
-                                },
-                            },
-                        },
-                    },
-                },
-            }
-        },
-        deps: [data, hasData],
-    })
+    const { canvasRef } = useLiveChart({ hasData, createConfig, updateData, data })
 
     if (!hasData) {
-        return (
-            <div className="h-full flex items-center justify-center text-muted text-sm">No device data available</div>
-        )
+        return <EmptyState message="No activity in the last 30 minutes" />
     }
 
     return <canvas ref={canvasRef} />

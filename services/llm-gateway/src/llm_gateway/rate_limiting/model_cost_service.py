@@ -10,7 +10,7 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
 logger = structlog.get_logger(__name__)
 
-TARGET_LIMIT_COST_PER_HOUR: Final[float] = 30.0
+TARGET_LIMIT_COST_PER_HOUR: Final[float] = 60.0
 CACHE_TTL_SECONDS: Final[int] = 300
 
 
@@ -23,7 +23,7 @@ class ModelLimits(TypedDict):
     """Maximum output tokens per hour."""
 
 
-DEFAULT_LIMITS: Final[ModelLimits] = {"input_tph": 250_000, "output_tph": 50_000}
+DEFAULT_LIMITS: Final[ModelLimits] = {"input_tph": 2_000_000, "output_tph": 400_000}
 
 
 class ModelCost(TypedDict, total=False):
@@ -41,6 +41,10 @@ class ModelCost(TypedDict, total=False):
     """Legacy field: defaults to max_output_tokens if set, otherwise max_input_tokens."""
     litellm_provider: str
     """Provider identifier (e.g., "anthropic", "openai", "vertex_ai")."""
+    supports_vision: bool
+    """Whether the model supports image/vision input."""
+    mode: str
+    """Model mode (e.g., "chat", "completion", "embedding")."""
 
 
 class ModelCostService:
@@ -92,11 +96,19 @@ class ModelCostService:
 
     def get_limits(self, model: str) -> ModelLimits:
         self._ensure_fresh()
-        return self._limits.get(model, DEFAULT_LIMITS)
+        limits = self._limits.get(model)
+        if limits is None:
+            logger.warning("model_not_found_in_cost_map", model=model)
+            return DEFAULT_LIMITS
+        return limits
 
     def get_costs(self, model: str) -> ModelCost | None:
         self._ensure_fresh()
         return self._costs.get(model)
+
+    def get_all_models(self) -> dict[str, ModelCost]:
+        self._ensure_fresh()
+        return self._costs
 
 
 def get_model_limits(model: str) -> ModelLimits:

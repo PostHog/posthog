@@ -648,7 +648,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
+    def test_post_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
@@ -671,9 +671,128 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
 
-    def test_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
+    def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/99999/batch_jobs", batch_job_data)
 
         assert response.status_code == 404, response.json()
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self, mock_create_invocation):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Create another flow
+        hog_flow_2, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example2.com"}},
+            }
+        )
+        create_response_2 = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_2)
+        assert create_response_2.status_code == 201, create_response_2.json()
+        flow_id_2 = create_response_2.json()["id"]
+
+        # Create batch jobs for both flows
+        batch_job_data_1 = {"variables": [{"key": "first_name", "value": "Test1"}]}
+        batch_job_data_2 = {"variables": [{"key": "first_name", "value": "Test2"}]}
+
+        job_response_1 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", batch_job_data_1
+        )
+        assert job_response_1.status_code == 200, job_response_1.json()
+
+        job_response_2 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id_2}/batch_jobs", batch_job_data_2
+        )
+        assert job_response_2.status_code == 200, job_response_2.json()
+
+        # Fetch jobs for the first flow
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs")
+        assert get_response.status_code == 200, get_response.json()
+        jobs = get_response.json()
+        assert len(jobs) == 1
+        assert jobs[0]["id"] == job_response_1.json()["id"]
+
+    def test_hog_flow_filter_test_accounts_compiles_bytecode(self):
+        """Test that filter_test_accounts includes team's test account filters in bytecode"""
+        # Set up test account filters on the team
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ]
+        self.team.save()
+
+        # Create a workflow WITHOUT filter_test_accounts
+        trigger_action_without_filter = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow_without = {
+            "name": "Test Flow Without Filter",
+            "actions": [trigger_action_without_filter],
+        }
+
+        response_without = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_without)
+        assert response_without.status_code == 201, response_without.json()
+
+        # Bytecode should just check for $pageview event
+        bytecode_without = response_without.json()["trigger"]["filters"]["bytecode"]
+        assert bytecode_without == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+
+        # Create a workflow WITH filter_test_accounts: true
+        trigger_action_with_filter = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+                "filter_test_accounts": True,
+            },
+        }
+
+        hog_flow_with = {
+            "name": "Test Flow With Filter",
+            "actions": [trigger_action_with_filter],
+        }
+
+        response_with = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_with)
+        assert response_with.status_code == 201, response_with.json()
+
+        # Bytecode should be in trigger.filters.bytecode
+        trigger_filters = response_with.json()["trigger"]["filters"]
+        bytecode_with = trigger_filters["bytecode"]
+
+        # The bytecode should be longer and include the test account filter check
+        assert len(bytecode_with) > len(bytecode_without), "Bytecode with filter_test_accounts should be longer"
+
+        # Verify the bytecode includes the test account filter pattern
+        # The pattern "%@posthog.com%" indicates the not_icontains check
+        assert "%@posthog.com%" in bytecode_with, "Bytecode should include test account filter value"
+        assert "email" in bytecode_with, "Bytecode should include email property check"
+        assert "person" in bytecode_with, "Bytecode should include person property type"

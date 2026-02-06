@@ -58,6 +58,12 @@ pub struct Exception {
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
 
+impl From<Vec<Exception>> for ExceptionList {
+    fn from(exceptions: Vec<Exception>) -> Self {
+        ExceptionList(exceptions)
+    }
+}
+
 impl Deref for ExceptionList {
     type Target = Vec<Exception>;
     fn deref(&self) -> &Self::Target {
@@ -167,7 +173,7 @@ pub struct FingerprintedErrProps {
 }
 
 // We emit this
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
     pub exception_list: ExceptionList,
@@ -187,7 +193,8 @@ pub struct OutputErrProps {
     pub handled: bool,
     #[serde(
         rename = "$exception_releases",
-        skip_serializing_if = "HashMap::is_empty"
+        skip_serializing_if = "HashMap::is_empty",
+        default
     )]
     pub releases: HashMap<String, ReleaseInfo>,
     // Search metadata (materialized)
@@ -464,6 +471,13 @@ impl Stacktrace {
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
         })
+    }
+
+    pub fn get_raw_frames(&self) -> &[RawFrame] {
+        match self {
+            Stacktrace::Raw { frames } => frames,
+            _ => &[],
+        }
     }
 
     pub fn get_frames(&self) -> &[Frame] {

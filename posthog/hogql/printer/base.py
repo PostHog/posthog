@@ -47,10 +47,6 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import (
-    filter_survey_sent_events_by_unique_submission,
-    get_survey_response_clickhouse_query,
-)
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -381,7 +377,7 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if node.table_final:
-            join_strings.append("FINAL")
+            raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
 
         if node.sample is not None:
             sample_clause = self.visit_sample_expr(node.sample)
@@ -817,29 +813,13 @@ class HogQLPrinter(Visitor[str]):
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     db = django_settings.CLICKHOUSE_DATABASE
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
-                elif node.name == "getSurveyResponse":
-                    question_index_obj = node.args[0]
-                    if not isinstance(question_index_obj, ast.Constant):
-                        raise QueryError("getSurveyResponse first argument must be a constant")
-                    if (
-                        not isinstance(question_index_obj.value, int | str)
-                        or not str(question_index_obj.value).lstrip("-").isdigit()
-                    ):
-                        raise QueryError("getSurveyResponse first argument must be a valid integer")
-                    second_arg = node.args[1] if len(node.args) > 1 else None
-                    third_arg = node.args[2] if len(node.args) > 2 else None
-                    question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                    is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
-                    return get_survey_response_clickhouse_query(
-                        int(question_index_obj.value), question_id, is_multiple_choice
-                    )
-
-                elif node.name == "uniqueSurveySubmissionsFilter":
-                    survey_id = node.args[0]
-                    if not isinstance(survey_id, ast.Constant):
-                        raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                    return filter_survey_sent_events_by_unique_submission(survey_id.value, self.context.team_id)
+                    # Build rate lookup expressions
+                    from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
+                    to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+                    # Use if() around divisor to avoid division by zero with enable_analyzer=0
+                    # (old analyzer evaluates all branches regardless of condition)
+                    safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
@@ -1379,16 +1359,21 @@ class HogQLPrinter(Visitor[str]):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, int | float | str):
-                raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")
             if isinstance(value, bool):
                 pairs.append(f"{key}={1 if value else 0}")
             elif isinstance(value, int) or isinstance(value, float):
                 pairs.append(f"{key}={value}")
-            else:
+            elif isinstance(value, list):
+                if not all(isinstance(item, str) and item for item in value):
+                    raise QueryError(f"List setting {key} can only contain non-empty strings")
+                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
+                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
+            elif isinstance(value, str):
                 pairs.append(f"{key}={self._print_escaped_string(value)}")
+            else:
+                raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
@@ -1413,3 +1398,20 @@ class HogQLPrinter(Visitor[str]):
             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
             frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
         )
+
+    def visit_type_cast(self, node: ast.TypeCast):
+        match node.type_name.lower():
+            case "int" | "integer":
+                return f"toInt64({self.visit(node.expr)})"
+            case "float" | "double" | "double precision" | "real":
+                return f"toFloat64({self.visit(node.expr)})"
+            case "text" | "varchar" | "char" | "string":
+                return f"toString({self.visit(node.expr)})"
+            case "boolean" | "bool":
+                return f"toBoolean({self.visit(node.expr)})"
+            case "date":
+                return f"toDate({self.visit(node.expr)})"
+            case "datetime" | "timestamp" | "timestamptz":
+                return f"toDateTime({self.visit(node.expr)}, '{self._get_timezone()}')"
+            case _:
+                raise QueryError(f"Unsupported type cast to '{node.type_name}'")

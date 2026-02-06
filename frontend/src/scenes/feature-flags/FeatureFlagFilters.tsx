@@ -104,8 +104,6 @@ export function FeatureFlagFiltersSection({
                                     const { active, ...restFilters } = filters || {}
                                     if (status === 'all') {
                                         setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                    } else if (status === 'STALE') {
-                                        setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
                                     } else {
                                         setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                                     }

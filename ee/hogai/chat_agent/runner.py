@@ -2,8 +2,11 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
+import posthoganalytics
+
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
+from posthog import event_usage
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent import AssistantGraph
@@ -111,7 +114,11 @@ class ChatAgentRunner(BaseAgentRunner):
             )
             # Only set the agent mode if it was explicitly set.
             if self._selected_agent_mode:
-                new_state.agent_mode = self._selected_agent_mode
+                if self._selected_agent_mode == AgentMode.PLAN:
+                    new_state.supermode = AgentMode.PLAN
+                    new_state.agent_mode = AgentMode.SQL
+                else:
+                    new_state.agent_mode = self._selected_agent_mode
             return new_state
 
         # When resuming, do not set the mode. It should start from the same mode as the previous generation.
@@ -137,6 +144,20 @@ class ChatAgentRunner(BaseAgentRunner):
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
+        if self._selected_agent_mode and self._user:
+            posthoganalytics.capture(
+                distinct_id=self._user.distinct_id,
+                event="ai mode executed",
+                properties={
+                    "mode": self._selected_agent_mode,
+                    "previous_mode": None,
+                    "is_initial_mode": True,
+                    "conversation_id": str(self._conversation.id),
+                    "$session_id": self._session_id,
+                },
+                groups=event_usage.groups(team=self._team),
+            )
+
         last_ai_message: AssistantMessage | None = None
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages
@@ -159,5 +180,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 "is_new_conversation": self._is_new_conversation,
                 "slack_workspace_domain": self._conversation.slack_workspace_domain,
                 "$session_id": self._session_id,
+                "agent_mode": self._selected_agent_mode,
             },
         )

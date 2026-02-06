@@ -72,12 +72,17 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted],
+        &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-button-tertiary-active);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--color-bg-fill-button-tertiary-hover);
         }
@@ -85,7 +90,11 @@
 }
 
 .button-primitive--variant-panel {
-    background-color: var(--color-bg-fill-button-panel);
+    --base-bg-color: var(--color-bg-fill-button-panel);
+    --hover-bg-color: var(--color-bg-fill-button-panel-hover);
+    --active-bg-color: var(--color-bg-fill-button-panel-active);
+
+    background-color: var(--base-bg-color);
     border: 1px solid transparent;
 
     &:not([aria-disabled='true']) {
@@ -93,14 +102,20 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted],
+        &[data-menu-item='true'],
+        &[aria-expanded='true'],
         &.button-primitive--active {
-            background-color: var(--color-bg-fill-button-panel-active);
+            background-color: var(--active-bg-color);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
-            background-color: var(--color-bg-fill-button-panel-hover);
+            background-color: var(--hover-bg-color);
         }
     }
 }
@@ -114,12 +129,18 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted],
+        &[data-menu-item='true'],
+        &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-error-highlight);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--color-bg-fill-error-highlight);
         }
@@ -134,12 +155,18 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted],
+        &[data-menu-item='true'],
+        &[aria-expanded='true'],
         &.button-primitive--active {
             background-color: var(--color-bg-fill-button-tertiary-active);
+
+            &:not(:focus-visible) {
+                outline: none !important;
+            }
         }
 
         &[data-focused='true'],
+        &[data-highlighted],
         &:hover {
             background-color: var(--color-bg-fill-button-tertiary-hover);
         }

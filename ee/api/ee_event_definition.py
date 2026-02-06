@@ -6,6 +6,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
+from posthog.models import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -74,6 +75,20 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return extra_kwargs
 
+    def validate_name(self, value):
+        # For creation, check if event definition with this name already exists
+        if self.instance:
+            return value
+
+        view = self.context.get("view")
+        if not view:
+            return value
+
+        if EventDefinition.objects.filter(team_id=view.team_id, name=value).exists():
+            raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+
+        return value
+
     def validate(self, data):
         validated_data = super().validate(data)
 
@@ -141,5 +156,5 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return representation
 
-    def get_is_action(self, obj):
+    def get_is_action(self, obj) -> bool:
         return hasattr(obj, "action_id") and obj.action_id is not None

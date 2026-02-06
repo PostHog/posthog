@@ -4,7 +4,13 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_v2"
 QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE = "writable_query_log_archive"
+
+SHARDED_QUERY_LOG_ARCHIVE_TABLE = "sharded_query_log_archive"
+SHARDED_QUERY_LOG_ARCHIVE_MV = "sharded_query_log_archive_mv"
+DIST_QUERY_LOG_ARCHIVE_MV = "dist_query_log_archive_mv"
+SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE = "writable_sharded_query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -127,6 +133,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String),
     user                                  LowCardinality(String),
     query_id                              String,
+    initial_query_id                      String,
+    is_initial_query                      UInt8,
     type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
 
     event_date                            Date,
@@ -175,6 +183,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     ProfileEvents_ReadBufferFromS3Bytes Int64,
     ProfileEvents_WriteBufferFromS3Bytes Int64,
 
+    ProfileEvents Map(String, UInt64),
+
     lc_workflow LowCardinality(String),
     lc_kind LowCardinality(String),
     lc_id String,
@@ -214,6 +224,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_query__kind LowCardinality(String),
     lc_query__query String,
+    lc_query String,
 
     lc_temporal__workflow_namespace String,
     lc_temporal__workflow_type String,
@@ -246,6 +257,8 @@ SELECT
     hostname,
     user,
     query_id,
+    initial_query_id,
+    is_initial_query,
     type,
 
     event_date,
@@ -293,6 +306,8 @@ SELECT
     ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
     ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
 
+    ProfileEvents,
+
     JSONExtractString(log_comment, 'workflow') as lc_workflow,
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
@@ -334,9 +349,10 @@ SELECT
     if(JSONHas(log_comment, 'query', 'source'),
         JSONExtractString(log_comment, 'query', 'source', 'kind'),
         JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
+    multiIf(not is_initial_query, '',
+        JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
+    if(is_initial_query, JSONExtractRaw(log_comment, 'query'), '') as lc_query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
@@ -352,7 +368,6 @@ SELECT
 FROM system.query_log
 WHERE
     type != 'QueryStart'
-    AND is_initial_query
 """
 
 
@@ -403,3 +418,60 @@ def QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE
     return """
     ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_is_impersonated Bool AFTER lc_user_id
     """.format(table=table)
+
+
+# V7 - sharded query_log_archive
+def SHARDED_QUERY_LOG_ARCHIVE_TABLE_ENGINE():
+    return MergeTreeEngine(SHARDED_QUERY_LOG_ARCHIVE_TABLE, replication_scheme=ReplicationScheme.SHARDED)
+
+
+def SHARDED_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+        engine=SHARDED_QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
+    )
+
+
+def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            sharding_key="cityHash64(query_id)",
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )
+
+
+def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            sharding_key="cityHash64(query_id)",
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )
+
+
+# V8 - adding initial_query_id, is_initial_query to track subqueries, and ProfileEvents map
+def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS initial_query_id String AFTER query_id,
+        ADD COLUMN IF NOT EXISTS is_initial_query UInt8 AFTER initial_query_id,
+        ADD COLUMN IF NOT EXISTS ProfileEvents Map(String, UInt64) AFTER ProfileEvents_WriteBufferFromS3Bytes
+    """
+
+
+# V9 - adding lc_query for storing full query JSON from log_comment
+def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_query String AFTER lc_query__query
+    """
+
+
+def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
+    return f"""ALTER TABLE {mv_name} MODIFY QUERY {MV_SELECT_SQL}"""

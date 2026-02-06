@@ -4,13 +4,19 @@ import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import ViewRecordingButton, {
+    RecordingPlayerType,
+    ViewRecordingButtonVariant,
+} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface LogAttributesProps {
     attributes: Record<string, string>
@@ -115,18 +121,34 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                         title: 'Value',
                         key: 'value',
                         dataIndex: 'value',
-                        render: (_, record) => (
-                            <CopyToClipboardInline
-                                explicitValue={record.value}
-                                description="attribute value"
-                                iconSize="xsmall"
-                                iconPosition="start"
-                                selectable
-                                className="gap-1 font-mono text-xs"
-                            >
-                                {record.value}
-                            </CopyToClipboardInline>
-                        ),
+                        render: (_, record) => {
+                            return (
+                                <CopyToClipboardInline
+                                    explicitValue={record.value}
+                                    description="attribute value"
+                                    iconSize="xsmall"
+                                    iconPosition="start"
+                                    selectable
+                                    className="gap-1 font-mono text-xs"
+                                >
+                                    {isDistinctIdKey(record.key) ? (
+                                        <span onClick={(e) => e.stopPropagation()}>
+                                            <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
+                                        </span>
+                                    ) : isSessionIdKey(record.key) ? (
+                                        <ViewRecordingButton
+                                            sessionId={record.value}
+                                            openPlayerIn={RecordingPlayerType.Modal}
+                                            label={record.value}
+                                            variant={ViewRecordingButtonVariant.Link}
+                                            checkRecordingExists
+                                        />
+                                    ) : (
+                                        <span>{record.value}</span>
+                                    )}
+                                </CopyToClipboardInline>
+                            )
+                        },
                     },
                 ]}
                 dataSource={rows}

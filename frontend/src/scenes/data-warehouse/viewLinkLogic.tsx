@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { hogqlQuery } from '~/queries/query'
@@ -68,7 +69,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
-        setValidationError: (errorMessage: string) => ({ errorMessage }),
+        setValidationError: (errorMessage: string | null) => ({ errorMessage }),
         setValidationWarning: (validationWarning: string | null) => ({ validationWarning }),
         validateJoin: () => {},
         checkKeyTypeMismatch: () => {},
@@ -297,6 +298,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         actions.loadDatabase()
 
                         posthog.capture('join created')
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.JoinExternalData)
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
@@ -325,6 +327,14 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectExperimentsTimestampKey: ({ experimentsTimestampKey }) => {
             if (experimentsTimestampKey) {
                 actions.setExperimentsOptimized(true)
+            }
+        },
+        setViewLinkValue: ({ name }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'joining_table_key' || fieldName === 'source_table_key') {
+                actions.setIsJoinValid(false)
+                actions.setValidationError(null)
+                actions.setValidationWarning(null)
             }
         },
         selectSourceTable: async ({ selectedTableName }) => {

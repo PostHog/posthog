@@ -50,56 +50,74 @@ Examples:
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
-## ClickHouse Migrations
+## Security
 
-### Migration structure
+### SQL Security
+
+- **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
+- Use parameterized queries for all VALUES: `cursor.execute("SELECT * FROM t WHERE id = %s", [id])`
+- Table/column names from Django ORM metadata (`model._meta.db_table`) are trusted sources
+- For ClickHouse identifiers, use `escape_clickhouse_identifier()` from `posthog/hogql/escape_sql.py`
+- When raw SQL is necessary with dynamic table/column names:
+
+  ```python
+  # Build query string separately from execution, document why identifiers are safe
+  table = model._meta.db_table  # Trusted: from Django ORM metadata
+  query = f"SELECT COUNT(*) FROM {table} WHERE team_id = %s"
+  cursor.execute(query, [team_id])  # Values always parameterized
+  ```
+
+### HogQL Security
+
+HogQL queries use `parse_expr()`, `parse_select()`, and `parse_order_expr()`. Two patterns exist:
+
+**Vulnerable pattern** - User data interpolated INTO a HogQL template:
 
 ```python
-operations = [
-    run_sql_with_exceptions(
-        SQL_FUNCTION(),
-        node_roles=[...],
-        sharded=False,  # True for sharded tables
-        is_alter_on_replicated_table=False  # True for ALTER on replicated tables
-    ),
-]
+# User data embedded in f-string - can escape context!
+parse_expr(f"field = '{self.query.value}'")  # VULNERABLE
 ```
 
-### Node roles (choose based on table type)
+**Safe patterns**:
 
-- `[NodeRole.DATA]`: Sharded tables (data nodes only)
-- `[NodeRole.DATA, NodeRole.COORDINATOR]`: Non-sharded data tables, distributed read tables, replicated tables, views, dictionaries
-- `[NodeRole.INGESTION_SMALL]`: Writable tables, Kafka tables, materialized views on ingestion layer
+```python
+# User provides ENTIRE expression - no context to escape
+parse_expr(self.query.expression)  # SAFE - HogQL parser validates syntax
 
-### Table engines quick reference
+# User data wrapped in ast.Constant placeholder
+parse_expr("{x}", placeholders={"x": ast.Constant(value=self.query.field)})  # SAFE
+```
 
-MergeTree engines:
+**Why direct pass-through is safe**: When users provide the entire HogQL expression (not data embedded in a template), there's no string context to escape from. The HogQL parser validates syntax and rejects malformed input.
 
-- `AggregatingMergeTree(table, replication_scheme=ReplicationScheme.SHARDED)` for sharded tables
-- `ReplacingMergeTree(table, replication_scheme=ReplicationScheme.REPLICATED)` for non-sharded
-- Other variants: `CollapsingMergeTree`, `ReplacingMergeTreeDeleted`
+**Sanitizers** (for use in placeholders):
 
-Distributed engine:
+- `ast.Constant(value=...)` - wraps values safely
+- `ast.Tuple(exprs=...)` - for lists of values
 
-- Sharded: `Distributed(data_table="sharded_events", sharding_key="sipHash64(person_id)")`
-- Non-sharded: `Distributed(data_table="my_table", cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`
+### Semgrep Rules
 
-### Critical rules
+Run `semgrep --config .semgrep/rules/hogql-no-fstring.yaml .` to check for HogQL injection issues.
 
-- NEVER use `ON CLUSTER` clause in SQL statements
-- Always use `IF EXISTS` / `IF NOT EXISTS` clauses
-- When dropping and recreating replicated table in same migration, use `DROP TABLE IF EXISTS ... SYNC`
-- If a function generating SQL has on_cluster param, always set `on_cluster=False`
-- Use `sharded=True` when altering sharded tables
-- Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
+Two rules:
 
-### Testing
+1. `hogql-injection-taint` - Flags user data (`self.query.*`, etc.) interpolated into f-strings passed to parse functions (HIGH confidence)
+2. `hogql-fstring-audit` - Flags all f-strings in parse functions for manual review (LOW confidence)
 
-Delete entry from `infi_clickhouse_orm_migrations` table to re-run a migration
+**When semgrep flags your code:**
 
-### Detailed documentation
+- If user data is interpolated into f-string → wrap with `ast.Constant()` in placeholders
+- If f-string uses safe values (loop index, enum, dict lookup) → add `# nosemgrep: <rule-id>` with explanation
 
-See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, examples, and ingestion layer setup
+**Running tests:**
+
+```bash
+# Local install
+semgrep --test .semgrep/rules/
+
+# Or via Docker
+docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
+```
 
 ## Important rules for Code Style
 
@@ -112,6 +130,7 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
 - Python tests: do not add doc comments
+- Python tests: do not create `__init__.py` files in test directories (pytest discovers tests without them)
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead

@@ -26,6 +26,7 @@ import {
     eventToDescription,
     floorMsToClosestSecond,
     formatDateTimeRange,
+    formatPercentageDiff,
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
@@ -155,6 +156,15 @@ describe('lib/utils', () => {
                     'https://client.rrrr.alpha.dev.foo.bar/9RvDy6gCmic_srrKs1db?sourceOrigin=rrrr&embedded={%22hostContext%22:%22landing%22,%22hostType%22:%22web%22,%22type%22:%22popsync%22}&share=1&wrapperUrl=https%3A%2F%2Fuat.rrrr.io%2F9RvDy6gCmicxyz&save=1&initialSearch={%22sites%22:%22google.com,gettyimages.com%22,%22safe%22:true,%22q%22:%22Perro%22}&opcid=4360f861-ffff-4444-9999-5257065a7dc3&waitForToken=1'
                 )
             ).toEqual(false)
+        })
+
+        it('rejects dangerous protocols (XSS prevention)', () => {
+            expect(isURL('javascript:alert(1)')).toEqual(false)
+            expect(isURL('javascript:alert(document.cookie)')).toEqual(false)
+            expect(isURL('JAVASCRIPT:alert(1)')).toEqual(false)
+            expect(isURL('data:text/html,<script>alert(1)</script>')).toEqual(false)
+            expect(isURL('vbscript:msgbox(1)')).toEqual(false)
+            expect(isURL('file:///etc/passwd')).toEqual(false)
         })
     })
 
@@ -1274,6 +1284,27 @@ describe('lib/utils', () => {
             const from = dayjs('2025-03-15T12:00:00')
             const to = dayjs('2025-03-15T12:01:00')
             expect(formatDateTimeRange(from, to)).toEqual('12:00 - 12:01')
+        })
+    })
+
+    describe('formatPercentageDiff()', () => {
+        it.each([
+            { current: 150, previous: 100, expected: '(+50.0%)' },
+            { current: 200, previous: 100, expected: '(+100.0%)' },
+            { current: 100, previous: 100, expected: '(+0.0%)' },
+            { current: 50, previous: 100, expected: '(-50.0%)' },
+            { current: 0, previous: 100, expected: '(-100.0%)' },
+            { current: 125, previous: 100, expected: '(+25.0%)' },
+            { current: 75, previous: 100, expected: '(-25.0%)' },
+        ])('formats $current vs $previous as $expected', ({ current, previous, expected }) => {
+            expect(formatPercentageDiff(current, previous)).toEqual(expected)
+        })
+
+        it.each([
+            { current: 100, previous: 0, description: 'division by zero' },
+            { current: 0, previous: 0, description: 'zero divided by zero' },
+        ])('returns null for $description', ({ current, previous }) => {
+            expect(formatPercentageDiff(current, previous)).toBeNull()
         })
     })
 

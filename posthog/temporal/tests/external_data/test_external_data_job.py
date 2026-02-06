@@ -681,7 +681,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     )
 
     def mock_func(inputs):
-        return {}
+        return {"should_trigger_cdp_producer": False}
 
     with (
         mock.patch(

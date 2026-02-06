@@ -126,6 +126,11 @@ class NotebookHandler(ArtifactHandler[StoredNotebookArtifactContent, NotebookArt
             title=content.title,
         )
 
+    def get_metadata(self, content: StoredNotebookArtifactContent) -> dict[str, Any]:
+        return {
+            "title": content.title,
+        }
+
     async def _list_visualization_contents(
         self,
         artifact_ids: list[str],

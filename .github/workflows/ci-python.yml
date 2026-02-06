@@ -9,6 +9,7 @@ on:
 
 permissions:
     contents: read
+    pull-requests: read
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -55,6 +56,8 @@ jobs:
                         - 'bin/**'
                         # LLM Gateway service
                         - 'services/llm-gateway/**/*.py'
+                        # GitHub scripts
+                        - '.github/scripts/**/*.py'
 
     code-quality:
         needs: changes
@@ -79,6 +82,7 @@ jobs:
               uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Check uv and Python version compatibility
@@ -128,7 +132,7 @@ jobs:
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
             - name: Restore mypy cache
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .mypy_cache
                   key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
@@ -139,6 +143,13 @@ jobs:
               shell: bash -e {0}
               run: |
                   mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+
+            - name: Save mypy cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
@@ -153,12 +164,26 @@ jobs:
             - name: Run hogli tests
               shell: bash
               run: |
-                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
+                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term --junitxml=junit-hogli.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-hogli
+                  path: junit-hogli.xml
 
             - name: Run dependency detection script tests
               shell: bash
               run: |
-                  pytest bin/test/test_find_python_dependencies.py -v
+                  pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+
+            - name: Upload test results for dependency detection
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-dependency-detection
+                  path: junit-dependency-detection.xml
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'

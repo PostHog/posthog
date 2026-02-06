@@ -58,6 +58,7 @@ const ShowTools: DataTableNode = {
     columns: ['event', 'person', 'properties.$lib', 'person.properties.email'],
     showExport: true,
     showReload: true,
+    showCount: true,
     showColumnConfigurator: true,
 }
 
@@ -80,6 +81,7 @@ const ShowAllTheThings: DataTableNode = {
     columns: ['event', 'person', 'properties.$lib', 'person.properties.email'],
     showExport: true,
     showReload: true,
+    showCount: true,
     showColumnConfigurator: true,
     showEventFilter: true,
     showPropertyFilter: true,
@@ -97,6 +99,7 @@ const PersonsTable: DataTableNode = {
     showPropertyFilter: true,
     showExport: true,
     showReload: true,
+    showCount: true,
 }
 
 const PinnedColumnsAtTheBeginning: DataTableNode = {

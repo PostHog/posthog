@@ -8,14 +8,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
 import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
@@ -28,10 +28,7 @@ interface SavedInsightsTableProps {
 export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTableProps): JSX.Element {
     const { modalPage, insights, count, insightsLoading, filters, sorting } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
-    const { hasTagging } = useValues(organizationLogic)
     const summarizeInsight = useSummarizeInsight()
-
-    const { tab } = filters
 
     const startCount = (modalPage - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = Math.min(modalPage * INSIGHTS_PER_PAGE, count)
@@ -52,48 +49,38 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
+            width: 300,
             render: function renderName(name: string, insight) {
+                const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <>
-                        <div className="flex flex-col gap-1 min-w-0">
-                            <div className="flex min-w-0">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex min-w-0">
+                            <Tooltip title={displayName}>
                                 <Link
                                     to={urls.insightView(insight.short_id)}
                                     target="_blank"
-                                    title={name || summarizeInsight(insight.query)}
                                     className="w-0 flex-1 min-w-0"
                                 >
-                                    <span className="block truncate">
-                                        {name || <i>{summarizeInsight(insight.query)}</i>}
-                                    </span>
+                                    <span className="block truncate">{name || <i>{displayName}</i>}</span>
                                 </Link>
-                            </div>
-                            <div className="text-xs text-tertiary">{insight.description}</div>
+                            </Tooltip>
                         </div>
-                    </>
+                        {insight.description && (
+                            <div className="text-xs text-tertiary truncate">{insight.description}</div>
+                        )}
+                    </div>
                 )
             },
         },
-        ...(hasTagging
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  },
-              ]
-            : []),
-        ...(tab === SavedInsightsTabs.Yours
-            ? []
-            : [
-                  createdByColumn() as LemonTableColumn<
-                      QueryBasedInsightModel,
-                      keyof QueryBasedInsightModel | undefined
-                  >,
-              ]),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        },
+        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
@@ -109,7 +96,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
 
     return (
         <div className="saved-insights">
-            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
+            <SavedInsightsFilters filters={filters} setFilters={setModalFilters} showQuickFilters={false} />
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-secondary">

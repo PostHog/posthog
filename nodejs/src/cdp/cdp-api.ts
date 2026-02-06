@@ -150,7 +150,7 @@ export class CdpApi {
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.post(
-            '/api/projects/:team_id/hog_flows/:id/batch_invocations/:batch_job_id',
+            '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
             asyncHandler(this.postHogFlowBatchInvocation)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
@@ -506,9 +506,9 @@ export class CdpApi {
 
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
-            const { id, team_id, batch_job_id } = req.params
+            const { id, team_id, parent_run_id } = req.params
 
-            logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, batch_job_id })
+            logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, parent_run_id })
 
             const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
 
@@ -535,7 +535,7 @@ export class CdpApi {
             const batchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: batch_job_id,
+                parentRunId: parent_run_id,
                 filters: {
                     properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,

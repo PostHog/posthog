@@ -8,10 +8,8 @@ from django.conf import settings
 from django.urls import resolve
 
 from prometheus_client import Counter
-from rest_framework.request import Request
-from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
+from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
-from token_bucket import Limiter, MemoryStorage
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
@@ -33,12 +31,6 @@ RATE_LIMIT_BYPASSED_COUNTER = Counter(
     "rate_limit_bypassed_total",
     "Requests that should be dropped by rate-limiting but allowed by configuration.",
     labelnames=[LABEL_TEAM_ID, LABEL_PATH, LABEL_ROUTE],
-)
-
-DECIDE_RATE_LIMIT_EXCEEDED_COUNTER = Counter(
-    "decide_rate_limit_exceeded_total",
-    "Dropped requests due to rate-limiting, per token.",
-    labelnames=["token"],
 )
 
 
@@ -66,18 +58,6 @@ def is_rate_limit_enabled(_ttl: int) -> bool:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     return get_instance_setting("RATE_LIMIT_ENABLED")
-
-
-def is_decide_rate_limit_enabled() -> bool:
-    """
-    The setting will change way less frequently than it will be called
-    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
-    """
-    from django.conf import settings
-
-    from posthog.utils import str_to_bool
-
-    return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
 
 
 path_by_env_pattern = re.compile(r"^/api/environments/(\d+)/")
@@ -263,75 +243,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class DecideRateThrottle(BaseThrottle):
-    """
-    This is a custom throttle that is used to limit the number of requests to the /decide endpoint.
-    It is different from the PersonalApiKeyRateThrottle in that it does not use the Django cache, but instead
-    uses the Limiter from the `token-bucket` library.
-    This uses the token bucket algorithm to limit the number of requests to the endpoint. It's a lot
-    more performant than DRF's SimpleRateThrottle, which inefficiently uses the Django cache.
-
-    However, note that this throttle is per process, and not global.
-    """
-
-    def __init__(self, replenish_rate: float = 5, bucket_capacity=100) -> None:
-        self.limiter = Limiter(
-            rate=replenish_rate,
-            capacity=bucket_capacity,
-            storage=MemoryStorage(),
-        )
-
-    @staticmethod
-    def safely_get_token_from_request(request: Request) -> str | None:
-        """
-        Gets the token from a request without throwing.
-
-        Not all requests are valid, and might not have a token.
-        Accessing it when it does not exist throws a KeyError. Hence, this method.
-        """
-        try:
-            from posthog.api.utils import get_token
-            from posthog.utils import load_data_from_request
-
-            if request.method != "POST":
-                return None
-
-            data = load_data_from_request(request)
-            return get_token(data, request)
-        except Exception:
-            return None
-
-    def allow_request(self, request, view):
-        if not is_decide_rate_limit_enabled():
-            return True
-
-        try:
-            bucket_key = self.get_bucket_key(request)
-            request_would_be_allowed = self.limiter.consume(bucket_key)
-
-            if not request_would_be_allowed:
-                DECIDE_RATE_LIMIT_EXCEEDED_COUNTER.labels(token=bucket_key).inc()
-
-            return request_would_be_allowed
-        except Exception as e:
-            capture_exception(e)
-            return True
-
-    def get_bucket_key(self, request):
-        """
-        Attempts to throttle based on the team_id of the request. If it can't do that, it falls back to the user_id.
-        And then finally to the IP address.
-        """
-        ident = None
-        token = self.safely_get_token_from_request(request)
-        if token:
-            ident = token
-        else:
-            ident = self.get_ident(request)
-
-        return ident
-
-
 class UserOrEmailRateThrottle(SimpleRateThrottle):
     """
     Typically throttling is on the user or the IP address.
@@ -394,6 +305,26 @@ class SignupIPThrottle(IPThrottle):
     rate = "5/day"
 
 
+class WebAuthnSignupRegistrationThrottle(IPThrottle):
+    """
+    Rate limit passkey signup registrations by IP address to avoid a single IP address from initiating too many signups.
+
+    Note: this is effectively 5 attempts per minute, because each attempt issues 2 requests: begin, complete.
+    """
+
+    scope = "webauthn_signup_registration_ip"
+    rate = "10/minute"
+
+
+class SignupEmailPrecheckThrottle(IPThrottle):
+    """
+    Rate limit signup email precheck requests by IP.
+    """
+
+    scope = "signup_email_precheck"
+    rate = "30/minute"
+
+
 class OnboardingIPThrottle(IPThrottle):
     """
     Rate limit onboarding product recommendations by IP address.
@@ -432,34 +363,38 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
-class AIBurstRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
-    # Intended to block quick bursts of requests, per user
+class _AIThrottleBase(UserRateThrottle):
+    action_name: str
+
+    def allow_request(self, request, view):
+        request_allowed = super().allow_request(request, view)
+        if not request_allowed and request.user.is_authenticated:
+            report_user_action(request.user, self.action_name)
+        return request_allowed
+
+
+class AIBurstRateThrottle(_AIThrottleBase):
     scope = "ai_burst"
     rate = "10/minute"
-
-    def allow_request(self, request, view):
-        request_allowed = super().allow_request(request, view)
-
-        if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, "ai burst rate limited")
-
-        return request_allowed
+    action_name = "ai burst rate limited"
 
 
-class AISustainedRateThrottle(UserRateThrottle):
-    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
-    # Intended to block slower but sustained bursts of requests, per user
+class AISustainedRateThrottle(_AIThrottleBase):
     scope = "ai_sustained"
     rate = "100/day"
+    action_name = "ai sustained rate limited"
 
-    def allow_request(self, request, view):
-        request_allowed = super().allow_request(request, view)
 
-        if not request_allowed and request.user.is_authenticated:
-            report_user_action(request.user, "ai sustained rate limited")
+class AIResearchBurstRateThrottle(_AIThrottleBase):
+    scope = "ai_research_burst"
+    rate = "3/minute"
+    action_name = "ai research burst rate limited"
 
-        return request_allowed
+
+class AIResearchSustainedRateThrottle(_AIThrottleBase):
+    scope = "ai_research_sustained"
+    rate = "10/day"
+    action_name = "ai research sustained rate limited"
 
 
 class LLMProxyBurstRateThrottle(UserRateThrottle):

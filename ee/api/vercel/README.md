@@ -31,9 +31,9 @@ LOCAL_HTTPS=1
 DEBUG=1
 
 # ngrok tunnel URLs for HTTPS local development (update with your ngrok URL)
+SITE_URL=https://your-ngrok-tunnel.ngrok-free.dev
 JS_URL=https://your-ngrok-tunnel.ngrok-free.dev
 WEBPACK_HOT_RELOAD_HOST=0.0.0.0
-NGROK_ORIGIN=https://your-ngrok-tunnel.ngrok-free.dev
 
 # Vercel integration credentials (automatically loaded from 1Password)
 VERCEL_CLIENT_INTEGRATION_ID="op://General/Vercel Client Integration Secret/client id"
@@ -132,6 +132,107 @@ The "Redirect URL" field in Vercel integration settings is for OAuth-style integ
 This is normal! 1Password CLI conceals sensitive values in stdout for security. The actual values are correctly passed to your application as environment variables.
 
 ## Testing the Integration
+
+### Automated Tests
+
+Run the Vercel integration test suite:
+
+```bash
+pytest ee/vercel/test/test_integration.py -v
+```
+
+The test suite includes:
+
+- **Unit tests**: Individual function testing
+- **Regression tests**: Tests for specific bugs that were fixed (see `TestVercelInstallationRegressions`)
+- **E2E tests**: Complete installation flow simulations (see `TestVercelInstallationE2E`)
+
+### Manual Testing Checklist
+
+Before releasing changes to the Vercel integration, manually verify the following scenarios:
+
+#### Scenario 1: Brand New User Installation
+
+**Setup**: Use an email that doesn't exist in PostHog
+
+1. Start ngrok, Django, and Vite as described above
+2. In Vercel, navigate to your integration and click "Install"
+3. Complete the installation flow
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] New organization is created in PostHog
+- [ ] New user is created with the email from Vercel
+- [ ] User is added as Owner of the organization
+- [ ] Click "Connect Account" → SSO works immediately (no login required)
+
+#### Scenario 2: Existing PostHog User (No Prior Vercel)
+
+**Setup**: Create a PostHog account manually with an email, then use that email in Vercel
+
+1. Create a user in PostHog: `User.objects.create_user(email="test@example.com", password="test")`
+2. In Vercel, install with the same email
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] New organization is created
+- [ ] Existing user is added as Owner of the new organization
+- [ ] Click "Connect Account" → User is prompted to login (security: must prove ownership)
+- [ ] After login, SSO works
+
+#### Scenario 3: Trusted Vercel User (Second Installation)
+
+**Setup**: User who already has one Vercel installation
+
+1. Complete Scenario 1 first
+2. Install a second Vercel integration with the same email
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] Second organization is created
+- [ ] Same user is added as Owner of the second organization
+- [ ] Click "Connect Account" → SSO works immediately (user is trusted)
+
+#### Scenario 4: Inactive User Reactivation
+
+**Setup**: Create an inactive user, then install with that email
+
+1. Create inactive user: `User.objects.create_user(email="inactive@example.com", password="test", is_active=False)`
+2. Install Vercel integration with that email
+
+**Expected**:
+
+- [ ] Installation completes without errors
+- [ ] User is reactivated (is_active=True)
+- [ ] User is added to the new organization
+
+#### Quick Local Verification
+
+To quickly verify the fix for existing users without Vercel mappings:
+
+```python
+# In Django shell: python manage.py shell
+from posthog.models.user import User
+from posthog.models.organization_integration import OrganizationIntegration
+
+# Create test user without any Vercel mappings
+User.objects.create_user(email="test-vercel@example.com", password="test", first_name="Test")
+
+# Verify no Vercel mappings exist
+for oi in OrganizationIntegration.objects.filter(kind="vercel"):
+    mappings = oi.config.get("user_mappings", {})
+    user_ids = list(mappings.values())
+    user = User.objects.filter(email="test-vercel@example.com").first()
+    assert user.pk not in user_ids, "User should have no mappings"
+
+# Now install via Vercel with test-vercel@example.com
+# User should be added to org without errors
+```
+
+### Basic Manual Testing
 
 1. Start ngrok, Django, and Vite as described above
 2. In Vercel, navigate to your integration and click "Install"

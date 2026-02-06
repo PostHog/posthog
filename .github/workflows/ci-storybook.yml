@@ -63,14 +63,22 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.22.0
+                  node-version: 24.13.0
                   cache: pnpm
+
+            - name: Install Ninja
+              run: sudo apt-get update && sudo apt-get install -y ninja-build unzip
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            - name: Cache webpack build
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            - name: Restore webpack build cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -82,6 +90,13 @@ jobs:
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
+
+            - name: Save webpack build cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: common/storybook/node_modules/.cache/
+                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -127,6 +142,8 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
+                # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+                # are tuned for runner CPU — consult #team-devex before changing
                 include:
                     - browser: chromium
                       shard_count: 16
@@ -176,16 +193,18 @@ jobs:
                     - browser: chromium
                       shard_count: 16
                       shard: 16
-                    # WebKit is much faster, so we run with only 3 shards
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 1
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 2
                     - browser: webkit
-                      shard_count: 3
+                      shard_count: 4
                       shard: 3
+                    - browser: webkit
+                      shard_count: 4
+                      shard: 4
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -201,8 +220,16 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.22.0
+                  node-version: 24.13.0
                   cache: pnpm
+
+            - name: Install build dependencies
+              run: apt-get update && apt-get install -y ninja-build unzip xz-utils
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '4.0.23'
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -258,6 +285,30 @@ jobs:
                       ls -la common/storybook/dist || echo "Storybook dist directory not found"
                       exit 1
                   fi
+
+            # Log system resources before webkit tests to diagnose timeout issues
+            # See: https://github.com/PostHog/posthog/actions/runs/21618991670
+            - name: Log system resources (webkit diagnostics)
+              if: matrix.browser == 'webkit'
+              run: |
+                  echo "=== System Resources Before Webkit Tests ==="
+                  echo ""
+                  echo "--- Memory Usage ---"
+                  free -h
+                  echo ""
+                  echo "--- CPU Info ---"
+                  nproc
+                  echo ""
+                  echo "--- System Load ---"
+                  uptime
+                  echo ""
+                  echo "--- Disk Usage ---"
+                  df -h /
+                  echo ""
+                  echo "--- Running Processes (top 10 by memory) ---"
+                  ps aux --sort=-%mem | head -11
+                  echo ""
+                  echo "=== End System Resources ==="
 
             - name: Run @storybook/test-runner
               id: test-runner
@@ -315,6 +366,14 @@ jobs:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
+                  path: common/storybook/junit.xml
+                  if-no-files-found: ignore
+
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
 
@@ -351,7 +410,7 @@ jobs:
                   fi
 
             - name: Upload snapshot patch
-              if: steps.create-patch.outputs.has-changes == 'true'
+              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.browser }}-${{ matrix.shard }}
@@ -453,35 +512,17 @@ jobs:
         needs: [visual-regression, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            always() &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
-            - name: Calculate running time
-              run: |
-                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
-                  run_id=${GITHUB_RUN_ID}
-                  repo=${GITHUB_REPOSITORY}
-                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
-                  echo run_info: ${run_info}
-                  # name is the name of the workflow file
-                  # run_started_at is the start time of the workflow
-                  # we want to get the number of seconds between the start time and now
-                  name=$(echo ${run_info} | jq -r '.name')
-                  run_url=$(echo ${run_info} | jq -r '.url')
-                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
-                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
-                  start_seconds=$(date -d "${run_started_at}" +%s)
-                  now_seconds=$(date +%s)
-                  duration=$((now_seconds-start_seconds))
-                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
-                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
-                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
-                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
-                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
-                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Visual regression tests pass'

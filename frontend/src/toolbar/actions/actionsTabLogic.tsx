@@ -97,7 +97,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId', 'dataAttributes'],
+            ['dataAttributes', 'apiHost', 'uiHost', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId'],
             actionsLogic,
             ['allActions'],
         ],
@@ -205,7 +205,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
                     creation_context: values.automaticActionCreationEnabled ? 'onboarding' : null,
                 }
-                const { apiURL, temporaryToken } = values
+                const { temporaryToken, apiHost } = values
                 const { selectedActionId } = values
 
                 const findUniqueActionName = (baseName: string, index = 0): string => {
@@ -224,12 +224,12 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 let response: ActionType
                 if (selectedActionId && selectedActionId !== 'new') {
                     response = await api.update(
-                        `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
+                        `${apiHost}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
                         actionToSave
                     )
                 } else {
                     response = await api.create(
-                        `${apiURL}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
+                        `${apiHost}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
                         actionToSave
                     )
                 }
@@ -242,7 +242,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     lemonToast.success('Action saved', {
                         button: {
                             label: 'Open in PostHog',
-                            action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
+                            action: () => window.open(`${values.uiHost}${urls.action(response.id)}`, '_blank'),
                         },
                     })
                 }

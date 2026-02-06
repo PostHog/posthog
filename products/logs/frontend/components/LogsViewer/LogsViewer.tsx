@@ -8,6 +8,9 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
@@ -29,7 +32,7 @@ export interface LogsViewerProps {
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
     orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    onChangeOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar') => void
     onRefresh?: () => void
     onLoadMore?: () => void
     onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
@@ -38,6 +41,7 @@ export interface LogsViewerProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    onExpandTimeRange?: () => void
 }
 
 export function LogsViewer({
@@ -56,24 +60,30 @@ export function LogsViewer({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
+    onExpandTimeRange,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
-            <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
-                <LogsViewerContent
-                    loading={loading}
-                    totalLogsCount={totalLogsCount}
-                    hasMoreLogsToLoad={hasMoreLogsToLoad}
-                    orderBy={orderBy}
-                    onChangeOrderBy={onChangeOrderBy}
-                    onRefresh={onRefresh}
-                    onLoadMore={onLoadMore}
-                    sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
-                    onDateRangeChange={onDateRangeChange}
-                    sparklineBreakdownBy={sparklineBreakdownBy}
-                    onSparklineBreakdownByChange={onSparklineBreakdownByChange}
-                />
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id: tabId }}>
+            <BindLogic logic={logsViewerConfigLogic} props={{ id: tabId }}>
+                <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
+                    <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
+                        <LogsViewerContent
+                            loading={loading}
+                            totalLogsCount={totalLogsCount}
+                            hasMoreLogsToLoad={hasMoreLogsToLoad}
+                            orderBy={orderBy}
+                            onChangeOrderBy={onChangeOrderBy}
+                            onRefresh={onRefresh}
+                            onLoadMore={onLoadMore}
+                            sparklineData={sparklineData}
+                            sparklineLoading={sparklineLoading}
+                            onDateRangeChange={onDateRangeChange}
+                            sparklineBreakdownBy={sparklineBreakdownBy}
+                            onSparklineBreakdownByChange={onSparklineBreakdownByChange}
+                            onExpandTimeRange={onExpandTimeRange}
+                        />
+                    </BindLogic>
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
@@ -84,7 +94,7 @@ interface LogsViewerContentProps {
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
     orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    onChangeOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar') => void
     onRefresh?: () => void
     onLoadMore?: () => void
     sparklineData: LogsSparklineData
@@ -92,6 +102,7 @@ interface LogsViewerContentProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    onExpandTimeRange?: () => void
 }
 
 function LogsViewerContent({
@@ -107,6 +118,7 @@ function LogsViewerContent({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
+    onExpandTimeRange,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -300,7 +312,8 @@ function LogsViewerContent({
     )
 
     return (
-        <div className="flex flex-col gap-2 h-full">
+        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+            <LogsFilterBar />
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
@@ -310,7 +323,11 @@ function LogsViewerContent({
                 onBreakdownByChange={onSparklineBreakdownByChange}
             />
             <SceneDivider />
-            <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
+            <LogsViewerToolbar
+                totalLogsCount={totalLogsCount}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'toolbar')}
+            />
             <LogsSelectionToolbar />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
@@ -322,6 +339,8 @@ function LogsViewerContent({
                     fixedHeight={250}
                     disableInfiniteScroll
                     disableCursor
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'header')}
                 />
             )}
 
@@ -334,6 +353,9 @@ function LogsViewerContent({
                 showPinnedWithOpacity
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={onLoadMore}
+                onExpandTimeRange={onExpandTimeRange}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'header')}
             />
 
             <LogDetailsModal timezone={timezone} />

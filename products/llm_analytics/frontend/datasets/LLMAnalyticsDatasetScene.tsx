@@ -27,6 +27,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { Dataset, DatasetItem } from '~/types'
 
 import { truncateValue } from '../utils'
@@ -41,6 +42,7 @@ const RESOURCE_TYPE = 'dataset'
 export const scene: SceneExport<DatasetLogicProps> = {
     component: LLMAnalyticsDatasetScene,
     logic: llmAnalyticsDatasetLogic,
+    productKey: ProductKey.LLM_ANALYTICS,
     paramsToProps: ({ params: { id } }) => ({
         datasetId: id && id !== 'new' ? id : 'new',
     }),

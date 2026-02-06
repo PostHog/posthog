@@ -71,6 +71,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "orderBy": query_data.get("orderBy"),
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": query_data.get("filterGroup", None),
+            "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
         }
         if live_logs_checkpoint:
@@ -215,6 +216,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
+            resourceFingerprint=query_data.get("resourceFingerprint", None),
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
@@ -277,7 +279,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("search", "")
+        search = request.GET.get("value", "")
         limit = request.GET.get("limit", 100)
         offset = request.GET.get("offset", 0)
         attributeKey = request.GET.get("key", "")

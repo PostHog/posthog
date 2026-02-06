@@ -31,6 +31,8 @@ APIScopeObject = Literal[
     "experiment",
     "experiment_saved_metric",
     "export",
+    "external_data_schema",
+    "external_data_source",
     "feature_flag",
     "file_system",
     "file_system_shortcut",

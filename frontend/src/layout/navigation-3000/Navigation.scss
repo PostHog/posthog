@@ -307,6 +307,7 @@
     width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
     cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
+
     &::before,
     &::after {
         position: absolute;
@@ -702,7 +703,9 @@
 }
 
 .app-layout {
-    --left-nav-width: var(--project-navbar-width); /* Default, overridden via inline style */
+    --left-nav-width: var(--project-navbar-width);
+
+    /* Default, overridden via inline style */
 
     display: grid;
     grid-template:
@@ -717,9 +720,7 @@
 
     /* Mobile layout - single column with overlay nav */
     &.app-layout--mobile {
-        grid-template:
-            'top' var(--scene-layout-header-height)
-            'content' 1fr / minmax(0, 1fr);
+        grid-template: 'top' var(--scene-layout-header-height) 'content' 1fr / minmax(0, 1fr);
 
         .right-nav {
             display: none;
@@ -727,6 +728,18 @@
 
         .main-content-container {
             margin-right: 0;
+        }
+    }
+
+    /* flag for moving sidepanel to the scene */
+    &.app-layout--scene-side-panel {
+        grid-template: 'left top' var(--scene-layout-header-height) 'left content' 1fr / var(--left-nav-width) minmax(
+                0,
+                1fr
+            );
+
+        &.app-layout--mobile {
+            grid-template: 'top' var(--scene-layout-header-height) 'content' 1fr / minmax(0, 1fr);
         }
     }
 }

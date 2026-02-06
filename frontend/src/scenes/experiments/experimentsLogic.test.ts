@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, FeatureFlagType, ProgressStatus } from '~/types'
+import { Experiment, ExperimentProgressStatus, FeatureFlagType } from '~/types'
 
 import { experimentsLogic, getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 
@@ -265,13 +265,13 @@ describe('experimentsLogic', () => {
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',
-                status: ProgressStatus.Running,
+                status: ExperimentProgressStatus.Running,
                 page: 2,
             })
 
             expect(logic.values.paramsFromFilters).toEqual({
                 search: 'test',
-                status: ProgressStatus.Running,
+                status: ExperimentProgressStatus.Running,
                 page: 2,
                 limit: 100,
                 offset: 100,
@@ -388,23 +388,42 @@ describe('experimentsLogic', () => {
 describe('utility functions', () => {
     describe('getExperimentStatus', () => {
         it('returns Draft for experiments without start date', () => {
-            expect(getExperimentStatus(mockDraftExperiment)).toBe(ProgressStatus.Draft)
+            expect(getExperimentStatus(mockDraftExperiment)).toBe(ExperimentProgressStatus.Draft)
         })
 
         it('returns Running for experiments with start date but no end date', () => {
-            expect(getExperimentStatus(mockRunningExperiment)).toBe(ProgressStatus.Running)
+            expect(getExperimentStatus(mockRunningExperiment)).toBe(ExperimentProgressStatus.Running)
         })
 
         it('returns Complete for experiments with both start and end dates', () => {
-            expect(getExperimentStatus(mockExperiment)).toBe(ProgressStatus.Complete)
+            expect(getExperimentStatus(mockExperiment)).toBe(ExperimentProgressStatus.Complete)
+        })
+
+        it('returns Paused when feature flag is inactive', () => {
+            const pausedExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                feature_flag: { active: false },
+            })
+            expect(getExperimentStatus(pausedExperiment)).toBe(ExperimentProgressStatus.Paused)
+        })
+
+        it('returns Running when feature flag is active', () => {
+            const runningExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                feature_flag: { active: true },
+            })
+            expect(getExperimentStatus(runningExperiment)).toBe(ExperimentProgressStatus.Running)
         })
     })
 
     describe('getExperimentStatusColor', () => {
         it('returns correct colors for each status', () => {
-            expect(getExperimentStatusColor(ProgressStatus.Draft)).toBe('default')
-            expect(getExperimentStatusColor(ProgressStatus.Running)).toBe('success')
-            expect(getExperimentStatusColor(ProgressStatus.Complete)).toBe('completion')
+            expect(getExperimentStatusColor(ExperimentProgressStatus.Draft)).toBe('default')
+            expect(getExperimentStatusColor(ExperimentProgressStatus.Running)).toBe('success')
+            expect(getExperimentStatusColor(ExperimentProgressStatus.Paused)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentProgressStatus.Complete)).toBe('completion')
         })
     })
 })

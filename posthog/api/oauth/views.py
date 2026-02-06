@@ -116,6 +116,42 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def rotate_refresh_token(self, request) -> bool:
+        """
+        Don't rotate refresh tokens for DCR (MCP) clients.
+
+        MCP clients (v0, Claude Code, Cursor, etc.) don't reliably save the new
+        refresh token returned during rotation, causing sessions to break when
+        they reuse the original token after the grace period. This matches the
+        behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
+        all issue non-rotating refresh tokens.
+
+        Non-DCR OAuth clients still get rotation per the default setting.
+        """
+        if hasattr(request, "client") and request.client:
+            if getattr(request.client, "is_dcr_client", False):
+                return False
+        return oauth2_settings.ROTATE_REFRESH_TOKEN
+
+    def _get_token_expires_in(self, request) -> int:
+        """
+        Returns access token expiry in seconds.
+        DCR (MCP) clients get extended TTL since they don't reliably refresh.
+        """
+        if hasattr(request, "client") and request.client:
+            if getattr(request.client, "is_dcr_client", False):
+                return 60 * 60 * 24 * 7  # 7 days
+        return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
+
+    def save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Override to use custom token expiry for certain clients.
+        Sets token["expires_in"] before calling parent, which uses this value
+        when calculating the actual expiry datetime stored in the database.
+        """
+        token["expires_in"] = self._get_token_expires_in(request)
+        return super().save_bearer_token(token, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,
@@ -269,6 +305,21 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # First-party apps skip consent screen entirely
+        if application.is_first_party:
+            try:
+                # Auto-approve with all user's accessible teams
+                teams = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
+                credentials["scoped_teams"] = list(teams)
+                credentials["scoped_organizations"] = []
+
+                uri, headers, body, status_code = self.create_authorization_response(
+                    request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
+                )
+                return self.redirect(uri, application)
+            except OAuthToolkitError as error:
+                return self.error_response(error, application, state=request.query_params.get("state"))
+
         # Check for auto-approval
         if request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto":
             try:
@@ -281,7 +332,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
                         )
-                        return Response({"redirect_uri": uri})
+                        return self.redirect(uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
@@ -338,9 +389,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     def redirect(self, redirect_to, application: OAuthApplication | None):
         if application is None:
-            # The application can be None in case of an error during app validation
-            # In such cases, fall back to default ALLOWED_REDIRECT_URI_SCHEMES
-            allowed_schemes = oauth2_settings.ALLOWED_REDIRECT_URI_SCHEMES
+            # The application can be None in case of an error during app validation.
+            # Intentionally use stricter fallback (only http/https) since we can't verify
+            # what schemes were pre-registered without a valid application.
+            allowed_schemes = ["http", "https"]
         else:
             allowed_schemes = application.get_allowed_schemes()
 
@@ -440,9 +492,46 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     which is allowed to access the scope `introspection`. Alternatively,
     if the client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
+
+    Self-introspection: A token can always introspect itself without requiring
+    the `introspection` scope. This allows MCP clients to discover their own
+    token's scopes and permissions during initialization.
     """
 
     required_scopes = ["introspection"]
+
+    def _is_self_introspection(self, request) -> bool:
+        """Check if the request is a self-introspection (token introspecting itself)."""
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return False
+        bearer_token = auth_header[7:]
+
+        if request.method == "GET":
+            token_to_introspect = request.GET.get("token")
+        else:
+            token_to_introspect = request.POST.get("token")
+            if not token_to_introspect and request.content_type == "application/json" and request.body:
+                try:
+                    token_to_introspect = json.loads(request.body).get("token")
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        return bearer_token and token_to_introspect and bearer_token == token_to_introspect
+
+    def verify_request(self, request):
+        """Allow self-introspection without the introspection scope."""
+        if self._is_self_introspection(request):
+            bearer_token = request.headers.get("Authorization", "")[7:]
+            try:
+                token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
+                token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                if token.is_valid():
+                    return True, request
+            except ObjectDoesNotExist:
+                pass
+            return False, request
+        return super().verify_request(request)
 
     @staticmethod
     def get_token_response(token_value=None):

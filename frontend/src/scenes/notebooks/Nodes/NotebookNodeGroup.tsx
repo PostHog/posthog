@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -18,23 +19,32 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { calculateMRRData, getLifetimeValue, getPaidProducts } from './utils'
+import { calculateMRRData, getPaidProducts } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, tabId, title } = attributes
-    const { groupData, groupDataLoading, groupTypeName } = useValues(
-        groupLogic({
-            groupKey: id,
-            groupTypeIndex,
-            tabId,
-        })
-    )
+    const mountedGroupLogic = groupLogic({
+        groupKey: id,
+        groupTypeIndex,
+        tabId,
+    })
+    const {
+        groupData,
+        groupDataLoading,
+        groupTypeName,
+        groupRevenueAnalyticsDataLoading,
+        effectiveMRR,
+        effectiveLifetimeValue,
+    } = useValues(mountedGroupLogic)
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { notebookLogic } = useValues(notebookNodeLogic)
+    useAttachedLogic(mountedGroupLogic, notebookLogic)
 
     const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
     const inGroupFeed = title === 'Info'
@@ -103,7 +113,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                             </CopyToClipboardInline>
                         </div>
 
-                        <GroupInfo groupData={groupData} />
+                        <GroupInfo
+                            groupData={groupData}
+                            mrr={effectiveMRR}
+                            lifetimeValue={effectiveLifetimeValue}
+                            isMRRLoading={groupRevenueAnalyticsDataLoading}
+                            isLifetimeValueLoading={groupRevenueAnalyticsDataLoading}
+                        />
                     </>
                 ) : null}
             </div>
@@ -111,9 +127,22 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
     )
 }
 
-export function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
+interface GroupInfoProps {
+    groupData: Group
+    mrr: { value: number | null; source: 'revenue-analytics' | 'properties' | null }
+    lifetimeValue: { value: number | null; source: 'revenue-analytics' | 'properties' | null }
+    isMRRLoading: boolean
+    isLifetimeValueLoading: boolean
+}
+
+export function GroupInfo({
+    groupData,
+    mrr,
+    lifetimeValue,
+    isMRRLoading,
+    isLifetimeValueLoading,
+}: GroupInfoProps): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
-    const lifetimeValue = getLifetimeValue(groupData)
 
     return (
         <div className="flex flex-col">
@@ -121,23 +150,49 @@ export function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
                 <span className="text-secondary">First seen:</span>{' '}
                 {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
             </div>
-            <MRR groupData={groupData} />
-            {lifetimeValue !== null && (
-                <div>
-                    <Tooltip title="Total worth of revenue from this customer over the whole relationship">
-                        <span className="text-secondary">Lifetime value: </span>{' '}
-                    </Tooltip>
-                    {formatCurrency(lifetimeValue, baseCurrency)}
-                </div>
-            )}
+            <MRR groupData={groupData} mrr={mrr} baseCurrency={baseCurrency} isLoading={isMRRLoading} />
+            <LifetimeValue
+                lifetimeValue={lifetimeValue}
+                baseCurrency={baseCurrency}
+                isLoading={isLifetimeValueLoading}
+            />
             <PaidProducts groupData={groupData} />
         </div>
     )
 }
 
-export function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
-    const { baseCurrency } = useValues(teamLogic)
-    const mrrData = calculateMRRData(groupData, baseCurrency)
+export function MRR({
+    groupData,
+    mrr,
+    baseCurrency,
+    isLoading,
+}: {
+    groupData: Group
+    mrr: { value: number | null; source: 'revenue-analytics' | 'properties' | null }
+    baseCurrency: CurrencyCode
+    isLoading: boolean
+}): JSX.Element | null {
+    if (isLoading) {
+        return (
+            <div className="flex gap-1 items-center">
+                <LemonSkeleton className="h-4 w-32" />
+            </div>
+        )
+    }
+
+    // Calculate MRR data with trend (if from properties)
+    const mrrData =
+        mrr.source === 'properties'
+            ? calculateMRRData(groupData, baseCurrency)
+            : mrr.value !== null
+              ? {
+                    mrr: mrr.value,
+                    forecastedMrr: null,
+                    percentageDiff: null,
+                    tooltipText: null,
+                    trendDirection: null,
+                }
+              : null
 
     if (!mrrData) {
         return null
@@ -145,7 +200,7 @@ export function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
 
     const icon =
         mrrData.trendDirection === 'up' ? (
-            <IconTrending className="text-success" />
+            <IconTrending data-attr="trending-icon" className="text-success" />
         ) : mrrData.trendDirection === 'down' ? (
             <IconTrendingDown className="text-danger" />
         ) : mrrData.trendDirection === 'flat' ? (
@@ -153,16 +208,49 @@ export function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
         ) : null
 
     return (
-        <div>
-            <div className="flex gap-1 items-center">
-                <span className="text-secondary">MRR:</span>
+        <div className="flex gap-1 items-center">
+            <span className="text-secondary">MRR:</span>
+            <div className="flex gap-2 items-center">
                 <Tooltip title={mrrData.tooltipText}>
-                    <div className="flex gap-2 items-center">
+                    <div className="flex gap-1 items-center">
                         {formatCurrency(mrrData.mrr, baseCurrency)}
                         {icon}
                     </div>
                 </Tooltip>
+                <DataSourceIcon source={mrr.source} />
             </div>
+        </div>
+    )
+}
+
+export function LifetimeValue({
+    lifetimeValue,
+    baseCurrency,
+    isLoading,
+}: {
+    lifetimeValue: { value: number | null; source: 'revenue-analytics' | 'properties' | null }
+    baseCurrency: CurrencyCode
+    isLoading: boolean
+}): JSX.Element | null {
+    if (isLoading) {
+        return (
+            <div className="flex items-center gap-1">
+                <LemonSkeleton className="h-4 w-40" />
+            </div>
+        )
+    }
+
+    if (lifetimeValue.value === null) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <Tooltip title="Total worth of revenue from this customer over the whole relationship">
+                <span className="text-secondary">Lifetime value: </span>{' '}
+            </Tooltip>
+            {formatCurrency(lifetimeValue.value, baseCurrency)}
+            <DataSourceIcon source={lifetimeValue.source} />
         </div>
     )
 }

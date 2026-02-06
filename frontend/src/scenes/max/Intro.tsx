@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Logomark } from 'lib/brand/Logomark'
 
+import { AILiabilityNotice } from './components/AILiabilityNotice'
 import { MaxChangelog } from './components/MaxChangelog'
 import { maxLogic } from './maxLogic'
 
@@ -43,6 +44,7 @@ export function Intro(): JSX.Element {
                 <h2 className="text-xl @2xl/main-content:text-2xl font-bold mb-2 text-balance">{headline}</h2>
                 <div className="text-sm italic text-tertiary text-pretty py-0.5">Build something people want.</div>
             </div>
+            <AILiabilityNotice />
             <MaxChangelog />
         </>
     )

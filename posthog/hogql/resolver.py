@@ -22,6 +22,7 @@ from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
+from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
@@ -588,6 +589,12 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
+            if node.name == "getSurveyResponse":
+                return self.visit(get_survey_response(node=node, args=node.args))
+            if node.name == "uniqueSurveySubmissionsFilter":
+                return self.visit(
+                    unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
+                )
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -1042,6 +1049,13 @@ class Resolver(CloningVisitor):
         if isinstance(table, ast.TableAliasType):
             return self._is_s3_table(table.table_type)
 
+        if isinstance(table, ast.CTETableAliasType):
+            return self._is_s3_table(table.cte_table_type)
+
+        if isinstance(table, ast.CTETableType):
+            tables = self._extract_tables_from_query_type(table.select_query_type)
+            return any(self._is_s3_table(inner_table) for inner_table in tables)
+
         if isinstance(table, ast.TableType):
             return isinstance(table.table, S3Table)
 
@@ -1050,7 +1064,7 @@ class Resolver(CloningVisitor):
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:
             return False
-        if isinstance(node.type, ast.TableAliasType):
+        if isinstance(node.type, (ast.TableAliasType, ast.CTETableAliasType, ast.CTETableType, ast.TableType)):
             return self._is_s3_table(node.type)
         return False
 

@@ -20,7 +20,7 @@ impl ConsumerConfigBuilder {
             .set("enable.auto.offset.store", "false") // Manual store for full control
             .set("enable.auto.commit", "false") // Manual commit for exactly-once semantics
             .set("socket.timeout.ms", "10000")
-            .set("session.timeout.ms", "30000")
+            .set("session.timeout.ms", "60000")
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
 
@@ -94,6 +94,27 @@ impl ConsumerConfigBuilder {
     pub fn with_queued_max_messages_kbytes(mut self, kbytes: u32) -> Self {
         self.config
             .set("queued.max.messages.kbytes", kbytes.to_string());
+        self
+    }
+
+    /// Set maximum time between poll() calls before consumer leaves group
+    pub fn with_max_poll_interval_ms(mut self, ms: u32) -> Self {
+        self.config.set("max.poll.interval.ms", ms.to_string());
+        self
+    }
+
+    /// Set session timeout: how long broker waits for heartbeats before declaring consumer dead.
+    /// With static membership (group.instance.id), broker holds partition assignments for this
+    /// duration after a consumer disappears. Should be longer than typical pod restart time.
+    pub fn with_session_timeout_ms(mut self, ms: u32) -> Self {
+        self.config.set("session.timeout.ms", ms.to_string());
+        self
+    }
+
+    /// Set heartbeat interval: how often consumer sends heartbeats to broker.
+    /// Should be ~1/3 of session.timeout.ms to allow multiple missed heartbeats before timeout.
+    pub fn with_heartbeat_interval_ms(mut self, ms: u32) -> Self {
+        self.config.set("heartbeat.interval.ms", ms.to_string());
         self
     }
 

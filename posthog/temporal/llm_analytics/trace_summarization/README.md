@@ -4,8 +4,8 @@ Hourly Temporal workflow that generates summaries and embeddings of LLM traces f
 
 ## How It Works
 
-1. Coordinator workflow runs hourly, spawning child workflows for each team in `ALLOWED_TEAM_IDS`
-2. Per-team workflow queries recent traces (default: last 60 min, max 100 traces)
+1. Coordinator workflow runs hourly, discovering teams dynamically (guaranteed teams + sampled teams with AI events)
+2. Per-team workflow queries recent traces (default: last 60 min, max 15 items)
 3. For each trace: fetch data → generate text repr → call LLM → emit `$ai_trace_summary` event → queue embedding via Kafka
 4. Embeddings processed asynchronously by Rust worker, stored in `document_embeddings` table
 
@@ -30,11 +30,11 @@ tests/
 
 ### Coordinator: `llma-trace-summarization-coordinator`
 
-Spawns child workflows for teams in `ALLOWED_TEAM_IDS` (configured in `constants.py`).
+Discovers teams dynamically via `get_team_ids_for_llm_analytics` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`).
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 
-**Returns** `CoordinatorResult`: `teams_processed`, `teams_failed`, `failed_team_ids`, `total_traces`, `total_summaries`
+**Returns** `CoordinatorResult`: `teams_processed`, `teams_failed`, `failed_team_ids`, `total_items`, `total_summaries`
 
 ### Per-Team: `llma-trace-summarization`
 
@@ -45,7 +45,7 @@ Spawns child workflows for teams in `ALLOWED_TEAM_IDS` (configured in `constants
 - `window_start`, `window_end` - optional explicit window (RFC3339)
 - `model` - optional LLM model override
 
-**Returns** `BatchSummarizationResult`: `batch_run_id`, `metrics` (traces_queried, summaries_generated/skipped/failed, embedding_requests_succeeded/failed, duration_seconds)
+**Returns** `BatchSummarizationResult`: `batch_run_id`, `metrics` (items_queried, summaries_generated/skipped/failed, embedding_requests_succeeded/failed, duration_seconds)
 
 ## Output Events
 
@@ -99,25 +99,30 @@ temporal workflow start \
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
-### Team Allowlist
+### Team Discovery
 
-Edit `ALLOWED_TEAM_IDS` in `constants.py`. Empty list = coordinator skips all teams. Manual triggers can target any team.
+Teams are discovered dynamically via `team_discovery.py`. Guaranteed teams (in `GUARANTEED_TEAM_IDS`) are always included, plus a configurable random sample of teams with AI events. Manual triggers can target any team.
 
 ## Configuration
 
 Key constants in `constants.py`:
 
-| Constant                             | Default    | Description                 |
-| ------------------------------------ | ---------- | --------------------------- |
-| `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100        | Max traces per window       |
-| `DEFAULT_BATCH_SIZE`                 | 3          | Concurrent trace processing |
-| `DEFAULT_MODE`                       | "detailed" | Summary detail level        |
-| `DEFAULT_WINDOW_MINUTES`             | 60         | Time window to query        |
-| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120        | Max workflow duration       |
-| `SAMPLE_TIMEOUT_SECONDS`             | 300        | Sampling activity timeout   |
-| `GENERATE_SUMMARY_TIMEOUT_SECONDS`   | 300        | Summary activity timeout    |
+| Constant                                | Default        | Description                                 |
+| --------------------------------------- | -------------- | ------------------------------------------- |
+| `DEFAULT_MAX_ITEMS_PER_WINDOW`          | 15             | Max items per window                        |
+| `DEFAULT_BATCH_SIZE`                    | 3              | Concurrent trace processing                 |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`          | 3              | Max teams to process in parallel            |
+| `DEFAULT_MODE`                          | "detailed"     | Summary detail level                        |
+| `DEFAULT_MODEL`                         | "gpt-4.1-nano" | LLM model for summarization                 |
+| `DEFAULT_WINDOW_MINUTES`                | 60             | Time window to query                        |
+| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`    | 120            | Max per-team workflow duration              |
+| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES` | 180            | Max coordinator workflow duration (3 hours) |
+| `SAMPLE_TIMEOUT_SECONDS`                | 900            | Sampling activity timeout (per attempt)     |
+| `GENERATE_SUMMARY_TIMEOUT_SECONDS`      | 300            | Summary activity timeout (per attempt)      |
+| `SAMPLE_HEARTBEAT_TIMEOUT`              | 120s           | Heartbeat window for sampling activity      |
+| `SUMMARIZE_HEARTBEAT_TIMEOUT`           | 60s            | Heartbeat window for summarization activity |
 
-Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `SUMMARIZE_RETRY_POLICY` (2 attempts), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts).
+Retry policies: `SAMPLE_RETRY_POLICY` (3 attempts), `SUMMARIZE_RETRY_POLICY` (4 attempts with backoff), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (2 attempts). All retry policies exclude `ValueError` and `TypeError` from retries.
 
 ## Error Handling
 

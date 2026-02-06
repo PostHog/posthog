@@ -173,10 +173,15 @@ def test_math_multiplier_with_datawarehouse_node():
     result = agg_ops.select_aggregation()
 
     assert isinstance(result, ast.Call)
-    assert result.name == "sum"
-    assert len(result.args) == 1
+    assert result.name == "ifNull"
+    assert len(result.args) == 2
 
-    convert_call = result.args[0]
+    sum_call = result.args[0]
+    assert isinstance(sum_call, ast.Call)
+    assert sum_call.name == "sum"
+    assert len(sum_call.args) == 1
+
+    convert_call = sum_call.args[0]
     assert isinstance(convert_call, ast.Call)
     assert convert_call.name == "convertCurrency"
     assert len(convert_call.args) == 4

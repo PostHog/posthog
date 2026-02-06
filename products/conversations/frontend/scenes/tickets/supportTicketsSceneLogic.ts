@@ -4,17 +4,24 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import type { Ticket, TicketChannel, TicketPriority, TicketSlaState, TicketStatus } from '../../types'
+import type {
+    AssigneeFilterValue,
+    Ticket,
+    TicketChannel,
+    TicketPriority,
+    TicketSlaState,
+    TicketStatus,
+} from '../../types'
 import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     actions({
-        setStatusFilter: (status: TicketStatus | 'all') => ({ status }),
+        setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
-        setPriorityFilter: (priority: TicketPriority | 'all') => ({ priority }),
-        setAssigneeFilter: (assignee: 'all' | 'unassigned' | number) => ({ assignee }),
+        setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
+        setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
@@ -36,9 +43,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         statusFilter: [
-            'all' as TicketStatus | 'all',
+            [] as TicketStatus[],
+            { persist: true },
             {
-                setStatusFilter: (_, { status }) => status,
+                setStatusFilter: (_, { statuses }) => statuses,
             },
         ],
         channelFilter: [
@@ -54,13 +62,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         priorityFilter: [
-            'all' as TicketPriority | 'all',
+            [] as TicketPriority[],
+            { persist: true },
             {
-                setPriorityFilter: (_, { priority }) => priority,
+                setPriorityFilter: (_, { priorities }) => priorities,
             },
         ],
         assigneeFilter: [
-            'all' as 'all' | 'unassigned' | number,
+            'all' as AssigneeFilterValue,
+            { persist: true },
             {
                 setAssigneeFilter: (_, { assignee }) => assignee,
             },
@@ -85,17 +95,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             const params: Record<string, any> = {}
-            if (values.statusFilter !== 'all') {
-                params.status = values.statusFilter
+            if (values.statusFilter.length > 0) {
+                params.status = values.statusFilter.join(',')
             }
-            if (values.priorityFilter !== 'all') {
-                params.priority = values.priorityFilter
+            if (values.priorityFilter.length > 0) {
+                params.priority = values.priorityFilter.join(',')
             }
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
             }
             if (values.assigneeFilter !== 'all') {
-                params.assigned_to = values.assigneeFilter === 'unassigned' ? 'unassigned' : values.assigneeFilter
+                if (values.assigneeFilter === 'unassigned') {
+                    params.assignee = 'unassigned'
+                } else if (values.assigneeFilter && typeof values.assigneeFilter === 'object') {
+                    params.assignee = `${values.assigneeFilter.type}:${values.assigneeFilter.id}`
+                }
             }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom

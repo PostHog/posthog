@@ -9,12 +9,13 @@ use axum::{
     Router,
 };
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use health::HealthRegistry;
+use health::{readiness_handler, HealthRegistry};
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::ai_s3::BlobStorage;
+use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
@@ -39,6 +40,7 @@ pub struct State {
     pub global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    pub event_restriction_service: Option<EventRestrictionService>,
     pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
@@ -85,25 +87,6 @@ async fn index() -> &'static str {
     "capture"
 }
 
-async fn readiness() -> axum::http::StatusCode {
-    use crate::metrics_middleware::ShutdownStatus;
-
-    let shutdown_status = crate::metrics_middleware::get_shutdown_status();
-    let is_running_or_unknown =
-        shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown;
-
-    if is_running_or_unknown && std::path::Path::new("/tmp/shutdown").exists() {
-        crate::metrics_middleware::set_shutdown_status(ShutdownStatus::Prestop);
-        tracing::info!("Shutdown status change: PRESTOP");
-    }
-
-    if is_running_or_unknown {
-        axum::http::StatusCode::OK
-    } else {
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn router<
     TZ: TimeSource + Send + Sync + 'static,
@@ -117,6 +100,7 @@ pub fn router<
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
+    event_restriction_service: Option<EventRestrictionService>,
     metrics: bool,
     capture_mode: CaptureMode,
     deploy_role: String,
@@ -140,6 +124,7 @@ pub fn router<
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
+        event_restriction_service,
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
@@ -255,7 +240,7 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness))
+        .route("/_readiness", get(readiness_handler))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let recordings_router = Router::new()
@@ -288,7 +273,7 @@ pub fn router<
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
     let mut router = match capture_mode {
-        CaptureMode::Events => Router::new()
+        CaptureMode::Events | CaptureMode::Ai => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)

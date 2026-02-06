@@ -102,7 +102,7 @@ export function StepConditionalBranchConfiguration({
                     </div>
 
                     <HogFlowPropertyFilters
-                        actionId={`${action.id}.${index}`}
+                        filtersKey={`condition-branch-condition-${action.id}-${index}`}
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
                             setConditions(
