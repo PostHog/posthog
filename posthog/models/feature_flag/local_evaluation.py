@@ -371,12 +371,10 @@ def update_flag_caches(team: Team):
     finally:
         duration = time.time() - start_time
         result = "success" if success else "failure"
-        # Record metrics for both caches (they share the same update)
+        # Duration uses combined label since both caches are updated in one operation.
+        # Counters use individual labels since each cache is actually updated.
         CACHE_SYNC_DURATION_HISTOGRAM.labels(
-            result=result, namespace="feature_flags", value="flags_with_cohorts.json"
-        ).observe(duration)
-        CACHE_SYNC_DURATION_HISTOGRAM.labels(
-            result=result, namespace="feature_flags", value="flags_without_cohorts.json"
+            result=result, namespace="feature_flags", value="flags_local_eval.json"
         ).observe(duration)
         CACHE_SYNC_COUNTER.labels(result=result, namespace="feature_flags", value="flags_with_cohorts.json").inc()
         CACHE_SYNC_COUNTER.labels(result=result, namespace="feature_flags", value="flags_without_cohorts.json").inc()
