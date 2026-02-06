@@ -2110,10 +2110,12 @@ class FeatureFlagViewSet(
     def random_person(self, request: request.Request, **kwargs):
         """Return a random person's distinct_id for the current project. Used by the toolbar
         to let developers preview feature flags as a random user would see them."""
-        MAX_OFFSET = 100_000
-        offset = random.randint(0, MAX_OFFSET)
-        qs = PersonDistinctId.objects.filter(team_id=self.team_id).values_list("distinct_id", flat=True)
-        result = qs[offset : offset + 1]
+        qs = PersonDistinctId.objects.filter(team_id=self.team_id)
+        count = qs.count()
+        if count == 0:
+            raise exceptions.NotFound("No persons found for this project")
+        offset = random.randint(0, count - 1)
+        result = qs.order_by('id').values_list("distinct_id", flat=True)[offset : offset + 1]
         if not result:
             # Offset exceeded actual count, just grab the last one
             result = qs.order_by("-id")[:1]
